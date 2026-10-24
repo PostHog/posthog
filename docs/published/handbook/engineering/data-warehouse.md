@@ -332,6 +332,14 @@ The CTA fields describe app conversions and purchases attributed to clicks; they
 The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
 Cash spend can arrive later than other performance metrics.
 
+TikTok Ads API v2.0 adds the optional `campaign_website_attribution_report`, `ad_group_website_attribution_report`, and `ad_website_attribution_report` tables.
+Select API v2.0 on the source and enable these tables to import `cta_complete_payment` (website purchases attributed to clicks) and `cta_complete_payment_value` (their purchase value).
+Existing report, audience, entity, and creative tables continue using v1.3 under either source version.
+The separate tables preserve the existing ad report IDs: in v2.0, `ad_id` identifies the ad asset group for Upgraded Smart+ campaigns rather than the legacy creative.
+Do not join that ID directly to legacy creative IDs for those campaigns.
+Existing v1.3 pins keep their table catalog until the source version changes; no automatic repin or historical backfill runs.
+The new tables use the advertiser account time zone and the same date-window, incremental, and resume behavior as other TikTok reports.
+
 Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
 The conversion window still follows the account's attribution settings.
 

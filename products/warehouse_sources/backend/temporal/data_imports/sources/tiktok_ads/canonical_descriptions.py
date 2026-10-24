@@ -323,3 +323,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         ),
     },
 }
+
+
+for report_name, dimension in {
+    "campaign_website_attribution_report": "campaign_id",
+    "ad_group_website_attribution_report": "adgroup_id",
+    "ad_website_attribution_report": "ad_id",
+}.items():
+    CANONICAL_DESCRIPTIONS[report_name] = {
+        "description": "Daily website purchases and purchase value, including conversions attributed to ad clicks. Requires API v2.0.",
+        "docs_url": "https://business-api.tiktok.com/portal/docs/run-a-synchronous-report/v2.0",
+        "columns": {
+            dimension: (
+                "Ad ID from Reporting API v2.0. For Upgraded Smart+ campaigns, this identifies the ad asset group rather than the legacy creative."
+                if dimension == "ad_id"
+                else "ID of the campaign or ad group the metrics belong to."
+            ),
+            "stat_time_day": "Date the metrics are aggregated for in the advertiser account time zone.",
+            "spend": "Total amount spent in the reporting period.",
+            "complete_payment": "Number of website purchase events attributed to the ads.",
+            "total_complete_payment_rate": "Total value of website purchase events attributed to the ads.",
+            "cta_complete_payment": "Number of website purchase events attributed to clicks on the ads.",
+            "cta_complete_payment_value": "Total value of website purchase events attributed to clicks on the ads.",
+        },
+    }
