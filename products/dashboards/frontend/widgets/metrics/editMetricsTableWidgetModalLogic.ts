@@ -13,6 +13,7 @@ import {
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
     METRICS_TABLE_MAX_LIMIT,
+    type MetricsTableAggregation,
     type MetricsTableColumn,
     parseMetricsTableWidgetConfig,
 } from './metricsTableWidgetConfigValidation'
@@ -26,6 +27,7 @@ const DEFAULT_QUANTILE = 0.95
 const NEW_COLUMN: MetricsTableColumn = { label: 'Value', metricName: '', aggregation: 'avg' }
 
 export interface editMetricsTableWidgetModalLogicValues {
+    columnMetricTypes: (string | null)[]
     columns: MetricsTableColumn[]
     config: MetricsTableWidgetConfig
     dateFrom: WidgetDateFromValue
@@ -46,6 +48,11 @@ export interface editMetricsTableWidgetModalLogicActions {
     addColumn: () => { value: true }
     loadConfig: (config: MetricsTableWidgetConfig) => { config: MetricsTableWidgetConfig }
     removeColumn: (index: number) => { index: number }
+    selectColumnMetric: (
+        index: number,
+        metricName: string,
+        metricType?: string
+    ) => { index: number; metricName: string; metricType: string | null }
     setDateFrom: (dateFrom: WidgetDateFromValue) => { dateFrom: WidgetDateFromValue }
     setGroupBy: (groupBy: string) => { groupBy: string }
     setInterval: (interval: MetricsTableInterval | null) => { interval: MetricsTableInterval | null }
@@ -71,6 +78,30 @@ export type editMetricsTableWidgetModalLogicType = MakeLogicType<
     EditMetricsTableWidgetModalLogicProps
 >
 
+/** Why a calculation does not fit a metric of this type. Only a histogram has buckets for a percentile. */
+export function metricsTableAggregationDisabledReason(
+    metricType: string | null | undefined,
+    aggregation: MetricsTableAggregation
+): string | undefined {
+    if (!metricType) {
+        return undefined
+    }
+    if (metricType === 'histogram') {
+        return aggregation === 'histogram_quantile' ? undefined : 'A histogram metric needs a percentile'
+    }
+    return aggregation === 'histogram_quantile' ? 'A percentile needs a histogram metric' : undefined
+}
+
+function fittingAggregation(aggregation: MetricsTableAggregation, metricType: string): MetricsTableAggregation {
+    if (!metricsTableAggregationDisabledReason(metricType, aggregation)) {
+        return aggregation
+    }
+    if (metricType === 'histogram') {
+        return 'histogram_quantile'
+    }
+    return metricType === 'sum' ? 'rate' : 'avg'
+}
+
 /** A histogram quantile needs a quantile, and every other aggregation must not have one. */
 function withQuantileRule(column: MetricsTableColumn): MetricsTableColumn {
     if (column.aggregation === 'histogram_quantile') {
@@ -94,6 +125,11 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
         setOrderDirection: (orderDirection: MetricsTableOrderDirection) => ({ orderDirection }),
         addColumn: true,
         removeColumn: (index: number) => ({ index }),
+        selectColumnMetric: (index: number, metricName: string, metricType?: string) => ({
+            index,
+            metricName,
+            metricType: metricType || null,
+        }),
         updateColumn: (index: number, patch: Partial<MetricsTableColumn>) => ({ index, patch }),
         submit: true,
         submitSuccess: true,
@@ -170,6 +206,37 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                     state.map((column, columnIndex) =>
                         columnIndex === index ? withQuantileRule({ ...column, ...patch }) : column
                     ),
+                selectColumnMetric: (
+                    state: MetricsTableColumn[],
+                    { index, metricName, metricType }: { index: number; metricName: string; metricType: string | null }
+                ) =>
+                    state.map((column, columnIndex) =>
+                        columnIndex === index
+                            ? withQuantileRule({
+                                  ...column,
+                                  metricName,
+                                  aggregation: metricType
+                                      ? fittingAggregation(column.aggregation, metricType)
+                                      : column.aggregation,
+                              })
+                            : column
+                    ),
+            },
+        ],
+        // The picker knows a metric's type. A saved column has no type here until the user picks its metric again.
+        columnMetricTypes: [
+            [] as (string | null)[],
+            {
+                loadConfig: (_state: (string | null)[], { config }: { config: MetricsTableWidgetConfig }) =>
+                    (config.columns ?? []).map(() => null),
+                addColumn: (state: (string | null)[]) =>
+                    state.length < METRICS_TABLE_MAX_COLUMNS ? [...state, null] : state,
+                removeColumn: (state: (string | null)[], { index }: { index: number }) =>
+                    state.filter((_, columnIndex) => columnIndex !== index),
+                selectColumnMetric: (
+                    state: (string | null)[],
+                    { index, metricType }: { index: number; metricType: string | null }
+                ) => state.map((type, columnIndex) => (columnIndex === index ? metricType : type)),
             },
         ],
         tileName: ['', { setTileName: (_state: string, { tileName }: { tileName: string }) => tileName }],
