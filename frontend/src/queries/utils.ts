@@ -521,6 +521,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
     ChartDisplayType.ScatterPlot,
+    ChartDisplayType.BreakdownIcicle,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'

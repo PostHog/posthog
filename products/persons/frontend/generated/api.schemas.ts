@@ -1988,6 +1988,7 @@ export const ChartDisplayTypeApi = {
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
     ScatterPlot: 'ScatterPlot',
+    BreakdownIcicle: 'BreakdownIcicle',
 } as const
 
 export interface TrendsFormulaNodeApi {
