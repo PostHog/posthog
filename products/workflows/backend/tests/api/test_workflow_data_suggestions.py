@@ -437,7 +437,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                 _step(
                     "check",
                     "conditional_branch",
-                    branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                    branches=[
+                        PlannedBranch(
+                            label="Is on a paid plan",
+                            percentage=None,
+                            next=None,
+                            person_property=None,
+                            property_value=None,
+                        )
+                    ],
                     next="nudge",
                 ),
                 _email_step("nudge", "Ready to upgrade?"),
@@ -481,7 +489,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                     _step(
                         "check",
                         "conditional_branch",
-                        branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                        branches=[
+                            PlannedBranch(
+                                label="Is on a paid plan",
+                                percentage=None,
+                                next=None,
+                                person_property=None,
+                                property_value=None,
+                            )
+                        ],
                     )
                 ],
             ),
