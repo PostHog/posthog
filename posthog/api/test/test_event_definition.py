@@ -107,6 +107,40 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("disabled", "pgeview", {}, []),
+            ("fallback", "pgeview", {"fuzzy_search": "true"}, ["$pageview"]),
+            (
+                "excluded",
+                "pgeview",
+                {"fuzzy_search": "true", "excluded_properties": '["$pageview"]'},
+                [],
+            ),
+            ("exact_first", "page", {"fuzzy_search": "true"}, ["$pageview"]),
+            ("event_type", "pgeview", {"fuzzy_search": "true", "event_type": "event_custom"}, []),
+        ]
+    )
+    def test_list_event_definitions_fuzzy_fallback(
+        self, _name: str, search: str, filters: dict[str, str], expected_names: list[str]
+    ) -> None:
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"search": search, **filters})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert [item["name"] for item in response.json()["results"]] == expected_names
+
+    def test_list_event_definitions_fuzzy_fallback_scopes_by_project(self) -> None:
+        other_project_team = create_team(organization=self.organization)
+        EventDefinition.objects.create(team=other_project_team, name="pgeview")
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/", data={"search": "pgeview", "fuzzy_search": "true"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [item["name"] for item in response.json()["results"]] == ["$pageview"]
+
+    @parameterized.expand(
+        [
             ("boolean", "true"),
             ("number", "5"),
             ("object", '{"a": 1}'),
@@ -457,6 +491,19 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert response.json()["count"] == 306
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
+
+        EventDefinition.objects.bulk_create(
+            [
+                EventDefinition(team=self.demo_team, name="checkout_step_alpha"),
+                EventDefinition(team=self.demo_team, name="checkout_step_beta"),
+            ]
+        )
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/",
+            data={"search": "checkuot_step", "fuzzy_search": "true", "limit": 1, "offset": 1},
+        )
+        assert response.json()["count"] == 2
+        assert len(response.json()["results"]) == 1
 
     def test_list_reads_only_the_requested_page_from_postgres(self):
         EventDefinition.objects.bulk_create(

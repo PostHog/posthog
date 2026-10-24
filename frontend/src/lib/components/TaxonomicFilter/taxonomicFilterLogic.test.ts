@@ -122,6 +122,14 @@ describe('taxonomicFilterLogic', () => {
         ).toBeFalsy()
     })
 
+    it.each([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents])(
+        'enables fuzzy fallback for %s',
+        (groupType) => {
+            const group = logic.values.taxonomicGroups.find((item) => item.type === groupType)
+            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe('true')
+        }
+    )
+
     it('loads actions when a taxonomic filter mounts', async () => {
         await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
         expect(actionRequestCount).toBe(1)
