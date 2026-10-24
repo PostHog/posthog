@@ -12,6 +12,8 @@ import { SelectorCountContext, SelectorMatchCounter } from '~/toolbar/actions/Se
 import { ExtensionActionEditor } from './ExtensionActionEditor'
 import { ExtensionActionsList } from './ExtensionActionsList'
 import { ExtensionEventsMenu } from './ExtensionEventsMenu'
+import { ExtensionExperimentEditor } from './ExtensionExperimentEditor'
+import { ExtensionExperimentsList } from './ExtensionExperimentsList'
 import { ExtensionFeatureList } from './ExtensionFeatureList'
 import { ExtensionFlagsMenu } from './ExtensionFlagsMenu'
 import { ExtensionHeatmapMenu } from './ExtensionHeatmapMenu'
@@ -23,12 +25,8 @@ import { extensionPanelLogic } from './extensionPanelLogic'
 import { ExtensionWebVitalsMenu } from './ExtensionWebVitalsMenu'
 import { usePageToolDisabledReason } from './usePageToolDisabledReason'
 
-type PanelTool = PageToolDefinition & { mode: PageToolMode }
-
-const PANEL_TOOLS = PAGE_TOOLS.filter((tool): tool is PanelTool => !!tool.mode)
-
 function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
-    const { selectedActionId } = useValues(extensionPageToolbarConnectionLogic)
+    const { selectedActionId, selectedExperimentId } = useValues(extensionPageToolbarConnectionLogic)
 
     switch (mode) {
         case 'inspect':
@@ -51,12 +49,14 @@ function ToolBody({ mode }: { mode: PageToolMode }): JSX.Element {
             return <ExtensionEventsMenu />
         case 'web-vitals':
             return <ExtensionWebVitalsMenu />
+        case 'experiments':
+            return selectedExperimentId !== null ? <ExtensionExperimentEditor /> : <ExtensionExperimentsList />
         case 'more':
             return <ExtensionMoreMenu />
     }
 }
 
-function ToolHeader({ tool }: { tool: PanelTool }): JSX.Element {
+function ToolHeader({ tool }: { tool: PageToolDefinition }): JSX.Element {
     const { openFeature } = useActions(extensionPanelLogic)
     const { setMode } = useActions(extensionPageToolbarConnectionLogic)
     const { feature } = tool
@@ -89,7 +89,7 @@ export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.E
     const { mode, connectionStatus, selectorCounter } = useValues(extensionPageToolbarConnectionLogic)
     const { setMode, connectPage, requestSelectorCount } = useActions(extensionPageToolbarConnectionLogic)
     const disabledReason = usePageToolDisabledReason()
-    const activeTool = PANEL_TOOLS.find((tool) => tool.mode === mode)
+    const activeTool = PAGE_TOOLS.find((tool) => tool.mode === mode)
     // The page counts selector matches for every editor in the panel.
     const counter = useMemo<SelectorMatchCounter>(
         () => ({ count: selectorCounter.count, request: requestSelectorCount }),
@@ -104,7 +104,7 @@ export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.E
                     size="small"
                     value={activeTool?.mode}
                     onChange={(toolMode) => setMode(toolMode === mode ? 'none' : toolMode)}
-                    options={PANEL_TOOLS.map((tool) => ({
+                    options={PAGE_TOOLS.map((tool) => ({
                         value: tool.mode,
                         icon: tool.icon,
                         tooltip: tool.label,
@@ -131,7 +131,7 @@ export function ExtensionPageToolbarTools({ origin }: { origin: string }): JSX.E
                 ) : (
                     <>
                         <div className="flex flex-col gap-1">
-                            {PANEL_TOOLS.map((tool) => (
+                            {PAGE_TOOLS.map((tool) => (
                                 <LemonButton
                                     key={tool.mode}
                                     fullWidth

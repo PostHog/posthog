@@ -1,5 +1,4 @@
-import { useActions } from 'kea'
-import { useMemo, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 
@@ -7,7 +6,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { experimentsTabLogic } from './experimentsTabLogic'
+import { SelectorCountContext } from '~/toolbar/actions/SelectorCountContext'
+import { useWebExperimentEditor } from '~/toolbar/experiments/webExperimentEditorContext'
 
 interface SelectorEditorProps {
     selector: string | null
@@ -16,21 +16,19 @@ interface SelectorEditorProps {
 }
 
 export function SelectorEditor({ selector, variant, transformIndex }: SelectorEditorProps): JSX.Element {
-    const { inspectElementSelected } = useActions(experimentsTabLogic)
+    const { setTransformationSelector } = useWebExperimentEditor()
+    const counter = useContext(SelectorCountContext)
 
     const [editSelectorOpen, setEditSelectorOpen] = useState(false)
     const [editSelectorValue, setEditSelectorValue] = useState('')
 
-    const isValidSelector = useMemo(() => {
-        if (!editSelectorValue) {
-            return false
+    useEffect(() => {
+        if (editSelectorOpen && editSelectorValue) {
+            counter.request(editSelectorValue)
         }
-        try {
-            return !!document.querySelector(editSelectorValue)
-        } catch {
-            return false
-        }
-    }, [editSelectorValue])
+    }, [editSelectorOpen, editSelectorValue, counter])
+    // posthog-js applies web experiments with document.querySelectorAll, which skips shadow roots.
+    const isValidSelector = !!editSelectorValue && !!counter.count(editSelectorValue, 'document')
 
     return (
         <>
@@ -55,12 +53,7 @@ export function SelectorEditor({ selector, variant, transformIndex }: SelectorEd
                             type="primary"
                             onClick={() => {
                                 setEditSelectorOpen(false)
-                                inspectElementSelected(
-                                    document.querySelector(editSelectorValue) as HTMLElement,
-                                    variant,
-                                    transformIndex,
-                                    editSelectorValue
-                                )
+                                setTransformationSelector(variant, transformIndex, editSelectorValue)
                             }}
                             disabledReason={
                                 !isValidSelector

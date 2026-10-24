@@ -1,22 +1,12 @@
-import { useActions, useValues } from 'kea'
-
 import { IconCursorClick } from '@posthog/icons'
 import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
-import {
-    ElementSelectorButtonTypes,
-    ElementSelectorType,
-    experimentsTabLogic,
-} from '~/toolbar/experiments/experimentsTabLogic'
-import {
-    htmlSanitizationWouldStrip,
-    setSanitizedHTML,
-    setSanitizedStyle,
-    styleSanitizationWouldStrip,
-} from '~/toolbar/experiments/sanitize'
+import { ElementSelectorButtonTypes, ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
+import { htmlSanitizationWouldStrip, styleSanitizationWouldStrip } from '~/toolbar/experiments/sanitize'
+import { useWebExperimentEditor } from '~/toolbar/experiments/webExperimentEditorContext'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
@@ -30,9 +20,15 @@ export function WebExperimentTransformField({
     transformIndex,
     transform,
 }: WebExperimentTransformFieldProps): JSX.Element {
-    const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
-    const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
-        useActions(experimentsTabLogic)
+    const {
+        inspectingElement,
+        selectedVariant,
+        selectedElementType,
+        selectElementType,
+        inspectForTransformation,
+        setTransformationField,
+    } = useWebExperimentEditor()
+    const isInspecting = inspectingElement === transformIndex && selectedVariant === variant
 
     return (
         <>
@@ -40,19 +36,10 @@ export function WebExperimentTransformField({
                 <LemonButton
                     icon={<IconCursorClick />}
                     size="small"
-                    type={inspectingElement === transformIndex && selectedVariant === variant ? 'primary' : 'secondary'}
-                    onClick={() => {
-                        selectVariant(variant)
-                        inspectForElementWithIndex(
-                            variant,
-                            selectedElementType as ElementSelectorType,
-                            inspectingElement === transformIndex ? null : transformIndex
-                        )
-                    }}
+                    type={isInspecting ? 'primary' : 'secondary'}
+                    onClick={() => inspectForTransformation(variant, isInspecting ? null : transformIndex)}
                 >
-                    {inspectingElement === transformIndex && selectedVariant === variant
-                        ? 'Selecting…'
-                        : 'Select element'}
+                    {isInspecting ? 'Selecting…' : 'Select element'}
                 </LemonButton>
                 <LemonSelect
                     placeholder="Select element type"
@@ -71,27 +58,7 @@ export function WebExperimentTransformField({
                     <div className="mt-4">
                         <LemonLabel>Inner HTML</LemonLabel>
                         <LemonTextArea
-                            onChange={(value) => {
-                                // Update state
-                                const updatedVariants = {
-                                    ...experimentForm.variants,
-                                    [variant]: {
-                                        ...experimentForm.variants[variant],
-                                        transforms: experimentForm.variants[variant].transforms.map((t, i) =>
-                                            i === transformIndex ? { ...t, html: value } : t
-                                        ),
-                                    },
-                                }
-                                setExperimentFormValue('variants', updatedVariants)
-
-                                // Update DOM
-                                const element = transform.selector
-                                    ? (document.querySelector(transform.selector) as HTMLElement)
-                                    : null
-                                if (element) {
-                                    setSanitizedHTML(element, value)
-                                }
-                            }}
+                            onChange={(value) => setTransformationField(variant, transformIndex, 'html', value)}
                             value={transform.html}
                             maxRows={8}
                         />
@@ -104,29 +71,7 @@ export function WebExperimentTransformField({
                     <div className="mt-4">
                         <LemonLabel>CSS</LemonLabel>
                         <LemonTextArea
-                            onChange={(value) => {
-                                if (experimentForm.variants) {
-                                    // Create new variants object with updated CSS
-                                    const updatedVariants = {
-                                        ...experimentForm.variants,
-                                        [variant]: {
-                                            ...experimentForm.variants[variant],
-                                            transforms: experimentForm.variants[variant].transforms.map((t, i) =>
-                                                i === transformIndex ? { ...t, css: value } : t
-                                            ),
-                                        },
-                                    }
-                                    setExperimentFormValue('variants', updatedVariants)
-
-                                    // Update DOM
-                                    const element = transform.selector
-                                        ? (document.querySelector(transform.selector) as HTMLElement)
-                                        : null
-                                    if (element) {
-                                        setSanitizedStyle(element, value)
-                                    }
-                                }
-                            }}
+                            onChange={(value) => setTransformationField(variant, transformIndex, 'css', value)}
                             value={transform.css || ''}
                             maxRows={8}
                         />

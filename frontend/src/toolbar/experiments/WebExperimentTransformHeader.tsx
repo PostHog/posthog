@@ -1,12 +1,10 @@
-import { useActions, useValues } from 'kea'
-
 import { IconTrash } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { useWebExperimentEditor } from '~/toolbar/experiments/webExperimentEditorContext'
 import { WebExperimentTransform } from '~/toolbar/types'
 
 import { SelectorEditor } from './SelectorEditor'
@@ -22,8 +20,7 @@ export function WebExperimentTransformHeader({
     transformIndex,
     transform,
 }: WebExperimentTransformHeaderProps): JSX.Element {
-    const { removeElement } = useActions(experimentsTabLogic)
-    const { experimentForm } = useValues(experimentsTabLogic)
+    const { removeTransformation } = useWebExperimentEditor()
 
     return (
         <div className="flex w-full gap-4 items-center">
@@ -44,20 +41,18 @@ export function WebExperimentTransformHeader({
                 </div>
             )}
 
-            {experimentForm?.variants && (
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="small"
-                    className="shrink"
-                    noPadding
-                    status="danger"
-                    tooltip="Remove transformation"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        removeElement(variant, transformIndex)
-                    }}
-                />
-            )}
+            <LemonButton
+                icon={<IconTrash />}
+                size="small"
+                className="shrink"
+                noPadding
+                status="danger"
+                tooltip="Remove transformation"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    removeTransformation(variant, transformIndex)
+                }}
+            />
         </div>
     )
 }

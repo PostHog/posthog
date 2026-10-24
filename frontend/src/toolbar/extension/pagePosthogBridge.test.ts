@@ -8,6 +8,7 @@ const INFO: PageAnalyticsInfo = {
     scrollRootSelector: null,
     heatmapsEnabled: true,
     webVitalsEnabled: true,
+    webExperimentsDisabled: false,
     sessionRecordingConfig: {},
     sessionRecordingStatus: null,
     featureFlags: { overrides: {}, variants: { 'launch-banner': false }, groups: {} },
