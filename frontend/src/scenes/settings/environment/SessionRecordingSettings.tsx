@@ -122,7 +122,7 @@ function PayloadWarning(): JSX.Element {
                 PostHog.{' '}
                 <Link
                     to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
-                    target="blank"
+                    target="_blank"
                 >
                     Learn how to mask header and body values in our docs
                 </Link>
