@@ -127,6 +127,17 @@
     background-color: var(--muted);
 }
 
+/*
+ * PostHog's `bg-muted/30` is `!important` in the `utilities` layer, and it mixes `--muted-3000`, a dark text colour.
+ * An unlayered rule cannot beat a layered `!important` rule, so this rule goes in the same layer and wins on
+ * specificity. Quill's date picker header and footer use this class.
+ */
+@layer utilities {
+    [data-quill] .bg-muted\/30 {
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent) !important;
+    }
+}
+
 [data-quill] .bg-popover {
     background-color: var(--popover);
 }
