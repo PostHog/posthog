@@ -8,7 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("aeo", "0004_prompt_topic_and_rotation"),
+        ("aeo", "0006_backfill_prompt_versions"),
         ("posthog", "1412_drop_retired_desktop_file_system_tables"),
     ]
 

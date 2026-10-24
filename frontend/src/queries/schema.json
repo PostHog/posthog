@@ -39276,6 +39276,13 @@
                     "description": "Clause alias that produced this series (`formula` for the formula result)",
                     "type": "string"
                 },
+                "histogramBounds": {
+                    "description": "Bucket upper edges a histogram quantile series was estimated from. The true quantile can be anywhere between two edges.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "labels": {
                     "additionalProperties": {
                         "type": "string"

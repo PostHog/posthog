@@ -37,6 +37,7 @@ class EngineAnswer:
 @frozen
 class CitationGap:
     prompt_id: str
+    # Hash of the prompt's first version: stays the same when the text is edited, so it can key the gap.
     prompt_hash: str
     prompt_text: str
     checks: int
@@ -58,6 +59,7 @@ class CitationGap:
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
+PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 
 
 @frozen
@@ -82,6 +84,9 @@ class Prompt:
     external_visibility: float | None
     created_at: dt.datetime
     updated_at: dt.datetime | None
+    archived_at: dt.datetime | None
+    current_version: int
+    version_count: int
     latest_checks: tuple[PromptEngineCheck, ...]
 
 
@@ -109,6 +114,7 @@ class PromptCheck:
     top_cited_domains: tuple[str, ...]
     search_queries: tuple[str, ...]
     answer_text: str | None
+    prompt_version: int | None
 
 
 @frozen
@@ -156,6 +162,34 @@ class PromptImportResult:
     created: int
     updated: int
     skipped: int
+
+
+@frozen
+class PromptUpdate:
+    """A partial edit of one prompt. None leaves the field as it is."""
+
+    active: bool | None = None
+    topic: str | None = None
+    prompt: str | None = None
+    version_description: str | None = None
+    current_version: int | None = None
+    archived: bool | None = None
+
+
+@frozen
+class PromptAuthor:
+    email: str
+    name: str
+
+
+@frozen
+class PromptVersion:
+    version: int
+    text: str
+    version_description: str
+    created_by: PromptAuthor | None
+    created_at: dt.datetime
+    is_current: bool
 
 
 class PromptNotFoundError(Exception):
@@ -217,3 +251,11 @@ class BrandSyncResult:
 
 class BrandNotFoundError(Exception):
     pass
+
+
+class PromptUpdateError(Exception):
+    """The edit is not allowed in the prompt's current state. The message is safe to show the user."""
+
+
+class PromptTextConflictError(Exception):
+    """The new text matches another prompt in the set. The message is safe to show the user."""

@@ -2,9 +2,9 @@ import math
 from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -12,9 +12,11 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.aeo.backend.facade.api import (
+    archive_prompt,
     get_brand,
     get_prompt,
     get_prompt_stats,
@@ -22,20 +24,23 @@ from products.aeo.backend.facade.api import (
     list_brands,
     list_prompt_checks,
     list_prompt_topics,
+    list_prompt_versions,
     list_prompts,
-    set_prompt_active,
     update_brand,
+    update_prompt,
 )
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
     BRAND_NAME_MAX_LENGTH,
     PROMPT_TOPIC_MAX_LENGTH,
+    PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
     BrandKind,
     BrandNotFoundError,
     BrandStatus,
     BrandUpdate,
     Prompt,
+    PromptAuthor,
     PromptCheck,
     PromptDailyEngineStats,
     PromptEngineCheck,
@@ -44,7 +49,11 @@ from products.aeo.backend.facade.contracts import (
     PromptImportResult,
     PromptNotFoundError,
     PromptStats,
+    PromptTextConflictError,
     PromptTopic,
+    PromptUpdate,
+    PromptUpdateError,
+    PromptVersion,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -96,7 +105,7 @@ class AEOPromptSerializer(DataclassSerializer):
         ref_name = "AEOPrompt"
         extra_kwargs = {
             "id": {"help_text": "Prompt id."},
-            "prompt": {"help_text": "The question asked to the answer engines, as a user would phrase it."},
+            "prompt": {"help_text": "The question asked to the answer engines: the text of the current version."},
             "topic": {"help_text": "Theme the prompt belongs to. The runner alternates between topics on each run."},
             "prompt_source": {"help_text": "Where the prompt came from: 'imported' or 'manual'."},
             "rank": {"help_text": "Seeding score. Within a topic, higher runs first."},
@@ -105,6 +114,11 @@ class AEOPromptSerializer(DataclassSerializer):
             "external_visibility": {"help_text": EXTERNAL_VISIBILITY_HELP + " Null when the import carried none."},
             "created_at": {"help_text": "When the prompt was added."},
             "updated_at": {"help_text": "When the prompt last changed."},
+            "archived_at": {
+                "help_text": "When the prompt was archived. Archived prompts never run. Null when it is not archived."
+            },
+            "current_version": {"help_text": "Number of the version in use. Each text edit adds a version."},
+            "version_count": {"help_text": "How many versions the prompt has."},
         }
 
 
@@ -121,6 +135,11 @@ class AEOPromptListQuerySerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text="Only list prompts that are on (true) or off (false). Omit to list both.",
+    )
+    include_archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Also list archived prompts. Archived prompts are left out by default.",
     )
 
 
@@ -160,6 +179,9 @@ class AEOPromptCheckSerializer(DataclassSerializer):
                 "help_text": "The engine's answer as plain text, sanitized and truncated. Null when the check failed. "
                 + THIRD_PARTY_TEXT_HELP
             },
+            "prompt_version": {
+                "help_text": "Version of the prompt that ran. Null for checks recorded before prompts had versions."
+            },
         }
 
 
@@ -168,6 +190,11 @@ class AEOPromptChecksQuerySerializer(serializers.Serializer):
         required=False,
         max_length=64,
         help_text="Only list checks from this answer engine, for example 'claude-web-search'.",
+    )
+    version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Only list checks that ran this version of the prompt.",
     )
 
 
@@ -224,7 +251,92 @@ class AEOPromptStatsSerializer(DataclassSerializer):
 
 
 class AEOPromptUpdateRequestSerializer(serializers.Serializer):
-    active = serializers.BooleanField(help_text="Turn the prompt on or off for future runs.")
+    # Every field defaults to None so "not sent" stays distinct from false or an empty topic.
+    active = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Turn the prompt on or off for future runs.",
+    )
+    topic = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=None,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text="New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        default=None,
+        max_length=MAX_IMPORTED_PROMPT_CHARS,
+        help_text=(
+            "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id "
+            "and its check history, and each check records the version that ran. A change of case or whitespace "
+            "only adds no version. Fails with 409 when another prompt in the set already has the text."
+        ),
+    )
+    version_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default=None,
+        max_length=PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
+        help_text="Optional note on what the text change does, stored on the new version. Send it with 'prompt'.",
+    )
+    current_version = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=1,
+        help_text=(
+            "Make an existing version current again, for example to roll back a text change. Adds no version. "
+            "Fails with 400 when the version does not exist, and with 409 when another prompt has its text."
+        ),
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it "
+            "without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' "
+            "is true in the same request. An archived prompt accepts no other change until it is restored."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if all(value is None for value in attrs.values()):
+            raise serializers.ValidationError(
+                "Send at least one of 'active', 'topic', 'prompt', 'current_version' or 'archived'."
+            )
+        return attrs
+
+
+class AEOPromptAuthorSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptAuthor
+        ref_name = "AEOPromptAuthor"
+        extra_kwargs = {
+            "email": {"help_text": "Email of the person who made the change."},
+            "name": {"help_text": "First name of the person who made the change. Empty when they have none."},
+        }
+
+
+class AEOPromptVersionSerializer(DataclassSerializer):
+    created_by = AEOPromptAuthorSerializer(
+        allow_null=True,
+        help_text="Who wrote this version. Null for imported versions and when the person's account is gone.",
+    )
+
+    class Meta:
+        dataclass = PromptVersion
+        ref_name = "AEOPromptVersion"
+        extra_kwargs = {
+            "version": {"help_text": "Version number: 1 for the first wording, then one more per text edit."},
+            "text": {"help_text": "The question as worded in this version."},
+            "version_description": {"help_text": "Note on what changed in this version. Empty when none was given."},
+            "created_at": {"help_text": "When the version was created."},
+            "is_current": {"help_text": "Whether this is the version the prompt runs with."},
+        }
 
 
 class AEOPromptImportItemSerializer(DataclassSerializer):
@@ -268,7 +380,9 @@ class AEOPromptImportResultSerializer(DataclassSerializer):
         extra_kwargs = {
             "created": {"help_text": "Prompts added to the set."},
             "updated": {"help_text": "Existing prompts that were updated. They keep their active state."},
-            "skipped": {"help_text": "Prompts that were empty or too long for the answer engines."},
+            "skipped": {
+                "help_text": "Prompts that were empty, too long for the answer engines, or matched an archived prompt."
+            },
         }
 
 
@@ -340,15 +454,15 @@ class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
 
 class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["list", "retrieve", "topics", "checks", "stats"]
-    scope_object_write_actions = ["partial_update", "bulk_import"]
+    scope_object_read_actions = ["list", "retrieve", "topics", "checks", "stats", "versions"]
+    scope_object_write_actions = ["partial_update", "destroy", "bulk_import"]
     pagination_class = PrecountedLimitOffsetPagination
 
     @validated_request(
         query_serializer=AEOPromptListQuerySerializer,
         operation_id="aeo_prompts_list",
         summary="List AEO prompts",
-        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Each prompt carries its latest check per answer engine.",
+        description="Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.",
         responses={200: AEOPromptSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -360,6 +474,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             offset=paginator.get_offset(request),
             topic=request.validated_query_data.get("topic"),
             active=request.validated_query_data.get("active"),
+            include_archived=request.validated_query_data["include_archived"],
         )
         paginator.set_count(count)
         page = self.paginate_queryset(prompts)
@@ -368,7 +483,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_retrieve",
         summary="Get an AEO prompt",
-        description="Gets one prompt from the project's AEO prompt set, with its latest check per answer engine.",
+        description="Gets one prompt from the project's AEO prompt set, archived ones included, with its latest check per answer engine.",
         responses={200: OpenApiResponse(response=AEOPromptSerializer)},
         tags=["web_analytics"],
     )
@@ -381,23 +496,67 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=AEOPromptUpdateRequestSerializer,
         operation_id="aeo_prompts_partial_update",
-        summary="Turn an AEO prompt on or off",
-        description="Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.",
-        responses={200: OpenApiResponse(response=AEOPromptSerializer)},
+        summary="Update an AEO prompt",
+        description=(
+            "Turns a prompt on or off, changes its topic, archives or restores it, or changes its text. A text "
+            "change adds the next version and makes it current, and current_version moves back to an earlier one. "
+            "The prompt keeps its id, and past checks are always kept."
+        ),
+        responses={
+            200: OpenApiResponse(response=AEOPromptSerializer, description="The updated prompt."),
+            400: OpenApiResponse(
+                description="The edit is invalid, the version does not exist, or the prompt is archived and must be restored first."
+            ),
+            409: OpenApiResponse(description="Another prompt in the set already has the new text."),
+        },
         tags=["web_analytics"],
     )
     def partial_update(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        change = PromptUpdate(**request.validated_data)
         try:
-            prompt = set_prompt_active(self.team_id, pk, request.validated_data["active"])
+            prompt = update_prompt(self.team_id, pk, change, user_id=request.user.id)
         except PromptNotFoundError:
             raise NotFound()
+        except PromptUpdateError as error:
+            raise ValidationError(str(error))
+        except PromptTextConflictError as error:
+            raise Conflict(str(error))
         return Response(AEOPromptSerializer(prompt).data)
+
+    @validated_request(
+        operation_id="aeo_prompts_destroy",
+        summary="Archive an AEO prompt",
+        description="Archives a prompt: it is turned off and never runs again. Nothing is deleted, and its versions and checks are kept. Restore it with a PATCH of archived=false.",
+        responses={204: OpenApiResponse(description="The prompt is archived.")},
+        tags=["web_analytics"],
+    )
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        try:
+            archive_prompt(self.team_id, pk)
+        except PromptNotFoundError:
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        operation_id="aeo_prompts_versions",
+        summary="List an AEO prompt's versions",
+        description="Lists every version of a prompt's text, newest first. A text edit adds a version, and one of them is current.",
+        responses={200: OpenApiResponse(response=AEOPromptVersionSerializer(many=True))},
+        tags=["web_analytics"],
+    )
+    @action(detail=True, methods=["get"], pagination_class=None)
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        try:
+            versions = list_prompt_versions(self.team_id, pk)
+        except PromptNotFoundError:
+            raise NotFound()
+        return Response(AEOPromptVersionSerializer(versions, many=True).data)
 
     @validated_request(
         query_serializer=AEOPromptChecksQuerySerializer,
         operation_id="aeo_prompts_checks",
         summary="List an AEO prompt's checks",
-        description="Lists every check of one prompt, newest first, one page at a time. Each check has the engine's answer, the URLs it cited and the searches it ran.",
+        description="Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.",
         responses={200: AEOPromptCheckSerializer(many=True)},
         tags=["web_analytics"],
     )
@@ -411,6 +570,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 limit=paginator.get_limit(request) or DEFAULT_CHECKS_PAGE_SIZE,
                 offset=paginator.get_offset(request),
                 engine=request.validated_query_data.get("engine"),
+                version=request.validated_query_data.get("version"),
             )
         except PromptNotFoundError:
             raise NotFound()
@@ -448,7 +608,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptBulkImportRequestSerializer,
         operation_id="aeo_prompts_bulk_import",
         summary="Import AEO prompts",
-        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state.",
+        description="Adds prompts to the project's AEO prompt set, or updates the topic and visibility of prompts that already exist. Existing prompts keep their active state. Prompts whose text matches an archived prompt are skipped.",
         responses={200: OpenApiResponse(response=AEOPromptImportResultSerializer)},
         tags=["web_analytics"],
     )
