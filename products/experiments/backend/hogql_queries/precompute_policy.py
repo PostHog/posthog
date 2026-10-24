@@ -24,7 +24,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import has_activation_config
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds, PrecomputeSkipReason
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -198,6 +198,7 @@ def ensure_exposures_precomputed(
     builder: ExperimentQueryBuilder,
     time_range_start: datetime,
     time_range_end: datetime,
+    builds: PrecomputeBuilds = PrecomputeBuilds.RUN,
 ) -> LazyComputationResult:
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
@@ -214,4 +215,5 @@ def ensure_exposures_precomputed(
         # High-volume teams' builds OOM even at capped window widths; spilling the
         # GROUP BY to disk degrades gracefully instead of failing the build.
         spill_to_disk=True,
+        run_inserts=builds == PrecomputeBuilds.RUN,
     )

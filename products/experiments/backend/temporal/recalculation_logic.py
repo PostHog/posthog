@@ -39,6 +39,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
     get_user_friendly_message,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -51,6 +52,7 @@ from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
+    ONLINE_FIRST_ATTEMPT_MAX_WINDOW,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
@@ -585,6 +587,12 @@ def _client_query_id(recalculation_id: str, metric_uuid: str, attempt: int) -> s
     return f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}_attempt{attempt:02d}"
 
 
+def _calculation_workload(attempt: int, query_from: datetime, query_to: datetime) -> Workload:
+    if attempt == 1 and query_to - query_from < ONLINE_FIRST_ATTEMPT_MAX_WINDOW:
+        return Workload.ONLINE
+    return Workload.OFFLINE
+
+
 @database_sync_to_async_pool(executor=_CANCELLATION_EXECUTOR)
 def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
@@ -724,12 +732,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 trigger=state.trigger,
             )
 
+        workload = _calculation_workload(attempt, query_from, query_to_dt)
+
         try:
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.ONLINE,
+                workload=workload,
+                # Builds run untagged, so they land on the offline replicas, and a read on the online replicas
+                # right after can miss their rows. An online attempt reads finished builds and scans the rest.
+                precompute_builds=PrecomputeBuilds.SKIP if workload == Workload.ONLINE else PrecomputeBuilds.RUN,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,

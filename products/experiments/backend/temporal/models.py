@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 from typing import Final, Literal
 
 from posthog.dataclasses import frozen
@@ -45,6 +46,10 @@ TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 # next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
 CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
 CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
+
+# A first attempt over a shorter window runs on the online replicas, which answer faster and keep it out of the
+# offline queue. Retries and longer windows stay offline, so a burst or a long scan cannot load the online tier.
+ONLINE_FIRST_ATTEMPT_MAX_WINDOW = timedelta(days=7)
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0

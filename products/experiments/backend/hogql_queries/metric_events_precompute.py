@@ -45,6 +45,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS,
     experiment_precompute_ttl_schedule,
 )
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -76,6 +77,7 @@ class MetricEventsPrecompute:
     has_breakdowns: bool
     cuped_enabled: bool
     is_data_warehouse_query: bool
+    builds: PrecomputeBuilds = PrecomputeBuilds.RUN
 
     def ensure_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
@@ -123,6 +125,7 @@ class MetricEventsPrecompute:
             sentinel_placeholders={"experiment_date_to"},
             end_is_data_horizon=True,
             spill_to_disk=True,
+            run_inserts=self.builds == PrecomputeBuilds.RUN,
         )
 
     @property

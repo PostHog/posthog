@@ -283,9 +283,23 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
   Temporal delivers a cancellation only in a heartbeat response, so a workflow cancel or a server-side timeout now reaches the running attempt and starts the cleanup above.
   A dead worker misses its heartbeats, so Temporal retries the metric after 60s instead of after the full 300s attempt.
   See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
-- **Calc queries run on the offline ClickHouse nodes.** The calc activity builds its `ExperimentQueryRunner` with `workload=Workload.ONLINE`. That workload uses `CLICKHOUSE_HOST`, and the recalculation worker deployments set `CLICKHOUSE_HOST` to the offline host. So the queries reach the offline replicas, not the replicas that serve interactive product traffic. The activity task queue above caps how many of them run at once.
+- **Short first attempts run online; retries and long windows run offline.** The calc activity picks the runner's workload per attempt.
+  The first attempt of a metric whose scan window (`query_to` minus the experiment start date) is shorter than `ONLINE_FIRST_ATTEMPT_MAX_WINDOW` (7 days) runs with `Workload.ONLINE`.
+  Every retry, and every first attempt over a longer window, runs with `Workload.OFFLINE`.
+  The online replicas answer a short scan faster and keep it out of the offline queue.
+  Retries stay offline so a capacity burst or a timeout does not repeat on the online tier, and long scans stay offline because they are the heavy ones.
+  Replica delay is not the reason: both tiers lag by about a second.
 
-  The workload stays set explicitly rather than left to the default. The base `QueryRunner` default is `Workload.DEFAULT`, which follows the process default (Celery pins every task to offline process-wide, and API-key traffic is forced offline). Passing `Workload.ONLINE` keeps the routing the same however the activity is invoked, and the worker's host setting decides where it goes.
+  The workload sets the host. `Workload.ONLINE` uses `CLICKHOUSE_HOST`. `Workload.OFFLINE` uses `CLICKHOUSE_OFFLINE_CLUSTER_HOST` when it is set, else `CLICKHOUSE_HOST` (`get_kwargs_for_client` in `posthog/clickhouse/client/connection.py`).
+  While the recalculation workers set only `CLICKHOUSE_HOST`, to the offline host, both workloads reach the offline replicas.
+  The split takes effect when the worker deployments point `CLICKHOUSE_HOST` at the online host and set `CLICKHOUSE_OFFLINE_CLUSTER_HOST` to the offline host.
+
+  An online attempt reads precompute but does not build it: the runner gets `precompute_builds=PrecomputeBuilds.SKIP`, which calls `ensure_precomputed` with `run_inserts=False`.
+  The build inserts carry no workload, so the worker's default workload (`CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`) sends them to the offline replicas, and an online read right after an insert can miss its rows.
+  In check-only mode the executor serves the ranges that are already built and reports a miss for the rest, so the runner falls back to a direct scan, which is cheap for a window under 7 days.
+  The offline retries and the scheduled runs keep building.
+
+  The workload stays set explicitly rather than left to the default. The base `QueryRunner` default is `Workload.DEFAULT`, which follows the process default (Celery pins every task to offline process-wide, and API-key traffic is forced offline). An explicit workload keeps the routing the same however the activity is invoked. The activity task queue above caps how many calc queries run at once on either tier.
 
   Without the flag below, the queries run as the `default` user. The calc tags them with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share.
 

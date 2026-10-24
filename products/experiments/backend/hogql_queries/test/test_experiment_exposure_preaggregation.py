@@ -44,6 +44,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import E
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.hogql_queries.precompute_policy import PRECOMPUTE_MAX_WINDOW_DAYS
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -936,6 +937,48 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # be surfaced to error tracking rather than silently masked.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path
+
+    @parameterized.expand([("nothing_built", False), ("already_built", True)])
+    def test_skipped_builds_read_finished_ranges_and_insert_nothing(self, name: str, prebuilt: bool):
+        feature_flag = self.create_feature_flag(key=f"skip-builds-{name}")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        for variant in ("control", "test"):
+            for i in range(2):
+                user = f"user_{variant}_{i}"
+                _create_person(distinct_ids=[user], team_id=self.team.pk)
+                self._create_exposure_event(user, feature_flag, variant, datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=user,
+                    timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                    properties={feature_flag_property: variant},
+                )
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        if prebuilt:
+            ExperimentQueryRunner(query=query, team=self.team).calculate()
+        jobs_before = PreaggregationJob.objects.count()
+
+        runner = ExperimentQueryRunner(query=query, team=self.team, precompute_builds=PrecomputeBuilds.SKIP)
+        result = cast(ExperimentQueryResponse, runner.calculate())
+
+        assert PreaggregationJob.objects.count() == jobs_before
+        assert (runner._is_precomputed, runner._metric_events_precomputed) == (prebuilt, prebuilt)
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 2
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 2
 
     @parameterized.expand(
         [

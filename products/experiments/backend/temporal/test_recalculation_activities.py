@@ -20,12 +20,13 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
+from products.experiments.backend.hogql_queries.types import PrecomputeBuilds
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -1077,6 +1078,33 @@ class TestCalculateActivity(BaseTest):
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+
+    @parameterized.expand(
+        [
+            ("first_attempt_short_window", 1, timedelta(days=2), Workload.ONLINE, PrecomputeBuilds.SKIP),
+            ("retry_short_window", 2, timedelta(days=2), Workload.OFFLINE, PrecomputeBuilds.RUN),
+            ("first_attempt_long_window", 1, timedelta(days=7), Workload.OFFLINE, PrecomputeBuilds.RUN),
+        ]
+    )
+    def test_workload_and_precompute_builds_follow_attempt_and_window(
+        self,
+        name: str,
+        attempt: int,
+        window: timedelta,
+        expected_workload: Workload,
+        expected_builds: PrecomputeBuilds,
+    ):
+        exp = self._experiment(flag_key=f"calc-workload-{name}", metrics=[_mean_metric("m1")])
+        exp.start_date = datetime.fromisoformat(_QUERY_TO) - window
+        exp.save()
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=attempt)
+
+        kwargs = mock_runner.call_args.kwargs
+        assert (kwargs["workload"], kwargs["precompute_builds"]) == (expected_workload, expected_builds)
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
