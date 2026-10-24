@@ -163,8 +163,6 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
     ],
 )
 def test_kill_switch_keeps_the_lower_max_threads(client_from_pool, level, query_settings, expected_max_threads):
-    # A profile constraint below the kill-switch value rejects every query that carries the kill-switch value,
-    # so a caller that sends a lower value must keep it under both levels.
     with patch(
         "posthog.clickhouse.client.execute.kill_switch_overrides", return_value=dict(_KILL_SWITCH_SETTINGS[level])
     ):
