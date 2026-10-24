@@ -239,7 +239,10 @@ def renew_service_credential(
         timeout=timeout_seconds,
     )
     if not status.is_success(response.status_code) or not isinstance(response.data, dict):
-        raise ServiceCredentialUnavailable("Trino service credential renewal failed")
+        raise ServiceCredentialUnavailable(
+            f"Trino service credential renewal failed for org={organization_id} credential_id={credential_id}: "
+            f"HTTP {response.status_code}: {_redact_payload(response.data)!r}"
+        )
     data = response.data
     # Older control planes ignore rotate_secret and rotate; never silently switch query ownership.
     if data.get("secret_rotated") is not False or data.get("credential_secret"):
