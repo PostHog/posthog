@@ -37,6 +37,7 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
+    TaskQueue,
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
@@ -609,6 +610,34 @@ describe('getInsightWithRetry', () => {
             { source: 'dashboard_tile', recovered: cachedResult !== null },
             undefined
         )
+    })
+})
+
+describe('TaskQueue', () => {
+    it.each([
+        { name: 'before it joins the queue', abortBeforeRun: true },
+        { name: 'while it waits', abortBeforeRun: false },
+    ])('drops a task whose signal aborts $name and starts the next one', async ({ abortBeforeRun }) => {
+        const queue = new TaskQueue(1)
+        const started: string[] = []
+        let finishFirst: () => void = () => {}
+        const first = queue.run(() => {
+            started.push('first')
+            return new Promise<void>((resolve) => (finishFirst = resolve))
+        })
+        const controller = new AbortController()
+        if (abortBeforeRun) {
+            controller.abort()
+        }
+        const dropped = queue.run(async () => void started.push('dropped'), controller.signal)
+        const last = queue.run(async () => void started.push('last'))
+        controller.abort()
+
+        await expect(dropped).rejects.toMatchObject({ name: 'AbortError' })
+        expect(started).toEqual(['first'])
+        finishFirst()
+        await Promise.all([first, last])
+        expect(started).toEqual(['first', 'last'])
     })
 })
 

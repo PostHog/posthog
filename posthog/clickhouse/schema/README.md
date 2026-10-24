@@ -17,7 +17,7 @@ schema/
 The foundation adds this catalogue beside legacy migrations. The cutover switches local, test and Hobby setup after cloud ownership is verified. Cleanup removes dormant legacy code without changing the deployed schema.
 
 Do not merge this cutover until the infrastructure canary migration succeeds and all cloud schemas have a verified owner, including objects intentionally outside the catalogue. Adopt existing objects with zero DDL before disabling their previous owner. Production rollout requires reviewed live plans; local convergence does not replace that review.
-The catalogue includes migrations through 0359 and the current query-log archive chain schema. Provider v0.5.4 names one node on each resource; it no longer fans statements out from a provider-level cluster.
+The catalogue includes migrations through 0360 and the current query-log archive chain schema. Provider v0.5.4 names one node on each resource; it no longer fans statements out from a provider-level cluster.
 
 The `custom_metrics*` views that Prometheus scrapes, and the counter table `MetricsClient` writes to, are monitoring objects of PostHog Cloud and are declared in posthog-cloud-infra, not here. Without the table, `MetricsClient.increment` does nothing.
 

@@ -33,8 +33,12 @@ from products.signals.backend.activity_summary.queue import (
     DailyUsage,
     daily_usage,
     enrolled_team_ids,
+    enrollment,
     feed_queue,
+    is_team_enrolled_for_generation,
+    is_team_enrolled_for_read,
     max_update_cost_usd,
+    organization_rollout_bucket,
     seed_queue,
     select_pairs,
 )
@@ -56,10 +60,11 @@ from products.signals.backend.activity_summary.tick import (
     ActivitySummaryTickPlan,
     ActivitySummaryTickResult,
     ActivitySummaryTickWorkflow,
+    EnrollmentCounts,
     plan_tick,
     run_pair,
 )
-from products.signals.backend.models import UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
@@ -99,8 +104,15 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 2,
             "rebuild_budget_share": 2,
             "max_error_rate": 0,
+            "self_driving_organization_percentage": 101,
+            "deny_organization_ids": "org-b",
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
+    ),
+    (
+        "a boolean percentage falls back to the default",
+        {"enabled": True, "self_driving_organization_percentage": True},
+        ActivitySummaryConfig(enabled=True),
     ),
     (
         "valid fields",
@@ -116,6 +128,8 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "count_views": True,
             "target_interval_days_free": 7,
             "max_org_share": 0.3,
+            "self_driving_organization_percentage": 12.5,
+            "deny_organization_ids": ["org-b", 4],
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -129,6 +143,8 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             count_views=True,
             target_interval_days_free=7.0,
             max_org_share=0.3,
+            self_driving_organization_percentage=12.5,
+            deny_organization_ids=("org-b",),
         ),
     ),
     (
@@ -163,8 +179,35 @@ def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig)
     assert parse_config(payload) == expected
 
 
+@parameterized.expand(
+    [
+        ("canonical", "0188f3a2-5b7c-7d1e-9f00-123456789abc", 3211),
+        ("upper case without hyphens", "0188F3A25B7C7D1E9F00123456789ABC", 3211),
+        ("other organization", "00000000-0000-0000-0000-000000000001", 8554),
+    ]
+)
+def test_the_rollout_bucket_of_an_organization_does_not_change(_name: str, organization_id: str, bucket: int) -> None:
+    assert organization_rollout_bucket(uuid.UUID(organization_id)) == bucket
+
+
+@parameterized.expand([(10.0, 40.0), (40.0, 100.0)])
+def test_a_higher_percentage_keeps_the_organizations_of_a_lower_one(lower: float, higher: float) -> None:
+    organization_ids = [uuid.UUID(int=index * 7919) for index in range(500)]
+
+    def members(percentage: float) -> set[uuid.UUID]:
+        return {o for o in organization_ids if organization_rollout_bucket(o) < percentage * 100}
+
+    assert members(lower) < members(higher)
+
+
 @time_machine.travel(NOW, tick=False)
 class TestActivitySummaryQueue(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        dispatch_config = patch.object(tick, "read_config", side_effect=lambda: self._config())
+        dispatch_config.start()
+        self.addCleanup(dispatch_config.stop)
+
     def _config(self, **overrides: Any) -> ActivitySummaryConfig:
         return ActivitySummaryConfig(enabled=True, organization_ids=(str(self.organization.id),), **overrides)
 
@@ -339,6 +382,176 @@ class TestActivitySummaryQueue(BaseTest):
         self._changes(self.user, 3)
 
         assert self._select() == []
+
+    @parameterized.expand(
+        [
+            ("listed", {}, True, False, True, True),
+            ("disabled", {"enabled": False}, True, False, False, False),
+            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False, False),
+            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False, False),
+            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False, False),
+            ("not_approved", {}, False, False, False, False),
+            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True, True),
+            (
+                "all_approved_not_approved",
+                {"organization_ids": (), "enroll_all_approved": True},
+                False,
+                False,
+                False,
+                False,
+            ),
+            (
+                "all_approved_team_skipped",
+                {"enroll_all_approved": True, "skip_team_ids": ("own",)},
+                True,
+                False,
+                False,
+                False,
+            ),
+            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, True, False),
+            (
+                "all_approved_and_denied",
+                {"enroll_all_approved": True, "deny_organization_ids": ("own",)},
+                True,
+                True,
+                True,
+                False,
+            ),
+            (
+                "rollout",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                True,
+                False,
+                True,
+            ),
+            (
+                "rollout_without_source",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                False,
+                False,
+                False,
+            ),
+            (
+                "rollout_at_zero",
+                {"organization_ids": (), "self_driving_organization_percentage": 0.0},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_disabled",
+                {"enabled": False, "organization_ids": (), "self_driving_organization_percentage": 100.0},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_denied",
+                {
+                    "organization_ids": (),
+                    "self_driving_organization_percentage": 100.0,
+                    "deny_organization_ids": ("own",),
+                },
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_team_skipped",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0, "skip_team_ids": ("own",)},
+                True,
+                True,
+                False,
+                False,
+            ),
+            (
+                "rollout_not_approved",
+                {"organization_ids": (), "self_driving_organization_percentage": 100.0},
+                False,
+                True,
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_read_and_generation_checks(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        approved: bool,
+        has_source: bool,
+        readable: bool,
+        generated: bool,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        if overrides.get("skip_team_ids") == ("own",):
+            overrides = {**overrides, "skip_team_ids": (self.team.id,)}
+        if overrides.get("deny_organization_ids") == ("own",):
+            overrides = {**overrides, "deny_organization_ids": (str(self.organization.id).upper(),)}
+        if has_source:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+        sourceless = Team.objects.create(organization=self.organization, name="No source")
+        config = dataclasses.replace(self._config(), **overrides)
+        team = Team.objects.get(id=self.team.id)
+
+        assert is_team_enrolled_for_read(config, team) is readable
+        assert is_team_enrolled_for_generation(config, team) is generated
+        assert (self.team.id in enrolled_team_ids(config)) is generated
+        if config.self_driving_organization_percentage and not config.organization_ids:
+            assert sourceless.id not in enrolled_team_ids(config)
+
+    @parameterized.expand([("percentage_0", 0.0, 0), ("percentage_100", 100.0, 1)])
+    def test_enrollment_counts_qualifying_organizations_apart_from_enrolled_ones(
+        self, _name: str, percentage: float, enrolled: int
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        Team.objects.create(organization=self.organization, name="No source")
+        sourceless_organization = Organization.objects.create(name="No source", is_ai_data_processing_approved=True)
+        Team.objects.create(organization=sourceless_organization, name="No source")
+
+        result = enrollment(
+            dataclasses.replace(self._config(), organization_ids=(), self_driving_organization_percentage=percentage)
+        )
+
+        assert result.qualifying_organization_ids == [self.organization.id]
+        assert result.organization_ids == [self.organization.id][:enrolled]
+        assert result.team_ids == [self.team.id][:enrolled]
+
+    def test_a_pair_is_not_updated_when_the_team_leaves_the_enrollment_before_dispatch(self) -> None:
+        self._changes(self.user, 3)
+        assert self._select() == [(self.team.id, self.user.id)]
+        denied = self._config(deny_organization_ids=(str(self.organization.id),))
+
+        with (
+            patch.object(tick, "read_config", return_value=denied),
+            patch("products.signals.backend.activity_summary.logic.gateway_client") as gateway,
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=True,
+                    capture_events=True,
+                )
+            )
+
+        assert (result.status, result.called_model) == ("skipped_not_enrolled", False)
+        gateway.assert_not_called()
+        assert not UserActivitySummary.objects.for_team(self.team.id).exists()
 
     def test_daily_usage_counts_model_calls_and_prices_a_missing_cost_at_the_bound(self) -> None:
         priced, unpriced, skipped = (self._user(f"{name}@example.com") for name in ("priced", "unpriced", "skipped"))
@@ -530,7 +743,7 @@ class TestActivitySummaryQueue(BaseTest):
                 )
             )
 
-        assert (result.status, result.called_model) == ("ok", True)
+        assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
         event = capture.call_args.kwargs
@@ -574,6 +787,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "limits": DEFAULT_LIMITS,
         "max_error_rate": 0.5,
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
+        "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -596,7 +810,9 @@ async def _run_tick(
         peak = max(peak, running)
         await asyncio.sleep(0.01)
         running -= 1
-        return ActivitySummaryPairResult(status=pair_status, cost_usd=pair_cost, called_model=True)
+        return ActivitySummaryPairResult(
+            status=pair_status, cost_usd=pair_cost, called_model=True, new_summary=input.user_id % 2 == 0
+        )
 
     @activity.defn(name="capture_activity_summary_tick_activity")
     async def fake_capture(result: ActivitySummaryTickResult) -> None:
@@ -621,24 +837,31 @@ async def _run_tick(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "plan,pair_cost,pair_status,picked,stop_reason",
+    "plan,pair_cost,pair_status,picked,stop_reason,builds",
     [
-        (_plan(5), 0.01, "ok", 5, None),
-        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY),
+        (_plan(5), 0.01, "ok", 5, None, (3, 2)),
+        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY, (2, 1)),
         # A missing cost counts at the bound, so the second wave spends the last of the budget.
-        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY),
+        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
-        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE),
+        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str, picked: int, stop_reason: str | None
+    plan: ActivitySummaryTickPlan,
+    pair_cost: float | None,
+    pair_status: str,
+    picked: int,
+    stop_reason: str | None,
+    builds: tuple[int, int],
 ) -> None:
     result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
+    assert (result.new_builds, result.refresh_builds) == builds
+    assert result.enrollment == plan.enrollment
     assert captured == [result]
 
 
