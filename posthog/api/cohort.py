@@ -1246,6 +1246,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
+        # If filters is omitted but legacy groups is provided, synthesize filters so
+        # realtime support calculation and validation can process it.
+        if not validated_data.get("filters") and validated_data.get("groups"):
+            try:
+                dummy_cohort = Cohort(groups=validated_data["groups"])
+                prop_group = dummy_cohort.properties
+                if prop_group and prop_group.values:
+                    validated_data["filters"] = {"properties": prop_group.to_dict()}
+            except Exception:
+                pass
+
         has_filter_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True

@@ -285,6 +285,24 @@ class HedgeboxMatrix(Matrix):
             team=team,
             name="Signed-up users",
             created_by=user,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "is_set",
+                                    "operator": "is_set",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
             groups=[
                 {
                     "properties": [

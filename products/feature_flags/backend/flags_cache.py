@@ -325,13 +325,26 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     are required by the Rust struct (no #[serde(default)]), so omitting them
     causes a deserialization failure.
     """
+    filters = cohort.filters
+    condition_type = cohort.condition_type
+
+    if not filters and cohort.groups:
+        try:
+            prop_group = cohort.properties
+            if prop_group and prop_group.values:
+                filters = {"properties": prop_group.to_dict()}
+                if not condition_type:
+                    condition_type = Cohort.compute_condition_type(filters)
+        except Exception:
+            pass
+
     return {
         "id": cohort.id,
         "name": cohort.name,
         "description": cohort.description,
         "team_id": cohort.team_id,
         "deleted": cohort.deleted,
-        "filters": cohort.filters,
+        "filters": filters,
         "query": cohort.query,
         "version": cohort.version,
         "pending_version": cohort.pending_version,
@@ -342,7 +355,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
-        "condition_type": cohort.condition_type,
+        "condition_type": condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),
