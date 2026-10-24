@@ -111,7 +111,9 @@ interface FunctionAggregates {
     errorLogs: LogEntry[]
 }
 
-const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
+export type TransformRecordsResult = { recordsDropped: number; recordsDroppedByFunctionId: Map<string, number> }
+
+export const ATTR_TRANSFORMATIONS_FAILED = '$transformations_failed'
 const ATTR_TRANSFORMATIONS_SKIPPED = '$transformations_skipped'
 
 /**
@@ -164,17 +166,14 @@ export class LogsTransformerService {
         teamId: number,
         records: LogRecord[],
         batchBudget?: TransformationBatchBudget
-    ): Promise<{ recordsDropped: number; recordsDroppedByFunctionId: Map<string, number> }> {
-        const recordsDroppedByFunctionId = new Map<string, number>()
-        let recordsDropped = 0
-
-        let allFunctions: HogFunctionType[]
+    ): Promise<TransformRecordsResult> {
+        let functions: HogFunctionType[]
         try {
             const functionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
                 [teamId],
                 ['transformation_log']
             )
-            allFunctions = functionsByTeam[teamId] ?? []
+            functions = functionsByTeam[teamId] ?? []
         } catch (error) {
             // Fail open like the fetch in teamHasTransformations: pass records through
             // untransformed rather than DLQ the message.
@@ -183,16 +182,21 @@ export class LogsTransformerService {
                 teamId,
                 error: String(error),
             })
-            return { recordsDropped, recordsDroppedByFunctionId }
+            return { recordsDropped: 0, recordsDroppedByFunctionId: new Map() }
         }
-        if (allFunctions.length === 0 || records.length === 0) {
-            return { recordsDropped, recordsDroppedByFunctionId }
-        }
+        return await this.transformRecordsWith(teamId, functions, records, batchBudget)
+    }
 
-        // On a sampled message the watcher reads state (to skip disabled functions) and, at the
-        // end, receives the aggregate cost. A sample rate of 0 means no Redis traffic at all.
-        const functions = allFunctions
-        if (functions.length === 0) {
+    public async transformRecordsWith(
+        teamId: number,
+        functions: HogFunctionType[],
+        records: LogRecord[],
+        batchBudget?: TransformationBatchBudget
+    ): Promise<TransformRecordsResult> {
+        const recordsDroppedByFunctionId = new Map<string, number>()
+        let recordsDropped = 0
+
+        if (functions.length === 0 || records.length === 0) {
             return { recordsDropped, recordsDroppedByFunctionId }
         }
 
