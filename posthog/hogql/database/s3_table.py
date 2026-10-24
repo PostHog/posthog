@@ -1,4 +1,6 @@
 import re
+import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal, Optional
@@ -41,6 +43,8 @@ _COMPRESSION_BY_EXTENSION = {
 }
 _URL_GLOB_CHARACTERS = frozenset("*?{}")
 _BROTLI_FILE_NAME_RE = re.compile(r"\.(?:br|brotli)(?![\w.-])", re.IGNORECASE)
+_BROTLI_EXTENSION_RE = re.compile(r"(?:br|brotli)[*?]*", re.IGNORECASE)
+_MAX_BRACE_EXPANSIONS = 1000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -131,6 +135,25 @@ def compression_for_url_pattern(url: str) -> str | None:
     return _COMPRESSION_BY_EXTENSION.get(extension.lower(), "none") if dot else "none"
 
 
+def _brace_expansions(pattern: str) -> Iterator[str]:
+    match = re.search(r"\{([^{}]*)\}", pattern)
+    if match is None:
+        yield pattern
+        return
+    for alternative in match.group(1).split(","):
+        yield from _brace_expansions(pattern[: match.start()] + alternative + pattern[match.end() :])
+
+
+def _reads_brotli_files(url: str) -> bool:
+    urls = list(itertools.islice(_brace_expansions(url), _MAX_BRACE_EXPANSIONS + 1))
+    if len(urls) > _MAX_BRACE_EXPANSIONS:
+        return _BROTLI_FILE_NAME_RE.search(url) is not None
+    return any(
+        dot and _BROTLI_EXTENSION_RE.fullmatch(extension)
+        for _, dot, extension in (expanded.rsplit("/", 1)[-1].rpartition(".") for expanded in urls)
+    )
+
+
 def build_function_call(
     url: str,
     format: str,
@@ -142,7 +165,7 @@ def build_function_call(
     table_size_mib: Optional[float] = None,
     compression: Optional[str] = None,
 ) -> str:
-    if _BROTLI_FILE_NAME_RE.search(url.rsplit("/", 1)[-1]):
+    if _reads_brotli_files(url):
         raise ExposedHogQLError(
             "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
         )
