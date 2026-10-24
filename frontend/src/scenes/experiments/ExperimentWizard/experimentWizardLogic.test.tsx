@@ -793,6 +793,23 @@ describe('experimentWizardLogic', () => {
             expect(screen.queryByText('Screenshot') !== null).toBe(shown)
             expect(screen.queryByText('Notes') !== null).toBe(shown)
         })
+
+        it('renders a variant whose key is also an object property name', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS]: 'test',
+            })
+            logic.actions.setFeatureFlagConfig({
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'constructor', rollout_percentage: 50 },
+                ],
+            })
+
+            renderVariantsStep()
+
+            expect(screen.getByDisplayValue('constructor')).toBeInTheDocument()
+            expect(screen.getAllByPlaceholderText("What's different in this variant?")).toHaveLength(2)
+        })
     })
 
     describe('auto-link guard against the shared flag-load singleton', () => {

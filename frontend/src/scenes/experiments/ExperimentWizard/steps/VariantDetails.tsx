@@ -26,18 +26,21 @@ export function useVariantDetailsColumns(): VariantColumn[] {
 
     // Both are keyed by variant key, so there's nowhere to store them until the variant has one
     const hasKey = (key: string): boolean => key.trim() !== ''
+    // Own properties only: a variant key such as `constructor` would otherwise read an inherited function
+    const noteFor = (key: string): string | undefined => (Object.hasOwn(notes, key) ? notes[key] : undefined)
+    const screenshotsFor = (key: string): string[] => (Object.hasOwn(screenshots, key) ? screenshots[key] : [])
 
     return [
         {
             key: 'screenshot',
             title: 'Screenshot',
             menuLabel: 'Add screenshot',
-            hasValue: ({ key }) => (screenshots[key]?.length ?? 0) > 0,
+            hasValue: ({ key }) => screenshotsFor(key).length > 0,
             isAvailable: ({ key }) => hasKey(key),
             render: ({ key }) =>
                 hasKey(key) ? (
                     <VariantScreenshotEditor
-                        mediaIds={screenshots[key] ?? []}
+                        mediaIds={screenshotsFor(key)}
                         onChange={(mediaIds) => setVariantScreenshots(key, mediaIds)}
                         viewerTitle={<span className="font-semibold">{key}</span>}
                         size="small"
@@ -48,14 +51,14 @@ export function useVariantDetailsColumns(): VariantColumn[] {
             key: 'notes',
             title: 'Notes',
             menuLabel: 'Add note',
-            hasValue: ({ key }) => !!notes[key]?.trim(),
+            hasValue: ({ key }) => !!noteFor(key)?.trim(),
             isAvailable: ({ key }) => hasKey(key),
             className: 'w-1/3',
             render: ({ key }) =>
                 hasKey(key) ? (
                     <LemonTextArea
                         placeholder="What's different in this variant?"
-                        value={notes[key] ?? ''}
+                        value={noteFor(key) ?? ''}
                         onChange={(value) => setVariantNote(key, value)}
                         // LemonTextArea puts className on its wrapper too, so size only the textarea
                         minRows={1}
