@@ -1163,7 +1163,7 @@ export class CdpApi {
             if (!parsed.success) {
                 return reply('invalid_request', 400, { error: parsed.error.message })
             }
-            const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
+            const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
 
             const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
             if (!team) {
@@ -1199,6 +1199,9 @@ export class CdpApi {
             const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            if (send) {
+                invocation.state.send = send
+            }
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             invocation.queue = 'email'

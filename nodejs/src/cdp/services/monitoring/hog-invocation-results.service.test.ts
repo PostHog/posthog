@@ -144,18 +144,25 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
+        const send = {
+            content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
+            tracking: { captureEngagement: false },
+        }
+        const messageData = { variables: { code: '482913' }, send }
+        const noMessageData = { variables: undefined, send: undefined }
+
         it.each([
-            ['an ordinary email', false, {}, { code: '482913' }],
-            ['a sensitive email', true, {}, undefined],
-            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            ['an ordinary email', false, {}, messageData],
+            ['a sensitive email', true, {}, noMessageData],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, noMessageData],
             [
                 'a recovery stub of an unstamped transactional run',
                 undefined,
                 { event: { event: '$transactional_email' } },
-                undefined,
+                noMessageData,
             ],
-            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
-        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
+            ['a recovery stub of an ordinary run', undefined, {}, messageData],
+        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, expected) => {
             const hogFlow =
                 sensitive === undefined
                     ? ({ id: 'flow-1' } as any)
@@ -170,7 +177,7 @@ describe('HogInvocationResultsService', () => {
                               edges: [],
                           })
                           .build()
-            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
+            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
             Object.assign(invocation.state, state, { event: { ...invocation.state.event, ...(state as any).event } })
             await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
@@ -178,7 +185,7 @@ describe('HogInvocationResultsService', () => {
                 string,
                 any
             >
-            expect(globals.variables).toEqual(variables)
+            expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
         })
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {

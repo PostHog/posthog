@@ -4,14 +4,37 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '~/cdp/types'
 
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { AcceptedSend } from './transactional-email'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
+
+const layAcceptedSendOver = (
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    send: AcceptedSend
+): HogFunctionInvocationGlobalsWithInputs => ({
+    ...globals,
+    inputs: {
+        ...globals.inputs,
+        email: {
+            ...globals.inputs.email,
+            ...(send.content && {
+                subject: send.content.subject,
+                html: send.content.html ?? '',
+                text: send.content.text ?? '',
+                preheader: '',
+            }),
+            ...(send.from && { from: { ...send.from } }),
+            ...(send.replyTo && { replyTo: send.replyTo.join(', ') }),
+        },
+    },
+})
 
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
@@ -97,10 +120,13 @@ export class HogFlowFunctionsService {
         return values
     }
 
+    // `send` is laid over the inputs only when they are first rendered, so continuations reuse it. Its
+    // capture choice goes on every build, because the email service reads it from the function's metadata.
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
+        send?: AcceptedSend
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -123,12 +149,12 @@ export class HogFlowFunctionsService {
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
-            hogFunction,
+            hogFunction: {
+                ...hogFunction,
+                metadata: { ...hogFunction.metadata, capture_engagement: send?.tracking.captureEngagement ?? null },
+            },
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-                    hogFunction,
-                    globalsWithSource
-                ),
+                globals: await this.buildInputsWithGlobals(hogFunction, globalsWithSource, send),
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
@@ -139,6 +165,15 @@ export class HogFlowFunctionsService {
         }
 
         return hogFunctionInvocation
+    }
+
+    private async buildInputsWithGlobals(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals,
+        send?: AcceptedSend
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        const rendered = await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        return send ? layAcceptedSendOver(rendered, send) : rendered
     }
 
     async execute(
