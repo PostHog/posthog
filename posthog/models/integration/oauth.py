@@ -966,6 +966,7 @@ class OauthIntegration:
         region: str | None = None,
         scopes: list[str] | None = None,
         team_id: int | None = None,
+        slack_team_id: str | None = None,
     ) -> str:
         oauth_config = cls.oauth_config_for_kind(kind, region)
         # Only the id goes into the URL, but resolving the pair keeps the "not configured" check on
@@ -1012,6 +1013,11 @@ class OauthIntegration:
                 "state": state,
                 **(oauth_config.additional_authorize_params or {}),
             }
+
+            if kind == "slack" and slack_team_id:
+                # Without a pinned workspace, Slack authorizes whichever workspace the user is signed in
+                # to, so reconnecting an older install re-authorizes a different one and never fixes it.
+                query_params["team"] = slack_team_id
 
             if oauth_config.pkce:
                 # The verifier is cached against the state token so the token exchange —
