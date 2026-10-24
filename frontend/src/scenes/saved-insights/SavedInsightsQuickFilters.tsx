@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { TagSelect } from 'lib/components/TagSelect'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -21,7 +23,7 @@ export function SavedInsightsQuickFilters({
     quickFilters: QuickFilterKind[]
     borderless: boolean
 }): JSX.Element {
-    const { favorited, tags, insightType, createdBy } = filters
+    const { favorited, tags, tagsMatch, insightType, createdBy } = filters
     const quickFilterSet = new Set(quickFilters)
 
     return (
@@ -39,6 +41,24 @@ export function SavedInsightsQuickFilters({
                         setFilters({ tags: tags.length > 0 ? tags : [] })
                         posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                     }}
+                />
+            )}
+            {quickFilterSet.has('tags') && tags && tags.length > 1 && (
+                <LemonSegmentedButton
+                    size="small"
+                    value={tagsMatch ?? 'any'}
+                    onChange={(value) => {
+                        setFilters({ tagsMatch: value === 'all' ? 'all' : undefined })
+                        posthog.capture('saved insights filtered', { filter_type: 'tags_match', value })
+                    }}
+                    options={[
+                        {
+                            value: 'any',
+                            label: 'Any tag',
+                            tooltip: 'Show insights with at least one selected tag',
+                        },
+                        { value: 'all', label: 'All tags', tooltip: 'Show insights with every selected tag' },
+                    ]}
                 />
             )}
             {quickFilterSet.has('createdBy') && (
