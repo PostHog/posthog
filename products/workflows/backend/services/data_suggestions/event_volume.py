@@ -22,6 +22,8 @@ _COUNT_TIMEOUT_SECONDS = 30
 # result, which still ranks the events and clears the minimum weekly count.
 _COUNT_MAX_BYTES = 2_000_000_000
 MAX_EVENTS = 5000
+# A share needs far fewer events than a ranking, so its scan reads about this many whatever the project's size.
+_SHARE_SAMPLE_EVENTS = 1_000_000
 # PostHog's own events that mark a real moment, unlike the generic `$` events the planner must skip.
 ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
 MOBILE_LIBS = frozenset({"posthog-ios", "posthog-android", "posthog-react-native", "posthog-flutter"})
@@ -61,6 +63,11 @@ def mobile_share(team: Team) -> float:
         """,
         placeholders={"mobile": _strings(MOBILE_LIBS), "app": _strings(MOBILE_LIBS | {"web"})},
     )
+    # The events table is sorted by event name, so a scan that stops at the read cap would count only the events
+    # early in that order. A sample keeps the scan under the cap and spreads it over every event.
+    sample_denominator = max(1, math.ceil(estimated_weekly_events(team) / 7 / _SHARE_SAMPLE_EVENTS))
+    if sample_denominator > 1 and isinstance(query, ast.SelectQuery) and query.select_from is not None:
+        query.select_from.sample = _sample(sample_denominator)
     rows = _run_count(team, query, "workflows_data_suggestions_mobile_share").results or []
     if not rows or not rows[0][1]:
         return 0.0

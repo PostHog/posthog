@@ -343,7 +343,12 @@ def run_build(
                 result = _BUILD_FAILED
             else:
                 result, validated = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
+                    team=team,
+                    user=user,
+                    suggestion=suggestion,
+                    events=cached.events,
+                    mobile_first=cached.mobile_first,
+                    validate_draft=validate_draft,
                 )
                 # A task that outlived its lock would save a second draft next to the newer run's draft.
                 if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
@@ -383,7 +388,12 @@ def prepare_premade_ideas(
     for suggestion in result.suggestions:
         try:
             build, _ = _plan_and_build(
-                team=team, user=user, suggestion=suggestion, events=result.events, validate_draft=validate_draft
+                team=team,
+                user=user,
+                suggestion=suggestion,
+                events=result.events,
+                mobile_first=result.mobile_first,
+                validate_draft=validate_draft,
             )
         except Exception as error:
             logger.exception("workflows.data_suggestions.prepare_build_failed", team_id=team.id)
@@ -401,6 +411,7 @@ def _plan_and_build(
     user: User,
     suggestion: DataSuggestion,
     events: tuple[str, ...],
+    mobile_first: bool,
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
 ) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
@@ -413,7 +424,7 @@ def _plan_and_build(
     email_templates = team_context.email_templates(team)
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
-    channels, mobile_first = _offered_channels(team)
+    channels = _offered_channels(team, mobile_first)
     event_properties = team_context.event_property_names(team, suggestion.trigger_event)
     context = BuildContext(
         allowed_events=frozenset({suggestion.trigger_event, *events}),
@@ -487,13 +498,12 @@ def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggesti
     return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
 
 
-def _offered_channels(team: Team) -> tuple[frozenset[Channel], bool]:
-    """The channels a plan may use, and whether the project's people are mostly on its mobile app. A mobile-first
-    project gets push even before it connects a provider, and the step's note asks the team to connect one."""
+def _offered_channels(team: Team, mobile_first: bool) -> frozenset[Channel]:
+    """The channels a plan may use. A mobile-first project gets push even before it connects a provider, and the
+    step's note asks the team to connect one."""
     connected = team_context.channels(team)
-    mobile_first = mobile_share(team) >= _MOBILE_FIRST_SHARE
     push: frozenset[Channel] = frozenset({"push"})
-    return (connected | push if mobile_first else connected), mobile_first
+    return connected | push if mobile_first else connected
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
@@ -627,6 +637,8 @@ def _read_cache(team: Team) -> DataSuggestionsResult | None:
                 for item in stored["suggestions"]
             ),
             events=tuple(stored["events"]),
+            # Cards cached before the share was stored were made without push, so their builds stay without it.
+            mobile_first=bool(stored.get("mobile_first", False)),
         )
     except (KeyError, TypeError):
         # An entry from before a field change is treated as missing, so the next visit generates new cards.
@@ -684,7 +696,8 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}
-    channels, mobile_first = _offered_channels(team)
+    mobile_first = mobile_share(team) >= _MOBILE_FIRST_SHARE
+    channels = _offered_channels(team, mobile_first)
     ideas = suggest_ideas(
         team=team,
         user=user,
@@ -728,4 +741,5 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),
         events=planning_events,
+        mobile_first=mobile_first,
     )

@@ -544,6 +544,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows", {**build["workflow"], "status": "draft"}, format="json"
         )
         assert create.status_code == 201, create.json()
+        enable = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}", {"status": "active"}, format="json"
+        )
+        assert enable.status_code == (200 if provider else 400), enable.json()
 
     def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self) -> None:
         built = build_workflow(
