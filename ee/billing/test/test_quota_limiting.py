@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import BaseTest, FuzzyInt, _create_event, flush_persons_and_events
-from unittest.mock import ANY, patch
+from unittest.mock import patch
 
 from django.apps import apps
 from django.db import DatabaseError
@@ -21,7 +21,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.test.fixtures import create_app_metric2
-from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
 
 from ee.billing.quota_limiting import (
     INFORMATIONAL_USAGE_RESOURCES,
@@ -120,29 +119,11 @@ class TestQuotaLimiting(BaseTest):
         flush_persons_and_events()
 
         with (
-            self.settings(USAGE_COUNTER_REALTIME_MODES="events:both"),
-            patch(
-                "posthog.tasks.usage_report.get_usage_records_in_period",
-                return_value=UsageRecordTotals(
-                    totals=[
-                        UsageRecordTotal(team_id=self.team.id, organization_id=org_id, usage_key="events", quantity=3)
-                    ]
-                ),
-            ),
-            patch("posthog.usage_counters.logger.info") as counter_log,
+            self.settings(USAGE_COUNTER_REALTIME_MODES="events:realtime"),
+            patch("posthog.tasks.usage_report.get_usage_records_in_period") as records,
         ):
             result = self._run_quota_limiting()
-        counter_log.assert_any_call(
-            "usage_counter_comparison",
-            caller="quota_limiting",
-            date="2021-01-25",
-            counter="event_count_in_period",
-            source="both",
-            legacy=ANY,
-            realtime=3,
-            differing_teams=ANY,
-            absolute_difference=ANY,
-        )
+        records.assert_not_called()
         # feature_enabled will be called for AI billing check and then for data retention flag
         patch_feature_enabled.assert_any_call(
             QUOTA_LIMIT_DATA_RETENTION_FLAG,

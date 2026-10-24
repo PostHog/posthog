@@ -3059,15 +3059,13 @@ def get_usage_records_in_period(
     )
 
 
-def _get_all_usage_data(
-    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
-) -> dict[str, Any]:
+def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
     we count across all teams rather than doing it one by one
     """
 
-    counter_report = counter_report or UsageCounterService().fetch_report(DayRange(start=period_start, end=period_end))
+    counter_report = UsageCounterService().fetch_report(DayRange(start=period_start, end=period_end))
     all_metrics = get_all_event_metrics_in_period(period_start, period_end)
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     logs_records_rows = get_teams_with_logs_records_in_period(period_start, period_end)
@@ -3298,14 +3296,12 @@ def _get_all_usage_data(
     }
 
 
-def _get_all_usage_data_as_team_rows(
-    period_start: datetime, period_end: datetime, counter_report: UsageCounterReport | None = None
-) -> dict[str, Any]:
+def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period as a map of team_id -> value. This makes it faster
     to access the data than looping over all_data to find what we want.
     """
-    all_data = _get_all_usage_data(period_start, period_end, counter_report)
+    all_data = _get_all_usage_data(period_start, period_end)
     # convert it to a map of team_id -> value
     for key, rows in all_data.items():
         all_data[key] = convert_team_usage_rows_to_dict(rows)
@@ -3626,10 +3622,10 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
+def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
     org_reports: dict[str, OrgReport] = {}
     teams_count = 0
@@ -3683,22 +3679,6 @@ def _usage_counter_diagnostic_batches(
         size += entry_size
     if batch:
         yield batch
-
-
-def apply_usage_counter_metadata(
-    org_reports: dict[str, OrgReport],
-    counter_report: UsageCounterReport,
-    *,
-    caller: UsageCounterCaller,
-    date: str,
-    organization_ids: list[str] | None = None,
-) -> None:
-    if not counter_report.usage_sources:
-        return
-    for _ in iter_reports_with_usage_counter_metadata(
-        org_reports.values(), counter_report, caller=caller, date=date, organization_ids=organization_ids
-    ):
-        pass
 
 
 def iter_reports_with_usage_counter_metadata(
@@ -3853,10 +3833,7 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    service = UsageCounterService()
-    plan = service.resolve_plan(period, caller="daily_report", complete=True)
-    counter_report = service.fetch_report(period, plan=plan)
-    org_reports = _get_all_org_reports(period=period, counter_report=counter_report)
+    org_reports = _get_all_org_reports(period=period)
 
     if organization_ids:
         original_count = len(org_reports)
@@ -3874,14 +3851,6 @@ def send_all_org_usage_reports(
     if organization_ids:
         filtering_properties["requested_org_count"] = len(organization_ids)
         filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
-
-    apply_usage_counter_metadata(
-        org_reports,
-        counter_report,
-        caller="daily_report",
-        date=period.start.strftime("%Y-%m-%d"),
-        organization_ids=organization_ids,
-    )
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")

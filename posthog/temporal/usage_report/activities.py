@@ -86,7 +86,6 @@ SQS_QUEUE_NAME = "usage_reports_v2"
 async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
     return await sync_to_async(UsageCounterService().resolve_plan, thread_sensitive=False)(
         DayRange(start=ctx.period_start, end=ctx.period_end),
-        caller="usage_reports_v2",
         complete=ctx.report_completeness == "complete",
     )
 

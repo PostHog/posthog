@@ -65,7 +65,6 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
-    apply_usage_counter_metadata,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -81,6 +80,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
     iter_billable_teams,
+    iter_reports_with_usage_counter_metadata,
     send_all_org_usage_reports,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -3428,15 +3428,17 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             records,
         )
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
-            plan = UsageCounterService().resolve_plan(period, caller="daily_report", complete=True)
+            plan = UsageCounterService().resolve_plan(period, complete=True)
         counter_report = UsageCounterService().fetch_report(period, plan=plan)
         assert counter_report.counter_comparisons is not None
         assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
             3: {str(self.org_1.id): 7},
             4: {str(self.org_1.id): 3},
         }
-        apply_usage_counter_metadata(
-            all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
+        list(
+            iter_reports_with_usage_counter_metadata(
+                all_reports.values(), counter_report, caller="usage_reports_v2", date=period.start.date().isoformat()
+            )
         )
         with_shadow = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))

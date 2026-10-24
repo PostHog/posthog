@@ -21,7 +21,6 @@ from posthog.tasks.usage_report import (
     InstanceMetadata,
     OrgReport,
     UsageReportCounters,
-    apply_usage_counter_metadata,
     iter_reports_with_usage_counter_metadata,
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
@@ -191,7 +190,6 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
         with patch("posthoganalytics.get_feature_flag", return_value="both"):
             ctx.usage_counter_plan = UsageCounterService().resolve_plan(
                 DayRange(start=ctx.period_start, end=ctx.period_end),
-                caller="usage_reports_v2",
                 complete=ctx.report_completeness == "complete",
             )
     result = RunQueryToS3Result(query_name="usage_counters", s3_key="shadow.json", duration_ms=1)
@@ -221,7 +219,9 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
             assert counter_report.counts == {"teams_with_cdp_billable_invocations_in_period": [(1, 12)]}
     org = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
     org.teams["1"] = _empty_org_report("org-a", cdp_billable_invocations_in_period=12)
-    apply_usage_counter_metadata({"org-a": org}, counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    assert list(
+        iter_reports_with_usage_counter_metadata([org], counter_report, caller="usage_reports_v2", date=ctx.date_str)
+    ) == [org]
     assert org.cdp_billable_invocations_in_period == 12
     if state == "legacy":
         assert org.usage_sources is None
@@ -234,8 +234,7 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
     )
 
 
-@pytest.mark.parametrize("streamed", [False, True])
-def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> None:
+def test_counter_comparisons_follow_current_team_ownership() -> None:
     previous_owner = _empty_org_report("org-a")
     previous_owner.teams["1"] = _empty_org_report("org-a")
     current_owner = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
@@ -251,19 +250,11 @@ def test_counter_comparisons_follow_current_team_ownership(streamed: bool) -> No
     )
 
     with patch("posthog.tasks.usage_report.ph_scoped_capture") as capture:
-        if streamed:
-            assert list(
-                iter_reports_with_usage_counter_metadata(
-                    iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
-                )
-            ) == [previous_owner, current_owner]
-        else:
-            apply_usage_counter_metadata(
-                {"org-a": previous_owner, "org-b": current_owner},
-                counter_report,
-                caller="daily_report",
-                date="2026-05-04",
+        assert list(
+            iter_reports_with_usage_counter_metadata(
+                iter((previous_owner, current_owner)), counter_report, caller="usage_reports_v2", date="2026-05-04"
             )
+        ) == [previous_owner, current_owner]
 
     assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
     assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
@@ -312,7 +303,10 @@ def test_missing_organization_diagnostics_split_without_losing_comparisons() -> 
         },
     )
     with patch("posthog.tasks.usage_report.ph_scoped_capture") as scoped:
-        apply_usage_counter_metadata({}, report, caller="daily_report", date="2026-05-04")
+        assert (
+            list(iter_reports_with_usage_counter_metadata([], report, caller="usage_reports_v2", date="2026-05-04"))
+            == []
+        )
     calls = scoped.return_value.__enter__.return_value.call_args_list
     assert len(calls) > 1
     recovered: dict[str, dict[str, UsageCounterComparison]] = {}

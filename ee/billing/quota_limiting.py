@@ -38,7 +38,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_apm_tracing_usage_in_period,
     iter_billable_teams,
 )
-from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
+from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan, UsageCounterService
 from posthog.utils import get_current_day
 
 from ee.billing.quota_usage import QuotaUsageBatch, retry_quota_database_operation
@@ -1315,30 +1315,32 @@ def update_all_orgs_billing_quotas(
     total_start = time()
     period = get_current_day()
     service = UsageCounterService()
-    plan = service.resolve_plan(
-        period,
+    plan = UsageCounterPlan(
+        period=period,
         caller="quota_limiting",
-        complete=False,
-        counters=(
-            UsageCounter.EVENTS,
-            UsageCounter.EXCEPTIONS,
-            UsageCounter.RECORDINGS,
-            UsageCounter.FEATURE_FLAG_REQUESTS,
-            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
-            UsageCounter.CDP_INVOCATIONS,
-            UsageCounter.SURVEY_RESPONSES,
-            UsageCounter.AI_EVENTS,
-            UsageCounter.WORKFLOW_EMAILS,
-            UsageCounter.WORKFLOW_PUSH,
-            UsageCounter.WORKFLOW_INVOCATIONS,
-            UsageCounter.ROWS_SYNCED,
-            UsageCounter.ROWS_EXPORTED,
-            UsageCounter.LOGS_BYTES,
-            UsageCounter.AI_CREDITS,
-            UsageCounter.SIGNALS_CREDITS,
-            UsageCounter.POSTHOG_CODE_CREDITS,
-            UsageCounter.SANDBOX_COMPUTE_CREDITS,
-            UsageCounter.REPLAY_VISION_CREDITS,
+        modes=dict.fromkeys(
+            (
+                UsageCounter.EVENTS,
+                UsageCounter.EXCEPTIONS,
+                UsageCounter.RECORDINGS,
+                UsageCounter.FEATURE_FLAG_REQUESTS,
+                UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+                UsageCounter.CDP_INVOCATIONS,
+                UsageCounter.SURVEY_RESPONSES,
+                UsageCounter.AI_EVENTS,
+                UsageCounter.WORKFLOW_EMAILS,
+                UsageCounter.WORKFLOW_PUSH,
+                UsageCounter.WORKFLOW_INVOCATIONS,
+                UsageCounter.ROWS_SYNCED,
+                UsageCounter.ROWS_EXPORTED,
+                UsageCounter.LOGS_BYTES,
+                UsageCounter.AI_CREDITS,
+                UsageCounter.SIGNALS_CREDITS,
+                UsageCounter.POSTHOG_CODE_CREDITS,
+                UsageCounter.SANDBOX_COMPUTE_CREDITS,
+                UsageCounter.REPLAY_VISION_CREDITS,
+            ),
+            UsageCounterMode.LEGACY,
         ),
     )
 
@@ -1346,7 +1348,6 @@ def update_all_orgs_billing_quotas(
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
-    log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
