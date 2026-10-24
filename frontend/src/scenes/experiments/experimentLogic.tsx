@@ -1975,7 +1975,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {
-                cohortsModel.actions.cohortCreated(exposureCohort)
+                cohortsModel.findMounted()?.actions.cohortCreated(exposureCohort)
                 actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
                 actions.setExperiment({ exposure_cohort: exposureCohort.id })
                 lemonToast.success('Exposure cohort created successfully', {
