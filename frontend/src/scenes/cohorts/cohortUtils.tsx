@@ -33,6 +33,7 @@ import {
     PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
+    PreflightStatus,
     PropertyType,
     TimeUnitType,
 } from '~/types'
@@ -126,6 +127,21 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
         (criteria.matchType === PROPERTY_MATCH_TYPE && !criteria.properties?.length) ||
         (criteria.matchType === ENTITY_MATCH_TYPE && !(criteria.action_id || criteria.event_id))
     )
+}
+
+// Mirrors the COHORT_CSV_UPLOAD_MAX_BYTES default, for when preflight has not loaded.
+const DEFAULT_COHORT_CSV_MAX_BYTES = 20 * 1024 * 1024
+
+export function cohortCsvMaxBytes(preflight: PreflightStatus | null | undefined): number {
+    return preflight?.cohort_csv_upload_max_bytes ?? DEFAULT_COHORT_CSV_MAX_BYTES
+}
+
+export function formatCohortCsvLimit(maxBytes: number): string {
+    return `${Math.round((maxBytes / (1024 * 1024)) * 10) / 10} MB`
+}
+
+export function cohortCsvTooLargeMessage(maxBytes: number): string {
+    return `CSV file is larger than the limit of ${formatCohortCsvLimit(maxBytes)}. Split the file into smaller parts and upload them one at a time.`
 }
 
 export function createCohortFormData(
