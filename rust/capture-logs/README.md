@@ -175,6 +175,8 @@ A customer creates a Firehose stream with this URL as its HTTP endpoint and the 
 - Row mapping: `body` = message; `timestamp` = the event timestamp; `service.name` is inferred from the log group (`/aws/lambda/<fn>` → `<fn>`, `/aws/rds/instance/<id>/...` → `<id>`, else the group name) unless a Firehose common attribute `service.name` is set.
   Resource attributes are `cloud.provider=aws`, `cloud.account.id`, `cloud.region` (from `X-Amz-Firehose-Source-Arn`), `aws.log.group.name`, `aws.log.stream.name`, plus any common attributes; the AWS facts win over a common attribute of the same name.
   Severity comes from a JSON `level`/`severity` key or a leading `ERROR`/`WARN`/`INFO`/`DEBUG` token, else `info`.
+  A JSON message with a hex `trace_id`/`traceId` (32 characters) or `span_id`/`spanId` (16 characters) fills the `trace_id` and `span_id` columns, so the log links to its span.
+  The message stays unchanged in `body`. A plain-text message, a missing key, or an id that is not valid hex of the right length leaves the id empty.
 - Rows are chunked into Kafka messages sized at half the producer's `message.max.bytes`, because a decoded Firehose request can be far larger than one message.
   Batches are produced concurrently.
   Delivery is at-least-once: a Kafka failure returns 500, Firehose redelivers the whole request with the same request id, and the batches already produced are duplicated.
