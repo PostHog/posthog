@@ -2,7 +2,7 @@ import io
 import gzip
 import datetime as dt
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote
 
 import pytest
@@ -80,7 +80,12 @@ def s3_error(code: str, status: int, headers: Mapping[str, str] | None = None) -
     )
 
 
-def parquet_file(rows: list[dict[str, Any]], compression: str | dict[str, str] = "snappy") -> ScriptedResponse:
+ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
+
+
+def parquet_file(
+    rows: list[dict[str, Any]], compression: ParquetCompression | dict[str, ParquetCompression] = "snappy"
+) -> ScriptedResponse:
     table = pa.table(
         {
             "identity_line_item_id": [row["id"] for row in rows],
@@ -319,7 +324,7 @@ class TestSync:
                         json={"dataFiles": [key]}
                     ),
                     key: parquet_file(
-                        [{"id": "x", "cost": 1.0, "tags": None}], compression={"line_item_unblended_cost": "BROTLI"}
+                        [{"id": "x", "cost": 1.0, "tags": None}], compression={"line_item_unblended_cost": "brotli"}
                     ),
                 },
             ),

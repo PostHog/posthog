@@ -632,7 +632,7 @@ class TestReadTable:
         pq.write_table(
             pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
             buffer,
-            compression={"id": "SNAPPY", "note": "BROTLI"},
+            compression={"id": "snappy", "note": "brotli"},
         )
         content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
 
