@@ -34,9 +34,11 @@ from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
+from confluent_kafka import KafkaException
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import Team
@@ -94,9 +96,16 @@ class PerSourceResult:
     existing: int = 0
     produced: int = 0
     skipped_missing_person: int = 0
+    # Intents Kafka did not confirm. They are left out of the snapshot so a retry sends them again.
+    undelivered: int = 0
     # Set when the source can't write anything for a reason its counts alone don't explain, so the
     # recorder persists a failed run instead of a clean one that produced nothing.
     error: str | None = None
+
+
+class PropertyUpdatesNotDeliveredError(Exception):
+    """Kafka did not confirm some property-update intents. Raised so the run fails and Temporal retries
+    it. The snapshot holds only confirmed intents, so the retry sends only the undelivered ones."""
 
 
 @dataclasses.dataclass
@@ -373,12 +382,13 @@ def _produce_intents(
     *,
     team_uuid: str,
     group_type_name: str | None,
-) -> int:
+) -> set[str]:
     """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
     by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
-    per-group ordering is preserved. The consumer branches on ``kind``. Returns the count produced."""
+    per-group ordering is preserved. The consumer branches on ``kind``. Returns the keys Kafka
+    confirmed as delivered."""
     is_group = source.target == _GROUP_TARGET
-    produced = 0
+    results: list[tuple[str, ProduceResult]] = []
     with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
         for key, bundle in items:
             if is_group:
@@ -405,9 +415,19 @@ def _produce_intents(
                     "event_source": EVENT_SOURCE,
                 }
                 kafka_key = f"{team_id}:{key}"
-            producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key)
-            produced += 1
-    return produced
+            results.append(
+                (key, producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key))
+            )
+    # The scope flushes on exit. flush() counts only messages still queued, and a failed delivery
+    # leaves the queue, so only each message's result shows whether Kafka accepted it.
+    delivered: set[str] = set()
+    for key, result in results:
+        try:
+            result.get(timeout=0)
+        except (KafkaException, TimeoutError):
+            continue
+        delivered.add(key)
+    return delivered
 
 
 def _reconcile_property_definitions(
@@ -494,14 +514,15 @@ async def _process_source_bundles(
                 group_type_index=source.group_type_index,
             )
             return ps
-    produced = await asyncio.to_thread(
+    delivered = await asyncio.to_thread(
         _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
     )
-    ps.produced = produced
+    ps.produced = len(delivered)
+    ps.undelivered = len(to_send) - ps.produced
 
-    # Record only the distinct_ids we actually produced, as this run's snapshot file.
-    sent_ids = {distinct_id for distinct_id, _ in to_send}
-    produced_hashes = {d: h for d, h in new_hashes.items() if d in sent_ids}
+    # Record only the distinct_ids Kafka confirmed, as this run's snapshot file. An undelivered id
+    # stays out, so the next diff sees it as changed and sends it again.
+    produced_hashes = {d: h for d, h in new_hashes.items() if d in delivered}
     await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, produced_hashes)
 
     logger.info(
@@ -512,7 +533,8 @@ async def _process_source_bundles(
         bundles=len(bundles),
         changed=len(changed),
         existing=len(to_send),
-        produced=produced,
+        produced=ps.produced,
+        undelivered=ps.undelivered,
     )
     return ps
 
@@ -523,6 +545,15 @@ def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.existing += ps.existing
     result.produced += ps.produced
     result.skipped_missing_person += ps.skipped_missing_person
+
+
+def _raise_if_undelivered(result: SyncResult) -> None:
+    undelivered = sum(ps.undelivered for ps in result.per_source)
+    if undelivered:
+        raise PropertyUpdatesNotDeliveredError(
+            f"Kafka did not confirm {undelivered} of {undelivered + result.produced} property updates. "
+            "A retry sends the undelivered updates again."
+        )
 
 
 async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, job_id: str) -> SyncResult:
@@ -565,6 +596,8 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
         )
         _accumulate(result, ps)
 
+    # Raise before the staged rows are cleared, so the retry can read them again.
+    _raise_if_undelivered(result)
     await _clear_staged(team_id, binding, job_id)
     return result
 
@@ -739,6 +772,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         )
         _accumulate(result, ps)
 
+    _raise_if_undelivered(result)
     return result
 
 

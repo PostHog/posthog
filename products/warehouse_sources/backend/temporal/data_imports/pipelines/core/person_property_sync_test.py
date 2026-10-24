@@ -11,8 +11,10 @@ from django.db.models import Q
 from django.test import TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 
+from confluent_kafka import KafkaError
 from parameterized import parameterized
 
+from posthog.kafka_client.client import ProduceResult
 from posthog.models import Organization, PropertyDefinition, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -152,9 +154,9 @@ class TestRunOrchestration:
             {"distinct_id": "ghost", "plan": "x"},
         ]
 
-        def _record_produce(*_args: object, **_kwargs: object) -> int:
+        def _record_produce(*_args: object, **_kwargs: object) -> set[str]:
             order.append("produce")
-            return 2
+            return {"a", "b"}
 
         with (
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
@@ -196,6 +198,29 @@ class TestRunOrchestration:
         reconcile.assert_called_once()
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot"]
+
+    @pytest.mark.asyncio
+    async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self):
+        team = MagicMock(api_token="tok", project_id=7)
+        rows = [{"distinct_id": "a", "plan": "pro"}, {"distinct_id": "b", "plan": "free"}]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}),
+            patch(f"{_MODULE}._produce_intents", return_value={"a"}),
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
+        ):
+            team_cls.objects.get.return_value = team
+            with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
+                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert write_snapshot.await_args is not None
+        assert set(write_snapshot.await_args.args[4]) == {"a"}
+        clear.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_no_sources_is_a_noop(self):
@@ -330,7 +355,7 @@ class TestBackfillOrchestration:
             ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
-            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._produce_intents", return_value={"a"}) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
@@ -558,7 +583,14 @@ class TestGroupTarget:
     def test_produce_intents_group_payload(self):
         captured: list[dict] = []
         producer = MagicMock()
-        producer.produce.side_effect = lambda **kw: captured.append(kw)
+
+        def _produce(**kw: object) -> ProduceResult:
+            captured.append(kw)
+            result = ProduceResult(topic="t")
+            result.set_result(None, None)
+            return result
+
+        producer.produce.side_effect = _produce
         with patch(f"{_MODULE}.producer_scope") as producer_scope:
             producer_scope.return_value.__enter__.return_value = producer
             produced = pps._produce_intents(
@@ -569,7 +601,7 @@ class TestGroupTarget:
                 team_uuid="team-uuid",
                 group_type_name="organization",
             )
-        assert produced == 1
+        assert produced == {"acme"}
         data = captured[0]["data"]
         assert data["kind"] == "group"
         assert data["group_type"] == "organization"
@@ -578,6 +610,31 @@ class TestGroupTarget:
         assert data["properties"] == {"tier": "pro"}
         # keyed per (team, group_type_index, group_key) so per-group ordering is preserved
         assert captured[0]["key"] == "1:0:acme"
+
+    @parameterized.expand([("delivery_error", KafkaError(-192, "Local: Message timed out")), ("never_acked", None)])
+    def test_produce_intents_returns_only_confirmed_keys(self, _name: str, failure: KafkaError | None) -> None:
+        def _produce(**kw: object) -> ProduceResult:
+            result = ProduceResult(topic="t")
+            if kw["key"] == "1:ok":
+                result.set_result(None, None)
+            elif failure is not None:
+                result.set_result(failure, None)
+            return result
+
+        producer = MagicMock()
+        producer.produce.side_effect = _produce
+        source = PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})
+        with patch(f"{_MODULE}.producer_scope") as producer_scope:
+            producer_scope.return_value.__enter__.return_value = producer
+            delivered = pps._produce_intents(
+                1,
+                "tok",
+                source,
+                [("ok", {"plan_tier": "pro"}), ("lost", {"plan_tier": "free"})],
+                team_uuid="team-uuid",
+                group_type_name=None,
+            )
+        assert delivered == {"ok"}
 
     def test_filter_existing_ids_uses_group_lookup(self):
         group = MagicMock(group_key="acme")
@@ -599,7 +656,7 @@ class TestGroupTarget:
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
             patch(f"{_MODULE}._group_type_name", return_value=None),
-            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._produce_intents", return_value={"acme"}) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()) as write_snapshot,
             patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
@@ -630,7 +687,7 @@ class TestGroupTarget:
                 f"{_MODULE}.get_group_types_for_project",
                 side_effect=lambda project_id, **_kwargs: by_project.get(project_id, []),
             ) as lookup,
-            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._produce_intents", return_value={"acme"}) as produce,
             patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
             patch(f"{_MODULE}._reconcile_property_definitions"),
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
