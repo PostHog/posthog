@@ -545,13 +545,13 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         first = _create_person(
             team=self.team,
             distinct_ids=["first"],
-            properties={"email": "first@example.com", "birth_date": "2000-01-01"},
+            properties={"email": "first@example.com", "app_version": "1.2.4", "birth_date": "2000-01-01"},
             immediate=True,
         )
         second = _create_person(
             team=self.team,
             distinct_ids=["second"],
-            properties={"email": "second@example.org"},
+            properties={"email": "second@example.org", "app_version": "2.0.0"},
             immediate=True,
         )
         flush_persons_and_events()
@@ -561,6 +561,15 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             ("email", "not_starts_with", "first", second),
             ("email", "ends_with", ".org", second),
             ("email", "not_ends_with", ".org", first),
+            ("app_version", "semver_eq", "1.2.4", first),
+            ("app_version", "semver_neq", "1.2.4", second),
+            ("app_version", "semver_gt", "1.2.4", second),
+            ("app_version", "semver_gte", "2.0.0", second),
+            ("app_version", "semver_lt", "2.0.0", first),
+            ("app_version", "semver_lte", "1.2.4", first),
+            ("app_version", "semver_tilde", "1.2.3", first),
+            ("app_version", "semver_caret", "1.2.3", first),
+            ("app_version", "semver_wildcard", "2.*", second),
             ("birth_date", "is_set", None, first),
             ("birth_date", "is_not_set", None, second),
         ):

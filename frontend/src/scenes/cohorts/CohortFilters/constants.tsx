@@ -350,6 +350,33 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [PropertyOperator.Maximum]: {
                 label: 'maximum',
             },
+            [PropertyOperator.SemverEq]: {
+                label: 'equals (semver)',
+            },
+            [PropertyOperator.SemverNeq]: {
+                label: 'does not equal (semver)',
+            },
+            [PropertyOperator.SemverGt]: {
+                label: 'greater than (semver)',
+            },
+            [PropertyOperator.SemverGte]: {
+                label: 'greater than or equal (semver)',
+            },
+            [PropertyOperator.SemverLt]: {
+                label: 'less than (semver)',
+            },
+            [PropertyOperator.SemverLte]: {
+                label: 'less than or equal (semver)',
+            },
+            [PropertyOperator.SemverTilde]: {
+                label: 'tilde range (semver)',
+            },
+            [PropertyOperator.SemverCaret]: {
+                label: 'caret range (semver)',
+            },
+            [PropertyOperator.SemverWildcard]: {
+                label: 'wildcard (semver)',
+            },
         },
     },
     [FieldOptionsType.EventsAndActionsMathOperators]: {
