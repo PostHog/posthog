@@ -1155,7 +1155,7 @@
   , _partition UInt64
   
   )
-  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
+  ENGINE=Distributed('aux', 'posthog_test', 'sharded_app_metrics2', rand())
   
   '''
 # ---
@@ -7724,9 +7724,9 @@
   , _offset UInt64
   , _partition UInt64
   
+      , INDEX timestamp_minmax timestamp TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
-  PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
   
   
@@ -10400,7 +10400,7 @@
   , _partition UInt64
   
   )
-  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
+  ENGINE=Distributed('aux', 'posthog_test', 'sharded_app_metrics2', rand())
   
   '''
 # ---
@@ -13585,9 +13585,9 @@
   , _offset UInt64
   , _partition UInt64
   
+      , INDEX timestamp_minmax timestamp TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics2', '{replica}')
-  PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name)
   
   

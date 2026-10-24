@@ -50,15 +50,18 @@ BASE_APP_METRICS2_COLUMNS = """
 # we need to revisit producers (e.g. the webhook service currently known as rusty-hook or pgqueue).
 APP_METRICS2_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
+# The table has no partition key. The logs and traces consumers write retention_byte_days rows
+# dated months and years ahead, so a monthly partition key splits every insert into one part per
+# future month. The minmax index on timestamp lets timestamp filters skip granules instead.
 APP_METRICS2_DATA_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS2_SHARDED_TABLE}
 (
     {BASE_APP_METRICS2_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
+    , INDEX timestamp_minmax timestamp TYPE minmax GRANULARITY 1
 )
 ENGINE = {APP_METRICS2_SHARDED_TABLE_ENGINE()}
-PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_kind, metric_name)
 {ttl_period("timestamp", APP_METRICS2_TTL_DAYS, unit="DAY")}
 """
@@ -71,7 +74,7 @@ CREATE TABLE IF NOT EXISTS {APP_METRICS2_TABLE}
     {BASE_APP_METRICS2_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()")}
+ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()", cluster=settings.CLICKHOUSE_AUX_CLUSTER)}
 """
 )
 
@@ -82,7 +85,7 @@ CREATE TABLE IF NOT EXISTS {APP_METRICS2_WRITABLE_TABLE}
     {BASE_APP_METRICS2_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()")}
+ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()", cluster=settings.CLICKHOUSE_AUX_CLUSTER)}
 """
 )
 
@@ -154,6 +157,7 @@ ENGINE={
             named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
         )
     }
+SETTINGS kafka_max_block_size = 300000, kafka_poll_max_batch_size = 300000, kafka_poll_timeout_ms = 10000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1, kafka_thread_per_consumer = 1
 """
 )
 

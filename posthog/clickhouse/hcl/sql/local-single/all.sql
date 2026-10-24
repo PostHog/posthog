@@ -305,7 +305,7 @@ CREATE TABLE posthog.kafka_app_metrics2_ws (
   metric_kind String,
   metric_name String,
   count Int64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_topic_list = 'clickhouse_app_metrics2';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_max_block_size = 300000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 300000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_app_metrics2';
 CREATE TABLE posthog.kafka_billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -1888,8 +1888,9 @@ CREATE TABLE posthog.sharded_app_metrics2 (
   count SimpleAggregateFunction(sum, Int64),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+  _partition UInt64,
+  INDEX timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -3597,7 +3598,7 @@ CREATE TABLE posthog.writable_app_metrics2 (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.writable_billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -6260,7 +6261,7 @@ CREATE TABLE posthog.app_metrics2 (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.billing_usage_records (
   schema_version UInt8,
   record_id String,

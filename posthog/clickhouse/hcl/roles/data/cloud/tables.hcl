@@ -470,6 +470,54 @@ database "posthog" {
     }
   }
 
+  # Readers and writers use the aux copy of sharded_app_metrics2. The cloud data nodes still
+  # hold this main-cluster copy, so it stays declared here until it is dropped.
+  table "sharded_app_metrics2" {
+    order_by     = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
+    partition_by = "toYYYYMM(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "app_source" {
+      type = "LowCardinality(String)"
+    }
+    column "app_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "metric_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
+      replica_name = "{replica}"
+    }
+  }
+
   table "web_pre_aggregated_bounces" {
     override = true
     order_by     = ["team_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid"]

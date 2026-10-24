@@ -20,7 +20,7 @@ CREATE TABLE posthog.kafka_app_metrics2_ws (
   metric_kind String,
   metric_name String,
   count Int64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_topic_list = 'clickhouse_app_metrics2';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_app_metrics2_ws', kafka_max_block_size = 300000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 300000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_app_metrics2';
 CREATE TABLE posthog.kafka_cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -312,7 +312,7 @@ CREATE TABLE posthog.writable_app_metrics2 (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.writable_cohort_membership (
   team_id Int64,
   cohort_id Int64,

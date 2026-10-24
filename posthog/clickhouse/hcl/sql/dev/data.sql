@@ -2675,7 +2675,7 @@ CREATE TABLE posthog.app_metrics2 (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.billing_usage_records (
   schema_version UInt8,
   record_id String,

@@ -2880,7 +2880,7 @@ CREATE TABLE posthog.app_metrics2 (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,

@@ -338,7 +338,7 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
@@ -2637,10 +2637,17 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_app_metrics2"
-      group_name = "clickhouse_app_metrics2_ws"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_app_metrics2"
+      group_name           = "clickhouse_app_metrics2_ws"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 300000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 300000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
     }
   }
 
@@ -10716,9 +10723,8 @@ SQL
   }
 
   table "sharded_app_metrics2" {
-    order_by     = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
-    partition_by = "toYYYYMM(timestamp)"
-    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    order_by = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
+    ttl      = "toDate(timestamp) + toIntervalDay(90)"
     settings = {
       index_granularity = "8192"
     }
@@ -10754,6 +10760,11 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+    index "timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
@@ -16756,7 +16767,7 @@ SQL
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
