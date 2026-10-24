@@ -114,32 +114,39 @@ class EmailIntegration:
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
-        # Only name, mail_from_subdomain and reply_to can be updated
+        # Only name, mail_from_subdomain, reply_to and setup_method can be updated
         name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
         )
 
-        # Update domain in the appropriate provider
-        if provider == "ses":
-            from products.workflows.backend.facade.api import (
-                update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-            )
+        mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
-            update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+        if provider == "ses":
+            if mail_from_changed:
+                from products.workflows.backend.facade.api import (
+                    update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                )
+
+                update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        self.integration.config.update(
-            {
-                "name": name,
-                "mail_from_subdomain": mail_from_subdomain,
-                "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-            }
-        )
-        self.integration.save()
+        changes: dict[str, str] = {
+            "name": name,
+            "mail_from_subdomain": mail_from_subdomain,
+            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
+        }
+        if setup_method := config.get("setup_method"):
+            changes["setup_method"] = setup_method
+        # The row is reread under a lock so a concurrent verification write is not overwritten.
+        with transaction.atomic():
+            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
+            locked.config.update(changes)
+            locked.save(update_fields=["config"])
+        self.integration.config = locked.config
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
