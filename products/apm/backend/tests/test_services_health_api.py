@@ -4,8 +4,14 @@ import datetime as dt
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
+from drf_spectacular.generators import SchemaGenerator
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
+
+from products.apm.backend.logic.health.sources import SERVICES_LIMIT
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
@@ -120,6 +126,42 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(row["sparkline"]), 24)
             self.assertEqual(sum(row["sparkline"]), row["health"]["span_count"])
 
+    def test_limit_does_not_drop_a_failing_service_behind_healthy_ones_alphabetically(self) -> None:
+        # The SERVICES_LIMIT cutoff used to apply after an alphabetical ORDER BY, so a failing
+        # service sorting late in the alphabet could be cut before ranking ever saw it. Uses its
+        # own date window and environment so it doesn't perturb the other tests' exact-match
+        # assertions on `results`/`environments`.
+        date_from, date_to = "2026-06-03T07:00:00Z", "2026-06-03T09:00:00Z"
+        base = dt.datetime(2026, 6, 3, 8, 0, 0)
+        rows: list[str] = []
+        n = 0
+
+        def span(service: str, status_code: int) -> None:
+            nonlocal n
+            n += 1
+            start = base + dt.timedelta(microseconds=n)
+            ts = start.strftime("%Y-%m-%d %H:%M:%S.%f")
+            rows.append(
+                f"('019e8771-0000-0000-0000-{n:012d}', {self.team.id}, '{_b64(n.to_bytes(16, 'big'))}', "
+                f"'{_b64(n.to_bytes(8, 'big'))}', '', 'op', 2, '{ts}', '{ts}', '{ts}', {status_code}, "
+                f"'{service}', map('deployment.environment.name', 'ranked'))"
+            )
+
+        for i in range(SERVICES_LIMIT):
+            span(f"svc-{i:04d}", 0)
+        for _ in range(5):
+            span("zzz-failing", 2)
+
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, resource_attributes) VALUES "
+            + ",".join(rows)
+        )
+
+        data = self._list(date_from=date_from, date_to=date_to, environment="ranked")
+        names = [r["service_name"] for r in data["results"]]
+        self.assertIn("zzz-failing", names)
+
     def test_defaults_to_the_last_hour_when_no_range_is_given(self) -> None:
         with patch(FLAG_PATCH, return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")
@@ -157,3 +199,17 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
         tag.assert_called_once()
         self.assertTrue(tag.call_args.kwargs.get("product"))
         self.assertTrue(tag.call_args.kwargs.get("feature"))
+
+
+class TestServicesHealthOpenApiSchema(SimpleTestCase):
+    """The `list` action returns one object; drf-spectacular defaults a `list` action to an array response."""
+
+    def test_list_response_schema_is_a_single_object_not_an_array(self) -> None:
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        operation = schema["paths"]["/api/projects/{project_id}/apm/services/"]["get"]
+        response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+        self.assertNotEqual(
+            response_schema.get("type"),
+            "array",
+            f"GET .../apm/services/ must document a single object response. Got: {response_schema}",
+        )

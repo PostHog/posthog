@@ -30,6 +30,15 @@ ENVIRONMENT_ATTRIBUTES = (
     "k8s.cluster.name",
 )
 
+# Mirrors products/tracing/backend/logic.py's TIME_BUCKET_DATE_RANGE_WHERE: time_bucket is a
+# materialized, coarse truncation of timestamp and leads trace_spans' primary key, so a day-bound
+# predicate on it adds no rows but lets ClickHouse prune parts instead of scanning every part the
+# team has. Pinned to UTC so a non-UTC day boundary can't drop same-day rows.
+_TIME_BUCKET_DATE_RANGE_WHERE = (
+    "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
+    "AND toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
+)
+
 
 @dataclass(frozen=True)
 class ServicesHealthResult:
@@ -46,7 +55,7 @@ def environment_expr() -> ast.Expr:
 
 def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
     return parse_expr(
-        "timestamp >= {date_from} AND timestamp < {date_to}",
+        f"timestamp >= {{date_from}} AND timestamp < {{date_to}} AND {_TIME_BUCKET_DATE_RANGE_WHERE}",
         placeholders={"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
     )
 
@@ -54,6 +63,11 @@ def _window_where(date_from: datetime, date_to: datetime) -> ast.Expr:
 def _services_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
     # Server spans are the request count. Root spans are the fallback for services with none, so a
     # consumer's client spans count once each rather than once per downstream call.
+    #
+    # A team with more services than SERVICES_LIMIT needs the worst ones to survive the cutoff, so
+    # the ranking (error rate, then error count, then name — the same order rank_services applies)
+    # runs in SQL before LIMIT, not after. The HAVING also drops services with no counted spans,
+    # which would otherwise waste a LIMIT slot ahead of a service that actually has traffic.
     query = parse_select(
         """
         SELECT
@@ -67,7 +81,8 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment}
         GROUP BY service_name
-        ORDER BY service_name
+        HAVING span_count > 0
+        ORDER BY error_count / span_count DESC, error_count DESC, service_name
         LIMIT {limit}
         """,
         placeholders={

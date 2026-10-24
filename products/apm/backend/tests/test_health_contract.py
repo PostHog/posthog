@@ -5,10 +5,20 @@ from parameterized import parameterized
 from products.apm.backend.logic.health.contract import HealthRow, HealthStatus, ServiceHealth, rank_services, status_of
 
 
-def _row(**overrides) -> HealthRow:
-    base = {"request_rate": 10.0, "error_rate": 0.0, "p95_ms": 100.0, "span_count": 600, "error_count": 0}
-    base.update(overrides)
-    return HealthRow(**base)
+def _row(
+    request_rate: float | None = 10.0,
+    error_rate: float | None = 0.0,
+    p95_ms: float | None = 100.0,
+    span_count: int = 600,
+    error_count: int = 0,
+) -> HealthRow:
+    return HealthRow(
+        request_rate=request_rate,
+        error_rate=error_rate,
+        p95_ms=p95_ms,
+        span_count=span_count,
+        error_count=error_count,
+    )
 
 
 class TestStatusOf(SimpleTestCase):

@@ -9,25 +9,33 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { TIME_RANGE_LABELS, TimeRange, applicationObservabilityLogic } from './applicationObservabilityLogic'
-import type { ServiceHealthApi, ServiceHealthStatusEnumApi } from './generated/api.schemas'
+import type { HealthStatusEnumApi, ServiceHealthApi } from './generated/api.schemas'
 
 export const scene: SceneExport = {
     component: ApplicationObservabilityScene,
     logic: applicationObservabilityLogic,
 }
 
-const STATUS_LABEL: Record<ServiceHealthStatusEnumApi, string> = {
+const STATUS_LABEL: Record<HealthStatusEnumApi, string> = {
     good: 'Healthy',
     warning: 'Watch',
     serious: 'Failing',
     critical: 'Confirmed',
 }
 
-const STATUS_TAG: Record<ServiceHealthStatusEnumApi, 'success' | 'warning' | 'danger'> = {
+const STATUS_TAG: Record<HealthStatusEnumApi, 'success' | 'warning' | 'danger'> = {
     good: 'success',
     warning: 'warning',
     serious: 'danger',
     critical: 'danger',
+}
+
+// Matches the Traces (products/tracing) and Logs (products/logs) scenes' URL contracts: both read
+// `serviceNames` (comma-separated is fine for one name) and a `dateRange` JSON object of
+// `{date_from, date_to}`, where date_from accepts a relative string like our own TimeRange values.
+function drillDownParams(serviceName: string, timeRange: TimeRange): string {
+    const dateRange = JSON.stringify({ date_from: timeRange, date_to: null })
+    return `serviceNames=${encodeURIComponent(serviceName)}&dateRange=${encodeURIComponent(dateRange)}`
 }
 
 export function formatRate(perSecond: number | null): string {
@@ -80,8 +88,15 @@ function Sparkline({ values }: { values: number[] }): JSX.Element {
 }
 
 export function ApplicationObservabilityScene(): JSX.Element {
-    const { services, servicesHealthLoading, environments, resolvedEnvironment, timeRange, attentionCount } =
-        useValues(applicationObservabilityLogic)
+    const {
+        services,
+        servicesHealthLoading,
+        hasLoadError,
+        environments,
+        resolvedEnvironment,
+        timeRange,
+        attentionCount,
+    } = useValues(applicationObservabilityLogic)
     const { setEnvironment, setTimeRange } = useActions(applicationObservabilityLogic)
 
     const columns: LemonTableColumns<ServiceHealthApi> = [
@@ -123,16 +138,8 @@ export function ApplicationObservabilityScene(): JSX.Element {
             key: 'links',
             render: (_, row) => (
                 <span className="flex gap-2">
-                    <Link
-                        to={`${urls.tracing()}?serviceNames=${encodeURIComponent(row.service_name)}&date_from=${timeRange}`}
-                    >
-                        Traces
-                    </Link>
-                    <Link
-                        to={`${urls.logs()}?service_name=${encodeURIComponent(row.service_name)}&date_from=${timeRange}`}
-                    >
-                        Logs
-                    </Link>
+                    <Link to={`${urls.tracing()}?${drillDownParams(row.service_name, timeRange)}`}>Traces</Link>
+                    <Link to={`${urls.logs()}?${drillDownParams(row.service_name, timeRange)}`}>Logs</Link>
                 </span>
             ),
         },
@@ -173,15 +180,28 @@ export function ApplicationObservabilityScene(): JSX.Element {
                 />
                 <span className="text-muted text-xs">Refreshes every 5 minutes</span>
             </div>
-            {!servicesHealthLoading && services.length > 0 && (
-                <LemonBanner type={attentionCount > 0 ? 'warning' : 'success'}>{attentionMessage}</LemonBanner>
+            {hasLoadError ? (
+                <LemonBanner type="error">
+                    {services.length > 0
+                        ? `Couldn't refresh service health for ${resolvedEnvironment}. Showing the last successful results.`
+                        : `Couldn't load service health for ${resolvedEnvironment}. Try again shortly.`}
+                </LemonBanner>
+            ) : (
+                !servicesHealthLoading &&
+                services.length > 0 && (
+                    <LemonBanner type={attentionCount > 0 ? 'warning' : 'success'}>{attentionMessage}</LemonBanner>
+                )
             )}
             <LemonTable
                 columns={columns}
                 dataSource={services}
                 rowKey="service_name"
                 loading={servicesHealthLoading}
-                emptyState="No spans in this environment and time range. Send traces to see services here."
+                emptyState={
+                    hasLoadError
+                        ? "Couldn't load service health. Check your connection and try again."
+                        : 'No spans in this environment and time range. Send traces to see services here.'
+                }
                 data-attr="apm-services-table"
             />
         </SceneContent>

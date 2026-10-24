@@ -8,14 +8,14 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `good` - good
- * * `warning` - warning
- * * `serious` - serious
- * * `critical` - critical
+ * * `good` - Good
+ * * `warning` - Warning
+ * * `serious` - Serious
+ * * `critical` - Critical
  */
-export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
+export type HealthStatusEnumApi = (typeof HealthStatusEnumApi)[keyof typeof HealthStatusEnumApi]
 
-export const ServiceHealthStatusEnumApi = {
+export const HealthStatusEnumApi = {
     Good: 'good',
     Warning: 'warning',
     Serious: 'serious',
@@ -51,11 +51,11 @@ export interface ServiceHealthApi {
     environment: string
     /** Health band from the error rate.
      *
-     * * `good` - good
-     * * `warning` - warning
-     * * `serious` - serious
-     * * `critical` - critical */
-    status: ServiceHealthStatusEnumApi
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical */
+    status: HealthStatusEnumApi
     /** The health row every surface renders. */
     health: HealthRowApi
     /** Request counts per bucket across the window, oldest first. */

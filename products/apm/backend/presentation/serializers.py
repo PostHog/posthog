@@ -1,5 +1,6 @@
 """DRF serializers for apm."""
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from products.apm.backend.facade.api import HealthStatus
@@ -29,15 +30,14 @@ class HealthRowSerializer(serializers.Serializer):
 class ServiceHealthSerializer(serializers.Serializer):
     service_name = serializers.CharField(help_text="The service.name resource attribute.")
     environment = serializers.CharField(help_text="The environment the row was computed for.")
-    status = serializers.ChoiceField(
-        choices=[s.value for s in HealthStatus], help_text="Health band from the error rate."
-    )
+    status = serializers.ChoiceField(choices=HealthStatus.choices, help_text="Health band from the error rate.")
     health = HealthRowSerializer(help_text="The health row every surface renders.")
     sparkline = serializers.ListField(
         child=serializers.IntegerField(), help_text="Request counts per bucket across the window, oldest first."
     )
 
 
+@extend_schema_serializer(many=False)  # drf-spectacular wraps a `list` action's response in an array by default
 class ServicesHealthResponseSerializer(serializers.Serializer):
     results = ServiceHealthSerializer(many=True, help_text="One row per service, worst status first.")
     environments = serializers.ListField(child=serializers.CharField(), help_text="Environments seen in the window.")

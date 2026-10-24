@@ -9,12 +9,12 @@
  */
 import { z as zod } from 'zod'
 
-export const ServiceHealthStatusEnumApi = zod
+export const HealthStatusEnumApi = zod
     .enum(['good', 'warning', 'serious', 'critical'])
-    .describe('\* `good` - good\n\* `warning` - warning\n\* `serious` - serious\n\* `critical` - critical')
+    .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
 
-export type ServiceHealthStatusEnumApi = zod.input<typeof ServiceHealthStatusEnumApi>
-export type ServiceHealthStatusEnumApiOutput = zod.output<typeof ServiceHealthStatusEnumApi>
+export type HealthStatusEnumApi = zod.input<typeof HealthStatusEnumApi>
+export type HealthStatusEnumApiOutput = zod.output<typeof HealthStatusEnumApi>
 
 export const HealthRowApi = zod.object({
     request_rate: zod.number().nullable().describe('Requests per second over the window.'),
@@ -32,9 +32,9 @@ export const ServiceHealthApi = zod.object({
     environment: zod.string().describe('The environment the row was computed for.'),
     status: zod
         .enum(['good', 'warning', 'serious', 'critical'])
-        .describe('\* `good` - good\n\* `warning` - warning\n\* `serious` - serious\n\* `critical` - critical')
+        .describe('\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical')
         .describe(
-            'Health band from the error rate.\n\n\* `good` - good\n\* `warning` - warning\n\* `serious` - serious\n\* `critical` - critical'
+            'Health band from the error rate.\n\n\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical'
         ),
     health: zod
         .object({
@@ -60,10 +60,10 @@ export const ServicesHealthResponseApi = zod.object({
                 status: zod
                     .enum(['good', 'warning', 'serious', 'critical'])
                     .describe(
-                        '\* `good` - good\n\* `warning` - warning\n\* `serious` - serious\n\* `critical` - critical'
+                        '\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical'
                     )
                     .describe(
-                        'Health band from the error rate.\n\n\* `good` - good\n\* `warning` - warning\n\* `serious` - serious\n\* `critical` - critical'
+                        'Health band from the error rate.\n\n\* `good` - Good\n\* `warning` - Warning\n\* `serious` - Serious\n\* `critical` - Critical'
                     ),
                 health: zod
                     .object({
