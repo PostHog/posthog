@@ -48,6 +48,25 @@ A local stack can count a workflow run twice. Its ClickHouse has two Kafka table
 ClickHouse drops most of the copies as duplicate inserts, but not all, so a count can come out one or two high.
 When a number is off in a take, reset and record again rather than share it, or keep the counter out of the shot.
 
+## The take fails late because demo data is gone
+
+A sandbox cleanup job or a cron can delete demo objects between takes or during one.
+Find the job and pause it while you record, or seed again right before each take.
+Set `preflight` in the storyboard so a take stops before it records when the data is gone, see [seeding.md](seeding.md#preflight).
+When a late step fails, fix it with `--from-step N` instead of the whole take, then reset and record it all.
+
+## The encode hangs after the take
+
+ffmpeg stalls at 0% CPU at the sound mix and ignores Ctrl-C.
+An audio pad without an end, together with `-shortest`, never finishes on some ffmpeg builds, such as the 7.0 static build.
+`encode` in `record_demo.py` pads the audio to the video's length with `apad=whole_dur`. If your checkout has a bare `apad`, update it.
+Stop the stuck process with `kill -9`, then record again.
+
+## ffmpeg fails with `Exec format error`
+
+The ffmpeg binary is built for another architecture, such as an x86 build on an aarch64 machine.
+Remove that binary from `PATH`, then run the recorder again. Its error names the static build for this machine.
+
 ## The local stack lost its data
 
 A cloud sandbox can restart, which stops the containers and can leave an empty database.
