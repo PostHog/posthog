@@ -67,6 +67,13 @@ const MAX_REASON_BYTES = 1024
 /** A ratio says nothing on a small batch: one bad event in a batch of one is 100% of it. */
 const MIN_UNEXPECTED_TO_BREAK = 3
 
+/**
+ * The steps that count toward the circuit breaker in `produceForBatch`. `filter` and `inputs` never
+ * count, because one broken builtin legitimately breaks a whole batch and those records are the point.
+ * `parse` never counts either. Most parse errors come from bytes that fail the same way on every read,
+ * so a stall would never clear them. A `lookup` error does not come from the bytes, so it counts with
+ * `process`.
+ */
 const UNEXPECTED_STEPS: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>(['lookup', 'process'])
 
 export interface CdpDeadLetterServiceConfig {
@@ -75,10 +82,11 @@ export interface CdpDeadLetterServiceConfig {
 }
 
 export class DeadLetterCircuitBreakerError extends Error {
-    constructor(parked: number, batchSize: number) {
+    constructor(processFailures: number, lookupFailures: number, batchSize: number) {
         super(
-            `Refusing to dead-letter ${parked} of ${batchSize} messages: an unexpected failure this ` +
-                'wide is a bug in this deployment, not poison in the stream'
+            `Refusing to dead-letter ${processFailures + lookupFailures} of ${batchSize} messages ` +
+                `(${processFailures} process, ${lookupFailures} lookup): an unexpected failure this wide ` +
+                'is a bug in this deployment or data that fails a batched lookup, not poison in the stream'
         )
         this.name = 'DeadLetterCircuitBreakerError'
     }
@@ -215,12 +223,9 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         }
 
         // Stalling the partition beats parking a whole batch: draining the stream into a side topic
-        // leaves lag, health and throughput all reading normal, so nobody notices. `filter` and
-        // `inputs` never count, because one broken builtin legitimately breaks a whole batch and
-        // those records are the point. `parse` never counts either. Most parse errors come from bytes
-        // that fail the same way on every read, so a stall would never clear them. An event that fails
-        // the conversion to globals also parks as `parse`. This check therefore does not catch a deploy
-        // that breaks that conversion. A `lookup` error does not come from the bytes, so it counts with `process`.
+        // leaves lag, health and throughput all reading normal, so nobody notices. An event that fails
+        // the conversion to globals parks as `parse`. This check therefore does not catch a deploy that
+        // breaks that conversion.
         const unexpectedEvents = new Set(
             failures
                 .filter((entry) => entry.failures.some((failure) => UNEXPECTED_STEPS.has(failure.step)))
@@ -236,7 +241,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
             unexpected > messages.length * this.config.CDP_DLQ_BATCH_FAIL_RATIO
         ) {
             counterDeadLetterBatchFailures.labels({ output: this.options.output }).inc()
-            throw new DeadLetterCircuitBreakerError(unexpected, messages.length)
+            throw new DeadLetterCircuitBreakerError(unexpectedEvents.size, unexpectedMessages.size, messages.length)
         }
 
         // Grouped on the globals object itself, so one record covers one event and one step. Both

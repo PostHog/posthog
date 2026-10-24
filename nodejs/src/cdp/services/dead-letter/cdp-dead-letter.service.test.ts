@@ -178,16 +178,18 @@ describe('CdpDeadLetterService', () => {
         })
     })
 
-    it.each<{ name: string; steps: DeadLetterStep[] }>([
-        { name: 'throws unexpectedly', steps: ['process', 'process', 'process'] },
-        { name: 'fails its lookups', steps: ['lookup', 'lookup', 'lookup'] },
-        { name: 'throws or fails its lookups', steps: ['process', 'lookup', 'lookup'] },
-    ])('fails the batch instead of parking it when most of it $name', async ({ steps }) => {
+    it.each<{ name: string; steps: DeadLetterStep[]; counts: string }>([
+        { name: 'throws unexpectedly', steps: ['process', 'process', 'process'], counts: '3 process, 0 lookup' },
+        { name: 'fails its lookups', steps: ['lookup', 'lookup', 'lookup'], counts: '0 process, 3 lookup' },
+        { name: 'throws or fails its lookups', steps: ['process', 'lookup', 'lookup'], counts: '1 process, 2 lookup' },
+    ])('fails the batch instead of parking it when most of it $name', async ({ steps, counts }) => {
         const service = createService()
         const messages = batchOf(4)
         steps.forEach((step, index) => recordFailure(service, step, messages[index]))
 
-        await expect(service.produceForBatch(messages)).rejects.toThrow('Refusing to dead-letter 3 of 4')
+        await expect(service.produceForBatch(messages)).rejects.toThrow(
+            `Refusing to dead-letter 3 of 4 messages (${counts})`
+        )
         expect(produce).not.toHaveBeenCalled()
     })
 
