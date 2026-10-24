@@ -4,6 +4,7 @@ from typing import Any, Literal, Optional
 
 from posthog.schema import (
     CachedWebPageDirectoryQueryResponse,
+    EventPropertyFilter,
     WebPageDirectoryMetric,
     WebPageDirectoryQuery,
     WebPageDirectoryQueryResponse,
@@ -15,7 +16,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import get_property_key, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -165,20 +168,41 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     def _session_window(self) -> ast.Expr:
-        earliest = (
-            self.query_compare_to_date_range.date_from_as_hogql()
-            if self.query_compare_to_date_range
-            else self.query_date_range.date_from_as_hogql()
+        date_ranges = [self.query_date_range]
+        if self.query_compare_to_date_range:
+            date_ranges.append(self.query_compare_to_date_range)
+        return ast.Or(
+            exprs=[
+                parse_expr(
+                    "sessions.$start_timestamp >= minus({date_from}, toIntervalDay(1)) AND sessions.$start_timestamp <= {date_to}",
+                    placeholders={
+                        "date_from": date_range.date_from_as_hogql(),
+                        "date_to": date_range.date_to_as_hogql(),
+                    },
+                )
+                for date_range in date_ranges
+            ]
         )
-        return parse_expr(
-            "sessions.$start_timestamp >= minus({earliest}, toIntervalDay(1)) AND sessions.$start_timestamp <= {latest}",
-            placeholders={"earliest": earliest, "latest": self.query_date_range.date_to_as_hogql()},
+
+    @property
+    def _has_filters(self) -> bool:
+        return bool(self.effective_query_properties or self.first_pageview_filter_exprs or self._test_account_filters)
+
+    def _previous_page_properties(self) -> ast.Expr:
+        properties = [
+            prop.model_copy(update={"key": "$prev_pageview_pathname"})
+            if isinstance(prop, EventPropertyFilter) and get_property_key(prop) == "$pathname"
+            else prop
+            for prop in self.effective_query_properties
+        ]
+        return property_to_expr(
+            [*properties, *self.first_pageview_filter_exprs, *self._test_account_filters], team=self.team
         )
 
     def _channel_sessions(self, channel_condition: str) -> ast.SelectQuery:
         query = parse_select(
-            f"SELECT session_id FROM sessions WHERE and({{window}}, {channel_condition})",
-            placeholders={"window": self._session_window()},
+            "SELECT session_id FROM sessions WHERE and({window}, {channel})",
+            placeholders={"window": self._session_window(), "channel": parse_expr(channel_condition)},
         )
         assert isinstance(query, ast.SelectQuery)
         return query
@@ -267,6 +291,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                 "quantile(0.9)(least(toFloat(properties.$prev_pageview_duration), 86400)) AS current, "
                 "count() AS previous, 0 AS extra"
             )
+            placeholders["properties"] = self._previous_page_properties()
             where = (
                 "event IN {duration_events}, {path_present}, isNotNull(properties.$prev_pageview_duration), "
                 "{current}, {properties}, {scope}"
@@ -282,9 +307,24 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             placeholders["session_current"] = self._current_period_expression("$start_timestamp")
             select = "avg(toFloat(sessions.$is_bounce)) AS current, count() AS previous, 0 AS extra"
             where = "{path_present}, {session_current}, {scope}"
+            if self._has_filters:
+                placeholders["filtered_sessions"] = self._filtered_sessions()
+                where += ", sessions.session_id IN {filtered_sessions}"
             return self._build(select, "sessions", where, grouped, placeholders)
 
         return None
+
+    def _filtered_sessions(self) -> ast.SelectQuery:
+        query = parse_select(
+            "SELECT events.$session_id FROM events WHERE and(event IN {human_events}, {current}, {properties})",
+            placeholders={
+                "human_events": ast.Tuple(exprs=[ast.Constant(value=event) for event in AGENT_NAVIGATION_EVENTS]),
+                "current": self._current_period_expression("timestamp"),
+                "properties": self.all_properties(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def _build(
         self, select: str, table: str, where: str, grouped: bool, placeholders: dict[str, ast.Expr]
@@ -310,7 +350,10 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                 ast.OrderExpr(expr=ast.Field(chain=["page_key"]), order="ASC"),
             ]
         if metric in (WebPageDirectoryMetric.TIME_ON_PAGE, WebPageDirectoryMetric.BOUNCE_RATE):
-            query.having = parse_expr(f"previous >= {MIN_SESSIONS_FOR_RATE_SORT}")
+            query.having = parse_expr(
+                "previous >= {min_sessions}",
+                placeholders={"min_sessions": ast.Constant(value=MIN_SESSIONS_FOR_RATE_SORT)},
+            )
         elif metric in (WebPageDirectoryMetric.GOOGLE_SEARCH, WebPageDirectoryMetric.AI_REFERRALS):
             query.having = parse_expr("extra > 0")
         else:
@@ -328,12 +371,13 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
     def _page_keys(self) -> list[str]:
         return list(dict.fromkeys(self.query.pageKeys or []))[:MAX_PAGE_KEYS]
 
-    def _run(self, query_type: str, query: ast.SelectQuery, timings: HogQLTimings) -> list[Any]:
+    def _run(self, query_type: str, query: ast.SelectQuery, timings: HogQLTimings, context: HogQLContext) -> list[Any]:
         response = execute_hogql_query(
             query_type=query_type,
             query=query,
             team=self.team,
             user=self.user,
+            context=context,
             timings=timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -342,11 +386,11 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
 
     def _run_concurrently(self, queries: dict[str, ast.SelectQuery]) -> dict[str, list[Any]]:
         jobs = [
-            (query_type, query, self.timings.clone_for_subquery(index))
+            (query_type, query, self.timings.clone_for_subquery(index), self.build_hogql_context())
             for index, (query_type, query) in enumerate(queries.items())
         ]
         results = map_in_caller_context(lambda job: self._run(*job), jobs, thread_name_prefix="web_page_directory")
-        for _, _, timings in jobs:
+        for _, _, timings, _ in jobs:
             self.timings.timings.update(timings.timings)
         return dict(zip(queries, results))
 
@@ -389,6 +433,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                 query=self._driver_query(),
                 team=self.team,
                 user=self.user,
+                context=self.build_hogql_context(),
                 timings=self.timings,
                 modifiers=self.modifiers,
             )
@@ -404,6 +449,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
         queries: dict[str, ast.SelectQuery] = {}
         for metric in page_metrics:
             if query := self._metric_select(metric, grouped=True, page_keys=page_keys):
+                query.limit = ast.Constant(value=len(page_keys))
                 queries[f"web_page_directory_{metric.value}"] = query
         for metric in site_metrics:
             if query := self._metric_select(metric, grouped=False, page_keys=None):
