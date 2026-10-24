@@ -249,6 +249,8 @@ def get_resource(
         "paginator": MedusaPaginator(),
         "data_selector": config.data_selector,
     }
+    if config.extra_fields:
+        endpoint["params"]["fields"] = ",".join(f"+{field}" for field in config.extra_fields)
 
     if should_use_incremental_field:
         # Medusa parses nested query operators with `qs`, which accepts the percent-encoded
