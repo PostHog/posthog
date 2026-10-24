@@ -2,7 +2,7 @@ import { IconEllipsis } from '@posthog/icons'
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { DisplayOptionTab } from './insightDisplayOptions'
-import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
+import { QuillInsightDisplayOptionsPanel } from './QuillInsightDisplayOptionsPanel'
 
 export interface QuillInsightDisplayOptionsButtonProps {
     tabs: DisplayOptionTab[]
@@ -35,8 +35,8 @@ export function QuillInsightDisplayOptionsButton({
                 </span>
                 <IconEllipsis className="hidden @max-[780px]:block" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto p-0">
-                <InsightDisplayOptionsPanel tabs={tabs} />
+            <PopoverContent align="end" className="w-60">
+                <QuillInsightDisplayOptionsPanel tabs={tabs} />
             </PopoverContent>
         </Popover>
     )
