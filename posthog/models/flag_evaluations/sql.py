@@ -1,16 +1,6 @@
-from collections.abc import Iterable
-
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import (
-    CONSUMER_GROUP_FLAG_EVALUATIONS,
-    KAFKA_COLUMNS_WITH_PARTITION,
-    kafka_engine,
-    trim_quotes_expr,
-    ttl_period,
-)
-from posthog.clickhouse.property_groups import property_groups
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_FLAG_EVALUATIONS, kafka_engine
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
@@ -27,7 +17,7 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 # what makes rows that wide affordable.
 #
 # Naming convention follows the sharded main-cluster table family (see heatmaps):
-#   * `sharded_flag_evaluations` — sharded ReplicatedReplacingMergeTree on DATA nodes.
+#   * `sharded_flag_evaluations` — sharded replicated MergeTree on DATA nodes.
 #   * `writable_flag_evaluations` — Distributed write path on the ingestion layer,
 #     fans rows out to shards by the distinct_id hash.
 #   * `flag_evaluations` — Distributed read path on DATA nodes. This is the name
@@ -37,8 +27,6 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_FLAG_EVALUATIONS
 FLAG_EVALUATIONS_TABLE = "flag_evaluations"
 FLAG_EVALUATIONS_DATA_TABLE = f"sharded_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
-KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
-FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
 # The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
 FLAG_EVALUATIONS_TTL_DAYS = 90
@@ -48,27 +36,11 @@ FLAG_EVALUATIONS_TTL_DAYS = 90
 # to update the target's stored_events.
 FLAG_EVALUATIONS_SOURCE_EVENT = "$feature_flag_called"
 
-# Sharding by a distinct_id hash rather than anything team-based: a handful of
-# teams carry most of the volume, and sharding by team would hotspot single
-# shards. sipHash64 matches the events table's Distributed sharding key, so a
-# given distinct_id lands on the same shard in both tables and the events-table
-# backfill runs shard-local, with no network shuffle.
-FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
+# A DEFAULT fills only a column the insert omits. A writer that copies person_properties
+# from a source that can hold '' maps it to '{}' with this expression.
+FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR = "if(empty(person_properties), '{}', person_properties)"
 
-# The sort key matches the queries we run: per-flag usage over a date range, and
-# uniques within one flag. toDate(timestamp) sits inside it because PARTITION BY
-# is monthly — without it, a one-day query for one flag would read that flag's
-# whole month. flag_key is a DEFAULT column; ClickHouse fills column defaults at
-# insert, before it sorts a part, so one can carry a sort key, though a key
-# column can never be ALTER UPDATEd, whatever its kind. cityHash64(distinct_id) intentionally
-# differs from the sharding key — cityHash64 is the events table's convention for
-# within-shard ordering — and a MergeTree ORDER BY is immutable once data exists,
-# so the two must not silently move together. cityHash64(uuid) comes last, as on the
-# events table, so that the sort key identifies one flag call. The ReplacingMergeTree
-# collapses only rows whose whole sort key matches. Copies of a call that straddle UTC
-# midnight get different toDate(timestamp) values. They never collapse, in either
-# table.
-FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))"
+KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 
 # One canonical column list, rendered in a Kafka, a Distributed and a storage
 # variant. Column order follows the events table so converging the two schemas
@@ -111,186 +83,6 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
 
 FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(person_properties_default="", ts_default="")
 
-_FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(
-    person_properties_default=" DEFAULT '{}'", ts_default=" DEFAULT timestamp"
-)
-
-# A DEFAULT fills only a column the insert omits. A writer that copies person_properties
-# from a source that can hold '' maps it to '{}' with this expression.
-FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR = "if(empty(person_properties), '{}', person_properties)"
-
-# Typed copies of properties the hot path cannot afford to parse per row. A
-# property earns one only when queries filter or group on it across many rows
-# (flag_key, response) or a skip index needs a real column to sit on (session_id,
-# request_id). Everything else stays in the properties JSON, and the TTL keeps
-# widening this list cheap later.
-#
-# JSONExtractRaw with the quotes trimmed rather than JSONExtractString. The two
-# agree on strings, booleans and numbers, and differ only on JSON null: this form
-# stores the literal 'null' that json_extract_trim_quotes and the plugin-server's
-# jsonExtractRawAndTrimQuotes both map back to SQL NULL, where JSONExtractString
-# stores '' and loses the difference between a null response and an absent
-# property. It is also the expression the events table uses for its own
-# materialized columns, so both tables encode the same value the same way.
-#
-# $group_0..$group_4 carry the events table's names, types and comment form so
-# group filtering resolves the same columns on both.
-#
-# DEFAULT rather than MATERIALIZED, the kind materialize() mints on sharded_events:
-# both compute the expression when an insert omits the column, but only a DEFAULT
-# column accepts ALTER UPDATE or an explicit value on insert. An UPDATE of
-# properties does not recompute these columns, so any rewrite of properties must
-# reset each affected column itself. Property removal does that as it copies a row
-# out (see docs/internal/clickhouse-deletion-coverage.md). The cost is a footgun
-# MATERIALIZED did not have: an insert that names one of these columns stores the
-# given value even when it contradicts properties. Producers must omit them, which
-# the Kafka path enforces by writable_flag_evaluations not declaring them.
-_FLAG_EVALUATIONS_TYPED_COLUMNS = f"""
-    , $group_0 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
-    , $group_1 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
-    , $group_2 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
-    , $group_3 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
-    , $group_4 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , flag_key String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag')")} COMMENT 'column_materializer::properties::$feature_flag'
-    , response LowCardinality(String) DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_response')")} COMMENT 'column_materializer::properties::$feature_flag_response'
-    , session_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::properties::$session_id'
-    , request_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_request_id')")} COMMENT 'column_materializer::properties::$feature_flag_request_id'
-"""
-
-# A Distributed engine computes nothing, so the read table repeats the same names
-# and types without the expression, which is what lets a query against
-# flag_evaluations select the columns the shards store. The writable table omits
-# them entirely: carrying the DEFAULT expressions there would compute the values
-# on the ingestion nodes and ship the widened rows over the network, so rows
-# arrive narrow and the shard computes them, matching writable_events.
-_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
-    , $group_0 String COMMENT 'column_materializer::$group_0'
-    , $group_1 String COMMENT 'column_materializer::$group_1'
-    , $group_2 String COMMENT 'column_materializer::$group_2'
-    , $group_3 String COMMENT 'column_materializer::$group_3'
-    , $group_4 String COMMENT 'column_materializer::$group_4'
-    , flag_key String COMMENT 'column_materializer::properties::$feature_flag'
-    , response LowCardinality(String) COMMENT 'column_materializer::properties::$feature_flag_response'
-    , session_id String COMMENT 'column_materializer::properties::$session_id'
-    , request_id String COMMENT 'column_materializer::properties::$feature_flag_request_id'
-"""
-
-
-# posthog/clickhouse/test/test_schema.py reads one column per line, so each piece renders on one line.
-def _single_line(pieces: Iterable[str]) -> str:
-    return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
-
-
-# Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
-# person properties on events from the same maps instead of the JSON. They are MATERIALIZED, unlike
-# the typed columns above, because no writer sets them. Property removal copies rows without them,
-# and the reingest recomputes them from the cleaned JSON, as on sharded_events.
-_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS = _single_line(
-    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_DATA_TABLE)
-)
-
-# The read table declares the map columns plain, without their indexes, like the typed columns.
-_FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS = _single_line(
-    property_groups.get_create_table_pieces(FLAG_EVALUATIONS_TABLE)
-)
-
-# The bloom filters cover point lookups the sort key can't serve (a specific user,
-# person, session, or flags-service request). The minmax on inserted_at serves
-# incremental consumers that checkpoint on it: partitioning is on timestamp, so an
-# inserted_at range predicate prunes no partitions on its own and would otherwise
-# read all 90 days. A skip index only covers parts written after it exists, so
-# retrofitting one means a full MATERIALIZE INDEX mutation — much cheaper to
-# declare up front.
-_FLAG_EVALUATIONS_INDEXES = """
-    , INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
-    , INDEX person_id_idx   person_id   TYPE bloom_filter(0.01) GRANULARITY 1
-    , INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1
-    , INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
-    , INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
-"""
-
-
-def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
-    # Ingestion can receive one flag call more than once. The copies collapse to one
-    # row when their parts merge. Queries see every copy until then. The version
-    # is _timestamp, as on the events table, so both tables keep the same copy of a
-    # call. ZK path uses the base table name.
-    return ReplacingMergeTree(FLAG_EVALUATIONS_TABLE, ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED)
-
-
-# The actual data lives on the sharded main cluster.
-#
-# The inserted_at DEFAULT means a direct insert that omits it (tests, the
-# events-table backfill) falls back to the row's own timestamp rather than the
-# wall-clock insert time that the MV stamps on rows from Kafka. A bulk historical
-# backfill therefore does not stamp every row as freshly inserted, which would
-# break anything windowing or checkpointing on inserted_at.
-# posthog/dags/flag_evaluations_backfill.py also relies on it to tell copied rows
-# from Kafka rows.
-FLAG_EVALUATIONS_TABLE_SQL = lambda: (
-    f"""
-CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
-(
-    {_FLAG_EVALUATIONS_COLUMNS}
-    {_FLAG_EVALUATIONS_TYPED_COLUMNS}
-    {_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMNS}
-    {_FLAG_EVALUATIONS_INDEXES}
-    {KAFKA_COLUMNS_WITH_PARTITION}
-)
-ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
--- Monthly, matching the events family. Daily partitions would put ~90 of them
--- under a 90-day TTL, and enough parts across them to strain merges. The cost
--- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
--- row expires, so rows survive up to a month past the TTL.
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
-{ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1
-"""
-)
-
-
-def DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL() -> list[str]:
-    """Drop the two Distributed fronts so a reset recreates them alongside the storage table.
-
-    Recreating the shard while leaving these on an older column list makes inserts silently drop
-    the new column and reads not see it, which fails as a puzzle rather than as a schema error.
-    """
-    return [
-        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_TABLE}",
-        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_WRITABLE_TABLE}",
-    ]
-
-
-def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
-    # reset_clickhouse_database drops rather than truncates because MutationRunner skips enqueueing
-    # a mutation whose command text already exists on the table, so mutation history left behind by
-    # one test turns a later test's identical delete into a no-op. SYNC so the replica's ZooKeeper
-    # metadata is gone before the table is recreated.
-    return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
-
-
-def _distributed_table_sql(table_name: str, *, proxy_columns: str = "") -> str:
-    return f"""
-CREATE TABLE IF NOT EXISTS {table_name}
-(
-    {_FLAG_EVALUATIONS_COLUMNS}
-    {proxy_columns}
-    {KAFKA_COLUMNS_WITH_PARTITION}
-)
-ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
-"""
-
-
-# Fans writes out to sharded_flag_evaluations. Lives on the ingestion layer.
-WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUATIONS_WRITABLE_TABLE)
-
-# Read path on DATA nodes, and the name queries use.
-DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE,
-    proxy_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS + _FLAG_EVALUATIONS_PROXY_PROPERTY_GROUP_COLUMNS,
-)
-
 
 KAFKA_FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
@@ -318,42 +110,4 @@ SETTINGS
     kafka_num_consumers = 1,
     kafka_skip_broken_messages = 100
 """
-)
-
-# The CREATE below uses this SELECT. A migration that runs ALTER ... MODIFY QUERY
-# copies its SELECT instead of calling this one, because a column added here later
-# would make it fail on a node that has the migration pending (see 0350).
-FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
-    f"""SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    created_at,
-    person_id,
-    -- The Kafka engine rejects DEFAULT, so an omitted person_properties arrives as ''.
-    {FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR} AS person_properties,
-    person_created_at,
-    -- inserted_at is the time this view processes the row, as in the native-JSON
-    -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
-    -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
-    -- it. The Kafka message time is earlier by the consumer lag. The Distributed
-    -- forward and the replication happen after this stamp, so those readers still
-    -- need a buffer.
-    now64() AS inserted_at,
-    person_mode,
-    _timestamp,
-    _offset,
-    _partition
-FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}
-"""
-)
-
-FLAG_EVALUATIONS_MV_SQL = lambda: (
-    f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_MV_TABLE}
-TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_WRITABLE_TABLE}
-AS {FLAG_EVALUATIONS_MV_SELECT_SQL()}"""
 )

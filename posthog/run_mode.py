@@ -68,9 +68,8 @@ def derive_run_mode(cloud_deployment: str | None, debug: bool) -> RunMode:
 def run_mode() -> RunMode:
     """The current run mode, read from `posthog.settings` on every call.
 
-    Deliberately not cached: ClickHouse migrations resolve their `operations` at
-    module scope, and their tests re-import those modules under a patched
-    `posthog.settings.CLOUD_DEPLOYMENT` to check each deployment's branch.
+    Deliberately not cached, so that a test that patches
+    `posthog.settings.CLOUD_DEPLOYMENT` sees the mode of the patched deployment.
     """
     # Module-level import would cycle: posthog.settings -> posthog.settings.utils ->
     # posthog.utils -> posthog.cloud_utils, and cloud_utils imports this module.

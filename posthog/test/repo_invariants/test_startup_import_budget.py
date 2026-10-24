@@ -52,8 +52,7 @@ FORBIDDEN_AT_SETUP = [
     "zxcvbn",  # password strength, needed only by posthog.auth (deferred in posthog.helpers.impersonation and posthog.event_usage)
     "webauthn",  # passkeys, same door as zxcvbn (posthog.auth)
     "posthog.async_migrations.setup",  # imports every async migration — only when SKIP_ASYNC_MIGRATIONS_SETUP is off
-    "infi.clickhouse_orm",  # ClickHouse ORM — migration commands only; its package __init__ imports pkg_resources
-    "pkg_resources",  # setuptools shim (~40ms) — only reached via infi.clickhouse_orm
+    "pkg_resources",  # setuptools shim (~40ms)
     "boto3",  # AWS SDK — object storage, SES and JS snippet clients build it at call time
     "botocore",  # AWS SDK core — same door as boto3
 ]

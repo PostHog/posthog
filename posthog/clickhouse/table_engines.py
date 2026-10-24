@@ -63,24 +63,9 @@ class ReplacingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver})"
 
 
-class ReplacingMergeTreeDeleted(MergeTreeEngine):
-    ENGINE = "ReplacingMergeTree({ver}, {is_deleted})"
-    REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver}, {is_deleted})"
-
-
 class CollapsingMergeTree(MergeTreeEngine):
     ENGINE = "CollapsingMergeTree({ver})"
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
-
-
-class AggregatingMergeTree(MergeTreeEngine):
-    ENGINE = "AggregatingMergeTree()"
-    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
-
-
-class SummingMergeTree(MergeTreeEngine):
-    ENGINE = "SummingMergeTree({columns})"
-    REPLICATED_ENGINE = "ReplicatedSummingMergeTree('{zk_path}', '{replica_key}', {columns})"
 
 
 class Distributed:
@@ -99,6 +84,16 @@ class Distributed:
             return f"Distributed('{cluster}', '{database}', '{self.data_table}')"
 
         return f"Distributed('{cluster}', '{database}', '{self.data_table}', {self.sharding_key})"
+
+
+class AggregatingMergeTree(MergeTreeEngine):
+    ENGINE = "AggregatingMergeTree()"
+    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
+
+
+class ReplacingMergeTreeDeleted(MergeTreeEngine):
+    ENGINE = "ReplacingMergeTree({ver}, {is_deleted})"
+    REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver}, {is_deleted})"
 
 
 class Buffer:

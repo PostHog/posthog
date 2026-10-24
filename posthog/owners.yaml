@@ -3,7 +3,7 @@ owners: []
 rules:
     - match: '/caching/'
       owners: team-analytics-platform
-    - match: '/clickhouse/hcl/'
+    - match: '/clickhouse/schema/'
       owners: clickhouse
     - match:
           - '/csp_middleware.py'

@@ -33,4 +33,3 @@ provider "clickhousedbops" {
   # display_secrets_in_show_and_select, which docker/clickhouse/config.d/default.xml sets.
   manage_dictionary_passwords = true
 }
-

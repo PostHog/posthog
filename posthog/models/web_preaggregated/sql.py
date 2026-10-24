@@ -2,8 +2,6 @@ import uuid
 
 from django.conf import settings
 
-from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
-
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_SELECTED_TEAMS_SQL
@@ -39,52 +37,6 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_
     PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
     """
-
-
-def HOURLY_TABLE_TEMPLATE(
-    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
-):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
-    if force_unique_zk_path:
-        engine.set_zookeeper_path_key(str(uuid.uuid4()))
-
-    ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
-
-    create_clause = get_create_clause(table_name, replace)
-
-    return f"""
-    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
-    (
-        period_bucket DateTime,
-        team_id UInt64,
-        host String,
-        device_type String,
-        {columns}
-    ) ENGINE = {engine}
-    ORDER BY {order_by}
-    PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
-    {ttl_clause}
-    """
-
-
-def _DROP_TABLE_TEMPLATE(table_name: str):
-    return f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}"
-
-
-def DROP_WEB_STATS_SQL():
-    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats")
-
-
-def DROP_WEB_BOUNCES_SQL():
-    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces")
-
-
-def DROP_WEB_STATS_STAGING_SQL():
-    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats_staging")
-
-
-def DROP_WEB_BOUNCES_STAGING_SQL():
-    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
 
 
 # Hardcoded production column definitions to match exact table structure
@@ -260,25 +212,6 @@ WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
 
 
-def get_dimension_columns(dimensions):
-    column_definitions = []
-    for d in dimensions:
-        if d in ["viewport_width", "viewport_height"]:
-            column_definitions.append(f"{d} Int64")
-        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
-            column_definitions.append(f"{d} Bool")
-        else:
-            column_definitions.append(f"{d} String")
-    return ",\n".join(column_definitions)
-
-
-def get_order_by_clause(dimensions, bucket_column="period_bucket"):
-    base_columns = ["team_id", bucket_column, "host", "device_type"]
-    all_columns = base_columns + dimensions
-    column_list = ",\n    ".join(all_columns)
-    return f"(\n    {column_list}\n)"
-
-
 def get_insert_columns(dimensions, aggregate_columns):
     shared_columns = ["period_bucket", "team_id", "host", "device_type"]
     all_columns = shared_columns + dimensions + aggregate_columns
@@ -300,69 +233,6 @@ def get_web_bounces_insert_columns():
         "total_session_count_state",
     ]
     return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
-
-
-WEB_STATS_COLUMNS = f"""
-    {get_dimension_columns(WEB_STATS_DIMENSIONS)},
-    persons_uniq_state AggregateFunction(uniq, UUID),
-    sessions_uniq_state AggregateFunction(uniq, String),
-    pageviews_count_state AggregateFunction(sum, UInt64),
-"""
-
-WEB_BOUNCES_COLUMNS = f"""
-    {get_dimension_columns(WEB_BOUNCES_DIMENSIONS)},
-    persons_uniq_state AggregateFunction(uniq, UUID),
-    sessions_uniq_state AggregateFunction(uniq, String),
-    pageviews_count_state AggregateFunction(sum, UInt64),
-    bounces_count_state AggregateFunction(sum, UInt64),
-    total_session_duration_state AggregateFunction(sum, Int64),
-    total_session_count_state AggregateFunction(sum, UInt64)
-"""
-
-
-def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
-    return get_order_by_clause(WEB_STATS_DIMENSIONS, bucket_column)
-
-
-def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
-    return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
-
-
-def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
-    """
-    Generate SQL to drop a partition for a specific date.
-    This enables idempotent operations by ensuring clean state before insertion.
-
-    Args:
-        table_name: Name of the table
-        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
-        granularity: "daily" or "hourly" - determines partition format
-    """
-
-    if granularity == "hourly":
-        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
-        if " " in date_start:
-            date_part, hour_part = date_start.split(" ")
-            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
-        else:
-            # If only date provided for hourly, format as "YYYYMMDD00"
-            partition_id = date_start.replace("-", "") + "00"
-    else:
-        # For daily: format date as YYYYMMDD
-        partition_id = date_start.replace("-", "")
-
-    return f"""
-    ALTER TABLE {table_name}
-    DROP PARTITION '{partition_id}'
-    """
-
-
-def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
-
-
-def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
 def format_team_ids(team_ids: list[int]) -> str:
@@ -834,65 +704,87 @@ def WEB_BOUNCES_INSERT_SQL(
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
 
 
-def WEB_STATS_EXPORT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", s3_path=None
+def HOURLY_TABLE_TEMPLATE(
+    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
 ):
-    team_ids_filter = ""
-    if team_ids:
-        team_ids_str = format_team_ids(team_ids)
-        team_ids_filter = f"AND team_id IN ({team_ids_str})"
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
-    if not s3_path:
-        raise ValueError("s3_path is required")
+    ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
-    s3_function_args = get_s3_function_args(s3_path)
+    create_clause = get_create_clause(table_name, replace)
 
     return f"""
-    INSERT INTO FUNCTION s3({s3_function_args})
-    SELECT
-        period_bucket,
-        team_id,
-        persons_uniq_state,
-        sessions_uniq_state,
-        pageviews_count_state
-    FROM {table_name}
-    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
-        AND period_bucket < toDateTime('{date_end}', '{timezone}')
-        {team_ids_filter}
-    GROUP BY team_id, period_bucket, persons_uniq_state, sessions_uniq_state, pageviews_count_state
-    ORDER BY team_id, period_bucket
-    SETTINGS {settings}
+    {create_clause} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    (
+        period_bucket DateTime,
+        team_id UInt64,
+        host String,
+        device_type String,
+        {columns}
+    ) ENGINE = {engine}
+    ORDER BY {order_by}
+    PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
+    {ttl_clause}
     """
 
 
-def WEB_BOUNCES_EXPORT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_bounces_daily", s3_path=None
-):
-    team_ids_filter = ""
-    if team_ids:
-        team_ids_str = format_team_ids(team_ids)
-        team_ids_filter = f"AND team_id IN ({team_ids_str})"
+def get_dimension_columns(dimensions):
+    column_definitions = []
+    for d in dimensions:
+        if d in ["viewport_width", "viewport_height"]:
+            column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
+            column_definitions.append(f"{d} Bool")
+        else:
+            column_definitions.append(f"{d} String")
+    return ",\n".join(column_definitions)
 
-    if not s3_path:
-        raise ValueError("s3_path is required")
 
-    s3_function_args = get_s3_function_args(s3_path)
+def get_order_by_clause(dimensions, bucket_column="period_bucket"):
+    base_columns = ["team_id", bucket_column, "host", "device_type"]
+    all_columns = base_columns + dimensions
+    column_list = ",\n    ".join(all_columns)
+    return f"(\n    {column_list}\n)"
+
+
+WEB_STATS_COLUMNS = f"""
+    {get_dimension_columns(WEB_STATS_DIMENSIONS)},
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+"""
+
+
+def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
+    return get_order_by_clause(WEB_STATS_DIMENSIONS, bucket_column)
+
+
+def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
+    """
+    Generate SQL to drop a partition for a specific date.
+    This enables idempotent operations by ensuring clean state before insertion.
+
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        granularity: "daily" or "hourly" - determines partition format
+    """
+
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
 
     return f"""
-    INSERT INTO FUNCTION s3({s3_function_args})
-    SELECT
-        period_bucket,
-        team_id,
-        persons_uniq_state,
-        sessions_uniq_state,
-        pageviews_count_state,
-        bounces_count_state,
-        total_session_duration_state
-    FROM {table_name}
-    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
-        AND period_bucket < toDateTime('{date_end}', '{timezone}')
-        {team_ids_filter}
-    GROUP BY period_bucket, team_id, persons_uniq_state, sessions_uniq_state, pageviews_count_state, bounces_count_state, total_session_duration_state
-    ORDER BY team_id, period_bucket
-    SETTINGS {settings}
+    ALTER TABLE {table_name}
+    DROP PARTITION '{partition_id}'
     """

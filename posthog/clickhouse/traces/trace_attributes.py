@@ -1,9 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 
 TABLE_NAME = "trace_attributes"
-TABLE_NAME_V2 = "trace_attributes2"
 
 
 def _trace_attributes_table_sql(table_name: str, engine: str):
@@ -37,11 +36,4 @@ def TRACE_ATTRIBUTES_TABLE_SQL():
     return _trace_attributes_table_sql(
         TABLE_NAME,
         str(MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)),
-    )
-
-
-def TRACE_ATTRIBUTES2_TABLE_SQL():
-    return _trace_attributes_table_sql(
-        TABLE_NAME_V2,
-        str(AggregatingMergeTree(TABLE_NAME_V2, replication_scheme=ReplicationScheme.REPLICATED)),
     )
