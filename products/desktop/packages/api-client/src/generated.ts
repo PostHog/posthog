@@ -6433,6 +6433,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results
@@ -6445,6 +6446,7 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
         | "survey_results";
@@ -6583,6 +6585,49 @@ export namespace Schemas {
         savedViewId: string | null;
     }>;
     export type CanvasAppWidgetConfig = Partial<{ canvasId: string | null }>;
+    export type MetricsTableFilter = {
+        /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         */
+        key: string;
+        op?: ("eq" | "neq" | "regex" | "not_regex") | undefined;
+        /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         */
+        value: string;
+    };
+    export type MetricsTableColumn = {
+        /**
+         * Column header, e.g. `Requests/s`.
+         */
+        label: string;
+        /**
+         * Name of the metric this column reads.
+         */
+        metricName: string;
+        /**
+         * How each time bucket of a row is computed. `rate` and `increase` read counters.
+         */
+        aggregation:
+            | "rate"
+            | "increase"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "histogram_quantile";
+        quantile?: (number | null) | undefined;
+        filters?: Array<MetricsTableFilter> | undefined;
+    };
+    export type MetricsTableWidgetConfig = Partial<{
+        dateRange: WidgetDateRange | null;
+        groupBy: string | null;
+        columns: Array<MetricsTableColumn>;
+        interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
+        orderByColumn: number;
+        orderDirection: "ASC" | "DESC";
+        limit: number;
+    }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6593,7 +6638,8 @@ export namespace Schemas {
         | SurveyResultsWidgetConfig
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
-        | CanvasAppWidgetConfig;
+        | CanvasAppWidgetConfig
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
         widget_type: DashboardWidgetTypeEnum;
@@ -20687,6 +20733,27 @@ export namespace Schemas {
          */
         states: Record<string, boolean>;
     };
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum =
+        | "add"
+        | "remove"
+        | "replace"
+        | "confirm";
+    export type ReviewerState = {
+        /**
+         * Current reviewer artefact ID, or null before the first list.
+         */
+        reviewers_id: string | null;
+        /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         */
+        corrections_id: string | null;
+    };
     export type RowFilterColumn = {
         /**
          * Column name to use as `column` in a row filter.
@@ -20742,6 +20809,28 @@ export namespace Schemas {
          * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
          */
         event_count: number | null;
+    };
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export type SuggestedReviewerEntryWrite = Partial<{
+        github_login: string;
+        user_uuid: string;
+        github_name: string;
+        reason: string | null;
+    }>;
+    export type SignalReportArtefactWrite = {
+        action?: (ReviewerEditActionEnum & unknown) | undefined;
+        expected_reviewers?: ReviewerState | undefined;
+        /**
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
+         */
+        content: Array<SuggestedReviewerEntryWrite>;
+        targets?: Array<SuggestedReviewerEntryWrite> | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields

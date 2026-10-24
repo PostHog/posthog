@@ -4380,6 +4380,7 @@ export interface SignalReportStateRequestApi {
  * * `repo_selection` - Repo Selection
  * * `suggested_reviewers` - Suggested Reviewers
  * * `reviewer_corrections` - Reviewer Corrections
+ * * `pr_owner_assignment` - Pr Owner Assignment
  * * `channel_assignment` - Channel Assignment
  * * `dismissal` - Dismissal
  * * `code_reference` - Code Reference
@@ -4420,6 +4421,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     RepoSelection: 'repo_selection',
     SuggestedReviewers: 'suggested_reviewers',
     ReviewerCorrections: 'reviewer_corrections',
+    PrOwnerAssignment: 'pr_owner_assignment',
     ChannelAssignment: 'channel_assignment',
     Dismissal: 'dismissal',
     CodeReference: 'code_reference',
@@ -4517,7 +4519,7 @@ export const ReviewerSelectionOutcomeEnumApi = {
 export interface SignalReportArtefactLogCreateApi {
     /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
-    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+    /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
      *
      * * `selected` - Selected
      * * `no_suitable_owner` - No suitable owner
@@ -8387,7 +8389,7 @@ export const ActionabilityEnumApi = {
 export interface EditReportRequestApi {
     /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
-    /** A successful selection, a deliberate empty result, or an unavailable lookup.
+    /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
      *
      * * `selected` - Selected
      * * `no_suitable_owner` - No suitable owner
