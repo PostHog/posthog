@@ -57,8 +57,14 @@ class BayesianResult:
 
     @property
     def is_decisive(self) -> bool:
-        """Whether result shows clear preference (chance to win > ci_level or < 1 - ci_level)."""
-        return self.chance_to_win > self.ci_level or self.chance_to_win < 1 - self.ci_level
+        """
+        Whether the credible interval excludes zero.
+
+        chance_to_win is a one-sided tail, while the credible interval is two-sided and equal-tailed,
+        so the threshold is 1 - (1 - ci_level) / 2 (0.975 at a 95% level), not ci_level.
+        """
+        upper_threshold = 1 - (1 - self.ci_level) / 2
+        return self.chance_to_win > upper_threshold or self.chance_to_win < 1 - upper_threshold
 
 
 class BayesianTest(ABC):

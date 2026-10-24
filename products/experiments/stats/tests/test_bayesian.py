@@ -11,6 +11,7 @@ import pytest
 from unittest import TestCase
 
 import numpy as np
+from parameterized import parameterized
 
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.bayesian.priors import GaussianPrior
@@ -173,6 +174,36 @@ class TestBayesianUtils(TestCase):
         lower_99, upper_99 = credible_interval(0.1, 0.05, alpha=0.01)
         assert upper_99 - lower_99 > upper - lower
 
+    @parameterized.expand(
+        [
+            # z between 1.645 and 1.960 is the band where a one-sided 95% threshold disagrees with the interval.
+            ("win_inside_gap_95", 1.8, 0.95),
+            ("loss_inside_gap_95", -1.8, 0.95),
+            ("win_past_gap_95", 2.0, 0.95),
+            ("loss_past_gap_95", -2.0, 0.95),
+            ("win_inside_gap_99", 2.4, 0.99),
+            ("win_past_gap_99", 2.7, 0.99),
+            ("win_inside_gap_90", 1.5, 0.90),
+            ("not_significant", 0.5, 0.95),
+        ]
+    )
+    def test_is_decisive_matches_credible_interval(self, _name: str, z: float, ci_level: float) -> None:
+        lower, upper = credible_interval(z, 1.0, alpha=1 - ci_level)
+        result = BayesianResult(
+            effect_size=z,
+            credible_interval=(lower, upper),
+            chance_to_win=chance_to_win(z, 1.0),
+            posterior_variance=1.0,
+            ci_level=ci_level,
+            difference_type="absolute",
+            inverse=False,
+            prior_mean=0.0,
+            prior_variance=0.0,
+            proper_prior=False,
+        )
+
+        assert result.is_decisive == (lower > 0 or upper < 0)
+
 
 class TestBayesianGaussianTest(TestCase):
     """Tests for BayesianGaussianTest class."""
@@ -276,6 +307,7 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(credible_interval_result[0], expected_dict["credible_interval"][0], places=4)
         self.assertAlmostEqual(credible_interval_result[1], expected_dict["credible_interval"][1], places=4)
         self.assertAlmostEqual(result.chance_to_win, expected_dict["chance_to_win"], places=4)
+        self.assertFalse(result.is_decisive)
 
     def test_two_sided_ttest_with_ratio_statistic(self):
         """Test basic two-sided t-test with ratio statistics."""
