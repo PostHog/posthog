@@ -327,6 +327,7 @@ from products.workflows.backend.facade.workflows import (
     workflow_publish_impact,
 )
 from products.workflows.backend.facade.writes import (
+    BroadcastLocked,
     create_workflow,
     destroy_workflow,
     discard_draft,
@@ -5558,6 +5559,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked as e:
+            raise exceptions.ValidationError(str(e))
         serializer.instance = self._written_workflow(result)
         self._report_schedules_paused(result, serializer.instance)
         self._log_activity(
@@ -5695,6 +5698,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked as e:
+            raise exceptions.ValidationError(str(e))
         instance = self._written_workflow(result)
 
         self._report_schedules_paused(result, instance)
@@ -5764,6 +5769,8 @@ class HogFlowViewSet(
             )
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked as e:
+            raise exceptions.ValidationError(str(e))
         instance = self._written_workflow(result)
 
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
@@ -5918,6 +5925,8 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("This workflow has no staged draft to publish.")
         except WorkflowStale:
             raise StaleWorkflowUpdateError()
+        except BroadcastLocked as e:
+            raise exceptions.ValidationError(str(e))
         locked = self._written_workflow(result)
 
         self._report_schedules_paused(result, locked)
@@ -7156,16 +7165,27 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
-            batch_job = create_batch_job(
-                team_id=self.team_id,
-                hog_flow_id=hog_flow.id,
-                created_by_id=cast(User, request.user).id,
-                variables=serializer.validated_data.get("variables", {}),
-                status=serializer.validated_data.get("status"),
-                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-                # caller-supplied filters are never what actually runs.
-                filters=hog_flow.trigger_filters,
-            )
+            with transaction.atomic():
+                locked_flow = HogFlow.objects.select_for_update().get(id=hog_flow.id, team_id=self.team_id)
+                if locked_flow.status != HogFlowState.ACTIVE:
+                    raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
+
+                if locked_flow.origin_product == HogFlowOriginProduct.BROADCASTS:
+                    if HogFlowBatchJob.objects.filter(hog_flow_id=locked_flow.id).exists():
+                        raise exceptions.ValidationError(
+                            "This broadcast has already been sent or is sending. To send another broadcast, duplicate it as a new draft."
+                        )
+
+                batch_job = create_batch_job(
+                    team_id=self.team_id,
+                    hog_flow_id=locked_flow.id,
+                    created_by_id=cast(User, request.user).id,
+                    variables=serializer.validated_data.get("variables", {}),
+                    status=serializer.validated_data.get("status"),
+                    # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                    # caller-supplied filters are never what actually runs.
+                    filters=locked_flow.trigger_filters,
+                )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
