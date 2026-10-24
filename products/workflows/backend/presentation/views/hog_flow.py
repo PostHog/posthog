@@ -354,6 +354,7 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
 )
+from products.workflows.backend.presentation.views.time_window_config import validate_time_window_config
 from products.workflows.backend.presentation.views.workflow_classifications import (
     WorkflowClassificationRequestSerializer,
 )
@@ -1853,6 +1854,9 @@ class HogFlowActionSerializer(serializers.Serializer):
         # (MCP/API) get full validation even on drafts so a broken or unsupported config fails at create
         # time rather than being silently stored and surfacing only at enable.
         strict = _should_validate_strictly(self.context, is_draft)
+
+        if strict and data.get("type") == "wait_until_time_window":
+            validate_time_window_config(data.get("config"))
 
         trigger_is_function = False
         if data.get("type") == "trigger":

@@ -1180,6 +1180,35 @@ class TestHogFlowAPI(APIBaseTest):
             flow["status"] = status
         return flow
 
+    @parameterized.expand([("active", "active"), ("draft", "draft")])
+    def test_mcp_rejects_an_invalid_time_window(self, _name: str, flow_status: str) -> None:
+        flow = self._make_delay_flow({}, status=flow_status)
+        flow["actions"][1] = {
+            "id": "window",
+            "name": "Wait for a time window",
+            "type": "wait_until_time_window",
+            "config": {"day": "everyday", "time": ["09:00", "17:00"]},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "actions__1__config__day"
+
+    def test_activation_revalidates_a_stored_time_window(self) -> None:
+        flow = self._make_delay_flow({}, status="draft")
+        flow["actions"][1] = {
+            "id": "window",
+            "name": "Wait for a time window",
+            "type": "wait_until_time_window",
+            "config": {"day": [], "time": "any"},
+        }
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert created.status_code == 201, created.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}", {"status": "active"}
+        )
+        assert response.status_code == 400, response.json()
+        assert HogFlow.objects.get(pk=created.json()["id"]).status == "draft"
+
     @parameterized.expand(
         [
             ("missing_delay_duration", {}),
