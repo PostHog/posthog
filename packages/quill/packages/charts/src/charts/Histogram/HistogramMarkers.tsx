@@ -62,12 +62,14 @@ export function HistogramMarkers({ markers }: { markers: ResolvedHistogramMarker
         if (!layout) {
             return []
         }
-        const plotRight = dimensions.plotLeft + dimensions.plotWidth
+        // Filter on the value, since the log scale clamps and would pin an outside marker to the edge.
+        const [lo, hi] = layout.xScale.domain()
         return markers
+            .filter((marker) => marker.value >= lo && marker.value <= hi)
             .map((marker) => ({ ...marker, x: Math.round(layout.xScale(marker.value)) }))
-            .filter((marker) => isFinite(marker.x) && marker.x >= dimensions.plotLeft && marker.x <= plotRight)
+            .filter((marker) => isFinite(marker.x))
             .sort((a, b) => a.x - b.x)
-    }, [layout, markers, dimensions])
+    }, [layout, markers])
 
     const labels = useMemo(
         () =>

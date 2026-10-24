@@ -3,7 +3,7 @@ import { act, fireEvent } from '@testing-library/react'
 import type { ChartTheme } from '../../core/types'
 import { rawDrag, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { Histogram, type HistogramProps } from './Histogram'
-import type { HistogramBin } from './types'
+import type { HistogramBin, HistogramConfig } from './types'
 
 const THEME: ChartTheme = { colors: ['#1f77b4', '#d62728'], backgroundColor: '#ffffff' }
 
@@ -72,22 +72,53 @@ describe('Histogram', () => {
         expect(onRangeClear).toHaveBeenCalledTimes(1)
     })
 
-    it('describes the bin under the cursor, not the bin with the nearest center', async () => {
-        const { chart } = renderHistogram()
+    it.each<[string, HistogramBin[], number, string[]]>([
         // x=650 sits inside the wide middle bin but nearer the last bin's center (750).
-        const tooltip = await hoverAt(chart.element, 650)
+        [
+            'the bin under the cursor, not the bin with the nearest center',
+            BINS,
+            650,
+            ['10 – 70', '12 (60%)', 'Below 7080%'],
+        ],
+        // The second bin overlaps the first, so it draws from 10; x=700 is value 13.1.
+        [
+            'an overlapping bin with the trimmed edges it draws with',
+            [
+                { start: 0, end: 10, count: 4 },
+                { start: 5, end: 15, count: 6 },
+            ],
+            700,
+            ['10 – 15', '6 (60%)'],
+        ],
+    ])('describes %s', async (_, bins, x, expected) => {
+        const { chart } = renderHistogram({ bins })
+        const tooltip = await hoverAt(chart.element, x)
 
-        expect(tooltip.textContent).toContain('10 – 70')
-        expect(tooltip.textContent).toContain('12 (60%)')
-        expect(tooltip.textContent).toContain('Below 7080%')
+        for (const text of expected) {
+            expect(tooltip.textContent).toContain(text)
+        }
     })
 
-    it('labels a percentile marker with its estimated value in the axis format', () => {
-        const { chart } = renderHistogram({
-            config: { markers: [{ percentile: 50 }], xAxis: { format: 'duration_ms' } },
-        })
+    it.each<[string, HistogramBin[], HistogramConfig, string[]]>([
+        [
+            'labels a percentile marker with its estimated value in the axis format',
+            BINS,
+            { markers: [{ percentile: 50 }], xAxis: { format: 'duration_ms' } },
+            ['p50 40ms'],
+        ],
+        [
+            'drops a value marker beyond the bins rather than pinning it to the clamped log axis edge',
+            [
+                { start: 1, end: 10, count: 5 },
+                { start: 10, end: 100, count: 5 },
+            ],
+            { markers: [{ value: 5000, label: 'SLO' }], xAxis: { scaleType: 'log' } },
+            [],
+        ],
+    ])('%s', (_, bins, config, expected) => {
+        const { chart } = renderHistogram({ bins, config })
 
-        expect(chart.histogramMarkerLabels()).toEqual(['p50 40ms'])
+        expect(chart.histogramMarkerLabels()).toEqual(expected)
     })
 
     it('ticks a log axis in 1-2-5 steps in the axis format, dropping labels the edges would clip', () => {

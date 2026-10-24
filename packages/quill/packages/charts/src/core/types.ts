@@ -222,6 +222,9 @@ export interface ChartDimensions {
     plotWidth: number
     /** Height of the drawable plot area. */
     plotHeight: number
+    /** Device pixels per CSS pixel when the chart was measured. Lets layout snap edges to device
+     *  pixels. Treat a missing value as 1. */
+    pixelRatio?: number
 }
 
 /** Spacing between the container edges and the plot area. */

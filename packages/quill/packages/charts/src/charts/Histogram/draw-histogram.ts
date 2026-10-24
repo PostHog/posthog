@@ -1,6 +1,4 @@
-import { color as d3Color } from 'd3-color'
-
-import { BAR_HIGHLIGHT_DARKEN, SELECTION_FILL, SELECTION_STROKE } from '../../core/canvas-renderer'
+import { SELECTION_FILL, SELECTION_STROKE } from '../../core/canvas-renderer'
 import type { HistogramLayout, HistogramSegment } from '../../core/histogram-layout'
 import type { ChartDimensions } from '../../core/types'
 
@@ -58,7 +56,7 @@ export function drawHistogramHover(
     layout: HistogramLayout,
     dimensions: ChartDimensions,
     binIndex: number,
-    colors: string[],
+    hoverColors: string[],
     columnColor: string,
     progress: number
 ): boolean {
@@ -72,8 +70,7 @@ export function drawHistogramHover(
     ctx.globalAlpha = progress
     for (let i = column.segmentStart; i < column.segmentEnd; i++) {
         const segment = layout.segments[i]
-        const base = colors[segment.seriesIndex]
-        ctx.fillStyle = d3Color(base)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? base
+        ctx.fillStyle = hoverColors[segment.seriesIndex]
         ctx.fillRect(segment.x, segment.y, segment.width, segment.height)
     }
     ctx.globalAlpha = 1

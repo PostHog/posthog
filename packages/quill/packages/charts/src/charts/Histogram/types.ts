@@ -96,8 +96,9 @@ export interface HistogramConfig {
 /** {@link TooltipContext} with the hovered bin resolved. `seriesData` holds one row per visible
  *  series. */
 export interface HistogramTooltipContext<Meta = unknown> extends TooltipContext {
-    /** The hovered bin. When several bins share one pixel column, a bin spanning them all with their
-     *  summed count and no `meta`. */
+    /** The hovered bin, with the edges as drawn (an overlapping bin starts where the previous one
+     *  ends). When several bins share one pixel column, a bin spanning them all with their summed
+     *  count and no `meta`. */
     bin: HistogramBin<Meta>
     /** The bins in the hovered column, as passed. Usually one. */
     bins: HistogramBin<Meta>[]

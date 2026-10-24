@@ -40,7 +40,12 @@ import {
     drawHistogramSelectionBand,
     drawHistogramSelectionEdges,
 } from './draw-histogram'
-import { createHistogramScales, readHistogramColors, readHistogramLayout } from './histogram-scales'
+import {
+    createHistogramScales,
+    readHistogramColors,
+    readHistogramHoverColors,
+    readHistogramLayout,
+} from './histogram-scales'
 import { HistogramMarkers, MARKER_LABEL_MARGIN, type ResolvedHistogramMarker } from './HistogramMarkers'
 import { HistogramTooltip } from './HistogramTooltip'
 import { HistogramXAxisLabels } from './HistogramXAxisLabels'
@@ -165,7 +170,9 @@ function ColumnTooltip<Meta>({
         seriesData: merged
             ? ctx.seriesData.map((entry) => ({ ...entry, value: sumFinite(entry.series.data, first, last) }))
             : ctx.seriesData,
-        bin: merged ? { start: sources[0].start, end: sources[sources.length - 1].end, count } : sources[0].source,
+        bin: merged
+            ? { start: sources[0].start, end: sources[sources.length - 1].end, count }
+            : { ...sources[0].source, start: sources[0].start, end: sources[0].end },
         bins: sources.map((bin) => bin.source),
         count,
         fraction: grandTotal > 0 ? count / grandTotal : 0,
@@ -300,7 +307,7 @@ function HistogramInner<Meta = unknown>({
                 return false
             }
             const columnColor = drawTheme.crosshairColor ?? drawTheme.axisColor ?? DEFAULT_COLUMN_COLOR
-            const colors = readHistogramColors(scales)
+            const colors = readHistogramHoverColors(scales)
             return drawHistogramHover(ctx, layout, dimensions, hoverIndex, colors, columnColor, hoverProgress)
         },
         []

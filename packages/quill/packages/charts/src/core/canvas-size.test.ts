@@ -88,6 +88,7 @@ describe('canvas-size', () => {
                 plotTop: 16,
                 plotWidth,
                 plotHeight,
+                pixelRatio: 1,
             })
         })
 
