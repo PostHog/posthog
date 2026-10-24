@@ -155,6 +155,16 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
                 [{"type": "event", "key": "$feature/target-flag", "operator": "is_not_set", "value": "is_not_set"}],
                 ["3", "4"],
             ),
+            (
+                "session 1 matches feature filter with bare flag key",
+                [{"type": "feature", "key": "target-flag", "operator": "exact", "value": ["true"]}],
+                ["1"],
+            ),
+            (
+                "session 2 matches feature filter with prefixed flag key",
+                [{"type": "feature", "key": "$feature/target-flag", "operator": "exact", "value": ["false"]}],
+                ["2"],
+            ),
         ]
     )
     @time_machine.travel("2021-01-21T20:00:00.000Z", tick=False)
