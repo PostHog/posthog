@@ -55,4 +55,30 @@ describe('FeatureFlagEvaluationContexts', () => {
             expect(!!container.querySelector('[data-attr="feature-flag-evaluation-contexts-input"]')).toBe(opensEditor)
         }
     )
+
+    it('does not show the tags of the flag edited before', () => {
+        const Harness = ({ flagId, tags }: { flagId: number; tags: string[] }): JSX.Element => (
+            <Provider>
+                <BindLogic logic={featureFlagLogic} props={{ id: flagId }}>
+                    <FeatureFlagEvaluationContexts
+                        tags={tags}
+                        evaluationContexts={[]}
+                        flagId={flagId}
+                        context="form"
+                        onChange={jest.fn()}
+                    />
+                </BindLogic>
+            </Provider>
+        )
+
+        const { container, rerender } = render(<Harness flagId={1} tags={['flag-a-tag']} />)
+        fireEvent.click(container.querySelector('[data-attr="button-edit-tags"]') as Element)
+
+        // The scene keeps the form mounted, so another flag only changes the props
+        rerender(<Harness flagId={2} tags={['flag-b-tag']} />)
+
+        expect(container.querySelector('[data-attr="feature-flag-tags-input"]')).not.toBeInTheDocument()
+        expect(container.textContent).toContain('flag-b-tag')
+        expect(container.textContent).not.toContain('flag-a-tag')
+    })
 })
