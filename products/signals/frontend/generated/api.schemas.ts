@@ -5123,10 +5123,9 @@ export interface PullRequestCiStatusesResponseApi {
  * * `unscored` - unscored
  * * `not_available` - not_available
  */
-export type RankingHeadsResponseStatusEnumApi =
-    (typeof RankingHeadsResponseStatusEnumApi)[keyof typeof RankingHeadsResponseStatusEnumApi]
+export type RankingHeadsStatusEnumApi = (typeof RankingHeadsStatusEnumApi)[keyof typeof RankingHeadsStatusEnumApi]
 
-export const RankingHeadsResponseStatusEnumApi = {
+export const RankingHeadsStatusEnumApi = {
     Scored: 'scored',
     Unscored: 'unscored',
     NotAvailable: 'not_available',
@@ -5168,7 +5167,7 @@ export interface RankingHeadsResponseApi {
      * * `scored` - scored
      * * `unscored` - unscored
      * * `not_available` - not_available */
-    status: RankingHeadsResponseStatusEnumApi
+    status: RankingHeadsStatusEnumApi
     /**
      * Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.
      * @nullable

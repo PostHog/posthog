@@ -99483,10 +99483,10 @@ export namespace Schemas {
      * * `unscored` - unscored
      * * `not_available` - not_available
      */
-    export type RankingHeadsResponseStatusEnum = typeof RankingHeadsResponseStatusEnum[keyof typeof RankingHeadsResponseStatusEnum];
+    export type RankingHeadsStatusEnum = typeof RankingHeadsStatusEnum[keyof typeof RankingHeadsStatusEnum];
 
 
-    export const RankingHeadsResponseStatusEnum = {
+    export const RankingHeadsStatusEnum = {
       Scored: 'scored',
       Unscored: 'unscored',
       NotAvailable: 'not_available',
@@ -99498,7 +99498,7 @@ export namespace Schemas {
        * * `scored` - scored
        * * `unscored` - unscored
        * * `not_available` - not_available */
-      status: RankingHeadsResponseStatusEnum;
+      status: RankingHeadsStatusEnum;
       /**
          * Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.
          * @nullable
