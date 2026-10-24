@@ -7,6 +7,7 @@ url_pattern, the option keys that encode source location on a direct table) live
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -166,11 +167,24 @@ def get_trino_source_location_for_schema_model(
     )
 
 
-def reconcile_managed_trino_schemas(*, source_id: UUID, source_schemas: list[SourceSchema], team_id: int) -> list[str]:
+def reconcile_managed_trino_schemas(
+    *,
+    source_id: UUID,
+    source_schemas: list[SourceSchema],
+    team_id: int,
+    retained_catalogs: frozenset[str] = frozenset(),
+    table_locations: Mapping[str, str] | None = None,
+) -> list[str]:
     source = get_direct_external_data_source_for_connection(team_id, str(source_id))
     if source is None or not source.is_dynamic_managed_warehouse:
         raise ValueError("Source is not a dynamic managed warehouse connection")
-    return reconcile_trino_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+    return reconcile_trino_schemas(
+        source=source,
+        source_schemas=source_schemas,
+        team_id=team_id,
+        retained_catalogs=retained_catalogs,
+        table_locations=table_locations,
+    )
 
 
 def reconcile_trino_schemas(
@@ -178,10 +192,14 @@ def reconcile_trino_schemas(
     source: ExternalDataSource,
     source_schemas: list[SourceSchema],
     team_id: int,
+    retained_catalogs: frozenset[str] = frozenset(),
+    table_locations: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Persist `schema_metadata` on every Trino row + (direct mode only) upsert its
     live-query `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct
-    only)."""
+    only). Rows whose catalog is in `retained_catalogs` are never treated as stale: discovery
+    could not read that catalog, which does not mean its tables are gone. `table_locations` maps a
+    schema name to the storage root discovery read for it; a table missing from it stores none."""
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
@@ -278,6 +296,7 @@ def reconcile_trino_schemas(
             source_catalog=resolved_catalog,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
+            source_location=(table_locations or {}).get(source_schema.name),
         )
         if matched.table_id != table_model.id:
             matched.table = table_model
@@ -289,8 +308,20 @@ def reconcile_trino_schemas(
 
     stale_names: list[str] = []
     for s in reconciliation.stale_schemas:
+        if retained_catalogs and _schema_catalog(s, default_catalog) in retained_catalogs:
+            continue
         hide_direct_trino_table(s.table)
         if not s.deleted:
             s.soft_delete()
         stale_names.append(s.name)
     return stale_names
+
+
+def _schema_catalog(schema_model: ExternalDataSchema, default_catalog: str | None) -> str | None:
+    catalog, _schema, _table = get_trino_source_location_for_schema_model(
+        schema_name=schema_model.name,
+        sync_type_config=schema_model.sync_type_config,
+        table_options=schema_model.table.options if schema_model.table is not None else None,
+        default_catalog=default_catalog,
+    )
+    return catalog

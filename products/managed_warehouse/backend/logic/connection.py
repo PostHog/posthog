@@ -31,6 +31,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql.database.direct_trino_table import is_managed_trino_external_catalog
+
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -417,6 +419,8 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
         use_trino = source.is_dynamic_managed_warehouse and trino_enabled
 
     excluded_schemas = internal_schemas()
+    unavailable_catalogs: frozenset[str] = frozenset()
+    table_locations: dict[str, str] = {}
 
     try:
         if use_trino:
@@ -424,13 +428,22 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
                 discover_managed_trino_schemas,  # noqa: PLC0415 -- optional Trino drivers load only for Trino discovery
             )
 
-            discovered = discover_managed_trino_schemas(str(organization_id), team_id)
+            trino_discovery = discover_managed_trino_schemas(str(organization_id), team_id)
+            discovered = trino_discovery.schemas
+            unavailable_catalogs = trino_discovery.unavailable_catalogs
+            table_locations = trino_discovery.table_locations
         else:
             discovered = _discover_postgres_schemas(source, organization_id, team_id, source_api_version)
     except Exception:
         logger.warning("Managed warehouse introspection failed; will retry", team_id=team_id, exc_info=True)
         return
-    source_schemas = [schema for schema in discovered if (schema.source_schema or "") not in excluded_schemas]
+    # Internal schema names belong to the warehouse's own catalog; tenant catalogs may reuse them.
+    source_schemas = [
+        schema
+        for schema in discovered
+        if (schema.source_schema or "") not in excluded_schemas
+        or is_managed_trino_external_catalog(schema.source_catalog or "")
+    ]
     trino_still_enabled = managed_warehouse_sql_editor_uses_trino(organization_id)
     with transaction.atomic():
         if _lifecycle_snapshot(organization_id, lock=True) != lifecycle_snapshot:
@@ -469,7 +482,13 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
                 schema_model.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
         if use_trino:
-            reconcile_managed_trino_schemas(source_id=source.id, source_schemas=source_schemas, team_id=team_id)
+            reconcile_managed_trino_schemas(
+                source_id=source.id,
+                source_schemas=source_schemas,
+                team_id=team_id,
+                retained_catalogs=unavailable_catalogs,
+                table_locations=table_locations,
+            )
         else:
             reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 

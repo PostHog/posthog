@@ -311,6 +311,7 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         allowed_system_tables=allowed_system_tables,
         trigger="trino",
+        include_managed_trino_external_tables=True,
     )
     placeholders = find_placeholders(parsed)
     if placeholders.has_filters:

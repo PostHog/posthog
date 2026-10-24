@@ -33,8 +33,10 @@ from products.data_warehouse.backend.direct_snowflake import (
 )
 from products.data_warehouse.backend.direct_trino import (
     DIRECT_TRINO_CATALOG_OPTION,
+    DIRECT_TRINO_LOCATION_OPTION,
     DIRECT_TRINO_SCHEMA_OPTION,
     DIRECT_TRINO_TABLE_OPTION,
+    DIRECT_TRINO_URL_PATTERN,
 )
 
 __all__ = [
@@ -55,6 +57,8 @@ __all__ = [
     "DIRECT_SNOWFLAKE_SCHEMA_OPTION",
     "DIRECT_SNOWFLAKE_TABLE_OPTION",
     "DIRECT_TRINO_CATALOG_OPTION",
+    "DIRECT_TRINO_LOCATION_OPTION",
     "DIRECT_TRINO_SCHEMA_OPTION",
     "DIRECT_TRINO_TABLE_OPTION",
+    "DIRECT_TRINO_URL_PATTERN",
 ]
