@@ -77,11 +77,12 @@ const TRACELOOP: SupportedProvider = SupportedProvider {
     },
 };
 
-/// Pydantic AI SDK (`pydantic_ai.*`). No specific event types — all spans
-/// default to `$ai_span`.
+/// Pydantic AI SDK (`pydantic_ai.*`). Agent runs are `$ai_span`, but newer
+/// versions also put `pydantic_ai.cache.*` on chat spans, so classify by the
+/// standard operation name like the plain `gen_ai.*` provider does.
 const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     prefixes: &["pydantic_ai."],
-    classify: |_| "$ai_span",
+    classify: |attrs| classify_by_key(attrs, "gen_ai.operation.name", classify_gen_ai_operation),
 };
 
 /// Providers are matched in order — first prefix match wins. More specific
@@ -268,6 +269,20 @@ mod tests {
             get_event_name(&attrs_with("traceloop.workflow.name", "my-workflow")),
             Some("$ai_span")
         );
+    }
+
+    #[test]
+    fn test_pydantic_ai_spans_classify_by_operation_name() {
+        let mut chat = attrs_with("gen_ai.operation.name", "chat");
+        chat.insert("pydantic_ai.cache.hit_ratio".to_string(), Value::from(0.5));
+        assert_eq!(get_event_name(&chat), Some("$ai_generation"));
+
+        let mut agent_run = attrs_with("gen_ai.operation.name", "invoke_agent");
+        agent_run.insert(
+            "pydantic_ai.all_messages".to_string(),
+            Value::String("[]".to_string()),
+        );
+        assert_eq!(get_event_name(&agent_run), Some("$ai_span"));
     }
 
     #[test]
