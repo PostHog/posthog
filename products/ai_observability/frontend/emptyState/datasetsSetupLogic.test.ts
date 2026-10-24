@@ -23,11 +23,19 @@ describe('datasetsSetupLogic', () => {
     })
 
     it.each([
-        [0, 'needs-setup'],
-        [1, 'has-data'],
-        [12, 'has-data'],
-    ])('pushes a dataset count of %i as status %s', async (count, expected) => {
-        listSpy.mockResolvedValue({ count, next: null, previous: null, results: [] })
+        [0, 0, 'needs-setup'],
+        [1, 0, 'has-data'],
+        [12, 0, 'has-data'],
+        [0, 1, 'has-data'],
+    ])('pushes %i active and %i archived datasets as status %s', async (activeCount, archivedCount, expected) => {
+        listSpy.mockImplementation((_projectId: string, params: Parameters<typeof generatedApi.datasetsList>[1]) =>
+            Promise.resolve({
+                count: params?.archived ? archivedCount : activeCount,
+                next: null,
+                previous: null,
+                results: [],
+            })
+        )
         const logic = datasetsSetupLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()

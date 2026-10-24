@@ -102,6 +102,16 @@ class TestUpdateActivitySummary(BaseTest):
         assert self._versions() == [1, 2]
         first = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=1)
         assert (first.summary_text, first.input_watermark) == (stored.summary_text, stored.input_watermark)
+        # The second update read only the rows after the watermark, but its computed fields cover the full window.
+        assert latest.computed is not None
+        assert {entry["id"] for entry in latest.computed["owned"]} == {
+            "Funnel 0",
+            "Funnel 1",
+            "Funnel 2",
+            "Signup funnel",
+        }
+        second = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=2)
+        assert second.computed == latest.computed
 
     def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)

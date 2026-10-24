@@ -33,6 +33,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
+from hogli_commands.workflow_lint.checks.paused_public_image_pulls import PausedPublicImagePullsCheck
 from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunnerImagesCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
@@ -2799,3 +2800,79 @@ class TestShellSplitActionArgsCheck:
         issues = check.run(list(read_workflows(workflows_dir))).issues
         assert issues == [], [issue.render() for issue in issues]
         assert derive_shell_split_inputs(REPO_ROOT) == SHELL_SPLIT_INPUTS
+
+
+# ---------------------------------------------------------------------------
+# PausedPublicImagePullsCheck
+# ---------------------------------------------------------------------------
+
+
+def _image_job(push_to_ghcr: str, verify_step: str) -> str:
+    return f"""
+    name: x
+    on: [push]
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+          - id: docker-meta
+            uses: ./.github/actions/docker-meta
+            with:
+              image-name: app
+              push-to-ghcr: {push_to_ghcr}
+{textwrap.indent(textwrap.dedent(verify_step).strip(), " " * 10)}
+    """
+
+
+PAUSABLE = "${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}"
+
+
+class TestPausedPublicImagePullsCheck:
+    @pytest.mark.parametrize(
+        "verify_step",
+        [
+            pytest.param(
+                """
+                - env:
+                    IMAGE: ghcr.io/posthog/app:${{ github.sha }}
+                  run: docker pull "$IMAGE"
+                """,
+                id="ghcr-via-env",
+            ),
+            pytest.param("- run: docker run --rm posthog/app:latest true", id="dockerhub-inline"),
+            pytest.param("- run: docker buildx imagetools inspect docker.io/posthog/app:latest", id="imagetools"),
+        ],
+    )
+    def test_flags_public_reads_when_push_can_pause(self, tmp_path: Path, verify_step: str) -> None:
+        _write(tmp_path, "wf.yml", _image_job(PAUSABLE, verify_step))
+        issues = PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].job == "build"
+
+    @pytest.mark.parametrize(
+        "push_to_ghcr, verify_step",
+        [
+            pytest.param(
+                PAUSABLE,
+                """
+                - env:
+                    IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/app@${{ steps.image.outputs.digest }}
+                  run: docker pull "$IMAGE"
+                """,
+                id="ecr-by-digest",
+            ),
+            pytest.param("'true'", "- run: docker pull ghcr.io/posthog/app:latest", id="push-never-pauses"),
+            pytest.param(
+                PAUSABLE,
+                """
+                - run: |
+                    echo "tags=ghcr.io/posthog/app:1.0" >> "$GITHUB_OUTPUT"
+                """,
+                id="tag-list-not-a-read",
+            ),
+        ],
+    )
+    def test_passes(self, tmp_path: Path, push_to_ghcr: str, verify_step: str) -> None:
+        _write(tmp_path, "wf.yml", _image_job(push_to_ghcr, verify_step))
+        assert PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues == []

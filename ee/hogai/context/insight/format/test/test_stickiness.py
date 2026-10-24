@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
 
-from posthog.schema import AssistantStickinessQuery
+from parameterized import parameterized
+
+from posthog.schema import AssistantStickinessEventsNode, AssistantStickinessQuery
 
 from .. import StickinessResultsFormatter
 
@@ -14,13 +16,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "days": [1, 2, 3, 4],
                 "labels": ["1 day", "2 days", "3 days", "4 days"],
                 "label": "$pageview",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": None,
-                },
+                "order": 0,
             }
         ]
 
@@ -37,13 +33,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "days": [1, 2, 3],
                 "labels": ["1 day", "2 days", "3 days"],
                 "label": "$pageview",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": None,
-                },
+                "order": 0,
             },
             {
                 "count": 300,
@@ -51,13 +41,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "days": [1, 2, 3],
                 "labels": ["1 day", "2 days", "3 days"],
                 "label": "signup",
-                "action": {
-                    "order": 1,
-                    "type": "events",
-                    "name": "signup",
-                    "id": "signup",
-                    "custom_name": None,
-                },
+                "order": 1,
             },
         ]
 
@@ -76,13 +60,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "label": "$pageview",
                 "compare": True,
                 "compare_label": "previous",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": None,
-                },
+                "order": 0,
             },
             {
                 "count": 500,
@@ -92,13 +70,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "label": "$pageview",
                 "compare": True,
                 "compare_label": "current",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": None,
-                },
+                "order": 0,
             },
         ]
 
@@ -113,7 +85,13 @@ class TestStickinessResultsFormatter(SimpleTestCase):
             "No data recorded for this time period.",
         )
 
-    def test_stickiness_custom_name(self):
+    @parameterized.expand(
+        [
+            ("custom_name", AssistantStickinessEventsNode(event="$pageview", custom_name="Page Views")),
+            ("name_rename", AssistantStickinessEventsNode(event="$pageview", name="Page Views")),
+        ]
+    )
+    def test_stickiness_renamed_series(self, _name, series):
         results = [
             {
                 "count": 300,
@@ -121,18 +99,12 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "days": [1, 2, 3],
                 "labels": ["1 day", "2 days", "3 days"],
                 "label": "$pageview",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": "Page Views",
-                },
+                "order": 0,
             }
         ]
 
         self.assertEqual(
-            StickinessResultsFormatter(AssistantStickinessQuery(series=[]), results).format(),
+            StickinessResultsFormatter(AssistantStickinessQuery(series=[series]), results).format(),
             "Interval|Page Views\n1 day|100\n2 days|120\n3 days|80",
         )
 
@@ -144,13 +116,7 @@ class TestStickinessResultsFormatter(SimpleTestCase):
                 "days": [1, 2, 3],
                 "labels": ["1 day or more", "2 days or more", "3 days or more"],
                 "label": "$pageview",
-                "action": {
-                    "order": 0,
-                    "type": "events",
-                    "name": "$pageview",
-                    "id": "$pageview",
-                    "custom_name": None,
-                },
+                "order": 0,
             }
         ]
 

@@ -30,11 +30,16 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
+    GenerationNotFoundError,
     extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.evaluation_types import (
+    EvaluationActivityResult,
+    build_generation_not_found_result,
+    build_skipped_evaluation_result,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -502,7 +507,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
 def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
-    event_data = hydrate_event_reference(inputs.event_data)
+    try:
+        event_data = hydrate_event_reference(inputs.event_data)
+    except GenerationNotFoundError:
+        return build_generation_not_found_result(evaluation)
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(

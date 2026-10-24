@@ -39,6 +39,8 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_oauth_enabled,
     is_slack_app_unprompted_answers_enabled,
 )
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -1740,6 +1742,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
+        record_feature_used(slack_team_id, slack_user_id, SlackFeature.APP_HOME_TASKS)
         capture_slack_event(
             integration,
             "slack app home opened",
