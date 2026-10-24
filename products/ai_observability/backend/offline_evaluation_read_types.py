@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
@@ -13,8 +15,17 @@ MAX_READ_SCORER_VERSIONS = 20
 MAX_RESULT_CELL_ITEMS = 50
 
 
+class OfflineHistoryBreakdown(models.TextChoices):
+    MODEL = "model_version", "Model"
+    PROMPT = "prompt_version", "Prompt version"
+    APPLICATION = "application_version", "Application version"
+    SUITE = "suite_key", "Suite"
+    SOURCE = "run_source", "Run source"
+
+
 @frozen
 class OfflineReadQuery:
+    breakdown: str | None = None
     limit: int = 50
     cursor: str | None = None
     date_from: datetime | None = None
@@ -38,6 +49,8 @@ class OfflineReadQuery:
     tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
+        if self.breakdown is not None and self.breakdown not in OfflineHistoryBreakdown.values:
+            raise OfflineEvaluationValidationError("breakdown", "Select a supported history breakdown.")
         if self.created_by is not None and self.created_by_is_null:
             raise OfflineEvaluationValidationError("created_by", "Choose an author or no author, not both.")
         if not 1 <= self.limit <= 100:
@@ -143,6 +156,7 @@ class OfflineResultCells:
 
 @frozen
 class OfflineItemRead:
+    model_version: str | None = None
     id: UUID
     experiment_id: UUID
     case_key: str | None
@@ -213,3 +227,4 @@ class OfflineScorerSummary:
 class OfflineHistoryPoint:
     experiment: OfflineExperimentRead
     summary: OfflineScorerSummary
+    breakdown_value: str | None = None

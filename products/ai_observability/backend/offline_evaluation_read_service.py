@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.db import connections
-from django.db.models import Case, Count, Exists, F, OuterRef, Q, When, prefetch_related_objects
+from django.db.models import Case, Count, Exists, F, OuterRef, Q, Value, When, prefetch_related_objects
+from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 
@@ -27,6 +28,7 @@ from products.ai_observability.backend.offline_evaluation_read_types import (
     OfflineCategorySummary,
     OfflineExperimentAuthor,
     OfflineExperimentRead,
+    OfflineHistoryBreakdown,
     OfflineHistoryPoint,
     OfflineItemPage,
     OfflineItemRead,
@@ -57,6 +59,7 @@ if TYPE_CHECKING:
 class _SummaryIdentity:
     experiment_id: UUID
     version_id: UUID
+    breakdown_value: str = ""
 
 
 @frozen
@@ -94,6 +97,7 @@ class _TimePosition:
     started_at: datetime
     experiment_id: UUID
     version_id: UUID | None
+    breakdown_value: str = ""
 
 
 class OfflineEvaluationReadService:
@@ -106,7 +110,7 @@ class OfflineEvaluationReadService:
         return OfflineExperiment.objects.for_team(self.team_id).select_related("created_by")
 
     def _items(self) -> QuerySet[OfflineExperimentItem]:
-        return OfflineExperimentItem.objects.for_team(self.team_id)
+        return OfflineExperimentItem.objects.for_team(self.team_id).select_related("experiment")
 
     def _definitions(self) -> QuerySet[ScoreDefinition]:
         definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
@@ -198,6 +202,8 @@ class OfflineEvaluationReadService:
         filters = asdict(query)
         filters.pop("cursor")
         filters.pop("limit")
+        if query.breakdown is None:
+            filters.pop("breakdown")
         content = json.dumps([self.team_id, self.can_read_scores, scope, filters], default=str, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()[:24]
 
@@ -223,7 +229,7 @@ class OfflineEvaluationReadService:
             raise OfflineEvaluationValidationError("cursor", "Provide a valid continuation cursor.") from error
 
     def _time_cursor(self, query: OfflineReadQuery, scope: str, *, history: bool = False) -> _TimePosition | None:
-        parts = self._cursor(query, scope, 3 if history else 2)
+        parts = self._cursor(query, scope, (4 if query.breakdown else 3) if history else 2)
         if parts is None:
             return None
         try:
@@ -231,7 +237,10 @@ class OfflineEvaluationReadService:
             if started_at.tzinfo is None:
                 raise ValueError
             return _TimePosition(
-                started_at=started_at, experiment_id=UUID(parts[1]), version_id=UUID(parts[2]) if history else None
+                started_at=started_at,
+                experiment_id=UUID(parts[1]),
+                version_id=UUID(parts[2]) if history else None,
+                breakdown_value=parts[3] if history and query.breakdown else "",
             )
         except ValueError as error:
             raise OfflineEvaluationValidationError("cursor", "Provide a valid continuation cursor.") from error
@@ -400,6 +409,7 @@ class OfflineEvaluationReadService:
         return OfflineItemRead(
             id=item.id,
             experiment_id=item.experiment_id,
+            model_version=item.model_version if item.model_version is not None else item.experiment.model_version,
             case_key=item.case_key,
             trial=item.trial,
             dataset_item_identifier=item.dataset_item_identifier,
@@ -557,12 +567,36 @@ class OfflineEvaluationReadService:
                 )
         return None
 
+    @staticmethod
+    def _breakdown_expression(breakdown: str | None, *, item_prefix: str) -> Coalesce | Value:
+        if breakdown is None:
+            return Value("")
+        fields: dict[str, list[F]] = {
+            OfflineHistoryBreakdown.MODEL: [
+                F(f"{item_prefix}model_version"),
+                F(f"{item_prefix}experiment__model_version"),
+            ],
+            OfflineHistoryBreakdown.PROMPT: [F(f"{item_prefix}experiment__prompt_version")],
+            OfflineHistoryBreakdown.APPLICATION: [F(f"{item_prefix}experiment__application_version")],
+            OfflineHistoryBreakdown.SUITE: [F(f"{item_prefix}experiment__suite_key")],
+            OfflineHistoryBreakdown.SOURCE: [F(f"{item_prefix}experiment__run_source")],
+        }
+        return Coalesce(*fields[breakdown], Value(""))
+
     def _aggregates(
-        self, identities: list[_SummaryIdentity], *, versions: dict[UUID, ScoreDefinitionVersion]
+        self,
+        identities: list[_SummaryIdentity],
+        *,
+        versions: dict[UUID, ScoreDefinitionVersion],
+        breakdown: str | None = None,
     ) -> dict[_SummaryIdentity, _Aggregate]:
         selected = Q(pk__in=[])
         for identity in identities:
-            selected |= Q(item__experiment_id=identity.experiment_id, scorer_version_id=identity.version_id)
+            selected |= Q(
+                item__experiment_id=identity.experiment_id,
+                scorer_version_id=identity.version_id,
+                breakdown_value=identity.breakdown_value,
+            )
         passing = Q(pk__in=[])
         configured_versions = set()
         for version_id, version in versions.items():
@@ -572,6 +606,7 @@ class OfflineEvaluationReadService:
                 passing |= Q(scorer_version_id=version_id) & condition
         results = (
             self._results()
+            .annotate(breakdown_value=self._breakdown_expression(breakdown, item_prefix="item__"))
             .filter(selected)
             .order_by()
             .annotate(
@@ -585,16 +620,24 @@ class OfflineEvaluationReadService:
                 "boolean_value",
                 "categorical_values",
                 "score_passes",
+                "breakdown_value",
             )
         )
         sql, params = results.query.sql_with_params()
-        item_table = OfflineExperimentItem._meta.db_table
+        item_query = (
+            self._items()
+            .filter(experiment_id__in={identity.experiment_id for identity in identities})
+            .annotate(breakdown_value=self._breakdown_expression(breakdown, item_prefix=""))
+            .order_by()
+            .values("experiment_id", "id", "case_key", "trial", "breakdown_value")
+        )
+        item_sql, item_params = item_query.query.sql_with_params()
         # The text conversion preserves float precision before numeric accumulation prevents overflow.
         aggregate_sql = f"""
             WITH selected AS (
                 {sql}
             ), aggregates AS (
-                SELECT experiment_id, scorer_version_id, count(*) AS result_count,
+                SELECT experiment_id, scorer_version_id, breakdown_value, count(*) AS result_count,
                        count(*) FILTER (WHERE status = 'ok') AS ok_count,
                        count(*) FILTER (WHERE status = 'error') AS error_count,
                        count(*) FILTER (WHERE status = 'skipped') AS skipped_count,
@@ -603,35 +646,34 @@ class OfflineEvaluationReadService:
                        count(*) FILTER (WHERE status = 'ok' AND boolean_value IS TRUE) AS true_count,
                        count(*) FILTER (WHERE status = 'ok' AND boolean_value IS FALSE) AS false_count,
                        count(*) FILTER (WHERE status = 'ok' AND score_passes) AS pass_count
-                FROM selected GROUP BY experiment_id, scorer_version_id
+                FROM selected GROUP BY experiment_id, scorer_version_id, breakdown_value
             ), category_counts AS (
-                SELECT experiment_id, scorer_version_id, category, count(*) AS selected_count
+                SELECT experiment_id, scorer_version_id, breakdown_value, category, count(*) AS selected_count
                 FROM selected CROSS JOIN LATERAL unnest(categorical_values) AS category
                 WHERE status = 'ok'
-                GROUP BY experiment_id, scorer_version_id, category
+                GROUP BY experiment_id, scorer_version_id, breakdown_value, category
             ), categories AS (
-                SELECT experiment_id, scorer_version_id,
+                SELECT experiment_id, scorer_version_id, breakdown_value,
                        array_agg(category ORDER BY category) AS keys,
                        array_agg(selected_count ORDER BY category) AS counts
-                FROM category_counts GROUP BY experiment_id, scorer_version_id
+                FROM category_counts GROUP BY experiment_id, scorer_version_id, breakdown_value
             ), coverage AS (
-                SELECT experiment_id, count(*) AS observed_item_count, count(DISTINCT case_key) AS distinct_case_count,
+                SELECT experiment_id, breakdown_value, count(*) AS observed_item_count, count(DISTINCT case_key) AS distinct_case_count,
                        count(*) FILTER (WHERE case_key IS NOT NULL) AS items_with_case_key_count,
                        count(*) FILTER (WHERE case_key IS NULL) AS items_without_case_key_count,
                        count(*) FILTER (WHERE trial IS NOT NULL) AS trial_item_count,
                        count(DISTINCT (case_key, CASE WHEN case_key IS NULL THEN id END, trial))
                            FILTER (WHERE trial IS NOT NULL) AS distinct_trial_count
-                FROM {item_table}
-                WHERE team_id = %s AND experiment_id = ANY(%s)
-                GROUP BY experiment_id
+                FROM ({item_sql}) AS selected_items
+                GROUP BY experiment_id, breakdown_value
             )
             SELECT a.experiment_id, a.scorer_version_id, a.result_count, a.ok_count, a.error_count,
                    a.skipped_count, a.not_applicable_count, a.mean, a.true_count, a.false_count,
                    c.observed_item_count, c.distinct_case_count, c.items_with_case_key_count,
                    c.items_without_case_key_count, c.trial_item_count, c.distinct_trial_count,
-                   categories.keys, categories.counts, a.pass_count
-            FROM aggregates a JOIN coverage c USING (experiment_id)
-            LEFT JOIN categories USING (experiment_id, scorer_version_id)
+                   categories.keys, categories.counts, a.pass_count, a.breakdown_value
+            FROM aggregates a JOIN coverage c USING (experiment_id, breakdown_value)
+            LEFT JOIN categories USING (experiment_id, scorer_version_id, breakdown_value)
         """
         # One statement keeps coverage and category denominators coherent during uploads.
         with connections[results.db].cursor() as cursor:
@@ -639,12 +681,11 @@ class OfflineEvaluationReadService:
                 aggregate_sql,
                 [
                     *params,
-                    self.team_id,
-                    list({identity.experiment_id for identity in identities}),
+                    *item_params,
                 ],
             )
             return {
-                _SummaryIdentity(experiment_id=row[0], version_id=row[1]): _Aggregate(
+                _SummaryIdentity(experiment_id=row[0], version_id=row[1], breakdown_value=row[19]): _Aggregate(
                     count=row[2],
                     status_counts=OfflineStatusCounts(ok=row[3], error=row[4], skipped=row[5], not_applicable=row[6]),
                     # Python rounds underflow to zero; PostgreSQL's float cast rejects it.
@@ -665,7 +706,9 @@ class OfflineEvaluationReadService:
                 for row in cursor.fetchall()
             }
 
-    def _summaries(self, identities: list[_SummaryIdentity]) -> dict[_SummaryIdentity, OfflineScorerSummary]:
+    def _summaries(
+        self, identities: list[_SummaryIdentity], *, breakdown: str | None = None
+    ) -> dict[_SummaryIdentity, OfflineScorerSummary]:
         if not identities:
             return {}
         versions = {
@@ -674,7 +717,7 @@ class OfflineEvaluationReadService:
             .filter(id__in=[identity.version_id for identity in identities])
             .select_related("definition")
         }
-        aggregates = self._aggregates(identities, versions=versions)
+        aggregates = self._aggregates(identities, versions=versions, breakdown=breakdown)
         summaries = {}
         for identity in identities:
             version = versions.get(identity.version_id)
@@ -765,9 +808,12 @@ class OfflineEvaluationReadService:
         results = self._results(query).filter(
             scorer_definition_id=definition_id, item__experiment__in=self._filter_experiments(query, history=True)
         )
+        results = results.annotate(breakdown_value=self._breakdown_expression(query.breakdown, item_prefix="item__"))
         groups = (
-            results.order_by("-item__experiment__started_at", "item__experiment_id", "scorer_version_id")
-            .values("item__experiment__started_at", "item__experiment_id", "scorer_version_id")
+            results.order_by(
+                "-item__experiment__started_at", "item__experiment_id", "scorer_version_id", "breakdown_value"
+            )
+            .values("item__experiment__started_at", "item__experiment_id", "scorer_version_id", "breakdown_value")
             .distinct()
         )
         count = groups.count()
@@ -780,6 +826,12 @@ class OfflineEvaluationReadService:
                     item__experiment__started_at=position.started_at,
                     item__experiment_id=position.experiment_id,
                     scorer_version_id__gt=position.version_id,
+                )
+                | Q(
+                    item__experiment__started_at=position.started_at,
+                    item__experiment_id=position.experiment_id,
+                    scorer_version_id=position.version_id,
+                    breakdown_value__gt=position.breakdown_value,
                 )
             )
         rows = list(groups[: query.limit + 1])
@@ -794,14 +846,19 @@ class OfflineEvaluationReadService:
                     row["item__experiment__started_at"].isoformat(),
                     str(row["item__experiment_id"]),
                     str(row["scorer_version_id"]),
+                    *([row["breakdown_value"]] if query.breakdown else []),
                 ],
             ),
         )
         identities = [
-            _SummaryIdentity(experiment_id=row["item__experiment_id"], version_id=row["scorer_version_id"])
+            _SummaryIdentity(
+                experiment_id=row["item__experiment_id"],
+                version_id=row["scorer_version_id"],
+                breakdown_value=row["breakdown_value"],
+            )
             for row in page.results
         ]
-        summary_by_id = self._summaries(identities)
+        summary_by_id = self._summaries(identities, breakdown=query.breakdown)
         experiments = {
             experiment.id: experiment
             for experiment in self._experiment_reads(
@@ -812,7 +869,11 @@ class OfflineEvaluationReadService:
             count=page.count,
             next_cursor=page.next_cursor,
             results=[
-                OfflineHistoryPoint(experiment=experiments[identity.experiment_id], summary=summary_by_id[identity])
+                OfflineHistoryPoint(
+                    experiment=experiments[identity.experiment_id],
+                    summary=summary_by_id[identity],
+                    breakdown_value=identity.breakdown_value or None,
+                )
                 for identity in identities
                 if identity in summary_by_id
             ],
