@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +13,8 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 
 import { captureInboxInterviewInvite } from '../../inboxAnalytics'
+import { openDismissReportDialog } from '../shell/DismissReportDialog'
+import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 import { ReportInterviewInvite } from './ReportInterviewInvite'
 
 jest.mock('../../inboxAnalytics', () => ({
@@ -95,5 +97,40 @@ describe('ReportInterviewInvite', () => {
 
         expect(captureInboxInterviewInvite).toHaveBeenCalledWith('clicked')
         expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['resolve', () => openResolveReportDialog({ reportTitle: 'Example report', onConfirm: jest.fn() })],
+        ['dismiss', () => openDismissReportDialog({ reportTitle: 'Example report', onConfirm: jest.fn() })],
+    ])('shows the invite in a single-report %s dialog', async (_name, openDialog) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_INTERVIEW_INVITE], {
+            [FEATURE_FLAGS.INBOX_INTERVIEW_INVITE]: true,
+        })
+
+        act(openDialog)
+
+        expect(await screen.findByRole('link', { name: 'Book a call' })).toBeInTheDocument()
+        const dialog = screen.getByRole('dialog')
+        await user.click(within(dialog).getByText('Cancel'))
+        await waitFor(() => expect(dialog).not.toBeInTheDocument())
+    })
+
+    it.each([
+        ['bulk resolve', () => openResolveReportDialog({ selectedCount: 2, onConfirm: jest.fn() })],
+        [
+            'hotkey dismiss',
+            () => openDismissReportDialog({ reportTitle: 'Example report', hotkeys: true, onConfirm: jest.fn() }),
+        ],
+    ])('keeps the invite out of %s', async (_name, openDialog) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_INTERVIEW_INVITE], {
+            [FEATURE_FLAGS.INBOX_INTERVIEW_INVITE]: true,
+        })
+
+        act(openDialog)
+
+        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        const dialog = screen.getByRole('dialog')
+        await user.click(within(dialog).getByText('Cancel'))
+        await waitFor(() => expect(dialog).not.toBeInTheDocument())
     })
 })
