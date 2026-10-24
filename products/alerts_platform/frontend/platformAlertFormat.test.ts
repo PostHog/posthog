@@ -8,7 +8,9 @@ import {
     PlatformAlertConfigurationStatus,
     configurationStatus,
     describeCondition,
+    describeOverflow,
     describeSchedule,
+    groupLabels,
 } from './platformAlertFormat'
 
 function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {}): PlatformAlertConfigurationApi {
@@ -111,5 +113,32 @@ describe('platformAlertFormat', () => {
         ['no condition', {}, 'See source settings'],
     ])('describeCondition: %s', (_, source_config, expected) => {
         expect(describeCondition(makeConfiguration({ source_config }))).toEqual(expected)
+    })
+
+    test.each<[string, number, boolean, string | null]>([
+        ['every group fit', 0, false, null],
+        ['one group left out', 1, false, 'At its group limit: 1 group not tracked'],
+        ['exact count', 3, false, 'At its group limit: 3 groups not tracked'],
+        ['results were cut, so the count is a floor', 3, true, 'At its group limit: at least 3 groups not tracked'],
+    ])('describeOverflow: %s', (_, overflowed_groups, overflow_is_lower_bound, expected) => {
+        expect(describeOverflow(makeConfiguration({ overflowed_groups, overflow_is_lower_bound }))).toEqual(expected)
+    })
+
+    test.each<[string, Record<string, string>, string[], string[]]>([
+        [
+            'follows the alert grouping order and names known columns',
+            { severity_text: 'error', service_name: 'checkout' },
+            ['service_name', 'severity_text'],
+            ['Service: checkout', 'Severity: error'],
+        ],
+        [
+            'keeps an attribute key as written and puts keys outside the grouping last',
+            { 'k8s.namespace': 'prod', zone: 'eu', service_name: 'api' },
+            ['k8s.namespace', 'service_name'],
+            ['k8s.namespace: prod', 'Service: api', 'zone: eu'],
+        ],
+    ])('groupLabels: %s', (_, labels, keys, expected) => {
+        const alert = { ...makeAlert(PlatformAlertStateApi.Firing), labels }
+        expect(groupLabels(alert, keys).map(({ name, value }) => `${name}: ${value}`)).toEqual(expected)
     })
 })
