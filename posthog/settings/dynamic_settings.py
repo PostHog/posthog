@@ -69,12 +69,12 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
         "",
-        "Comma-separated project IDs that read the native JSON events table (events_json) for everything: insights, SQL, cohorts, exports and background jobs. Changes reach workers within about a minute.",
+        "Comma-separated project IDs that read the native JSON events table (events_json) in insights, SQL, cohorts and the background jobs that run per project. Changes reach workers within about a minute.",
         str,
     ),
     "CLICKHOUSE_NATIVE_EVENTS_HOST": (
         get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
-        "Hostname of the events cluster, without a scheme, port or path. Every query whose SQL reads events_json starts there, whichever switch made it read that table. Leave it empty to start them on the main cluster. Changes reach workers within about a minute.",
+        "Hostname of the events cluster, without a scheme, port or path. Every HogQL query whose SQL reads events_json starts there, whichever switch made it read that table. Leave it empty to start them on the main cluster. Changes reach workers within about a minute.",
         str,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (

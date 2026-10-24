@@ -4,6 +4,7 @@ import re
 import json
 import uuid
 import builtins
+import contextvars
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
@@ -508,6 +509,14 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
             tile_data = {"id": tile.id}
         tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
+
+
+def serialize_tile_in_request_context(
+    request_context: contextvars.Context, tile: DashboardTile, order: int, context: dict
+) -> tuple[int, dict]:
+    # A streamed response body runs after the middleware chain has returned, so the request's context variables,
+    # the events table switch among them, reach a tile's queries only through a copy taken inside the view.
+    return request_context.run(serialize_tile_with_context, tile, order, context)
 
 
 class ReorderLayout(StrEnum):
@@ -3259,6 +3268,8 @@ class DashboardsViewSet(
         # below runs no queries for them.
         team_configs_for_cache_key(self.team)
 
+        request_context = contextvars.copy_context()
+
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
@@ -3272,8 +3283,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         initial_tiles.append(tile_data)
                     except Exception:
                         logger.exception("Error serializing initial dashboard tile", tile_id=tile.id)
@@ -3295,8 +3306,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:

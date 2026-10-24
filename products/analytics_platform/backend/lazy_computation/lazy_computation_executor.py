@@ -38,7 +38,7 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import events_read_workload
+from posthog.models.event.new_events_schema import events_read_workload, use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -657,6 +657,19 @@ def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
     """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
     stamps = [j.computed_at for j in jobs if j.computed_at is not None]
     return min(stamps) if stamps else None
+
+
+def events_table_cache_key_context(
+    team: Team, modifiers: HogQLQueryModifiers, cache_key_context: dict[str, str] | None
+) -> dict[str, str] | None:
+    """The job identity context with the events table the build reads, when it is not the legacy one.
+
+    The hashed AST names the `events` table whichever ClickHouse table it prints to, so without this a build from
+    events_json would be served to readers of the legacy table and the other way round.
+    """
+    if not use_new_events_schema(team.pk, modifiers):
+        return cache_key_context
+    return {**(cache_key_context or {}), "events_table": "events_json"}
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -1812,6 +1825,12 @@ def ensure_precomputed(
         **caller_sentinels,
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
+
+    # The events table is resolved once here, so the INSERT prints against the same table the job identity names,
+    # whichever switch (a modifier, the person's cookie, the project or the instance) picked it.
+    modifiers = modifiers if modifiers is not None else create_default_modifiers_for_team(team)
+    modifiers = modifiers.model_copy(update={"useNewEventsSchema": use_new_events_schema(team.pk, modifiers)})
+    cache_key_context = events_table_cache_key_context(team, modifiers, cache_key_context)
 
     query_info = LazyComputationQuery(
         query=parsed_for_hash,

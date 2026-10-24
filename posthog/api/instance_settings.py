@@ -130,6 +130,12 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "Enter a hostname without a scheme, port or path, or leave it empty to disable the route."
                 )
+        if self.instance is not None and self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
+            # Every query parses this list, so a value that fails to parse would fail every query on the instance.
+            if not isinstance(value, str) or not re.fullmatch(r"\s*(\d+\s*(,\s*\d+\s*)*)?", value):
+                raise serializers.ValidationError(
+                    "Enter project IDs separated by commas, or leave it empty to switch no project."
+                )
         return value
 
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
