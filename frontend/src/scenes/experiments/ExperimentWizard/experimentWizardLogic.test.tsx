@@ -437,6 +437,33 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.prevStep()
             }).toNotHaveDispatchedActions(['reportExperimentWizardStepViewed'])
+
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.prevStep()
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'back'),
+            ])
+        })
+
+        it('reports the first view as a start when the wizard opens on the first step', () => {
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'about',
+                step_number: 1,
+                previous_step: null,
+                navigation: 'start',
+            })
+            capture.mockRestore()
         })
 
         it('reports the first view as a resume when the wizard reopens on a later step', async () => {
