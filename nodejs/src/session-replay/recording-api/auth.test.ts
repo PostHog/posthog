@@ -6,7 +6,6 @@ import { RecordingApiAuthOptions, assertRecordingApiAuthConfigured, createRecord
 
 describe('createRecordingApiAuthMiddleware', () => {
     const JWT_SECRET = 'recording-api-secret-key'
-    const LEGACY_SECRET = 'legacy-internal-secret'
 
     const mintToken = (
         claims: { team_id: number; op: string },
@@ -35,8 +34,6 @@ describe('createRecordingApiAuthMiddleware', () => {
     const run = (opts: Partial<RecordingApiAuthOptions>, req: Request) => {
         const middleware = createRecordingApiAuthMiddleware({
             jwtSecret: JWT_SECRET,
-            legacySecret: LEGACY_SECRET,
-            allowLegacySecret: false,
             op: 'read',
             ...opts,
         })
@@ -48,8 +45,9 @@ describe('createRecordingApiAuthMiddleware', () => {
 
     const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
 
-    it('skips authorization when no jwt secret configured (local dev)', () => {
-        const { res, next } = run({ jwtSecret: '' }, mockRequest('123'))
+    // ',' is truthy but yields zero keys, so it must disable JWT rather than build a verifier that throws.
+    it.each([[''], [',']])('skips authorization when jwt secret %p has no keys (local dev)', (jwtSecret) => {
+        const { res, next } = run({ jwtSecret }, mockRequest('123'))
         expect(next).toHaveBeenCalled()
         expect(res.status).not.toHaveBeenCalled()
     })
@@ -127,44 +125,6 @@ describe('createRecordingApiAuthMiddleware', () => {
         expect(res.status).toHaveBeenCalledWith(401)
     })
 
-    describe('legacy secret fallback (transition)', () => {
-        it('accepts a valid X-Internal-Api-Secret when allowLegacySecret is true', () => {
-            const { res, next } = run(
-                { allowLegacySecret: true },
-                mockRequest('123', { 'x-internal-api-secret': LEGACY_SECRET })
-            )
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-
-        it('rejects the same legacy secret once allowLegacySecret is false', () => {
-            const { res, next } = run(
-                { allowLegacySecret: false },
-                mockRequest('123', { 'x-internal-api-secret': LEGACY_SECRET })
-            )
-            expect(next).not.toHaveBeenCalled()
-            expect(res.status).toHaveBeenCalledWith(401)
-        })
-
-        it('still accepts a valid JWT when legacy is disabled', () => {
-            const { res, next } = run(
-                { allowLegacySecret: false },
-                mockRequest('123', bearer(mintToken({ team_id: 123, op: 'read' })))
-            )
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-
-        it('rejects an invalid legacy secret', () => {
-            const { res, next } = run(
-                { allowLegacySecret: true },
-                mockRequest('123', { 'x-internal-api-secret': 'wrong' })
-            )
-            expect(next).not.toHaveBeenCalled()
-            expect(res.status).toHaveBeenCalledWith(401)
-        })
-    })
-
     describe('key rotation (new_key,old_key)', () => {
         it('verifies a token minted under the new (signing) key while both keys are configured', () => {
             const newToken = mintToken({ team_id: 123, op: 'read' }, 'new-key')
@@ -201,37 +161,6 @@ describe('createRecordingApiAuthMiddleware', () => {
         })
     })
 
-    describe('progressive rollout (legacy secret before JWT is enabled)', () => {
-        it('requires the legacy secret when no JWT secret is configured', () => {
-            const req = mockRequest('123', { 'x-internal-api-secret': LEGACY_SECRET })
-            const { res, next } = run({ jwtSecret: '', allowLegacySecret: true }, req)
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-
-        it('rejects a request with no legacy secret when JWT is not yet configured', () => {
-            const { res, next } = run({ jwtSecret: '', allowLegacySecret: true }, mockRequest('123'))
-            expect(next).not.toHaveBeenCalled()
-            expect(res.status).toHaveBeenCalledWith(401)
-        })
-
-        it('skips entirely only when neither JWT nor legacy secret is configured (local dev)', () => {
-            const { res, next } = run({ jwtSecret: '', legacySecret: '', allowLegacySecret: true }, mockRequest('123'))
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-
-        it('treats a malformed-but-truthy secret (comma only) as JWT-disabled without crashing', () => {
-            // ',' yields zero keys after split/filter; the middleware must not construct a JWT verifier
-            // (which throws on empty keys) and should fall back to the legacy secret instead.
-            const req = mockRequest('123', { 'x-internal-api-secret': LEGACY_SECRET })
-            expect(() => run({ jwtSecret: ',', allowLegacySecret: true }, req)).not.toThrow()
-            const { res, next } = run({ jwtSecret: ',', allowLegacySecret: true }, req)
-            expect(next).toHaveBeenCalled()
-            expect(res.status).not.toHaveBeenCalled()
-        })
-    })
-
     describe('cross-language contract (must match the Python minter)', () => {
         it('audience enum value is the shared literal', () => {
             // Pinned to the same string as posthog/jwt.py PosthogJwtAudience.RECORDING_API.
@@ -256,9 +185,9 @@ describe('createRecordingApiAuthMiddleware', () => {
 })
 
 describe('assertRecordingApiAuthConfigured', () => {
-    const base = { isProd: true, jwtSecret: '', allowLegacySecret: true, legacySecret: '' }
+    const base = { isProd: true, jwtSecret: '' }
 
-    it('throws in production when neither a JWT nor a legacy secret is configured', () => {
+    it('throws in production when no JWT secret is configured', () => {
         expect(() => assertRecordingApiAuthConfigured(base)).toThrow(/no auth configured in production/)
     })
 
@@ -266,18 +195,8 @@ describe('assertRecordingApiAuthConfigured', () => {
         expect(() => assertRecordingApiAuthConfigured({ ...base, jwtSecret: ',' })).toThrow()
     })
 
-    it('throws in production when legacy is disabled and there is no JWT secret', () => {
-        expect(() =>
-            assertRecordingApiAuthConfigured({ ...base, allowLegacySecret: false, legacySecret: 'legacy' })
-        ).toThrow()
-    })
-
     it('passes in production with a JWT secret', () => {
         expect(() => assertRecordingApiAuthConfigured({ ...base, jwtSecret: 'k' })).not.toThrow()
-    })
-
-    it('passes in production with only the legacy secret (pre-rollout)', () => {
-        expect(() => assertRecordingApiAuthConfigured({ ...base, legacySecret: 'legacy' })).not.toThrow()
     })
 
     it('passes outside production even with nothing configured (local dev)', () => {

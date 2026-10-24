@@ -77,8 +77,6 @@ export class RecordingApiServer implements NodeServer {
         assertRecordingApiAuthConfigured({
             isProd: isProdEnv(),
             jwtSecret: this.config.RECORDING_API_JWT_SECRET,
-            allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
-            legacySecret: this.config.INTERNAL_API_SECRET,
         })
 
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)

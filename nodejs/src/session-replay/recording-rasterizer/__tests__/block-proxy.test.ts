@@ -19,7 +19,6 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 
 const testCfg = {
     recordingApiBaseUrl: 'http://localhost:6738',
-    recordingApiSecret: 'test-secret',
     blockListingTimeoutMs: 30_000,
 }
 
@@ -59,7 +58,7 @@ describe('BlockProxy', () => {
             expect(proxy.totalCompressedBytes).toBe(3002)
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
-                { headers: { 'X-Internal-Api-Secret': 'test-secret' }, timeoutMs: 30_000 }
+                { headers: {}, timeoutMs: 30_000 }
             )
         })
 
@@ -75,7 +74,7 @@ describe('BlockProxy', () => {
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
                 {
-                    headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+                    headers: { Authorization: 'Bearer minted-token' },
                     timeoutMs: 30_000,
                 }
             )
@@ -178,7 +177,7 @@ describe('BlockProxy', () => {
 
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 expect.stringContaining('/api/projects/1/recordings/test-session-123/block?'),
-                { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
+                { headers: {} }
             )
             const fetchUrl = mockInternalFetch.mock.calls[0][0] as string
             expect(fetchUrl).toContain('key=recordings%2Fblock-0')
@@ -202,7 +201,7 @@ describe('BlockProxy', () => {
             await proxy.handleRequest(mockBlockRequest('/__blocks/0') as any, '/__blocks/0')
 
             expect(mockInternalFetch).toHaveBeenCalledWith(expect.stringContaining('/block?'), {
-                headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+                headers: { Authorization: 'Bearer minted-token' },
             })
         })
 

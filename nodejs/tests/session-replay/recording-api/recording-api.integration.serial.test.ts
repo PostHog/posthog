@@ -744,7 +744,7 @@ describe('Recording API encryption integration', () => {
     // in the middleware before the handler touches S3; the few pass-through cases use MemoryKeyStore).
     describe('HTTP auth (team + operation scoped JWT)', () => {
         const JWT_SECRET = 'itest-jwt-secret'
-        const LEGACY_SECRET = 'itest-legacy-secret'
+        const INTERNAL_SECRET = 'itest-internal-secret'
         const TEAM = 1
         const SESSION = 'auth-session-1'
         const BLOCK_KEY = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
@@ -781,8 +781,6 @@ describe('Recording API encryption integration', () => {
 
         const defaultConfig: Partial<RecordingApiConfig> = {
             RECORDING_API_JWT_SECRET: JWT_SECRET,
-            INTERNAL_API_SECRET: LEGACY_SECRET,
-            RECORDING_API_ALLOW_LEGACY_SECRET: true,
         }
 
         const makeApp = async (config: Partial<RecordingApiConfig> = defaultConfig): Promise<express.Application> => {
@@ -792,7 +790,7 @@ describe('Recording API encryption integration', () => {
             // exempts the recording-api namespace, which then owns auth per-route. Exercises that
             // interaction (and the JSON body parser) instead of mounting the router on a bare app.
             const app = setupExpressApp({
-                internalApiSecret: config.INTERNAL_API_SECRET ?? '',
+                internalApiSecret: INTERNAL_SECRET,
                 internalApiAuthExcludedPathPrefixes: ['/api/projects/'],
             })
             app.use('/', api.router())
@@ -888,19 +886,9 @@ describe('Recording API encryption integration', () => {
             expect(res.status).toBe(401)
         })
 
-        it('accepts the legacy secret while allowLegacySecret is true', async () => {
+        it('rejects the shared internal secret that the rest of the app accepts', async () => {
             const app = await makeApp()
-            const block = await setupBlock()
-            const res = await supertest(app)
-                .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
-                .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
-                .set({ 'X-Internal-Api-Secret': LEGACY_SECRET })
-            expect(res.status).toBe(200)
-        })
-
-        it('rejects the legacy secret once allowLegacySecret is false', async () => {
-            const app = await makeApp({ ...defaultConfig, RECORDING_API_ALLOW_LEGACY_SECRET: false })
-            const res = await getBlock(app, { 'X-Internal-Api-Secret': LEGACY_SECRET })
+            const res = await getBlock(app, { 'X-Internal-Api-Secret': INTERNAL_SECRET })
             expect(res.status).toBe(401)
         })
 

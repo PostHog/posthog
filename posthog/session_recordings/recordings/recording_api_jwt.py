@@ -1,14 +1,8 @@
 from datetime import timedelta
 from typing import Literal
 
-from django.conf import settings
-
-import structlog
-
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
-
-logger = structlog.get_logger(__name__)
 
 RecordingApiOp = Literal["read", "delete", "write"]
 
@@ -31,26 +25,15 @@ def recording_api_signing_keys() -> list[str]:
 
 
 def recording_api_jwt_enabled() -> bool:
-    """True once a dedicated signing secret is configured. Until then callers fall back to the
-    legacy X-Internal-Api-Secret, so the JWT scheme can be rolled out per environment (dev, then
-    prod) without leaving any environment unauthenticated in the meantime."""
+    """True once a dedicated signing secret is configured. recording-api accepts no other credential,
+    so callers check this first and raise RecordingApiConfigurationError when it is False."""
     return RECORDING_API_JWT_PURPOSE.enabled()
 
 
 def recording_api_auth_headers(team_id: int, op: RecordingApiOp) -> dict[str, str]:
-    """Auth headers for a recording-api request. Sends the legacy shared secret (when configured)
-    and a freshly minted team + operation scoped Bearer token (when the signing secret is
-    configured), so recording-api accepts either and rollout stays order-independent."""
-    headers: dict[str, str] = {}
-    if settings.INTERNAL_API_SECRET:
-        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
-    if recording_api_jwt_enabled():
-        headers["Authorization"] = f"Bearer {mint_recording_api_token(team_id, op)}"
-    if not headers:
-        # Neither secret configured: the request will be sent unauthenticated and recording-api will
-        # reject it. Surface the misconfiguration here (the caller otherwise only sees an opaque 401).
-        logger.warning("recording_api.no_auth_configured")
-    return headers
+    """Auth headers for a recording-api request: a freshly minted team + operation scoped Bearer
+    token. Raises RuntimeError when the signing secret is not configured."""
+    return {"Authorization": f"Bearer {mint_recording_api_token(team_id, op)}"}
 
 
 def mint_recording_api_token(team_id: int, op: RecordingApiOp, ttl: timedelta = DEFAULT_RECORDING_API_TOKEN_TTL) -> str:
