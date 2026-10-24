@@ -10,14 +10,19 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
 from posthog.models import Organization, Team, User
-from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, events_read_http_url
+from posthog.models.event.new_events_schema import (
+    NEW_EVENTS_SCHEMA_COOKIE,
+    events_read_http_url,
+    events_read_workload,
+    events_route_scope,
+    new_events_schema_for_request,
+    use_new_events_schema,
+)
 from posthog.models.instance_setting import override_instance_config
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -71,23 +76,8 @@ class TestEventsClusterRouting(SimpleTestCase):
         self, _name: str, host: str, reads_events_json: bool, workload: Workload, expected: Workload
     ) -> None:
         self.instance_settings.update(CLICKHOUSE_NATIVE_EVENTS_HOST=host)
-        executor = HogQLQueryExecutor(
-            query="SELECT 1",
-            team=self.team,
-            workload=workload,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
-        )
-        executor.select_query = ast.SelectQuery(select=[ast.Constant(value=1)])
-        executor.clickhouse_sql = "SELECT 1"
-        executor.clickhouse_context = HogQLContext(
-            team_id=self.team.pk, modifiers=executor.query_modifiers, reads_native_events_table=reads_events_json
-        )
-        with (
-            patch.object(executor, "_detect_warehouse_sources"),
-            patch("posthog.hogql.query.sync_execute", return_value=([(1,)], [("1", "UInt8")])) as execute,
-        ):
-            executor._execute_clickhouse_query()
-        self.assertEqual(execute.call_args.kwargs["workload"], expected)
+        context = HogQLContext(team_id=self.team.pk, reads_native_events_table=reads_events_json)
+        self.assertEqual(events_read_workload(workload, context), expected)
 
     def test_a_stored_project_modifier_does_not_switch_the_events_table(self) -> None:
         self.team.modifiers = {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
@@ -96,6 +86,15 @@ class TestEventsClusterRouting(SimpleTestCase):
         )
         self.assertIsNone(modifiers.useNewEventsSchema)
         self.assertEqual(modifiers.bounceRateDurationSeconds, 30)
+
+    @parameterized.expand([(False, None, False), (True, None, True), (False, True, True), (True, False, False)])
+    def test_nested_reads_inherit_the_querys_events_table(
+        self, parent_schema: bool, child_schema: bool | None, expected: bool
+    ) -> None:
+        with new_events_schema_for_request(), events_route_scope(HogQLQueryModifiers(useNewEventsSchema=parent_schema)):
+            self.assertEqual(
+                use_new_events_schema(self.team.pk, HogQLQueryModifiers(useNewEventsSchema=child_schema)), expected
+            )
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)

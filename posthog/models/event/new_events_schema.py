@@ -153,11 +153,15 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     a staff person's cookie, for every request from that browser (see new_events_schema_for_request);
     CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, for a project everywhere, background jobs included; and
     CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, for every project. The instance settings are cached for up to 60s
-    per worker. Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
+    per worker. Nested reads inherit the running query's choice unless their own modifier overrides it.
+    Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
     resolves this once so a mid-query flip can't mix schemas.
     """
     if modifiers is not None and modifiers.useNewEventsSchema is not None:
         return modifiers.useNewEventsSchema
+    route = get_events_route()
+    if route is not None and route.useNewEventsSchema is not None:
+        return route.useNewEventsSchema
     if _person_switch.get():
         return True
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:

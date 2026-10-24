@@ -1,12 +1,18 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
-from posthog.schema import CompareFilter, DateRange, MarketingAnalyticsTableQuery
+from posthog.schema import CompareFilter, DateRange, HogQLQueryModifiers, MarketingAnalyticsTableQuery
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
+from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_scope, new_events_schema_for_request
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
@@ -25,6 +31,28 @@ _DELAY = (
     "products.marketing_analytics.backend.tasks.lazy_precompute_revalidation"
     ".revalidate_marketing_analytics_precompute.delay"
 )
+
+
+class TestMarketingRevalidationEventsTable(SimpleTestCase):
+    def setUp(self) -> None:
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        self.addCleanup(TEST_clear_clients)
+        self.addCleanup(TEST_reset_scripts)
+
+    def test_rebuilds_keep_the_events_table_and_debounce_each_table_separately(self) -> None:
+        team = Team(id=44, timezone="UTC")
+        query = MarketingAnalyticsTableQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        with mock.patch(_DELAY) as delay, new_events_schema_for_request():
+            for native in (False, True, False, True):
+                with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native)):
+                    handle_not_ready(team=team, query=query)
+
+        assert [call.kwargs["query"]["modifiers"]["useNewEventsSchema"] for call in delay.call_args_list] == [
+            False,
+            True,
+        ]
+        assert query.modifiers is None
 
 
 class TestMarketingLazyPrecompute(BaseTest):
