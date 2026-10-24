@@ -1,3 +1,4 @@
+import { isSpanContextValid, trace } from '@opentelemetry/api'
 import pino from 'pino'
 
 import type { LogLevel } from '~/types'
@@ -8,6 +9,17 @@ import { isProdEnv, isTestEnv } from './env-utils'
 // Postgres env vars are missing, and entrypoints without them (e.g. the recording
 // rasterizer) reach this logger transitively.
 const logLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || (isTestEnv() ? 'warn' : 'info')
+
+// Correlate log lines with the active OTel trace, using the same `trace_id`/`span_id` keys as the
+// Django logger so the log collector links them to their trace. Read at emit time so nested spans get
+// the right span_id; a no-op when no valid span is in scope (e.g. tracing disabled).
+function activeTraceContext(): { trace_id: string; span_id: string } | undefined {
+    const spanContext = trace.getActiveSpan()?.spanContext()
+    if (!spanContext || !isSpanContextValid(spanContext)) {
+        return undefined
+    }
+    return { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+}
 
 export class Logger {
     private pino: ReturnType<typeof pino>
@@ -70,6 +82,7 @@ export class Logger {
 
         try {
             this.pino[level]({
+                ...activeTraceContext(),
                 ...(extra || {}),
                 msg,
             })
