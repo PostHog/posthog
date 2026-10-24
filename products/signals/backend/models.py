@@ -3895,6 +3895,10 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     latency_ms = models.IntegerField(null=True, blank=True)
     # Line counts per section and drop counts per filter rule of the latest update.
     inputs_used = models.JSONField(default=dict, blank=True)
+    # Exact fields from `activity_summary/computed.py` over the full window of the latest good update:
+    # owned and watched objects with ids, product pages, products and the task count. Carries its own
+    # `schema_version`. Null before the first update that computed it.
+    computed = models.JSONField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed error strings of `summaries.py`, never model output.
@@ -3944,6 +3948,8 @@ class UserActivitySummaryVersion(TeamScopedRootMixin, UUIDModel):
     render_version = models.PositiveSmallIntegerField()
     input_watermark = models.DateTimeField()
     inputs_used = models.JSONField(default=dict, blank=True)
+    # See `UserActivitySummary.computed`. Null on versions written before the field existed.
+    computed = models.JSONField(null=True, blank=True)
     tokens_in = models.IntegerField(null=True, blank=True)
     tokens_out = models.IntegerField(null=True, blank=True)
     cost_usd = models.FloatField(null=True, blank=True)
