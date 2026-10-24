@@ -186,6 +186,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 priority=Priority(fairness_key=inputs.fairness_key),
             )
 
+        calculations: list[Awaitable[MetricRecalculationResult]]
         if temporalio.workflow.patched("recalc-per-run-bound-2026-10"):
             # A metric acquires a slot before its activity is scheduled, so the wait for a slot does not use the
             # metric's schedule_to_close budget.
