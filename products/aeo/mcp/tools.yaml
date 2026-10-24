@@ -26,9 +26,9 @@ tools:
         description: >
             List the project's AI citation brand catalog by domain, paginated with `limit`/`offset`. Each brand is one
             registrable domain the answer engines cited: the project's own site (`kind: own`), competitors, publishers
-            such as review and community sites, and domains nobody has labeled yet (`kind: unknown`,
-            `status: suggested`). Each daily run adds the domains its answers cited for the first time. Filter by `kind`
-            or `status`, for example `status=suggested` to find brands that still need a label.
+            such as review and community sites, and domains nobody has labeled yet (`kind: unknown`, `status:
+            suggested`). Each daily run adds the domains its answers cited for the first time. Filter by `kind` or
+            `status`, for example `status=suggested` to find brands that still need a label.
         feature_flag: aeo-citation-tracking
     aeo-brands-update:
         operation: aeo_brands_partial_update
@@ -41,8 +41,8 @@ tools:
         description: >
             Rename, relabel, confirm or ignore one brand in the project's AI citation catalog, or replace its `aliases`.
             Set `kind` to competitor, publisher, own or unknown, and `status` to confirmed or ignored once it is
-            reviewed. The daily run keeps these edits; it only adds newly cited domains. Ask the user before you
-            label a brand as a competitor.
+            reviewed. The daily run keeps these edits; it only adds newly cited domains. Ask the user before you label a
+            brand as a competitor.
         param_overrides:
             id:
                 description: The brand id (a UUID), from `aeo-brands-list`.
