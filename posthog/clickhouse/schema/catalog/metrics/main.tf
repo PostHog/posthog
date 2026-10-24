@@ -609,7 +609,10 @@ module "metrics4_samples_family" {
     partition_by = "original_expiry_date"
     order_by     = "(team_id, metric_name, time_bucket, series_fingerprint)"
     ttl          = var.ttl ? "original_expiry_date" : null
-    settings     = "index_granularity = 128, ttl_only_drop_parts = 1"
+    settings     = "index_granularity = 128, ttl_only_drop_parts = 1, deduplicate_merge_projection_mode = 'rebuild'"
+    projections = [
+      { name = "service_freshness_by_hour", query = "SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr)) GROUP BY team_id, time_bucket, service_name" },
+    ]
     indexes = [
       { name = "idx_metric_type_set", expression = "metric_type", type = "set(10)", granularity = 1 },
       { name = "idx_time_bucket_minmax", expression = "time_bucket", type = "minmax", granularity = 1 },

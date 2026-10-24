@@ -1277,8 +1277,11 @@ class ReviewerProposalSerializer(serializers.Serializer):
     )
     reviewer_outcome = serializers.ChoiceField(
         choices=ReviewerSelectionOutcome.choices,
-        default="selected",
-        help_text="A successful selection, a deliberate empty result, or an unavailable lookup.",
+        required=False,
+        help_text=(
+            "A successful selection, a deliberate empty result, or an unavailable lookup. "
+            "Defaults to selected when omitted."
+        ),
     )
     reviewer_retry_reason = serializers.CharField(
         required=False, max_length=500, help_text="Reason the reviewer lookup failed."

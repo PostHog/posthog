@@ -30,13 +30,20 @@ from .base import (
     Candidate,
     CandidateContext,
     CandidateResult,
+    QueryCost,
+    RealizedSavings,
     Rejection,
     inlining_could_deny_a_reader,
+    monthly_cost,
+    savings_between,
+    stored_cost,
 )
 
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
 CALLS_DECISION_FUNCTIONS_REJECTION = "calls jev() or decide(), which would run a model on every read"
 READ_TIME_QUANTILE = 0.9
+REFRESH_SECONDS_PER_MONTH = "refresh_seconds_per_month"
+REFRESH_BYTES_PER_MONTH = "refresh_bytes_per_month"
 
 
 @frozen
@@ -83,9 +90,9 @@ class UnmaterializeCandidate(Candidate):
                     proposal.payload,
                     score=proposal.score,
                     score_inputs={
-                        "refresh_seconds_per_month": proposal.payload.refresh_seconds_per_month,
+                        REFRESH_SECONDS_PER_MONTH: proposal.payload.refresh_seconds_per_month,
                         "live_seconds_per_month": proposal.payload.live_seconds_per_month,
-                        "refresh_bytes_per_month": proposal.payload.refresh_bytes_per_month,
+                        REFRESH_BYTES_PER_MONTH: proposal.payload.refresh_bytes_per_month,
                         "live_bytes_per_month": proposal.payload.live_bytes_per_month,
                     },
                 )
@@ -101,6 +108,17 @@ class UnmaterializeCandidate(Candidate):
         if saved_query.materializes:
             return WarehouseSuggestionAssetOutcome.UNUSED
         return WarehouseSuggestionAssetOutcome.LIVE
+
+    def realized_savings(
+        self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
+    ) -> RealizedSavings | None:
+        saved_query = context.inventory.saved_queries.get(subject.id)
+        if saved_query is None or saved_query.materializes:
+            return None
+        refresh_cost_before = stored_cost(score_inputs, REFRESH_SECONDS_PER_MONTH, REFRESH_BYTES_PER_MONTH)
+        if refresh_cost_before is None:
+            return None
+        return savings_between(refresh_cost_before, _monthly_read_cost(context, subject))
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
@@ -224,6 +242,17 @@ def _payload(
 def _read_time_quantile_ms(runs: Sequence[RefreshRun]) -> int:
     durations = sorted(run.duration_ms for run in runs)
     return durations[math.ceil(READ_TIME_QUANTILE * len(durations)) - 1]
+
+
+def _monthly_read_cost(context: CandidateContext, subject: Subject) -> QueryCost:
+    reads = context.reads.reads_of(subject)
+    if reads is None:
+        return QueryCost(seconds=0.0, read_bytes=0.0)
+    return monthly_cost(
+        context,
+        duration_ms=reads.human_duration_ms + reads.background_duration_ms,
+        read_bytes=reads.human_read_bytes + reads.background_read_bytes,
+    )
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

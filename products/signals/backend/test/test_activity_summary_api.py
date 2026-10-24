@@ -92,6 +92,16 @@ class TestActivitySummaryAPI(APIBaseTest):
         assert self._get().status_code == 404
         assert self._get("versions/").status_code == 404
 
+    def test_read_access_does_not_follow_the_generation_check(self) -> None:
+        self._versions(1)
+        self.config = dataclasses.replace(self.config, skip_team_ids=(self.team.id,))
+
+        with patch(
+            "products.signals.backend.activity_summary.queue.is_team_enrolled_for_generation", return_value=True
+        ):
+            assert self._get().status_code == 404
+            assert self._get("versions/").status_code == 404
+
     def test_enroll_all_approved_enrolls_an_unlisted_organization(self) -> None:
         self.config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
         self._summary()
