@@ -33,6 +33,7 @@ export interface AttributeCellProps {
      * together.
      */
     cellKey?: string
+    filterKey?: string
     /** Popover filter type, default log attribute. Pass resource attribute for values read from resource attributes. */
     filterType?: PropertyFilterType
 }
@@ -43,6 +44,7 @@ export const AttributeCell = memo(function AttributeCell({
     width,
     timestamp,
     cellKey,
+    filterKey,
     filterType,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
@@ -64,7 +66,7 @@ export const AttributeCell = memo(function AttributeCell({
             attributeKey={attributeKey}
             value={value}
             isColumn={isAttributeColumn(attributeKey)}
-            onAddFilter={(key, filterValue, operator) => addFilter(key, filterValue, operator, filterType)}
+            onAddFilter={(key, filterValue, operator) => addFilter(filterKey ?? key, filterValue, operator, filterType)}
             onToggleColumn={toggleAttributeColumn}
         >
             <div style={{ width, flexShrink: 0 }} className="relative flex items-center self-stretch group/attr pr-1">
