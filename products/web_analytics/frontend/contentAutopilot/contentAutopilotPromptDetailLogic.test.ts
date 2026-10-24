@@ -7,9 +7,22 @@ import { ApiError } from 'lib/api-error'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsChecks, aeoPromptsRetrieve, aeoPromptsStats } from '../generated/api'
+import {
+    aeoPromptsChecks,
+    aeoPromptsList,
+    aeoPromptsPartialUpdate,
+    aeoPromptsRetrieve,
+    aeoPromptsStats,
+    aeoPromptsVersions,
+} from '../generated/api'
+import type { AEOPromptApi } from '../generated/api.schemas'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { EXAMPLE_PROMPT_CHECKS, EXAMPLE_PROMPT_STATS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
+import {
+    EXAMPLE_PROMPT_CHECKS,
+    EXAMPLE_PROMPT_STATS,
+    EXAMPLE_PROMPT_VERSIONS,
+    EXAMPLE_PROMPTS,
+} from './contentAutopilotStoryFixtures'
 
 // The detail logic connects to the prompts list logic, which loads the list and topics on mount.
 jest.mock('../generated/api', () => ({
@@ -18,11 +31,17 @@ jest.mock('../generated/api', () => ({
     aeoPromptsChecks: jest.fn(),
     aeoPromptsRetrieve: jest.fn(),
     aeoPromptsStats: jest.fn(),
+    aeoPromptsVersions: jest.fn(),
+    aeoPromptsPartialUpdate: jest.fn(),
 }))
+
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
 
 const mockChecks = jest.mocked(aeoPromptsChecks)
 const mockRetrieve = jest.mocked(aeoPromptsRetrieve)
 const mockStats = jest.mocked(aeoPromptsStats)
+const mockVersions = jest.mocked(aeoPromptsVersions)
+const mockPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
 
 const PROMPT = EXAMPLE_PROMPTS[0]
 const TEAM_ID = String(MOCK_DEFAULT_TEAM.id)
@@ -35,6 +54,7 @@ describe('contentAutopilotPromptDetailLogic', () => {
         initKeaTests()
         mockRetrieve.mockResolvedValue(PROMPT)
         mockStats.mockResolvedValue(EXAMPLE_PROMPT_STATS)
+        mockVersions.mockResolvedValue(EXAMPLE_PROMPT_VERSIONS)
         mockChecks.mockImplementation(async (_teamId, _promptId, params) => {
             const results = params?.engine
                 ? EXAMPLE_PROMPT_CHECKS.filter((check) => check.engine === params.engine)
@@ -49,7 +69,7 @@ describe('contentAutopilotPromptDetailLogic', () => {
         logic?.unmount()
     })
 
-    it('loads the prompt, its stats and the latest answer of each engine', async () => {
+    it('loads the prompt, its stats, its versions and the latest answer of each engine', async () => {
         logic.actions.openPromptDetail(PROMPT.id)
         await expectLogic(logic).toFinishAllListeners()
 
@@ -71,6 +91,42 @@ describe('contentAutopilotPromptDetailLogic', () => {
         ])
         expect(logic.values.activeEngine).toBe('claude-web-search')
         expect(logic.values.shownCheck?.id).toBe(EXAMPLE_PROMPT_CHECKS[0].id)
+        expect(mockVersions).toHaveBeenCalledWith(TEAM_ID, PROMPT.id)
+        expect(logic.values.versions).toEqual(EXAMPLE_PROMPT_VERSIONS)
+    })
+
+    it('does not load versions for a prompt with one version', async () => {
+        mockRetrieve.mockResolvedValue(EXAMPLE_PROMPTS[1])
+        logic.actions.openPromptDetail(EXAMPLE_PROMPTS[1].id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockVersions).not.toHaveBeenCalled()
+        expect(logic.values.versions).toBeNull()
+    })
+
+    it.each([
+        ['archives', true, { ...PROMPT, active: false, archived_at: '2026-10-01T00:00:00Z' }],
+        ['restores', false, { ...PROMPT, active: false, archived_at: null }],
+    ])('%s the prompt once the request settles, then refreshes the list', async (_name, archived, updated) => {
+        logic.actions.openPromptDetail(PROMPT.id)
+        await expectLogic(logic).toFinishAllListeners()
+        let settle: () => void = () => {}
+        mockPartialUpdate.mockReturnValue(
+            new Promise<AEOPromptApi>((resolve) => {
+                settle = () => resolve(updated)
+            })
+        )
+        const listCalls = jest.mocked(aeoPromptsList).mock.calls.length
+
+        logic.actions.setArchiveConfirming(true)
+        logic.actions.setPromptArchived(archived)
+        expect(logic.values.promptArchiving).toBe(true)
+
+        settle()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockPartialUpdate).toHaveBeenCalledWith(TEAM_ID, PROMPT.id, { archived })
+        expect(logic.values).toMatchObject({ prompt: updated, promptArchiving: false, archiveConfirming: false })
+        expect(jest.mocked(aeoPromptsList).mock.calls.length).toBe(listCalls + 1)
     })
 
     it('shows an older check, then goes back to the latest answer of an engine', async () => {

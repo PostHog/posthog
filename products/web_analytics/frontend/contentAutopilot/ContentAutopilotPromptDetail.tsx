@@ -1,22 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonModal, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
 
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
+import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptEngineSummary } from './ContentAutopilotPromptEngineSummary'
 import { ContentAutopilotPromptHistoryGrid } from './ContentAutopilotPromptHistoryGrid'
+import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
 
 export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
-    const { promptId, prompt, stats, historyGrid, lastCheckedAt, detailError } = useValues(
+    const { promptId, prompt, stats, historyGrid, lastCheckedAt, detailError, archiveConfirming } = useValues(
         contentAutopilotPromptDetailLogic
     )
-    const { closePromptDetail, openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
+    const { closePromptDetail, openPromptDetail, setArchiveConfirming } = useActions(contentAutopilotPromptDetailLogic)
 
     if (!promptId) {
         return null
@@ -52,16 +54,41 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         ) : (
                             <LemonTag type="muted">No topic</LemonTag>
                         )}
-                        <ContentAutopilotPromptActiveSwitch
-                            promptId={prompt.id}
-                            active={prompt.active}
-                            label="Active"
-                        />
+                        <LemonTag type="muted">Version {prompt.current_version}</LemonTag>
+                        {prompt.archived_at ? (
+                            <LemonTag type="muted">Archived</LemonTag>
+                        ) : (
+                            <ContentAutopilotPromptActiveSwitch
+                                promptId={prompt.id}
+                                active={prompt.active}
+                                label="Active"
+                            />
+                        )}
                         <span className="text-muted">
                             Last checked {lastCheckedAt ? <TZLabel time={lastCheckedAt} /> : 'never'}
                         </span>
                         <span className="text-muted">{pluralize(stats.total_checks, 'check')} in total</span>
+                        {prompt.archived_at ? null : (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status="danger"
+                                className="ml-auto"
+                                onClick={() => setArchiveConfirming(true)}
+                                disabledReason={archiveConfirming ? 'Confirm or cancel below' : undefined}
+                                data-attr="content-autopilot-prompt-archive"
+                            >
+                                Archive
+                            </LemonButton>
+                        )}
                     </div>
+                    <ContentAutopilotPromptArchiveBanner />
+                    {prompt.version_count > 1 ? (
+                        <section className="flex flex-col gap-2">
+                            <h4 className="m-0">Versions</h4>
+                            <ContentAutopilotPromptVersions promptId={prompt.id} />
+                        </section>
+                    ) : null}
 
                     {stats.engines.length === 0 ? (
                         <p className="m-0 text-muted">
