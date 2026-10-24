@@ -318,6 +318,7 @@ def update_activity_summary(
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
         profile_max_chars=limits.profile_max_chars,
+        computed=computed,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(

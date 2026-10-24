@@ -73,8 +73,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
@@ -745,7 +745,7 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert (result.status, result.called_model, result.new_summary) == ("ok", True, True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
-        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nThemes: Signup funnel"
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
         assert "signup funnel" not in json.dumps(event["properties"]).lower()

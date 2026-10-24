@@ -5314,19 +5314,207 @@ export namespace Schemas {
       NotReady: 'not_ready',
     } as const;
 
-    export interface ActivitySummaryFocusArea {
-      /** A main thread of the user's work, in the words of their activity. */
-      topic: string;
+    /**
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     */
+    export type ActivitySummaryModeEnum = typeof ActivitySummaryModeEnum[keyof typeof ActivitySummaryModeEnum];
+
+
+    export const ActivitySummaryModeEnum = {
+      Building: 'building',
+      Analyzing: 'analyzing',
+      Monitoring: 'monitoring',
+      Investigating: 'investigating',
+      Operating: 'operating',
+      Experimenting: 'experimenting',
+    } as const;
+
+    export interface ActivitySummaryTheme {
+      /** A main thread of the user's work, in at most 60 characters. */
+      label: string;
+      /** How the user works on this thread. Null on summaries from before themes had a mode.
+       *
+       * * `building` - Building
+       * * `analyzing` - Analyzing
+       * * `monitoring` - Monitoring
+       * * `investigating` - Investigating
+       * * `operating` - Operating
+       * * `experimenting` - Experimenting */
+      mode: ActivitySummaryModeEnum | null;
       /**
          * How much of the recent activity is about this thread: high, medium or low.
          * @nullable
          */
       strength: string | null;
+      /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+      refs: string[];
       /**
-         * The last day with activity on this thread, as YYYY-MM-DD.
+         * The last day of activity on the refs of this thread, as YYYY-MM-DD.
          * @nullable
          */
       last_seen: string | null;
+    }
+
+    export interface ActivitySummaryOwnedObject {
+      /** The ref that themes cite, such as `o1`. */
+      ref: string;
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The id of the object. */
+      id: string;
+      /** The latest name of the object. */
+      name: string;
+      /** The number of distinct days the user changed the object. */
+      edit_days: number;
+      /** The last day the user changed the object, as YYYY-MM-DD. */
+      last_at: string;
+      /** True when the user created the object in the window. */
+      created: boolean;
+    }
+
+    export interface ActivitySummaryWatchedObject {
+      /** The ref that themes cite, such as `o21`. */
+      ref: string;
+      /** The object type, such as `dashboard` or `insight`. */
+      type: string;
+      /** The id of the object. */
+      id: string;
+      /** The name of the object. */
+      name: string;
+      /** The number of distinct days the user opened the object. */
+      open_days: number;
+      /** The last day the user opened the object, as YYYY-MM-DD. */
+      last_at: string;
+      /** True when someone else made the object. */
+      not_theirs: boolean;
+    }
+
+    /**
+     * * `product_analytics` - Product Analytics
+     * * `dashboards` - Dashboards
+     * * `web_analytics` - Web Analytics
+     * * `session_replay` - Session Replay
+     * * `heatmaps` - Heatmaps
+     * * `error_tracking` - Error Tracking
+     * * `experiments` - Experiments
+     * * `feature_flags` - Feature Flags
+     * * `early_access_features` - Early Access Features
+     * * `surveys` - Surveys
+     * * `product_tours` - Product Tours
+     * * `notebooks` - Notebooks
+     * * `cohorts` - Cohorts
+     * * `persons` - Persons
+     * * `data_management` - Data Management
+     * * `data_warehouse` - Data Warehouse
+     * * `data_pipelines` - Data Pipelines
+     * * `workflows` - Workflows
+     * * `ai_observability` - Ai Observability
+     * * `mcp_analytics` - Mcp Analytics
+     * * `logs` - Logs
+     * * `tracing` - Tracing
+     * * `endpoints` - Endpoints
+     * * `revenue_analytics` - Revenue Analytics
+     * * `customer_analytics` - Customer Analytics
+     * * `inbox` - Inbox
+     * * `canvases` - Canvases
+     */
+    export type ActivitySummaryProductEnum = typeof ActivitySummaryProductEnum[keyof typeof ActivitySummaryProductEnum];
+
+
+    export const ActivitySummaryProductEnum = {
+      ProductAnalytics: 'product_analytics',
+      Dashboards: 'dashboards',
+      WebAnalytics: 'web_analytics',
+      SessionReplay: 'session_replay',
+      Heatmaps: 'heatmaps',
+      ErrorTracking: 'error_tracking',
+      Experiments: 'experiments',
+      FeatureFlags: 'feature_flags',
+      EarlyAccessFeatures: 'early_access_features',
+      Surveys: 'surveys',
+      ProductTours: 'product_tours',
+      Notebooks: 'notebooks',
+      Cohorts: 'cohorts',
+      Persons: 'persons',
+      DataManagement: 'data_management',
+      DataWarehouse: 'data_warehouse',
+      DataPipelines: 'data_pipelines',
+      Workflows: 'workflows',
+      AiObservability: 'ai_observability',
+      McpAnalytics: 'mcp_analytics',
+      Logs: 'logs',
+      Tracing: 'tracing',
+      Endpoints: 'endpoints',
+      RevenueAnalytics: 'revenue_analytics',
+      CustomerAnalytics: 'customer_analytics',
+      Inbox: 'inbox',
+      Canvases: 'canvases',
+    } as const;
+
+    export interface ActivitySummaryPageVisits {
+      /** The ref that themes cite, such as `p1`. */
+      ref: string;
+      /** The product whose pages the user opened.
+       *
+       * * `product_analytics` - Product Analytics
+       * * `dashboards` - Dashboards
+       * * `web_analytics` - Web Analytics
+       * * `session_replay` - Session Replay
+       * * `heatmaps` - Heatmaps
+       * * `error_tracking` - Error Tracking
+       * * `experiments` - Experiments
+       * * `feature_flags` - Feature Flags
+       * * `early_access_features` - Early Access Features
+       * * `surveys` - Surveys
+       * * `product_tours` - Product Tours
+       * * `notebooks` - Notebooks
+       * * `cohorts` - Cohorts
+       * * `persons` - Persons
+       * * `data_management` - Data Management
+       * * `data_warehouse` - Data Warehouse
+       * * `data_pipelines` - Data Pipelines
+       * * `workflows` - Workflows
+       * * `ai_observability` - Ai Observability
+       * * `mcp_analytics` - Mcp Analytics
+       * * `logs` - Logs
+       * * `tracing` - Tracing
+       * * `endpoints` - Endpoints
+       * * `revenue_analytics` - Revenue Analytics
+       * * `customer_analytics` - Customer Analytics
+       * * `inbox` - Inbox
+       * * `canvases` - Canvases */
+      product: ActivitySummaryProductEnum;
+      /** The number of distinct days the user opened its pages. */
+      open_days: number;
+      /** The last day the user opened its pages, as YYYY-MM-DD. */
+      last_at: string;
+    }
+
+    export interface ActivitySummaryProductSplit {
+      /** Products where the user changed something or tagged a task, the most active first. */
+      works_in: ActivitySummaryProductEnum[];
+      /** Products the user only opened, the most opened first. */
+      visits: ActivitySummaryProductEnum[];
+    }
+
+    export interface ActivitySummaryComputed {
+      /** The version of the shape of these fields. */
+      schema_version: number;
+      /** Objects the user created or changed, the most edited first. */
+      owned: ActivitySummaryOwnedObject[];
+      /** Objects the user opened on 3 or more days, the most opened first. */
+      watched: ActivitySummaryWatchedObject[];
+      /** Products whose pages the user opened, the most opened first. */
+      pages: ActivitySummaryPageVisits[];
+      /** The products the user works in and the products they only visit. */
+      products: ActivitySummaryProductSplit;
+      /** The number of tasks the user gave to PostHog AI or the Slack agent. */
+      task_count: number;
     }
 
     export interface ActivitySummary {
@@ -5336,7 +5524,7 @@ export namespace Schemas {
        * * `not_ready` - Not Ready */
       status: ActivitySummaryStatusEnum;
       /**
-         * Two or three sentences that capture the profile.
+         * One or two sentences about what the user works on and cares about in this project.
          * @nullable
          */
       headline: string | null;
@@ -5346,14 +5534,16 @@ export namespace Schemas {
          */
       profile: string | null;
       /** The main threads of the user's work. */
-      focus_areas: ActivitySummaryFocusArea[];
-      /** The PostHog products the user works with, by name. */
-      products: string[];
+      themes: ActivitySummaryTheme[];
+      /** How the user works in this project overall, the main mode first. */
+      modes: ActivitySummaryModeEnum[];
       /**
          * What changed since the version before this one, or null when nothing changed.
          * @nullable
          */
       recent_shift: string | null;
+      /** Exact fields that code computed from the user's activity, with ids. The theme refs point into them. Null before the first update that computed them. */
+      computed: ActivitySummaryComputed | null;
       /**
          * When this version of the summary was written.
          * @nullable
@@ -5378,7 +5568,7 @@ export namespace Schemas {
       /** The version of the prompt that wrote this version. */
       prompt_version: number;
       /**
-         * Two or three sentences that capture the profile.
+         * One or two sentences about what the user works on and cares about in this project.
          * @nullable
          */
       headline: string | null;
@@ -5388,12 +5578,16 @@ export namespace Schemas {
          */
       recent_shift: string | null;
       /** The main threads of the user's work. */
-      focus_areas: ActivitySummaryFocusArea[];
+      themes: ActivitySummaryTheme[];
+      /** How the user works in this project overall, the main mode first. */
+      modes: ActivitySummaryModeEnum[];
       /**
          * The one-page markdown profile. Set only when the request asks for one version with `version`.
          * @nullable
          */
       profile: string | null;
+      /** Exact fields that code computed from the user's activity, with ids. The theme refs point into them. Set only when the request asks for one version with `version`. */
+      computed: ActivitySummaryComputed | null;
     }
 
     export interface ActorsPropertyTaxonomyResponse {

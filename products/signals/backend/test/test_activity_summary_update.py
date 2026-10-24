@@ -26,8 +26,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
@@ -83,7 +83,7 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert stored.status == UserActivitySummary.Status.OK
-        assert stored.summary_text == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert stored.summary_text == "Builds the signup funnel.\nThemes: Signup funnel"
         assert stored.input_watermark == NOW - datetime.timedelta(days=1)
         assert stored.next_eligible_at == NOW + datetime.timedelta(days=1)
         assert (stored.tokens_in, stored.tokens_out) == (100, 20)
@@ -212,7 +212,7 @@ class TestUpdateActivitySummary(BaseTest):
         assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
         sent = json.dumps(llm.requests[0]["messages"])
         assert ("Old stored summary." not in sent) == rebuilt
-        assert ("Old dashboard" in sent) == rebuilt
+        assert ("Old dashboard" in sent.split("Recent activity")[1]) == rebuilt
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
