@@ -45,6 +45,7 @@ from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SE
 from products.tasks.backend.logic.services.agentsh import AGENTSH_DAEMON_PORT
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -480,7 +481,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def read_cpu_usage_usec(self) -> int | None:
         # Must go through exec: hogpanion's file endpoint sets Content-Length from
         # stat(), and sysfs files stat as size 0, so read_file returns an empty body.
-        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
+        result = self.execute(f"cat {CPU_STAT_PATH}", timeout_seconds=10)
         if result.exit_code != 0:
             return None
         return parse_cpu_stat_usage_usec(result.stdout)
