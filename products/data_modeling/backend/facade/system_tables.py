@@ -11,8 +11,11 @@ DATA_MODELING_ALLOWED_SYSTEM_TABLES: frozenset[str] = frozenset(
         "accounts",
         "custom_property_definitions",
         "customer_tasks",
+        "data_warehouse_sources",
         "feature_request_account_links",
         "feature_requests",
+        "source_schemas",
+        "source_sync_jobs",
         "support_tickets",
     }
 )
