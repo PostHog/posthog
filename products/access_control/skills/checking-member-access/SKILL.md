@@ -81,16 +81,22 @@ Access rules can also be changed with MCP write tools. Read the current rule fir
 | `posthog:access-control-role-properties-list`                                                         | The property rules set for a role.                                                               |
 | `posthog:access-control-default-objects-list`                                                         | The object rules that apply to everyone in the project.                                          |
 | `posthog:access-control-default-properties-list`                                                      | The property rules that apply to everyone in the project.                                        |
-| `posthog:org-members-list`                                                                            | Membership ids, names and organization levels. No project access details.                        |
-| `posthog:roles-list`, `posthog:role-members-list`                                                     | Role names by id, and who is in a role.                                                          |
 
 All access control tools take an optional project id and default to the active project.
 
+Do not depend on `posthog:org-members-list`, `posthog:roles-list` or `posthog:role-members-list`. An API
+key restricted to one project does not see them, and the tools above carry every id and name this skill needs.
+
 ## Workflow
 
-1. **Find the subject id.** `member_id` is the organization membership id: the `id` from
-   `org-members-list`, or `organization_membership_id` from `members-list`. It is not the user id and not
-   the user uuid. `role_id` is the `id` from `roles-list`.
+1. **Find the subject id.**
+   - `member_id` is the `organization_membership_id` on an `access-control-members-list` entry. Run that
+     tool without `member_id`, then match the person on `user.email`, or on `user.first_name` and
+     `user.last_name`. The membership id is not the user id and not the user uuid. The matched entry
+     already answers tool-level questions, so step 2 needs no second call.
+   - `role_id` is the `role_id` on an `access-control-roles-list` entry. That entry also gives `role_name`.
+     The `role_ids` on a member's entry hold the same ids, so the members in a role are the
+     `access-control-members-list` entries whose `role_ids` contain that id.
 2. **Tool-level questions need one call.** "Can this member view dashboards?" or "What access to feature
    flags does this member have?" is `members-list` with `member_id`. `effective_access_level` for that tool
    is the complete answer. It already includes the member's roles, the project default and the bypasses.
@@ -133,7 +139,7 @@ How to phrase the answer:
   stored rules do not apply to them.
 - `access_level` is set and equals `effective_access_level`: "This member has an explicit rule: editor."
 - `access_level` is `null` and `source_subject` is `role`: "This member has editor access, based on a role."
-  The role's name is not in the entry; `roles-list` has it if the user wants it.
+  The role's name is not in the entry; `access-control-roles-list` gives it as `role_name`.
 - `access_level` is `null` and `source_subject` is `default`: "This member has viewer access, based on the
   project default."
 - `source` is `system_default`: "No rule is set anywhere, so the PostHog default applies."
@@ -143,6 +149,8 @@ How to phrase the answer:
 
 - An empty object or property list means no rules of that kind, not no access. The tool-level entry
   still applies.
+- An unknown `member_id` or `role_id` returns 404 `Not found.`, often because a user uuid was passed as
+  `member_id`. Find the id again as step 1 says before you tell the user the subject does not exist.
 - A project default of `none` does not remove explicit member or role grants. Check the members and roles
   lists to find those grants. Organization admins and owners always bypass project rules.
 - A member missing from `members-list` is not proof of no access. A caller who is not an organization
