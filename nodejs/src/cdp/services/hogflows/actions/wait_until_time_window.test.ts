@@ -33,6 +33,19 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         action = findActionByType(hogFlow, 'wait_until_time_window')!
     })
 
+    it.each([
+        { day: 'everyday' },
+        { day: [] },
+        { day: ['not-a-weekday'] },
+        { time: ['25:00', '26:00'] },
+        { time: ['09:75', '10:00'] },
+        { timezone: 'Not/AZone' },
+        { use_person_timezone: true, fallback_timezone: 'Not/AZone' },
+    ])('rejects an unusable time window %j', (config) => {
+        action.config = { ...action.config, ...config } as typeof action.config
+        expect(() => getWaitUntilTime(action)).toThrow()
+    })
+
     describe('time window scheduling', () => {
         it('should schedule for today if time window is in the future', () => {
             const result = getWaitUntilTime(action)
@@ -167,12 +180,15 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             )
         })
 
-        it('should handle single specific day', () => {
-            action.config.day = ['monday']
+        it.each([
+            ['monday', 5],
+            ['wednesday', 7],
+        ] as const)('schedules the next %s even when it is %i days away', (day, days) => {
+            action.config.day = [day]
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
-                DateTime.utc().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
+                DateTime.utc().plus({ days }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
             )
         })
 

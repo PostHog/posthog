@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction, HogFlowTimeWindowConfigSchema } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
 
 import { findContinueAction } from '../hogflow-utils'
@@ -52,20 +52,27 @@ function isValidDay(date: DateTime, dateConfig: Action['config']['day']): boolea
 function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
     let nextDay = now.plus({ days: 1 }).startOf('day')
 
-    while (!isValidDay(nextDay, dateConfig)) {
+    // Every supported weekday restriction has a match within one week.
+    for (let days = 0; days < 7; days++) {
+        if (nextDay.isValid && isValidDay(nextDay, dateConfig)) {
+            return nextDay
+        }
         nextDay = nextDay.plus({ days: 1 })
     }
 
-    return nextDay
+    throw new Error('No valid day found for the time window. Check its days and timezone.')
 }
 
 export const getWaitUntilTime = (
     action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>,
     person?: CyclotronPerson
 ): DateTime | null => {
-    const timezone = resolveTimezone(action.config, person)
+    const config = HogFlowTimeWindowConfigSchema.parse(action.config)
+    const timezone = resolveTimezone(config, person)
     const now = DateTime.utc().setZone(timezone)
-    const config = action.config
+    if (!now.isValid) {
+        throw new Error('Invalid time window timezone. Choose a valid IANA timezone.')
+    }
 
     if (config.time === 'any') {
         // Any time on a valid day: if today is valid the window is already open, so return null to
