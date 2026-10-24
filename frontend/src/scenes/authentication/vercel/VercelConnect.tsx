@@ -1,12 +1,17 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {
@@ -145,27 +150,32 @@ export function VercelConnect(): JSX.Element {
 
     if (loading) {
         return (
-            <BridgePage view="vercel-connect">
-                <div className="text-center">
-                    <Spinner className="text-4xl" />
-                    <p className="mt-4">Loading...</p>
+            <VercelCard title="Loading your organizations…">
+                <div className="flex justify-center">
+                    <Spinner className="text-2xl" />
                 </div>
-            </BridgePage>
+            </VercelCard>
         )
     }
 
     if (success) {
         return (
-            <BridgePage view="vercel-connect">
-                <h2 className="text-center">Account linked</h2>
-                <p className="text-center mb-6">
-                    Your PostHog organization <strong>{linkedOrgName}</strong> is now connected to Vercel.
-                </p>
+            <VercelCard
+                title="Account linked"
+                notes={AUTH_NOTES.vercelConnect.linked}
+                sub={
+                    <>
+                        <span>Your PostHog organization</span> <strong>{linkedOrgName}</strong>{' '}
+                        <span>is now connected to Vercel.</span>
+                    </>
+                }
+            >
                 {redirectUrl ? (
                     <LemonButton
                         fullWidth
                         type="primary"
                         center
+                        size="large"
                         onClick={() => {
                             window.location.href = redirectUrl
                         }}
@@ -173,23 +183,22 @@ export function VercelConnect(): JSX.Element {
                         Return to Vercel
                     </LemonButton>
                 ) : (
-                    <LemonButton fullWidth type="primary" center to="/">
+                    <LemonButton fullWidth type="primary" center size="large" to="/">
                         Go to PostHog
                     </LemonButton>
                 )}
-            </BridgePage>
+            </VercelCard>
         )
     }
 
     if (error && !sessionInfo) {
         return (
-            <BridgePage view="vercel-connect">
-                <h2 className="text-center">Something went wrong</h2>
-                <p className="text-center text-danger mb-6">{error}</p>
-                <LemonButton fullWidth type="secondary" center onClick={() => window.close()}>
+            <VercelCard title="Something went wrong" notes={AUTH_NOTES.vercelConnect.error}>
+                <AuthBanner variant="danger">{error}</AuthBanner>
+                <LemonButton fullWidth type="secondary" center size="large" onClick={() => window.close()}>
                     Close
                 </LemonButton>
-            </BridgePage>
+            </VercelCard>
         )
     }
 
@@ -199,59 +208,47 @@ export function VercelConnect(): JSX.Element {
     const availableTeams = selectedOrgData?.teams.filter((t) => !t.already_linked) || []
 
     return (
-        <BridgePage view="vercel-connect">
-            <h2 className="text-center">Connect to Vercel</h2>
-            <p className="text-center mb-6">Select which PostHog organization to link to your Vercel account.</p>
-
-            {error && <p className="text-danger text-center mb-4">{error}</p>}
-
+        <VercelCard title="Connect to Vercel" sub="Pick the PostHog organization to link.">
+            {error && <AuthBanner variant="danger">{error}</AuthBanner>}
             {availableOrgs.length === 0 ? (
-                <div className="text-center mb-6">
-                    <p className="text-muted">
-                        {linkedOrgs.length > 0
-                            ? 'All your organizations are already linked to Vercel.'
-                            : "You don't have any organizations with admin access."}
-                    </p>
-                </div>
+                <AuthBanner variant="note">
+                    {linkedOrgs.length > 0
+                        ? 'All your organizations are already linked to Vercel.'
+                        : "You don't have any organizations with admin access."}
+                </AuthBanner>
             ) : (
                 <>
-                    <div className="mb-6">
-                        <LemonSelect
-                            fullWidth
-                            placeholder="Select an organization"
-                            value={selectedOrg}
-                            onChange={(value) => setSelectedOrg(value)}
-                            options={availableOrgs.map((org) => ({
-                                value: org.id,
-                                label: org.name,
-                            }))}
-                        />
-                    </div>
-
-                    {selectedOrg && availableTeams.length > 0 && (
-                        <div className="mb-6 space-y-3">
-                            {(['production', 'preview', 'development'] as const).map((env) => (
-                                <div key={env}>
-                                    <label className="text-xs font-medium text-muted uppercase mb-1 block">{env}</label>
-                                    <LemonSelect
-                                        fullWidth
-                                        placeholder="Select a project"
-                                        value={envMapping[env]}
-                                        onChange={(value) => setEnvMapping((prev) => ({ ...prev, [env]: value }))}
-                                        options={availableTeams.map((t) => ({
-                                            value: t.id,
-                                            label: t.name,
-                                        }))}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
+                    <LemonSelect
+                        fullWidth
+                        placeholder="Select an organization"
+                        value={selectedOrg}
+                        onChange={(value) => setSelectedOrg(value)}
+                        options={availableOrgs.map((org) => ({
+                            value: org.id,
+                            label: org.name,
+                        }))}
+                    />
+                    {selectedOrg &&
+                        availableTeams.length > 0 &&
+                        (['production', 'preview', 'development'] as const).map((env) => (
+                            <LemonField.Pure key={env} label={capitalizeFirstLetter(env)}>
+                                <LemonSelect
+                                    fullWidth
+                                    placeholder="Select a project"
+                                    value={envMapping[env]}
+                                    onChange={(value) => setEnvMapping((prev) => ({ ...prev, [env]: value }))}
+                                    options={availableTeams.map((t) => ({
+                                        value: t.id,
+                                        label: t.name,
+                                    }))}
+                                />
+                            </LemonField.Pure>
+                        ))}
                     <LemonButton
                         fullWidth
                         type="primary"
                         center
+                        size="large"
                         disabled={!selectedOrg || !envMapping.production || linking}
                         loading={linking}
                         onClick={handleLink}
@@ -260,11 +257,31 @@ export function VercelConnect(): JSX.Element {
                     </LemonButton>
                 </>
             )}
-
-            <LemonButton fullWidth type="secondary" center className="mt-2" onClick={() => window.close()}>
+            <LemonButton fullWidth type="secondary" center size="large" onClick={() => window.close()}>
                 Cancel
             </LemonButton>
-        </BridgePage>
+        </VercelCard>
+    )
+}
+
+function VercelCard({
+    title,
+    sub,
+    notes = AUTH_NOTES.vercelConnect.pick,
+    children,
+}: {
+    title: string
+    sub?: ReactNode
+    notes?: AuthNotes
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <AuthScene notes={notes}>
+            <AuthSceneCard>
+                <AuthCardTitle title={title} sub={sub} />
+                <div className="flex flex-col gap-3">{children}</div>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 

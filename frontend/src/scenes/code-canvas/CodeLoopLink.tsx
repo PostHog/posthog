@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { DesktopBridgeBody } from './DesktopBridgeBody'
+import { DesktopBridgePage } from './DesktopBridgePage'
 import { DESKTOP_SCHEME } from './desktopScheme'
 
 export interface CodeLoopLinkProps {
@@ -39,11 +38,7 @@ export function CodeLoopLink({ loopId }: CodeLoopLinkProps): JSX.Element {
         }
     }, [deepLink])
 
-    return (
-        <BridgePage view="code-loop-link">
-            <DesktopBridgeBody subject="This loop" deepLink={deepLink} />
-        </BridgePage>
-    )
+    return <DesktopBridgePage subject="This loop" deepLink={deepLink} />
 }
 
 export default CodeLoopLink
