@@ -13,7 +13,7 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import CHQueryErrorNotAnAggregate
+from posthog.errors import CHQueryErrorNotAnAggregate, wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -204,6 +204,33 @@ class TestExperimentErrorHandling(BaseTest):
             ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
             ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("ch_memory_limit_code", ServerException("memory limit", code=241), "out_of_memory"),
+            (
+                "wrapped_query_memory_limit",
+                wrap_clickhouse_query_error(
+                    ServerException(
+                        "Memory limit (for query) exceeded: would use 42.10 GiB, maximum: 42.00 GiB.", code=241
+                    )
+                ),
+                "out_of_memory",
+            ),
+            (
+                "wrapped_user_memory_limit",
+                wrap_clickhouse_query_error(
+                    ServerException(
+                        "Memory limit (for user) exceeded: would use 64.01 GiB, maximum: 64.00 GiB.", code=241
+                    )
+                ),
+                "rate_limited",
+            ),
+            (
+                "wrapped_total_memory_limit",
+                wrap_clickhouse_query_error(
+                    ServerException(
+                        "Memory limit (total) exceeded: would use 120.03 GiB, maximum: 120.00 GiB.", code=241
+                    )
+                ),
+                "rate_limited",
+            ),
             ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
             ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
             ("app_concurrency_limit", ConcurrencyLimitExceeded("app:query:per-org"), "rate_limited"),
