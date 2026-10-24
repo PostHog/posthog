@@ -12,8 +12,10 @@ import {
     selectors,
 } from 'kea'
 
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
+import { allOperatorsMapping } from 'lib/utils/operators'
 import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
@@ -22,7 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
+import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature, PropertyOperator } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { AnyPropertyFilter, GroupType, GroupTypeIndex, PropertyFilterValue } from '../../../types'
@@ -73,7 +75,8 @@ export interface cohortFieldLogicMeta {
         ) => FieldValues[]
         currentOption: (
             fieldOptionGroups: FieldValues[],
-            value: PropertyFilterValue | AnyPropertyFilter[] | undefined
+            value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
+            fieldKey: keyof import('~/types').CohortCriteriaType
         ) => any
         calculatedValueLoading: (
             value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
@@ -173,20 +176,28 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
             },
         ],
         currentOption: [
-            (s) => [s.fieldOptionGroups, s.value],
+            (s, p) => [s.fieldOptionGroups, s.value, p.fieldKey],
             (
                 fieldOptionGroups: FieldValues[],
-                value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined
-            ) =>
-                value && typeof value === 'string'
-                    ? fieldOptionGroups.reduce(
-                          (accumulator, group) => {
-                              Object.assign(accumulator, group.values)
-                              return accumulator
-                          },
-                          {} as Record<string, any>
-                      )?.[value]
-                    : null,
+                value: import('~/types').AnyPropertyFilter[] | import('~/types').PropertyFilterValue | undefined,
+                fieldKey: CohortFieldLogicProps['fieldKey']
+            ) => {
+                if (!value || typeof value !== 'string') {
+                    return null
+                }
+                const option = fieldOptionGroups.reduce(
+                    (accumulator, group) => {
+                        Object.assign(accumulator, group.values)
+                        return accumulator
+                    },
+                    {} as Record<string, any>
+                )?.[value]
+                // A cohort saved through the API or another filter UI can hold an operator this picker does not offer
+                if (!option && fieldKey === 'operator' && allOperatorsMapping[value]) {
+                    return { label: allOperatorsToHumanName(value as PropertyOperator) }
+                }
+                return option
+            },
         ],
         calculatedValueLoading: [
             (s, p) => [
