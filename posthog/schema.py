@@ -6353,17 +6353,6 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
-    useNewEventsCluster: bool | None = Field(
-        default=None,
-        description=(
-            "Read this query from the native events cluster and native JSON events"
-            " table (`true`), or keep its existing connection (`false` or unset). This"
-            " is an internal rollout switch for eligible projects. PostHog staff manage"
-            " eligibility through instance settings. Each query must opt in; project"
-            " defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons"
-            " are supported."
-        ),
-    )
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(

@@ -35,6 +35,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_read_http_url
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -776,10 +777,12 @@ async def hogql_table(
     # The query goes in a field rather than the message: only the message is copied into the
     # log_entries row users can read, and the compiled query is the saved query's own SQL.
     await logger.adebug("Running clickhouse query", query=arrow_printed)
+    # Reads an instance setting, so off the event loop like the printing above.
+    clickhouse_url = await database_sync_to_async_pool(events_read_http_url)(context)
 
     async with (
         _clickhouse_query_semaphore,
-        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, clickhouse_url=clickhouse_url) as client,
     ):
         batches = []
         batches_size = 0

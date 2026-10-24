@@ -720,10 +720,12 @@ class PostHogTestCase(SimpleTestCase):
         # assertNumQueries blocks: production workers serve requests with this cache warm
         # (60s TTL), and counting the cold reads would make every exact-count test depend
         # on which events-schema mode CI is running. The deferred-revenue-views gate is read
-        # on the same database-build path, so it is warmed for the same reason.
+        # on the same database-build path, so it is warmed for the same reason, and the events
+        # cluster host is read on every query run.
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
         get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED")
+        get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_HOST")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util

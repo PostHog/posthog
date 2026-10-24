@@ -90,6 +90,8 @@ class HogQLContext:
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     use_new_events_schema: Optional[bool] = None
+    # The printer sets this when it prints the events table as events_json. It picks the cluster the query runs on.
+    reads_native_events_table: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
