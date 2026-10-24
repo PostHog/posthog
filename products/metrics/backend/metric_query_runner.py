@@ -21,7 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
+from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
 from products.metrics.backend.metrics4_samples import metric_name_expr, samples_points_query
 
@@ -614,7 +614,7 @@ class MetricQueryRunner:
     def _raise_on_truncation(self, results: list[Any]) -> None:
         """Raise an error when the row limit drops recent buckets."""
         if len(results) >= self._row_limit:
-            raise ValueError(
+            raise MetricQueryTooManyRowsError(
                 "query produced too many (time bucket, series) rows; "
                 "use a coarser interval, a narrower range, an aggregation, or a lower-cardinality group_by"
             )
