@@ -38,6 +38,7 @@ Attributes = dict[str, str | int | float | bool]
 LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_check_duration_ms",
     "logs_alerting_cycle_duration_ms",
+    "logs_alerting_workflow_duration_ms",
     "logs_alerting_scheduler_lag_ms",
     "logs_alerting_schedule_to_start_ms",
     "logs_alerting_clickhouse_duration_ms",
@@ -132,6 +133,23 @@ def increment_state_transition(from_state: AlertState, to_state: AlertState) -> 
         "Alert state transitions by from/to state (worker-committed)",
     )
     counter.add(1)
+
+
+def increment_busy_cohort_outcome(outcome: typing.Literal["busy", "recovered", "exhausted"], attempt: int) -> None:
+    meter = get_metric_meter({"outcome": outcome, "attempt": str(attempt) if attempt < 3 else "3+"})
+    counter = meter.create_counter(
+        "logs_alerting_busy_cohort_total",
+        "Cohort query outcomes: busy on every rejection, exhausted on the final rejection, recovered on a successful retry query",
+    )
+    counter.add(1)
+
+
+def record_workflow_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_workflow_duration_ms",
+        "Full alert workflow duration including discovery, busy backoff, evaluation and signal emission",
+        duration_ms,
+    )
 
 
 def record_alerts_active(count: int) -> None:

@@ -75,6 +75,7 @@ from products.logs.backend.alert_utils import (
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
+    BUSY_COHORT_ATTEMPTS,
     EMIT_SIGNAL_CONCURRENCY,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
@@ -83,6 +84,7 @@ from products.logs.backend.temporal.constants import (
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
 from products.logs.backend.temporal.metrics import (
+    increment_busy_cohort_outcome,
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
@@ -256,6 +258,21 @@ class _CohortQueryResult:
     def for_alert(self, alert: LogsAlertConfiguration) -> _PrefetchedQuery:
         return self.per_alert.get(str(alert.id), _PrefetchedQuery(buckets=[]))
 
+    def busy_alert_ids(self) -> set[str]:
+        return {
+            alert_id
+            for alert_id, prefetched in self.per_alert.items()
+            if prefetched.error is not None and classify_alert_error(prefetched.error).code == "server_busy"
+        }
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _CohortRun:
+    stats: dict[str, int]
+    notified: list[NotifiedAlert]
+    # The manifest restricted to alerts deferred as busy, or None when nothing was deferred.
+    deferred: CohortManifest | None
+
 
 @dataclasses.dataclass(frozen=True)
 class _AlertEvaluation:
@@ -347,6 +364,8 @@ class DiscoverCohortsOutput:
     # Recorded in workflow history so replays chunk identically even if the env
     # var changes between runs.
     batch_size: int
+    # Recorded for the same reason. Defaults to 1, no retry, for histories that predate it.
+    busy_cohort_attempts: int = 1
     # Recorded for the same reason. The default keeps histories written before this
     # field existed replaying with no limit, which is what they ran with.
     max_concurrent_batches: int = 0
@@ -355,6 +374,10 @@ class DiscoverCohortsOutput:
 @dataclasses.dataclass(frozen=True)
 class EvaluateCohortBatchInput:
     manifests: list[CohortManifest]
+    # Hand cohorts ClickHouse rejected as busy back to the workflow unsaved, so it can
+    # retry them this cycle rather than skip their window until the next scheduled check.
+    defer_busy_cohorts: bool = False
+    busy_cohort_attempt: int = 1
 
 
 @dataclasses.dataclass(frozen=True)
@@ -364,6 +387,7 @@ class EvaluateCohortBatchOutput:
     alerts_resolved: int
     alerts_errored: int
     notified: list[NotifiedAlert] = dataclasses.field(default_factory=list)
+    busy_cohorts: list[CohortManifest] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -442,6 +466,7 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     return DiscoverCohortsOutput(
         manifests=manifests,
         batch_size=MAX_COHORTS_PER_BATCH,
+        busy_cohort_attempts=BUSY_COHORT_ATTEMPTS,
         max_concurrent_batches=MAX_CONCURRENT_BATCHES,
     )
 
@@ -649,9 +674,10 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_COHORTS_PER_BATCH)
 
-    async def _run_one_cohort(manifest: CohortManifest) -> tuple[dict[str, int], list[NotifiedAlert]]:
-        """Process one cohort, returning its stats delta and notified alerts. Always
-        returns — per-cohort failure is captured into local_stats, never raised.
+    async def _run_one_cohort(manifest: CohortManifest) -> _CohortRun:
+        """Process one cohort, returning its stats delta, notified alerts, and the
+        manifest restricted to alerts deferred as busy. Always returns — per-cohort
+        failure is captured into local_stats, never raised.
 
         Cohorts run concurrently under the semaphore, so this returns its deltas
         for serial aggregation by the caller rather than mutating shared state.
@@ -669,7 +695,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     missing_count=len(manifest.alert_ids),
                 )
                 local_stats["errored"] += len(manifest.alert_ids)
-                return local_stats, local_notified
+                return _CohortRun(stats=local_stats, notified=local_notified, deferred=None)
 
             _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
@@ -705,19 +731,47 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     for slo_handle in slo_handles.values():
                         slo_handle.fail(failure_phase="cohort_query")
                     local_stats["errored"] += len(cohort.alerts)
-                    return local_stats, local_notified
+                    return _CohortRun(stats=local_stats, notified=local_notified, deferred=None)
+
+                busy_alert_ids = query_result.busy_alert_ids()
+                deferred: CohortManifest | None = None
+                if busy_alert_ids:
+                    _safe_record(
+                        "busy cohort counter", increment_busy_cohort_outcome, "busy", input.busy_cohort_attempt
+                    )
+                    if input.defer_busy_cohorts:
+                        deferred = dataclasses.replace(
+                            manifest,
+                            alert_ids=[alert_id for alert_id in manifest.alert_ids if alert_id in busy_alert_ids],
+                        )
+                        for alert_id in deferred.alert_ids:
+                            slo_handles[alert_id].fail(failure_phase="cohort_query", deferred_as_busy=True)
+                        if len(deferred.alert_ids) == len(cohort.alerts):
+                            return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
+                    else:
+                        _safe_record(
+                            "busy cohort counter", increment_busy_cohort_outcome, "exhausted", input.busy_cohort_attempt
+                        )
+                elif input.busy_cohort_attempt > 1 and all(
+                    result.error is None for result in query_result.per_alert.values()
+                ):
+                    _safe_record(
+                        "busy cohort counter", increment_busy_cohort_outcome, "recovered", input.busy_cohort_attempt
+                    )
 
                 evaluations: list[_AlertEvaluation] = []
                 eval_starts: list[float] = []
                 for alert in cohort.alerts:
                     alert_id = str(alert.id)
+                    if deferred is not None and alert_id in busy_alert_ids:
+                        continue
                     eval_start = time.perf_counter()
                     try:
                         evaluations.append(
                             _evaluate_single_alert(
                                 alert,
                                 now,
-                                checkpoint=None,
+                                date_to=cohort.date_to,
                                 prefetched=query_result.for_alert(alert),
                             )
                         )
@@ -802,7 +856,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["errored"] += len(dispatched)
                     local_stats["checked"] += len(dispatched)
-                    return local_stats, local_notified
+                    return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
 
                 elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
                 for dispatched_alert in saved:
@@ -827,7 +881,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     local_stats["errored"] += 1
 
                 local_notified.extend(_build_notified_from_saved(saved))
-                return local_stats, local_notified
+                return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
 
     cohort_results = await asyncio.gather(
         *(_run_one_cohort(m) for m in input.manifests),
@@ -841,13 +895,16 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
 
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
     batch_notified: list[NotifiedAlert] = []
-    for local_stats, local_notified in cohort_results:
-        for k, v in local_stats.items():
+    busy_cohorts: list[CohortManifest] = []
+    for run in cohort_results:
+        for k, v in run.stats.items():
             stats[k] += v
-        batch_notified.extend(local_notified)
+        batch_notified.extend(run.notified)
+        if run.deferred is not None:
+            busy_cohorts.append(run.deferred)
 
-    if stats["checked"] > 0:
-        logger.info("Cohort batch complete", **stats)
+    if stats["checked"] > 0 or busy_cohorts:
+        logger.info("Cohort batch complete", busy_cohorts=len(busy_cohorts), **stats)
 
     return EvaluateCohortBatchOutput(
         alerts_checked=stats["checked"],
@@ -855,6 +912,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
         alerts_resolved=stats["resolved"],
         alerts_errored=stats["errored"],
         notified=batch_notified,
+        busy_cohorts=busy_cohorts,
     )
 
 
@@ -1473,6 +1531,7 @@ def _evaluate_single_alert(
     *,
     checkpoint: datetime | None = None,
     prefetched: _PrefetchedQuery | None = None,
+    date_to: datetime | None = None,
 ) -> _AlertEvaluation:
     """Phase 1: run the CH query (or use prefetched buckets), apply the state machine, return the outcome.
 
@@ -1492,7 +1551,8 @@ def _evaluate_single_alert(
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
-    date_to = resolve_alert_date_to(nca, checkpoint)
+    if date_to is None:
+        date_to = resolve_alert_date_to(nca, checkpoint)
     date_from = date_to - timedelta(
         minutes=rolling_check_lookback_minutes(
             alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
