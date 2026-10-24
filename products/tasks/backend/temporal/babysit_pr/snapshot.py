@@ -42,6 +42,7 @@ class ReviewThreadItem:
     author_association: str | None = None
     body_excerpt: str = ""
     url: str | None = None
+    pr_author_feedback: bool = False
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class PRSnapshot:
                     author_association=thread.get("author_association"),
                     body_excerpt=_excerpt(thread.get("body")),
                     url=thread.get("url"),
+                    pr_author_feedback=thread.get("pr_author_feedback") is True,
                 )
                 for thread in raw.get("unresolved_threads") or []
                 if thread.get("id")
@@ -173,7 +175,8 @@ class BabysitJournal:
                 thread
                 for thread in snapshot.unresolved_threads
                 # nosemgrep: openai-non-hipaa-assistants-threads — review-thread journal dict, not an OpenAI client
-                if thread.author != snapshot.author_login and self.threads.get(thread.id) != thread.last_comment_id
+                if self.threads.get(thread.id) != thread.last_comment_id
+                and (thread.author != snapshot.author_login or thread.pr_author_feedback)
             ],
             comments=[comment for comment in snapshot.comments if comment.id not in self.comment_ids],
             conflict=snapshot.has_conflict and not (same_head and CONFLICT_KEY in self.head_keys),
