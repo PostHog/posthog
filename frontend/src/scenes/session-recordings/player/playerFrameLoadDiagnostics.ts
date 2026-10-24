@@ -7,6 +7,9 @@ export interface PlayerFrameLoadDiagnostics {
     frameResponseStatus: number | null
     browserOnline: boolean
     pageVisibility: DocumentVisibilityState
+    documentHasFocus: boolean
+    userActivationActive: boolean | null
+    userActivationHasBeenActive: boolean | null
     msSincePageLoad: number
 }
 
@@ -37,6 +40,11 @@ export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null):
             frameResponseStatus: iframe ? responseStatus(iframe.src) : null,
             browserOnline: navigator.onLine,
             pageVisibility: document.visibilityState,
+            // A retry from the error card almost always loads, and the automatic retries almost never do.
+            // The click gives the page focus and user activation, so the report records both to test that.
+            documentHasFocus: document.hasFocus(),
+            userActivationActive: navigator.userActivation?.isActive ?? null,
+            userActivationHasBeenActive: navigator.userActivation?.hasBeenActive ?? null,
             msSincePageLoad: Math.round(performance.now()),
         }
     } catch {
