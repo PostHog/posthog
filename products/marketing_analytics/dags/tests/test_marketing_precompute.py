@@ -35,10 +35,13 @@ from products.marketing_analytics.dags.marketing_precompute import (
     SELECTED_TEAM_IDS_ENV_VAR,
     SHARDS_ENV_VAR,
     TEAM_CONCURRENCY_ENV_VAR,
+    WALL_CLOCK_BUDGET_ENV_VAR,
     _recently_active_team_ids,
+    _WarmCounts,
     get_selected_team_ids,
     marketing_precompute_job,
     split_marketing_precompute_teams_op,
+    summarize_marketing_precompute_op,
     warm_selected_teams,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -51,6 +54,7 @@ _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_co
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
 _DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
+_WARM_TEAM = "products.marketing_analytics.dags.marketing_precompute._warm_team"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -190,6 +194,14 @@ class TestShardSplit:
     def test_empty_audience_yields_no_shards(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert list(split_marketing_precompute_teams_op(dagster.build_op_context())) == []
+
+    def test_summary_sums_every_shard_key(self):
+        shards = [
+            {"teams": 3, "conversion_teams": 2, "costs_teams": 1, "failures": 1, "deferred": 0},
+            {"teams": 4, "conversion_teams": 1, "costs_teams": 0, "failures": 0, "deferred": 3},
+        ]
+        total = summarize_marketing_precompute_op(dagster.build_op_context(), shards)
+        assert total == {"teams": 7, "conversion_teams": 3, "costs_teams": 1, "failures": 1, "deferred": 3}
 
 
 class TestConversionWarming(APIBaseTest):
@@ -368,7 +380,7 @@ class TestConversionWarming(APIBaseTest):
         team = self._make_team("A", goals=None)
         with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @parameterized.expand([("database_built", False), ("database_build_fails", True)])
@@ -390,9 +402,35 @@ class TestConversionWarming(APIBaseTest):
                 database.create_for.side_effect = Exception("warehouse source broken")
             result = warm_selected_teams(dagster.build_op_context())
 
-        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0, "deferred": 0}
         assert ensure_mock.call_count > len(teams)
         assert database.create_for.call_count == len(teams)
+
+    @parameterized.expand([("budget_spent", "0", 2, 3), ("budget_generous", "3600", 5, 0)])
+    @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
+    def test_budget_defers_teams_not_yet_started(self, _name, budget, warmed, deferred, warm_team_mock):
+        # A shard that kept starting teams past the budget would run until Dagster kills it at max runtime.
+        # The first `concurrency` teams always start, and a started team always finishes.
+        teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C", "D", "E")]
+        ids = ",".join(str(team.pk) for team in teams)
+        with (
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(
+                os.environ,
+                {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "2", WALL_CLOCK_BUDGET_ENV_VAR: budget},
+            ),
+            patch(_DB),
+        ):
+            result = warm_selected_teams(dagster.build_op_context())
+
+        assert result == {
+            "teams": 5,
+            "conversion_teams": warmed,
+            "costs_teams": 0,
+            "failures": 0,
+            "deferred": deferred,
+        }
+        assert warm_team_mock.call_count == warmed
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
@@ -467,14 +505,14 @@ class TestConversionWarming(APIBaseTest):
     def test_empty_allowlist_is_a_noop(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_missing_team_is_skipped(self, ensure_mock):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "999999999"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     def test_job_has_owner_and_runtime_tags(self):
@@ -510,7 +548,7 @@ class TestCostsWarming(APIBaseTest):
         team = self._make_team("A")
         with patch(_FF, _flag_fn(costs=False)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
             result = warm_selected_teams(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
         ensure_mock.assert_not_called()
 
     @patch(_ENSURE, new_callable=_ready_mock)

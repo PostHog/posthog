@@ -30,6 +30,8 @@ The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty
 (query_log_archive). Unset, it warms the teams whose reads are precompute-only, on PostHog Cloud only: teams
 with a conversion goal and the conversion read flag on, and recently active teams with a warehouse table
 and the cost read flag on. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
+`MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS` bounds each run: a shard stops starting new teams once the
+budget is spent and reports the rest as deferred, so a run ends on its own under the job's max runtime.
 """
 
 import os
@@ -125,6 +127,11 @@ ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS = 60
 # concurrent INSERTs and DB connections across the run. Tunable per environment.
 TEAM_CONCURRENCY_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_CONCURRENCY"
 DEFAULT_TEAM_CONCURRENCY = 4
+
+# Per-run budget after which a shard starts no new team. Kept well under the job's 2h `dagster/max_runtime`:
+# a run Dagster kills alerts, a run that defers teams does not, and both leave the same READY chunks behind.
+WALL_CLOCK_BUDGET_ENV_VAR = "MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS"
+DEFAULT_WALL_CLOCK_BUDGET_SECONDS = 100 * 60
 
 # Processes the job fans teams out into. Each shard prints HogQL on its own core; the run pod requests
 # 6 CPUs, so more shards than that only contend for cores.
@@ -611,7 +618,11 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
 
 
 def _empty_result() -> dict[str, int]:
-    return {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+    return {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
+
+
+def _wall_clock_budget_seconds() -> float:
+    return max(0.0, float(os.getenv(WALL_CLOCK_BUDGET_ENV_VAR, str(DEFAULT_WALL_CLOCK_BUDGET_SECONDS))))
 
 
 def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: datetime) -> dict[str, int]:
@@ -624,6 +635,9 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
     conversion goals; costs stay gated on the costs precompute flag plus the team having warehouse tables.
     Every team, and each warming block within it, is isolated — one failure never aborts the rest.
 
+    Once the wall-clock budget (`MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS`, counted from the start of
+    planning) is spent, no further team starts and the teams never started are returned as `deferred`.
+
     `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
     error (its raw material present — goals / warehouse tables), symmetric to each other. They
     are not success counts: per-chunk outcomes live in `failures` and the MARKETING_PRECOMPUTE_CHUNK_*
@@ -634,6 +648,8 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
     if not team_ids:
         return _empty_result()
 
+    started = time.monotonic()
+    deadline = started + _wall_clock_budget_seconds()
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
     if len(teams) != len(team_ids):
@@ -682,6 +698,8 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
         in_flight = {
             pool.submit(_warm_team, context, with_database(plan), end) for plan in islice(pending, concurrency)
         }
+        submitted = len(in_flight)
+        budget_reached = False
         while in_flight:
             finished, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
             for future in finished:
@@ -694,19 +712,33 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
                     f"marketing_precompute_progress done={done}/{len(plans)} "
                     f"elapsed_s={round(time.monotonic() - warm_started)}"
                 )
+                if budget_reached:
+                    continue
+                if time.monotonic() >= deadline:
+                    # Deferred teams need nothing more: the next hourly run reselects the audience and
+                    # ensure_precomputed skips the chunks that are already READY.
+                    budget_reached = True
+                    context.log.info(
+                        f"marketing_precompute_budget_reached deferred={len(plans) - submitted} "
+                        f"elapsed_s={round(time.monotonic() - started)}"
+                    )
+                    continue
                 next_plan = next(pending, None)
                 if next_plan is not None:
                     in_flight.add(pool.submit(_warm_team, context, with_database(next_plan), end))
+                    submitted += 1
 
+    deferred = len(plans) - submitted
     context.log.info(
         f"marketing_precompute_complete teams={len(teams)} conversion_teams={conversion_teams} "
-        f"costs_teams={costs_teams} failures={failures}"
+        f"costs_teams={costs_teams} failures={failures} deferred={deferred}"
     )
     return {
         "teams": len(teams),
         "conversion_teams": conversion_teams,
         "costs_teams": costs_teams,
         "failures": failures,
+        "deferred": deferred,
     }
 
 
@@ -760,7 +792,7 @@ def summarize_marketing_precompute_op(context: dagster.OpExecutionContext, resul
     context.log.info(
         f"marketing_precompute_summary shards={len(results)} teams={total['teams']} "
         f"conversion_teams={total['conversion_teams']} costs_teams={total['costs_teams']} "
-        f"failures={total['failures']}"
+        f"failures={total['failures']} deferred={total['deferred']}"
     )
     context.add_output_metadata(total)
     return total
