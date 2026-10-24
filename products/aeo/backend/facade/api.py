@@ -6,22 +6,25 @@ capabilities. Celery wiring is re-exported from facade/tasks.py.
 
 from __future__ import annotations
 
+import re
 import uuid
 import datetime as dt
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Max, Min, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from posthog.models.team import Team
 
 from products.aeo.backend import gaps
-from products.aeo.backend.engines import MAX_PROMPT_LENGTH
+from products.aeo.backend.brand import brand_names, mention_filter
+from products.aeo.backend.engines import MAX_PROMPT_LENGTH, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     CitationGap,
@@ -31,10 +34,13 @@ from products.aeo.backend.facade.contracts import (
     PromptCheck,
     PromptDailyEngineStats,
     PromptEngineCheck,
+    PromptEngineDomainShare,
+    PromptEngineSentiment,
     PromptEngineStats,
     PromptImport,
     PromptImportResult,
     PromptNotFoundError,
+    PromptSearchWord,
     PromptStats,
     PromptTextConflictError,
     PromptTopic,
@@ -182,12 +188,17 @@ def list_prompt_checks(
 
 
 def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: int) -> PromptStats:
-    """Totals per engine over the prompt's whole history, plus per-day counts for the last `days` days
+    """Totals per engine over the prompt's whole history, plus per-day counts, engine consensus on
+    the cited domains, brand sentiment and the words of the web searches over the last `days` days
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
+    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
+    # `mentioned` filters on the `cited` column, and an annotation named `cited` would shadow that
+    # column for every later annotation in the same call, so it must come first.
     counts = {
         "checks": Count("id"),
+        "mentioned": Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
         "cited": Count("id", filter=Q(cited=True)),
         "failed": Count("id", filter=Q(check_failed=True)),
     }
@@ -197,6 +208,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
             engine=row["engine"],
             checks=row["checks"],
             cited=row["cited"],
+            mentioned=row["mentioned"],
             failed=row["failed"],
             first_checked_at=row["first_checked_at"],
             last_checked_at=row["last_checked_at"],
@@ -210,24 +222,115 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     daily_to = timezone.now().astimezone(tz).date()
     daily_from = daily_to - dt.timedelta(days=days - 1)
     window_start = dt.datetime.combine(daily_from, dt.time.min, tzinfo=tz)
+    in_window = checks.filter(created_at__gte=window_start)
     daily = tuple(
         PromptDailyEngineStats(
-            date=row["date"], engine=row["engine"], checks=row["checks"], cited=row["cited"], failed=row["failed"]
+            date=row["date"],
+            engine=row["engine"],
+            checks=row["checks"],
+            cited=row["cited"],
+            mentioned=row["mentioned"],
+            failed=row["failed"],
         )
-        for row in checks.filter(created_at__gte=window_start)
-        .annotate(date=TruncDate("created_at", tzinfo=tz))
+        for row in in_window.annotate(date=TruncDate("created_at", tzinfo=tz))
         .values("date", "engine")
         .annotate(**counts)
         .order_by("date", "engine")
     )
+    answered = in_window.filter(check_failed=False)
+    sentiment = tuple(
+        PromptEngineSentiment(
+            engine=row["engine"],
+            positive=row["positive"],
+            neutral=row["neutral"],
+            negative=row["negative"],
+            unscored=row["unscored"],
+        )
+        for row in answered.values("engine")
+        .annotate(
+            positive=Count("id", filter=Q(brand_sentiment="positive")),
+            neutral=Count("id", filter=Q(brand_sentiment="neutral")),
+            negative=Count("id", filter=Q(brand_sentiment="negative")),
+            unscored=Count("id", filter=Q(brand_sentiment__isnull=True) & mention_filter(target_domains)),
+        )
+        .order_by("engine")
+    )
+    report = _PromptWindowReport.from_checks(answered)
 
     return PromptStats(
         total_checks=sum(engine.checks for engine in engines),
+        brand_names=brand_names(target_domains),
         engines=engines,
         daily_from=daily_from,
         daily_to=daily_to,
         daily=daily,
+        consensus=report.consensus(),
+        sentiment=sentiment,
+        top_words=report.top_words(),
     )
+
+
+MAX_CONSENSUS_DOMAINS = 10
+MAX_STATS_WORDS = 20
+MIN_SEARCH_WORD_LENGTH = 3
+_WORD = re.compile(r"[^\W_]+", re.UNICODE)
+SEARCH_STOP_WORDS = frozenset(
+    """a an and are as at be best by can do does for from how i in is it its my of on or that the this to top vs
+    what which who with without your you""".split()
+)
+
+
+class _PromptWindowReport:
+    """Cited domains and web searches across one prompt's answered checks in the window.
+
+    Counts are per check: a domain cited twice in one answer counts once, so every number reads as
+    "how many answers", the same unit as the citation rate."""
+
+    def __init__(self) -> None:
+        self._domain_checks: Counter[str] = Counter()
+        self._engine_checks: Counter[str] = Counter()
+        self._engine_domain_checks: Counter[tuple[str, str]] = Counter()
+        self._queries: Counter[str] = Counter()
+
+    @classmethod
+    def from_checks(cls, answered: QuerySet[AEOCitationCheck]) -> _PromptWindowReport:
+        report = cls()
+        for row in answered.values("engine", "cited_urls", "search_queries"):
+            report.add(row["engine"], _strings(row["cited_urls"]), _strings(row["search_queries"]))
+        return report
+
+    def add(self, engine: str, cited_urls: tuple[str, ...], search_queries: tuple[str, ...]) -> None:
+        self._engine_checks[engine] += 1
+        domains = top_domains(list(cited_urls))
+        self._domain_checks.update(domains)
+        self._engine_domain_checks.update((engine, domain) for domain in domains)
+        self._queries.update(key for key in (" ".join(query.casefold().split()) for query in search_queries) if key)
+
+    def consensus(self) -> tuple[PromptEngineDomainShare, ...]:
+        domains = [domain for domain, _ in self._ranked(self._domain_checks, MAX_CONSENSUS_DOMAINS)]
+        return tuple(
+            PromptEngineDomainShare(
+                engine=engine,
+                domain=domain,
+                checks_citing=self._engine_domain_checks[(engine, domain)],
+                checks=checks,
+            )
+            for engine, checks in sorted(self._engine_checks.items())
+            for domain in domains
+        )
+
+    def top_words(self) -> tuple[PromptSearchWord, ...]:
+        words: Counter[str] = Counter()
+        for key, count in self._queries.items():
+            for word in set(_WORD.findall(key)):
+                if len(word) >= MIN_SEARCH_WORD_LENGTH and word not in SEARCH_STOP_WORDS:
+                    words[word] += count
+        return tuple(PromptSearchWord(word=word, count=count) for word, count in self._ranked(words, MAX_STATS_WORDS))
+
+    @staticmethod
+    def _ranked(counter: Counter[str], limit: int) -> list[tuple[str, int]]:
+        # Ties break on the value, so the order is stable between two requests.
+        return sorted(counter.items(), key=lambda item: (-item[1], item[0]))[:limit]
 
 
 def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportResult:
@@ -373,6 +476,8 @@ _CHECK_FIELDS = (
     "search_queries",
     "answer_text",
     "prompt_version",
+    "brand_sentiment",
+    "brand_sentiment_score",
 )
 
 
@@ -397,6 +502,8 @@ def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
         search_queries=_strings(row["search_queries"]),
         answer_text=row["answer_text"],
         prompt_version=row["prompt_version"],
+        brand_sentiment=row["brand_sentiment"],
+        brand_sentiment_score=row["brand_sentiment_score"],
     )
 
 

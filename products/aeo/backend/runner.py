@@ -30,6 +30,7 @@ from posthog.models.team import Team
 from products.aeo.backend.engines import CitationEngine, available_engines, build_check_fields
 from products.aeo.backend.facade.contracts import CitationRunSummary
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.temporal.brand_sentiment import start_brand_sentiment_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -144,6 +145,8 @@ def run_citation_checks(
         rows_written=summary.rows_written,
         write_failures=summary.write_failures,
     )
+    if record and rows_written and settings.AEO_BRAND_SENTIMENT_ENABLED:
+        start_brand_sentiment_workflow(canonical_team_id, run_id)
     return summary, checks
 
 
