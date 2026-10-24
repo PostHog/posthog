@@ -1006,11 +1006,12 @@ describe('dashboardLogic', () => {
             })
 
             it.each([
-                { leftTabTiles: 5, cancelled: true },
-                { leftTabTiles: 4, cancelled: false },
+                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: false },
+                { leftTabTiles: 4, cancelled: false, returnBeforeAbortsSettle: false },
+                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: true },
             ])(
-                'on a tab switch, $leftTabTiles loading tiles in the tab left behind are cancelled: $cancelled',
-                async ({ leftTabTiles, cancelled }) => {
+                'on a tab switch, $leftTabTiles loading tiles in the tab left behind are cancelled: $cancelled, and load again on a return before the aborts settle: $returnBeforeAbortsSettle',
+                async ({ leftTabTiles, cancelled, returnBeforeAbortsSettle }) => {
                     groupTiles({ target: { collapsed: false } })
                     const [targetTile, ungroupedTile] = dashboards[5].tiles
                     const leftTiles = Array.from({ length: leftTabTiles }, (_, index) => ({
@@ -1035,8 +1036,10 @@ describe('dashboardLogic', () => {
                     refreshInsight.mockImplementation((_teamId, insight, ...args) =>
                         insight.short_id.startsWith('left-')
                             ? new Promise((resolve, reject) => {
+                                  const abort = (): void => reject(new DOMException('Aborted', 'AbortError'))
+                                  // A load waiting out a retry backoff settles its abort later.
                                   args[3]?.signal?.addEventListener('abort', () =>
-                                      reject(new DOMException('Aborted', 'AbortError'))
+                                      returnBeforeAbortsSettle ? setTimeout(abort, 20) : abort()
                                   )
                                   finishLoads.push(() => resolve(insight))
                               })
@@ -1047,28 +1050,37 @@ describe('dashboardLogic', () => {
                         'setRefreshStatus',
                     ])
 
-                    await expectLogic(logic, () => logic.actions.selectTileGroupTab('group-target'))
-                        .toDispatchActions(['refreshTileGroup'])
-                        .delay(5)
-                    finishLoads.forEach((finish) => finish())
-                    await expectLogic(logic).toFinishAllListeners()
-
                     const leftShortIds = leftTiles.map((tile) => tile.insight.short_id)
-                    const abortedLoads = refreshInsight.mock.calls.filter((call) => call[5]?.signal?.aborted)
-                    expect(abortedLoads.length > 0).toBe(cancelled)
-                    expect(leftShortIds.filter((id) => logic.values.refreshStatus[id]?.queued)).toEqual([])
-                    expect(loads(targetTile.insight!.short_id).at(-1)?.[4]).toEqual('force_blocking')
-                    if (cancelled) {
-                        expect(logic.values.waitingTileRefresh).toMatchObject({
-                            tileIds: leftTiles.map((tile) => tile.id),
-                            forceRefresh: true,
-                        })
-                    }
-
-                    refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
-                    await expectLogic(logic, () =>
+                    if (returnBeforeAbortsSettle) {
+                        logic.actions.selectTileGroupTab('group-target')
+                        refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
                         logic.actions.selectTileGroupTab('tiles-ungrouped')
-                    ).toFinishAllListeners()
+                        await expectLogic(logic)
+                            .toDispatchActions(['abortQuery', 'refreshOpenTileGroupsWaiting'])
+                            .toFinishAllListeners()
+                    } else {
+                        await expectLogic(logic, () => logic.actions.selectTileGroupTab('group-target'))
+                            .toDispatchActions(['refreshTileGroup'])
+                            .delay(5)
+                        finishLoads.forEach((finish) => finish())
+                        await expectLogic(logic).toFinishAllListeners()
+
+                        const abortedLoads = refreshInsight.mock.calls.filter((call) => call[5]?.signal?.aborted)
+                        expect(abortedLoads.length > 0).toBe(cancelled)
+                        expect(leftShortIds.filter((id) => logic.values.refreshStatus[id]?.queued)).toEqual([])
+                        expect(loads(targetTile.insight!.short_id).at(-1)?.[4]).toEqual('force_blocking')
+                        if (cancelled) {
+                            expect(logic.values.waitingTileRefresh).toMatchObject({
+                                tileIds: leftTiles.map((tile) => tile.id),
+                                forceRefresh: true,
+                            })
+                        }
+
+                        refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                        await expectLogic(logic, () =>
+                            logic.actions.selectTileGroupTab('tiles-ungrouped')
+                        ).toFinishAllListeners()
+                    }
 
                     for (const shortId of leftShortIds) {
                         const finishedLoads = loads(shortId).filter((call) => !call[5]?.signal?.aborted)
@@ -1079,7 +1091,19 @@ describe('dashboardLogic', () => {
                 }
             )
 
-            it('loads tiles from a hidden tab when the dashboard switches to sections', async () => {
+            it.each([
+                {
+                    name: 'the dashboard switches to sections',
+                    change: (dashboard: DashboardType): DashboardType => ({ ...dashboard, customization: {} }),
+                },
+                {
+                    name: 'the last grouped tile leaves its group',
+                    change: (dashboard: DashboardType): DashboardType => ({
+                        ...dashboard,
+                        tiles: dashboard.tiles.map((tile) => ({ ...tile, group_key: null })),
+                    }),
+                },
+            ])('loads tiles from a hidden tab when $name', async ({ change }) => {
                 groupTiles({ target: { collapsed: false } })
                 dashboards[5] = {
                     ...dashboards[5],
@@ -1094,7 +1118,9 @@ describe('dashboardLogic', () => {
                 expect(loads(ungrouped)).toHaveLength(0)
 
                 await expectLogic(logic, () =>
-                    dashboardsModel.actions.updateDashboardSuccess({ ...logic.values.dashboard!, customization: {} })
+                    dashboardsModel.actions.updateDashboardSuccess(change(logic.values.dashboard!), {
+                        layoutsPersisted: true,
+                    })
                 ).toFinishAllListeners()
 
                 expect(loads(ungrouped)).toHaveLength(1)
