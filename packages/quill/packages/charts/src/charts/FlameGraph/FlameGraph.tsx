@@ -173,13 +173,18 @@ function FlameGraphInner<Meta = unknown>({
         showBreadcrumb = true,
         showLegend = true,
         tooltip: tooltipConfig,
+        preset = 'profile',
     } = config ?? {}
+    const isBreakdown = preset === 'breakdown'
+    const labelFont = config?.labelFont ?? (isBreakdown ? 'sans' : 'monospace')
+    const sort = config?.sort ?? (isBreakdown ? 'value' : 'input')
+    const showSelf = tooltipConfig?.showSelf ?? !isBreakdown
     const rowHeight = Math.max(8, requestedRowHeight)
     const showTooltip = tooltipConfig?.enabled !== false
     const threshold = Math.max(0, diffConfig?.threshold ?? DEFAULT_THRESHOLD)
     const minCount = Math.max(0, diffConfig?.minCount ?? 0)
 
-    const tree = useMemo(() => buildFlameTree(data), [data])
+    const tree = useMemo(() => buildFlameTree(data, { sort }), [data, sort])
     const colorBy = resolveColorBy(tree, requestedColorBy)
     const diff = useMemo<FlameDiffOptions>(
         () => ({ comparing: colorBy === 'diff', threshold, minCount }),
@@ -200,8 +205,8 @@ function FlameGraphInner<Meta = unknown>({
         [tree, colorBy, paletteKey, ink, diff]
     )
     const shades = useMemo(() => new FlameShades(ink), [ink])
-    // One fitter per tree, so measured labels of replaced data are dropped with it.
-    const fitter = useMemo(() => new LabelFitter(), [tree]) // eslint-disable-line react-hooks/exhaustive-deps
+    // One fitter per tree and font, so measured labels of replaced data are dropped with it.
+    const fitter = useMemo(() => new LabelFitter(labelFont), [tree, labelFont]) // eslint-disable-line react-hooks/exhaustive-deps
     // Deferred so typing in a host's search box stays responsive while a large tree is searched.
     const deferredSearch = useDeferredValue(search)
     const searchResult = useMemo(() => searchFlame(tree, deferredSearch), [tree, deferredSearch])
@@ -327,7 +332,7 @@ function FlameGraphInner<Meta = unknown>({
 
     useEffect(
         () => requestPaint(),
-        [requestPaint, dimensions, tree, colors, shades, searchResult, ancestors, geometry, theme.skipDraw]
+        [requestPaint, dimensions, tree, fitter, colors, shades, searchResult, ancestors, geometry, theme.skipDraw]
     )
 
     const isFirstWindow = useRef(true)
@@ -564,8 +569,9 @@ function FlameGraphInner<Meta = unknown>({
             comparing: colorBy === 'diff',
             canFocus: hover.cell.kind === 'bundle' || (clickToFocus && !isFocused),
             totalValue: tree.totalValue,
+            showSelf,
         }
-    }, [hover, hit, ink, colors, focus, tree, valueFormatter, colorBy, clickToFocus])
+    }, [hover, hit, ink, colors, focus, tree, valueFormatter, colorBy, clickToFocus, showSelf])
 
     const renderTooltip = useMemo(
         () =>

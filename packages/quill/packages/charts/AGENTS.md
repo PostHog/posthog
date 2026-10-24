@@ -23,7 +23,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |
 | `SankeyChart`          | Flow between stages (tool call journeys, user paths) — `nodes` + `links` keyed by id, no `series`; the graph must be acyclic                |
-| `FlameGraph`           | Call trees (profiles, span trees, LLM runs) — nested `{ name, value, children }`, value is total; zoom, search, baseline diff               |
+| `FlameGraph`           | Nested totals: call trees (profiles, spans, LLM runs) or breakdown icicles (`preset: 'breakdown'`) — `{ name, value, children }`            |
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |

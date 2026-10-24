@@ -1,4 +1,4 @@
-import type { FlameChange, FlameNode, FlameNodeDatum } from './types'
+import type { FlameChange, FlameNode, FlameNodeDatum, FlameSort } from './types'
 
 /** Children under this share of their parent move to the end of the row, so that two or more of
  *  them sit next to each other and can bundle into one "+N more" cell. */
@@ -85,7 +85,18 @@ function orderChildren<Meta>(children: FlameNode<Meta>[], parentWeight: number):
     return large.concat(tail)
 }
 
-export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]): FlameTree<Meta> {
+export interface FlameTreeOptions {
+    /** Defaults to `input`. */
+    sort?: FlameSort
+}
+
+const byWeightDescending = (a: FlameNode<unknown>, b: FlameNode<unknown>): number => weightOf(b) - weightOf(a)
+
+export function buildFlameTree<Meta>(
+    data: FlameNode<Meta> | FlameNode<Meta>[],
+    options: FlameTreeOptions = {}
+): FlameTree<Meta> {
+    const sortByValue = options.sort === 'value'
     // A node object reached twice is skipped, which also stops a cyclic input from looping forever.
     const seen = new Set<FlameNode<Meta>>()
     const roots = (Array.isArray(data) ? data : [data]).filter((root) => {
@@ -143,7 +154,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
     assignSuffixes(roots)
     const rootWeight = roots.reduce((sum, root) => sum + weightOf(root), 0)
     let cursor = 0
-    for (const root of roots) {
+    for (const root of sortByValue ? roots.sort(byWeightDescending) : roots) {
         const width = rootWeight > 0 ? weightOf(root) / rootWeight : 0
         push(root, -1, cursor, cursor + width)
         cursor += width
@@ -162,7 +173,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
             })
             assignSuffixes(fresh)
             const parentWeight = weightOf(nodes[head])
-            const ordered = orderChildren(fresh, parentWeight)
+            const ordered = orderChildren(sortByValue ? fresh.sort(byWeightDescending) : fresh, parentWeight)
             const childWeight = ordered.reduce((sum, child) => sum + weightOf(child), 0)
             const span = x1[head] - x0[head]
             const unit = parentWeight > 0 ? span / Math.max(parentWeight, childWeight) : 0

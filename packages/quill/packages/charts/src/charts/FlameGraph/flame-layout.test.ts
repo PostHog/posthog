@@ -84,6 +84,25 @@ describe('flame layout', () => {
         expect(order).toEqual(['big', 'medium', 'tiny2', 'tiny1'])
     })
 
+    it('sorts siblings widest first on request, keeping ids from the input order', () => {
+        const tree = buildFlameTree(
+            {
+                name: 'p',
+                value: 1000,
+                children: [
+                    { name: 'small', value: 50 },
+                    { name: 'tiny1', value: 1 },
+                    { name: 'big', value: 500 },
+                    { name: 'tiny2', value: 5 },
+                    { name: 'small', value: 300 },
+                ],
+            },
+            { sort: 'value' }
+        )
+        const children = Array.from({ length: tree.childCount[0] }, (_, i) => tree.childStart[0] + i)
+        expect(children.map((i) => nodeId(tree, i))).toEqual(['p/big', 'p/small#2', 'p/small', 'p/tiny2', 'p/tiny1'])
+    })
+
     it('gives repeated sibling names distinct ids and skips a node object reached twice', () => {
         const shared: FlameNode = { name: 'dup', value: 1 }
         const cyclic: FlameNode = { name: 'loop', value: 4, children: [shared, { name: 'dup', value: 1 }] }

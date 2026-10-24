@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import {
+    BREAKDOWN_TREE,
     CPU_PROFILE,
     DIFF_TREE,
     EDGE_CASE_TREE,
@@ -42,6 +43,18 @@ function Demo({
 
 export const CpuProfile: Story = {
     render: () => <Demo data={CPU_PROFILE} />,
+}
+
+const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** A trend broken down by country, then browser, then OS, read as an icicle: the total on top. */
+export const BreakdownIcicle: Story = {
+    render: () => (
+        <Demo
+            data={BREAKDOWN_TREE}
+            config={{ preset: 'breakdown', valueFormatter: (v) => `${compactNumber.format(v)} pageviews` }}
+        />
+    ),
 }
 
 export const CompareToBaseline: Story = {

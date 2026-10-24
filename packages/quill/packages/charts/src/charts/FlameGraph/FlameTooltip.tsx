@@ -39,11 +39,13 @@ function NodeRows<Meta>({
     node,
     format,
     comparing,
+    showSelf,
     ink,
 }: {
     node: FlameNodeDatum<Meta>
     format: (value: number) => string
     comparing: boolean
+    showSelf: boolean
     ink: FlameInk
 }): React.ReactElement {
     const change = changeText(node.change)
@@ -51,11 +53,21 @@ function NodeRows<Meta>({
         node.change.kind === 'slower' ? ink.slower : node.change.kind === 'faster' ? ink.faster : undefined
     return (
         <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
-            <Row label="Total">
-                {format(node.value)} <span className="opacity-70">({formatShare(node.fractionOfRoot)})</span>
-            </Row>
-            <Row label="Self">{format(node.self)}</Row>
-            {node.depth > 0 ? <Row label="Of parent">{formatShare(node.fractionOfParent)}</Row> : null}
+            {showSelf ? (
+                <>
+                    <Row label="Total">
+                        {format(node.value)} <span className="opacity-70">({formatShare(node.fractionOfRoot)})</span>
+                    </Row>
+                    <Row label="Self">{format(node.self)}</Row>
+                    {node.depth > 0 ? <Row label="Of parent">{formatShare(node.fractionOfParent)}</Row> : null}
+                </>
+            ) : (
+                <>
+                    <Row label="Value">{format(node.value)}</Row>
+                    {node.depth > 0 ? <Row label="Of parent">{formatShare(node.fractionOfParent)}</Row> : null}
+                    <Row label="Of total">{formatShare(node.fractionOfRoot)}</Row>
+                </>
+            )}
             {node.count !== undefined ? <Row label="Count">{node.count.toLocaleString()}</Row> : null}
             {comparing && node.baselineValue !== undefined ? (
                 <Row label="Baseline">{format(node.baselineValue)}</Row>
@@ -92,7 +104,7 @@ export function FlameTooltip<Meta>({
                         : `${bundle.count} smaller roots`}
                 </div>
                 <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
-                    <Row label="Total">
+                    <Row label={ctx.showSelf ? 'Total' : 'Value'}>
                         {valueFormatter(bundle.value)}{' '}
                         <span className="opacity-70">
                             ({formatShare(whole > 0 ? bundle.value / whole : 0)} of {bundle.parent ? 'parent' : 'total'}
@@ -116,10 +128,12 @@ export function FlameTooltip<Meta>({
                 ) : null}
                 <div className="min-w-0">
                     <div className="font-semibold break-all">{node.name}</div>
-                    {node.group ? <div className="opacity-70 break-all">{node.group}</div> : null}
+                    {node.group && node.group !== node.name ? (
+                        <div className="opacity-70 break-all">{node.group}</div>
+                    ) : null}
                 </div>
             </div>
-            <NodeRows node={node} format={valueFormatter} comparing={comparing} ink={ink} />
+            <NodeRows node={node} format={valueFormatter} comparing={comparing} showSelf={ctx.showSelf} ink={ink} />
             {ctx.canFocus ? <TooltipFooter>Click to zoom in</TooltipFooter> : null}
         </TooltipSurface>
     )

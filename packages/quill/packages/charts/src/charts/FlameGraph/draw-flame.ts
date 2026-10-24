@@ -1,9 +1,13 @@
-import { ELLIPSIS } from '../../utils/text-measure'
+import { ELLIPSIS, FONT_FAMILY } from '../../utils/text-measure'
 import { type FlameShades, type FlameInk, MARK_GONE, MARK_NEW } from './flame-colors'
 import { type FlameCell, type FlameRowGeometry, type FlameTree, MIN_NODE_PX, rowTop } from './flame-layout'
+import type { FlameLabelFont } from './types'
 
-export const LABEL_FONT_SIZE = 11
-export const LABEL_FONT = `${LABEL_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`
+const MONOSPACE_FONT_SIZE = 11
+const LABEL_FONTS: Record<FlameLabelFont, string> = {
+    monospace: `${MONOSPACE_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`,
+    sans: `12px ${FONT_FAMILY}`,
+}
 const LABEL_PADDING = 5
 /** Below this a cell is too narrow for even one character and an ellipsis. */
 const MIN_LABEL_WIDTH = LABEL_PADDING * 2 + 12
@@ -18,21 +22,27 @@ const PRINTABLE_ASCII = /^[\x20-\x7e]*$/
 const MAX_CACHED_WIDTHS = 4096
 
 /**
- * Truncates labels to a width. The label font is monospace, so an ASCII label is cut by
- * arithmetic on one measured character width, without a `measureText` call per label. Other
- * labels (wide CJK glyphs, emoji) fall back to measuring, with full widths cached.
+ * Truncates labels to a width, with full widths cached. In the monospace font an ASCII label is
+ * cut by arithmetic on one measured character width, without a `measureText` call per label. Other
+ * labels, and every label in the proportional font, start from the label's average character width
+ * and step down, which usually takes one or two measurements.
  */
 export class LabelFitter {
+    readonly font: string
     private charWidth = 0
     private readonly widths = new Map<string, number>()
+
+    constructor(private readonly kind: FlameLabelFont = 'monospace') {
+        this.font = LABEL_FONTS[kind]
+    }
 
     fit(ctx: CanvasRenderingContext2D, text: string, available: number): string {
         if (available <= 0 || !text) {
             return ''
         }
-        if (PRINTABLE_ASCII.test(text)) {
+        if (this.kind === 'monospace' && PRINTABLE_ASCII.test(text)) {
             if (this.charWidth === 0) {
-                this.charWidth = ctx.measureText('0123456789').width / 10 || LABEL_FONT_SIZE * 0.6
+                this.charWidth = ctx.measureText('0123456789').width / 10 || MONOSPACE_FONT_SIZE * 0.6
             }
             const maxChars = Math.floor(available / this.charWidth)
             if (text.length <= maxChars) {
@@ -40,20 +50,38 @@ export class LabelFitter {
             }
             return maxChars >= 2 ? `${text.slice(0, maxChars - 1).trimEnd()}${ELLIPSIS}` : ''
         }
-        if (this.measure(ctx, text) <= available) {
+        const full = this.measure(ctx, text)
+        if (full <= available) {
             return text
         }
+        const fits = (chars: number): boolean =>
+            chars === 0 || ctx.measureText(`${text.slice(0, chars)}${ELLIPSIS}`).width <= available
+        // The longest prefix that fits lies in [lo, hi]. Probing around the average-width guess
+        // usually closes the range in two measurements; the binary search covers uneven glyphs.
         let lo = 0
-        let hi = text.length
+        let hi = text.length - 1
+        const room = available - this.measure(ctx, ELLIPSIS)
+        const guess = full > 0 ? Math.max(0, Math.min(hi, Math.floor((text.length * room) / full))) : 0
+        if (fits(guess)) {
+            lo = guess
+            if (guess < hi && !fits(guess + 1)) {
+                hi = guess
+            }
+        } else {
+            hi = guess - 1
+        }
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2)
-            if (ctx.measureText(`${text.slice(0, mid)}${ELLIPSIS}`).width <= available) {
+            if (fits(mid)) {
                 lo = mid
             } else {
                 hi = mid - 1
             }
         }
-        return lo > 0 ? `${text.slice(0, lo).trimEnd()}${ELLIPSIS}` : ''
+        // Never cut between the two halves of a surrogate pair, such as an emoji.
+        const code = text.charCodeAt(lo - 1)
+        const chars = code >= 0xd800 && code <= 0xdbff ? lo - 1 : lo
+        return chars > 0 ? `${text.slice(0, chars).trimEnd()}${ELLIPSIS}` : ''
     }
 
     private measure(ctx: CanvasRenderingContext2D, text: string): number {
@@ -131,7 +159,7 @@ function bundleHasMatch(cell: FlameCell, containsMatch: Uint8Array): boolean {
 
 export function drawFlame(ctx: CanvasRenderingContext2D, input: FlameDrawInput): void {
     const { tree, cells, fills, marks, ink, shades, fitter, geometry, matches, containsMatch, ancestors } = input
-    ctx.font = LABEL_FONT
+    ctx.font = fitter.font
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
 

@@ -242,3 +242,83 @@ export const EDGE_CASE_TREE: FlameNode = {
         { name: '日本語のフレーム名と絵文字 🔥🔥', value: 25 },
     ],
 }
+
+const BROWSER_SHARES: [string, number][] = [
+    ['Chrome', 0.58],
+    ['Safari', 0.24],
+    ['Firefox', 0.09],
+    ['Edge', 0.07],
+    ['Samsung Internet', 0.02],
+]
+const OS_BY_BROWSER: Record<string, [string, number][]> = {
+    Chrome: [
+        ['Windows', 0.46],
+        ['Android', 0.31],
+        ['macOS', 0.17],
+        ['Linux', 0.06],
+    ],
+    Safari: [
+        ['iOS', 0.71],
+        ['macOS', 0.29],
+    ],
+    Firefox: [
+        ['Windows', 0.55],
+        ['Linux', 0.25],
+        ['macOS', 0.2],
+    ],
+    Edge: [
+        ['Windows', 0.93],
+        ['macOS', 0.07],
+    ],
+    'Samsung Internet': [['Android', 1]],
+}
+const COUNTRY_PAGEVIEWS: [string, number][] = [
+    ['United States', 412_000],
+    ['United Kingdom', 138_000],
+    ['Germany', 121_000],
+    ['India', 96_000],
+    ['Brazil', 61_000],
+    ['France', 58_000],
+    ['Japan', 33_000],
+    ['Canada', 29_000],
+    ['Australia', 21_000],
+    ['Spain', 9_000],
+    ['Netherlands', 4_000],
+    ['Mexico', 3_000],
+]
+
+/** Browser shares with a small per-country skew, still summing to 1, so countries split differently. */
+function skewedShares(countryIndex: number): [string, number][] {
+    const weights = BROWSER_SHARES.map(([browser, share], i): [string, number] => [
+        browser,
+        share * (1 + (((countryIndex * 7 + i * 3) % 5) - 2) * 0.08),
+    ])
+    const total = weights.reduce((sum, [, weight]) => sum + weight, 0)
+    return weights.map(([browser, weight]) => [browser, weight / total])
+}
+
+/** Pageviews broken down by country, then browser, then OS: invented numbers in the shape of a
+ *  trends insight with three breakdowns. Each country is its own color group. */
+export const BREAKDOWN_TREE: FlameNode = {
+    name: 'All pageviews',
+    value: COUNTRY_PAGEVIEWS.reduce((sum, [, views]) => sum + views, 0),
+    children: COUNTRY_PAGEVIEWS.map(([country, views], countryIndex) => ({
+        name: country,
+        group: country,
+        value: views,
+        children: skewedShares(countryIndex).map(([browser, share]) => {
+            // A few percent stays unattributed, as pageviews without a browser property do.
+            const browserViews = Math.round(views * 0.97 * share)
+            return {
+                name: browser,
+                group: country,
+                value: browserViews,
+                children: OS_BY_BROWSER[browser].map(([os, osShare]) => ({
+                    name: os,
+                    group: country,
+                    value: Math.round(browserViews * osShare),
+                })),
+            }
+        }),
+    })),
+}

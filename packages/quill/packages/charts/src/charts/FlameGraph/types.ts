@@ -117,7 +117,29 @@ export interface FlameDiffConfig {
     fasterColor?: string
 }
 
+/** Defaults for the kind of data the graph shows. `profile` suits call trees whose values are
+ *  durations; `breakdown` suits counts nested by property, such as a trend broken down by country
+ *  and then by browser. */
+export type FlamePreset = 'profile' | 'breakdown'
+
+/** `monospace` reads well for function and span names; `sans` for property values. */
+export type FlameLabelFont = 'monospace' | 'sans'
+
+/** `value` orders siblings widest first; `input` keeps the order of `children`. */
+export type FlameSort = 'input' | 'value'
+
 export interface FlameGraphConfig {
+    /** Sets the defaults of `labelFont`, `sort` and `tooltip.showSelf` at once. `profile` (default):
+     *  monospace labels, input order, a self row. `breakdown`: proportional labels, siblings sorted
+     *  by value, no self row. Each of those options still overrides its preset default. */
+    preset?: FlamePreset
+    /** `monospace` reads well for function and span names; `sans` for property values such as
+     *  countries or browsers. Defaults to the preset's choice. */
+    labelFont?: FlameLabelFont
+    /** `value` orders siblings widest first; `input` keeps the order of `children`. Two or more
+     *  children under 1% of their parent still move to the end either way. Defaults to the preset's
+     *  choice. */
+    sort?: FlameSort
     /** `group` gives each `node.group` a palette color. `name` does the same by node name, so one
      *  function keeps one color wherever it appears. `diff` colors by change against
      *  `baselineValue` on a red-blue scale. `auto` (default) picks `diff` when any node has a
@@ -145,6 +167,10 @@ export interface FlameGraphConfig {
     tooltip?: {
         /** Show the tooltip on hover. Defaults to true. */
         enabled?: boolean
+        /** Show the self value: the part of the node's value not in its children. With it off, the tooltip
+         *  shows the value with its share of the parent and of the total. Defaults to the preset's
+         *  choice. */
+        showSelf?: boolean
     }
 }
 
@@ -158,6 +184,8 @@ export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
     comparing: boolean
     /** True when a click on the hovered cell zooms into it. */
     canFocus: boolean
+    /** Whether the built-in tooltip shows the self row, from `config.tooltip.showSelf` or the preset. */
+    showSelf: boolean
     /** Sum of the roots' values, the whole the shares are taken of. */
     totalValue: number
 }

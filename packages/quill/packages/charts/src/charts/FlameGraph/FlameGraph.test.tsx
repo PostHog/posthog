@@ -39,25 +39,52 @@ describe('FlameGraph', () => {
         window.matchMedia = matchMedia as typeof window.matchMedia
     })
 
-    it.each([
+    it.each<{
+        label: string
+        data: FlameNode
+        point: [number, number]
+        expected: string[]
+        config?: FlameGraphProps['config']
+        absent: string[]
+    }>([
         {
             label: 'total, self and shares',
             data: TREE,
             point: [200, rowY(1)],
             expected: ['a', 'Total60 (60%)', 'Self30', 'Of parent60%', 'Click to zoom in'],
+            absent: ['Of total'],
         },
         {
             label: 'the change against the baseline',
             data: { ...TREE, value: 130, baselineValue: 100, count: 40, baselineCount: 50 },
             point: [400, rowY(0)],
             expected: ['root', 'Count40', 'Baseline100', 'Change+30%'],
+            absent: [],
         },
-    ])('shows $label in the tooltip of the hovered node', async ({ data, point, expected }) => {
-        const { chart } = renderFlame({ data })
+        {
+            label: 'value and shares without a self row, siblings widest first, under the breakdown preset',
+            data: {
+                name: 'all',
+                value: 100,
+                children: [
+                    { name: 'small', value: 30 },
+                    { name: 'wide', value: 60 },
+                ],
+            },
+            point: [200, rowY(1)],
+            config: { preset: 'breakdown', valueFormatter: (v) => `${v} views` },
+            expected: ['wide', 'Value60 views', 'Of parent60%', 'Of total60%'],
+            absent: ['Self', 'Total60'],
+        },
+    ])('shows $label in the tooltip of the hovered node', async ({ data, point, expected, config, absent }) => {
+        const { chart } = renderFlame({ data, config })
         fireEvent.mouseMove(chart.element, { clientX: point[0], clientY: point[1] })
         const tooltip = await waitForHogChartTooltip()
         for (const text of expected) {
             expect(tooltip.textContent).toContain(text)
+        }
+        for (const text of absent) {
+            expect(tooltip.textContent).not.toContain(text)
         }
     })
 
