@@ -261,7 +261,10 @@ export function pushInputs(push: BroadcastPushValue, existing: Record<string, an
         channels: { value: push.channels },
         title: { value: push.title, templating: pushTemplating(existing.title) },
         body: { value: push.body, templating: pushTemplating(existing.body) },
-        data: { value: push.link ? { ...extraData, url: push.link } : extraData },
+        data: {
+            ...(existing.data?.templating ? { templating: existing.data.templating } : {}),
+            value: push.link ? { ...extraData, url: push.link } : extraData,
+        },
     }
 }
 

@@ -220,7 +220,10 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
                 inputs: {
                     distinctId: { value: '{person.properties.device_owner}' },
                     title: { value: 'Old {person.properties.name}' },
-                    data: { value: { url: 'myapp://old', campaign: 'spring' } },
+                    data: {
+                        value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                        templating: 'liquid',
+                    },
                     ios_sound: { value: 'chime' },
                 },
             },
@@ -242,7 +245,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             channels: { value: [7] },
             title: { value: 'New', templating: 'hog' },
             body: { value: '', templating: 'liquid' },
-            data: { value: { campaign: 'spring' } },
+            data: { value: { campaign: '{{ person.properties.plan }}' }, templating: 'liquid' },
             ios_sound: { value: 'chime' },
         })
     })
