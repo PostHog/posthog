@@ -307,6 +307,22 @@ describe('experimentWizardLogic', () => {
             }
         )
 
+        it.each([
+            { move: 'continue', act: () => logic.actions.nextStep() },
+            { move: 'back', act: () => logic.actions.prevStep() },
+            { move: 'stepper', act: () => logic.actions.setStep('analytics') },
+        ])('stays on the step while a screenshot uploads ($move)', async ({ act }) => {
+            logic.actions.setStep('variants')
+            logic.actions.setVariantUploadPending('test', true)
+
+            act()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.actions.setVariantUploadPending('test', false)
+            act()
+            expect(logic.values.currentStep).not.toEqual('variants')
+        })
+
         it('nextStep advances and prevStep goes back', async () => {
             expect(logic.values.currentStep).toBe('about')
 
@@ -778,6 +794,37 @@ describe('experimentWizardLogic', () => {
             renderVariantsStep()
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
+        })
+
+        it.each([
+            { variant: 'test', shown: true },
+            { variant: 'control', shown: false },
+        ])('shows the Screenshot and Notes columns only in the test arm ($variant)', ({ variant, shown }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS]: variant,
+            })
+
+            renderVariantsStep()
+
+            expect(screen.queryByText('Screenshot') !== null).toBe(shown)
+            expect(screen.queryByText('Notes') !== null).toBe(shown)
+        })
+
+        it('renders a variant whose key is also an object property name', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS]: 'test',
+            })
+            logic.actions.setFeatureFlagConfig({
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'constructor', rollout_percentage: 50 },
+                ],
+            })
+
+            renderVariantsStep()
+
+            expect(screen.getByDisplayValue('constructor')).toBeInTheDocument()
+            expect(screen.getAllByPlaceholderText("What's different in this variant?")).toHaveLength(2)
         })
     })
 
