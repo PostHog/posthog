@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
@@ -130,6 +131,19 @@ describe('accountTrackRulesLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it.each([
+        ['a flag-gated 403', new ApiError('Gated', 403, undefined, { code: 'feature_flag_required' }), 0],
+        ['a 500', new ApiError('Boom', 500), 1],
+    ])('toasts a run history load failure only when it is not %s', async (_, error, toastCount) => {
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        silenceKeaLoadersErrors()
+        mockRuns.mockRejectedValueOnce(error)
+
+        await expectLogic(logic, () => logic.actions.loadRuns()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledTimes(toastCount)
     })
 
     it('marks a preview stale only when its rule content changes', async () => {
