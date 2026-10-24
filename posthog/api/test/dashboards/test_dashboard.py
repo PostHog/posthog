@@ -3724,6 +3724,50 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
+    @parameterized.expand([("template_json",), ("saved_template",)])
+    def test_dashboard_from_template_keeps_tile_groups_and_customization(self, source: str) -> None:
+        template: dict = {
+            **valid_template,
+            "tiles": [
+                {"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"},
+                {"type": "TEXT", "body": "loose", "layouts": {}},
+            ],
+            "customization": {
+                "tile_spacing": "tight",
+                "groups": {"plans": {"title": "Plans", "color": "green"}},
+            },
+        }
+
+        if source == "template_json":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+                {"template": template},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            dashboard_id = response.json()["id"]
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboard_templates",
+                {**template, "scope": "team"},
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+            dashboard_id, _ = self.dashboard_api.create_dashboard(
+                {"name": "from saved template", "use_template": template["template_name"]}
+            )
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard["customization"] == {
+            "tile_spacing": "tight",
+            "groups": {"plans": {"title": "Plans", "color": "green", "collapsed": False}},
+            "group_titles": {"plans": "Plans"},
+        }
+        assert {tile["text"]["body"]: tile["group_key"] for tile in dashboard["tiles"]} == {
+            "grouped": "plans",
+            "loose": None,
+        }
+
     def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
         template: dict = {
             **valid_template,

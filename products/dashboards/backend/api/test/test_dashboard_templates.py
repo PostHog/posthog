@@ -1491,7 +1491,13 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
     def test_copy_happy_path_creates_row_on_target_team(self) -> None:
         src = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {**variable_template, "template_name": "Copy me inter-project", "scope": "team"},
+            {
+                **variable_template,
+                "template_name": "Copy me inter-project",
+                "scope": "team",
+                "customization": {"groups": {"plans": {"title": "Plans"}}},
+            },
+            format="json",
         )
         assert src.status_code == status.HTTP_201_CREATED, src.content
         src_id = src.json()["id"]
@@ -1505,6 +1511,7 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert data["is_featured"] is False
         assert data["image_url"] in (None, "")
         assert len(data["tiles"]) == len(variable_template["tiles"])
+        assert data["customization"] == {"groups": {"plans": {"title": "Plans"}}}
 
     @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
     def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:

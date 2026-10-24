@@ -5,7 +5,7 @@ import json
 import uuid
 import builtins
 import contextvars
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import StrEnum
@@ -152,6 +152,13 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
+from products.dashboards.backend.customization import (
+    normalize_dashboard_customization,
+    normalized_group_key,
+    stored_customization,
+    stored_groups,
+    without_default_settings,
+)
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
@@ -219,57 +226,6 @@ AGENT_CONTEXT_HELP_TEXT = (
 )
 
 
-def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
-    return customization.copy() if isinstance(customization, dict) else {}
-
-
-def _normalized_group_key(group_key: str) -> str:
-    group_key = group_key.strip()
-    if "\x00" in group_key:
-        raise serializers.ValidationError("Group keys can't contain null characters.")
-    return group_key
-
-
-_NO_DEFAULT = object()
-
-
-def _is_stored_group_setting(field: str, setting: Any) -> bool:
-    if field == "title":
-        return bool(setting)
-    return setting != DASHBOARD_TILE_GROUP_DEFAULTS.get(field, _NO_DEFAULT)
-
-
-def _without_default_settings(group: Mapping[str, Any]) -> dict[str, Any]:
-    return {field: setting for field, setting in group.items() if _is_stored_group_setting(field, setting)}
-
-
-def _sparse_group(group_settings: Any) -> dict[str, Any] | None:
-    group = DashboardTileGroupSerializer(data=group_settings)
-    if not group.is_valid():
-        return None
-    return _without_default_settings(group.validated_data)
-
-
-def _stored_groups(customization: Any) -> dict[str, dict[str, Any]]:
-    customization = _normalize_dashboard_customization(customization)
-    groups = customization.get("groups") if isinstance(customization.get("groups"), dict) else {}
-    titles = customization.get("group_titles") if isinstance(customization.get("group_titles"), dict) else {}
-    stored: dict[str, dict[str, Any]] = {}
-    for raw_key in {**groups, **titles}:
-        if not isinstance(raw_key, str):
-            continue
-        try:
-            group_key = _normalized_group_key(raw_key)
-        except serializers.ValidationError:
-            continue
-        group = _sparse_group(groups.get(raw_key, {}))
-        # Only a server from before `groups` writes `group_titles`, so a stored title there is the newer one.
-        title = _sparse_group({"title": titles[raw_key]}) if raw_key in titles else None
-        if group_key and (group is not None or title is not None):
-            stored[group_key] = {**(group or {}), **(title or {})}
-    return stored
-
-
 def _with_groups(customization: dict[str, Any], groups: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
     customization = {key: value for key, value in customization.items() if key not in ("groups", "group_titles")}
     if groups:
@@ -280,7 +236,7 @@ def _with_groups(customization: dict[str, Any], groups: dict[str, dict[str, Any]
 def _with_group_titles(customization: dict[str, Any], titles: dict[str, str] | None) -> dict[str, Any]:
     groups = {
         key: {field: value for field, value in group.items() if field != "title"}
-        for key, group in _stored_groups(customization).items()
+        for key, group in stored_groups(customization).items()
     }
     for key, title in (titles or {}).items():
         groups.setdefault(key, {})["title"] = title
@@ -295,7 +251,7 @@ def _validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
         raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUPS} groups.")
     normalized: dict[str, T] = {}
     for key, item in value.items():
-        group_key = _normalized_group_key(key)
+        group_key = normalized_group_key(key)
         if not group_key:
             raise serializers.ValidationError("Group keys can't be empty.")
         if len(group_key) > MAX_GROUP_KEY_LENGTH:
@@ -314,7 +270,7 @@ class _GroupDictField(serializers.DictField):
 
 
 def _effective_layout_compaction(customization: Any) -> str:
-    layout_compaction = _normalize_dashboard_customization(customization).get("layout_compaction")
+    layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
 
 
@@ -1527,7 +1483,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     def validate_groups(self, value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]] | None:
         if value is None:
             return None
-        return {key: _without_default_settings(group) for key, group in _validated_group_keys(value).items()}
+        return {key: without_default_settings(group) for key, group in _validated_group_keys(value).items()}
 
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
         return None if value is None else _validated_group_keys(value)
@@ -1539,15 +1495,8 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardCustomizationSerializer)
     def get_customization(self, dashboard: Dashboard) -> dict[str, Any]:
-        customization = _normalize_dashboard_customization(dashboard.customization)
-        tile_spacing = customization.get("tile_spacing")
-        layout_compaction = customization.get("layout_compaction")
-        result: dict[str, Any] = {}
-        if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
-            result["tile_spacing"] = tile_spacing
-        if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
-            result["layout_compaction"] = layout_compaction
-        groups = _stored_groups(customization)
+        result = stored_customization(dashboard.customization)
+        groups = result.get("groups", {})
         if groups:
             result["groups"] = {key: {**DASHBOARD_TILE_GROUP_DEFAULTS, **group} for key, group in groups.items()}
         titles = {key: group["title"] for key, group in groups.items() if "title" in group}
@@ -1954,7 +1903,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         if existing_dashboard:
-            validated_data["customization"] = _normalize_dashboard_customization(existing_dashboard.customization)
+            validated_data["customization"] = normalize_dashboard_customization(existing_dashboard.customization)
 
         if grid_spacing is not None:
             validated_data["customization"] = {
@@ -2193,18 +2142,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
         layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None or layout_compaction is not None:
             validated_data["customization"] = {
-                **_normalize_dashboard_customization(instance.customization),
+                **normalize_dashboard_customization(instance.customization),
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
                 **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
             }
         if "groups" in validated_data:
             validated_data["customization"] = _with_groups(
-                validated_data.get("customization", _normalize_dashboard_customization(instance.customization)),
+                validated_data.get("customization", normalize_dashboard_customization(instance.customization)),
                 validated_data.pop("groups"),
             )
         if "group_titles" in validated_data:
             validated_data["customization"] = _with_group_titles(
-                validated_data.get("customization", _normalize_dashboard_customization(instance.customization)),
+                validated_data.get("customization", normalize_dashboard_customization(instance.customization)),
                 validated_data.pop("group_titles"),
             )
 
@@ -2422,7 +2371,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if not isinstance(group_key, str):
             raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
         try:
-            group_key = _normalized_group_key(group_key)
+            group_key = normalized_group_key(group_key)
         except serializers.ValidationError as error:
             raise serializers.ValidationError({"group_key": error.detail}) from error
         if len(group_key) > MAX_GROUP_KEY_LENGTH:
