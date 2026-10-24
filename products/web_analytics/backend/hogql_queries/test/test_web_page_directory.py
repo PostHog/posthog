@@ -153,6 +153,7 @@ class TestWebPageDirectoryQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run(
             pageKeys=["example.com/pricing", "example.com/missing"],
+            search="pricing",
             metrics=[
                 WebPageDirectoryMetric.VISITORS,
                 WebPageDirectoryMetric.AI_REFERRALS,

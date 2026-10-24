@@ -145,7 +145,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             )
         return ast.And(exprs=exprs)
 
-    def _scope(self, page_key: ast.Expr, page_keys: Optional[list[str]]) -> ast.Expr:
+    def _scope(self, page_key: ast.Expr, page_keys: Optional[list[str]], grouped: bool) -> ast.Expr:
         exprs: list[ast.Expr] = []
         if page_keys is not None:
             exprs.append(
@@ -155,7 +155,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
                     right=ast.Tuple(exprs=[ast.Constant(value=key) for key in page_keys]),
                 )
             )
-        if self.query.search:
+        if grouped and self.query.search:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Gt,
@@ -223,7 +223,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             "properties": properties,
             "path_present": self._path_present(event_path),
             "page_key": page_key,
-            "scope": self._scope(page_key, page_keys),
+            "scope": self._scope(page_key, page_keys, grouped),
             "human_events": ast.Tuple(exprs=[ast.Constant(value=event) for event in AGENT_NAVIGATION_EVENTS]),
         }
 
@@ -282,7 +282,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             previous_path = ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])
             previous_page_key = self._event_page_key("$prev_pageview_pathname")
             placeholders["page_key"] = previous_page_key
-            placeholders["scope"] = self._scope(previous_page_key, page_keys)
+            placeholders["scope"] = self._scope(previous_page_key, page_keys, grouped)
             placeholders["path_present"] = self._path_present(previous_path)
             placeholders["duration_events"] = ast.Tuple(
                 exprs=[ast.Constant(value=event) for event in (*AGENT_NAVIGATION_EVENTS, "$pageleave")]
@@ -302,7 +302,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
             session_path = ast.Field(chain=["sessions", "$entry_pathname"])
             session_page_key = self._session_page_key()
             placeholders["page_key"] = session_page_key
-            placeholders["scope"] = self._scope(session_page_key, page_keys)
+            placeholders["scope"] = self._scope(session_page_key, page_keys, grouped)
             placeholders["path_present"] = self._path_present(session_path)
             placeholders["session_current"] = self._current_period_expression("$start_timestamp")
             select = "avg(toFloat(sessions.$is_bounce)) AS current, count() AS previous, 0 AS extra"
@@ -316,7 +316,7 @@ class WebPageDirectoryQueryRunner(WebAnalyticsQueryRunner[WebPageDirectoryQueryR
 
     def _filtered_sessions(self) -> ast.SelectQuery:
         query = parse_select(
-            "SELECT events.$session_id FROM events WHERE and(event IN {human_events}, {current}, {properties})",
+            "SELECT DISTINCT events.$session_id FROM events WHERE and(event IN {human_events}, {current}, {properties})",
             placeholders={
                 "human_events": ast.Tuple(exprs=[ast.Constant(value=event) for event in AGENT_NAVIGATION_EVENTS]),
                 "current": self._current_period_expression("timestamp"),
