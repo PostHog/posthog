@@ -29,6 +29,8 @@ export interface Channel {
   autoArchiveAfterDays?: number | null;
   /** Who made the space, where the backend knows. */
   createdBy: UserBasic | null;
+  /** Epoch ms, or NaN when the backend sent no usable date. */
+  createdAt?: number;
 }
 
 const NO_REPOSITORIES: string[] = [];
@@ -43,6 +45,7 @@ function toChannel(channel: TaskChannel): Channel {
     repositories: channel.repositories ?? NO_REPOSITORIES,
     autoArchiveAfterDays: channel.auto_archive_after_days ?? null,
     createdBy: channel.created_by ?? null,
+    createdAt: Date.parse(channel.created_at),
   };
 }
 
