@@ -2681,6 +2681,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cache_key=cache_key,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        updates_freshness_index=not self.modifiers.useNewEventsCluster,
                         ttl=retention_ttl(
                             insight_id=insight_id,
                             dashboard_id=dashboard_id,

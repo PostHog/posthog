@@ -81,6 +81,7 @@ def calculate_for_query_based_insight(
     execution_mode: ExecutionMode,
     user: Optional[User],
     user_access_control: Optional["UserAccessControl"] = None,
+    interactive_request: bool = False,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
@@ -115,6 +116,7 @@ def calculate_for_query_based_insight(
     process_response = process_query_dict(
         team,
         query_json,
+        interactive_request=interactive_request,
         dashboard_filters_json=dashboard_filters_json,
         variables_override_json=variables_override_json,
         execution_mode=execution_mode,

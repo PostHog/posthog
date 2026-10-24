@@ -7,19 +7,43 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery, HogQLQueryModifiers, PersonsOnEventsMode, QueryStatus, SessionTableVersion
+from posthog.schema import (
+    ActorsQuery,
+    EventsNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    GroupsQuery,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    PersonsOnEventsMode,
+    QueryStatus,
+    SessionTableVersion,
+    TrendsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_events_cluster_modifiers_for_user
+from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.product_analytics.backend.facade.models import Insight
+
+
+def _user_flag(enabled: bool = True) -> Any:
+    return patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: enabled and key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+    )
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
@@ -42,6 +66,98 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 return_value=True,
             )
         )
+
+    @parameterized.expand(
+        [
+            (
+                "typed_insight_keeps_its_modifiers",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+                ),
+                HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsCluster=True, useNewEventsSchema=True
+                ),
+            ),
+            ("hogql_workload_unknown_before_printing", HogQLQuery(query="SELECT * FROM logs LIMIT 10"), None),
+            (
+                "nested_hogql_workload_unknown_before_printing",
+                ActorsQuery(source=HogQLQuery(query="SELECT * FROM logs LIMIT 10")),
+                None,
+            ),
+            ("unsupported_kind", GroupsQuery(group_type_index=0), None),
+            (
+                "unsupported_actor_wrapper",
+                FunnelsActorsQuery(
+                    source=FunnelsQuery(series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")])
+                ),
+                None,
+            ),
+            (
+                "explicit_schema_choice",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")], modifiers=HogQLQueryModifiers(useNewEventsSchema=True)
+                ),
+                None,
+            ),
+            (
+                "nested_source_opt_out",
+                InsightActorsQuery(
+                    source=TrendsQuery(
+                        series=[EventsNode(event="$pageview")],
+                        modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
+                    )
+                ),
+                None,
+            ),
+        ]
+    )
+    def test_rollout_flag_opts_in_only_queries_the_native_cluster_supports(
+        self, _name: str, query: Any, expected: HogQLQueryModifiers | None
+    ) -> None:
+        with _user_flag():
+            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query)
+        self.assertEqual(modifiers, expected)
+
+    @parameterized.expand(
+        [
+            ("signed_in", False, {}, False),
+            ("personal_api_key", True, {}, True),
+            ("project_schema_choice", False, {"useNewEventsSchema": False}, True),
+        ]
+    )
+    def test_rollout_flag_leaves_api_traffic_and_project_schema_choices_alone(
+        self, _name: str, api_key: bool, team_modifiers: dict[str, bool], excluded: bool
+    ) -> None:
+        self.team.modifiers = team_modifiers
+        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        with _user_flag(), tags_context(access_method=AccessMethod.PERSONAL_API_KEY if api_key else None):
+            modifiers = native_events_cluster_modifiers_for_user(self.team, self.user, query)
+        self.assertEqual(modifiers is None, excluded)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_rollout_flag_waits_for_the_async_gate(self, async_enabled: bool) -> None:
+        self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = async_enabled
+        with _user_flag():
+            modifiers = native_events_cluster_modifiers_for_user(
+                self.team, self.user, TrendsQuery(series=[EventsNode(event="$pageview")])
+            )
+        self.assertEqual(modifiers is not None, async_enabled)
+
+    def test_rollout_flag_targets_the_signed_in_user_and_project(self) -> None:
+        self.user.distinct_id = "user-distinct-id"
+        self.user.email = "analyst@example.com"
+        with _user_flag() as feature_enabled:
+            native_events_cluster_modifiers_for_user(
+                self.team, self.user, TrendsQuery(series=[EventsNode(event="$pageview")])
+            )
+        flag_call = next(
+            call for call in feature_enabled.call_args_list if call.args[0] == NATIVE_EVENTS_CLUSTER_USER_FLAG
+        )
+        self.assertEqual(flag_call.args[1], "user-distinct-id")
+        self.assertEqual(flag_call.kwargs["person_properties"], {"email": "analyst@example.com"})
+        self.assertEqual(flag_call.kwargs["groups"], {"organization": "1", "project": "44"})
+        self.assertIs(flag_call.kwargs["only_evaluate_locally"], True)
 
     def _enqueue(self, runner: QueryRunner) -> dict[str, Any]:
         with (
@@ -148,6 +264,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         [
             ("native", {"useNewEventsCluster": True}, None, {}, True, True),
             ("legacy", {}, None, {}, False, None),
+            ("rollout_flag_override", {}, {"useNewEventsCluster": True, "useNewEventsSchema": True}, {}, True, True),
             ("schema_override", {}, {"useNewEventsSchema": False}, {"useNewEventsSchema": True}, False, None),
             ("cluster_false", {"useNewEventsCluster": True}, {"useNewEventsCluster": False}, {}, False, False),
             ("cluster_unset", {"useNewEventsCluster": True}, {"useNewEventsCluster": None}, {}, False, None),
@@ -413,3 +530,64 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
+
+    @parameterized.expand(
+        [
+            ("eligible", True, {}, True),
+            ("project_not_eligible", False, {}, False),
+            ("explicit_opt_out", True, {"useNewEventsCluster": False}, False),
+        ]
+    )
+    def test_rollout_flag_routes_app_queries_with_their_own_cache_entry(
+        self, _name: str, eligible: bool, modifiers: dict[str, bool], native: bool
+    ) -> None:
+        query = {
+            "kind": "PropertyValuesQuery",
+            "property_type": "event",
+            "property_key": "browser",
+            "modifiers": modifiers,
+        }
+        responses = {}
+        workloads = {}
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
+            patch("posthog.hogql.query.sync_execute", return_value=([('"Chrome"',)], [("value", "String")])) as execute,
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_ASYNC", True),
+        ):
+            for flag in (False, True):
+                with _user_flag(flag):
+                    responses[flag] = self._run_query(query)
+                workloads[flag] = execute.call_args.kwargs["workload"]
+        for flag in (False, True):
+            self.assertEqual(responses[flag].status_code, 200, responses[flag].json())
+        self.assertNotEqual(workloads[False], Workload.NEW_EVENTS_CLUSTER)
+        self.assertEqual(workloads[True] == Workload.NEW_EVENTS_CLUSTER, native)
+        self.assertEqual(responses[True].json()["cache_key"] != responses[False].json()["cache_key"], native)
+
+    @parameterized.expand([("flag_off", False, False), ("flag_on", True, False), ("personal_api_key", True, True)])
+    def test_rollout_flag_routes_saved_insights(self, _name: str, flag: bool, api_key: bool) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["count()"]}},
+        )
+        headers = {}
+        if api_key:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="insight reader", user=self.user, secure_value=hash_key_value(value), scopes=["insight:read"]
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_ASYNC", True),
+            _user_flag(flag),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+            patch("posthog.query_cache.cache.update_target_age") as freshness,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking", headers=headers
+            )
+        self.assertEqual(response.status_code, 200, response.json())
+        native = flag and not api_key
+        self.assertEqual("events_json" in execute.call_args.args[0], native)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)
+        self.assertEqual(freshness.called, not native)

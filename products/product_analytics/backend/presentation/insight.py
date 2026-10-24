@@ -1385,6 +1385,7 @@ class InsightSerializer(InsightBasicSerializer):
                         execution_mode=execution_mode,
                         user=request_user,
                         user_access_control=request_user_access_control,
+                        interactive_request=True,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,

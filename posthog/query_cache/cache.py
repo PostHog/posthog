@@ -67,8 +67,10 @@ class QueryCache:
         dashboard_id: Optional[int] = None,
         ttl: Optional[int] = None,
         failure_cache: Optional[QueryFailureCache] = None,
+        updates_freshness_index: bool = True,
     ) -> None:
         self._failure_cache = failure_cache if failure_cache is not None else QueryFailureCache(cache_key)
+        self._updates_freshness_index = updates_freshness_index
         self.team_id = team_id
         self.cache_key = cache_key
         self.insight_id = insight_id
@@ -143,15 +145,16 @@ class QueryCache:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return False
 
-        if target_age:
-            update_target_age(
-                team_id=self.team_id,
-                insight_id=self.insight_id,
-                dashboard_id=self.dashboard_id,
-                target_age=target_age,
-            )
-        else:
-            remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
+        if self._updates_freshness_index:
+            if target_age:
+                update_target_age(
+                    team_id=self.team_id,
+                    insight_id=self.insight_id,
+                    dashboard_id=self.dashboard_id,
+                    target_age=target_age,
+                )
+            else:
+                remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
 
         count_cache_write_data(data_size)
         return True
