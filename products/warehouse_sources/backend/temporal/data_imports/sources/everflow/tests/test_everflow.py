@@ -134,6 +134,27 @@ class TestConversions:
         # A resume after midnight keeps the interrupted window, so page offsets still line up.
         assert (result.requests[0].json()["from"], result.requests[0].json()["to"]) == ("2026-08-01", "2026-10-15")
 
+    def test_whole_amounts_arrive_as_floats(self) -> None:
+        result = _run(
+            "conversions",
+            [
+                _table_page(
+                    "conversions",
+                    [
+                        {"conversion_id": "c1", "payout": 30, "revenue": 45, "sale_amount": 0},
+                        {"conversion_id": "c2", "payout": 12.5, "revenue": None},
+                    ],
+                    total=2,
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert [type(row["payout"]) for row in result.rows] == [float, float]
+        assert result.rows[0]["revenue"] == 45.0 and type(result.rows[0]["revenue"]) is float
+        assert result.rows[0]["sale_amount"] == 0.0 and type(result.rows[0]["sale_amount"]) is float
+        assert result.rows[1]["revenue"] is None
+
 
 class TestDailyPerformance:
     @time_machine.travel(NOW, tick=False)
