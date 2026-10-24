@@ -7,7 +7,10 @@ import type {
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
 import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
-import { invokeCanvasAction } from "@posthog/core/canvas/invokeCanvasAction";
+import {
+  invokeCanvasAction,
+  invokeCanvasTool,
+} from "@posthog/core/canvas/invokeCanvasAction";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -288,6 +291,31 @@ export async function handleFreeformDataRequest(
         (action) => window.confirm(`${action.summary}\n\nContinue?`),
         (action) => client.invokeAction.mutate(action),
       );
+    }
+    case "toolRead":
+    case "toolCall": {
+      const input = payload as {
+        tool?: string;
+        arguments?: Record<string, unknown>;
+      };
+      if (!input?.tool || typeof input.tool !== "string") {
+        throw new Error("ph.tools requires a tool name");
+      }
+      // Reads and writes into PostHog as the viewer, never cached.
+      const client = hostClient().dashboards;
+      const { result } = await invokeCanvasTool(
+        {
+          id: requireDashboardId(),
+          tool: input.tool,
+          arguments: input.arguments ?? {},
+        },
+        method === "toolCall",
+        () => client.listTools.query(),
+        (tool) =>
+          window.confirm(`${tool.summary}\n\n${tool.name}\n\nContinue?`),
+        (call) => client.invokeTool.mutate(call),
+      );
+      return result;
     }
     case "connectorCall": {
       const dashboardId = requireDashboardId();
