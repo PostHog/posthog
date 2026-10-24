@@ -76,6 +76,7 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
     SignalSourceSliceOutcomes,
     SignalSourceSlicePullRequest,
@@ -5108,7 +5109,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
 
-    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
+    def test_the_flag_switches_the_whole_ranker_between_arms(self) -> None:
         # The two rankers are independent: a cached Jev probability must not move the weighted-score
         # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
         # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
@@ -5151,6 +5152,29 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
         self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
+
+        # The embedding arm ranks on the rank the scan wrote, once the scanner has enough ranked rows.
+        for index in range(10):
+            filler = self._succeeded_observation(scanner, f"routine-{index}", 50 + index, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=filler.id).update(
+                watch_rank={
+                    "category": "routine",
+                    "contrast": -0.1,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+        ReplayObservation.objects.filter(id=jev_low.id).update(
+            watch_rank={"category": "failure", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
+        )
+        with patch(ranker, return_value="embedding"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(resp.json()["ranker"], "embedding")
+        self.assertEqual(items[0]["observation"]["session_id"], "jev-low")
+        self.assertEqual(
+            items[0]["reason"], {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 0}
+        )
 
     def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
         # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
