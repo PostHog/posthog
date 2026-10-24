@@ -453,7 +453,6 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         )
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
             patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
         ):
             result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()

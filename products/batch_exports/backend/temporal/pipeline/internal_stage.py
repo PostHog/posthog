@@ -650,7 +650,7 @@ async def _get_query(
             use_new_events_schema
         )(team_id)
         if native_source:
-            clickhouse_url = await database_sync_to_async(new_events_cluster_http_url)(team_id)
+            clickhouse_url = await database_sync_to_async(new_events_cluster_http_url)()
 
         filters_str = ""
         if filters is not None and len(filters) > 0:

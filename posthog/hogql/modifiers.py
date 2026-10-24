@@ -66,6 +66,10 @@ def create_default_modifiers_for_team(
             # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
             if key not in HogQLQueryModifiers.model_fields:
                 continue
+            # The events table is switched per project by CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, which every
+            # reader of the table checks. A stored modifier would switch the HogQL readers alone.
+            if key == "useNewEventsSchema":
+                continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid

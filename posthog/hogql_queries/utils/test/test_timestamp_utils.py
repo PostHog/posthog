@@ -610,7 +610,6 @@ class TestEarliestTimestampRouting(BaseTest):
 
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
             patch(
                 "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
             ) as execute,
@@ -635,17 +634,21 @@ class TestEarliestTimestampRouting(BaseTest):
         ):
             self.assertEqual(get_earliest_timestamp_from_series(self.team, [EventsNode(event=None)]), native)
 
-    @parameterized.expand([("allowlisted_project", True, {}), ("project_setting", False, {"useNewEventsSchema": True})])
+    @parameterized.expand(
+        [
+            ("allowlisted_project", True, {}, True),
+            ("stored_project_modifier_is_ignored", False, {"useNewEventsSchema": True}, False),
+        ]
+    )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_lookup_outside_a_run_keys_on_the_events_table_it_reads(
-        self, _name: str, allowlisted: bool, team_modifiers: dict[str, bool]
+        self, _name: str, allowlisted: bool, team_modifiers: dict[str, bool], reads_events_json: bool
     ) -> None:
         self.team.modifiers = team_modifiers
         node = EventsNode(event="$pageview")
-        cache.set(
-            _get_earliest_timestamp_cache_key(self.team, node), datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
-        )
+        legacy = datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
         native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+        cache.set(_get_earliest_timestamp_cache_key(self.team, node), legacy)
         with (
             override_instance_config(
                 "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk) if allowlisted else ""
@@ -654,5 +657,10 @@ class TestEarliestTimestampRouting(BaseTest):
                 "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
             ) as execute,
         ):
-            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), native)
-        self.assertIn("events_json", execute.call_args.args[0])
+            earliest = get_earliest_timestamp_from_series(self.team, [node])
+        if reads_events_json:
+            self.assertEqual(earliest, native)
+            self.assertIn("events_json", execute.call_args.args[0])
+        else:
+            self.assertEqual(earliest, legacy)
+            execute.assert_not_called()

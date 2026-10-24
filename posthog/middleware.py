@@ -57,6 +57,7 @@ from posthog.models.activity_logging.utils import (
     client_from_header,
     record_agent_intent,
 )
+from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
@@ -1225,6 +1226,27 @@ class AutoLogoutImpersonateMiddleware:
                     return redirect("/admin/")
 
         return self.get_response(request)
+
+
+class NewEventsSchemaCookieMiddleware:
+    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+
+    The switch is per person, so one person can check a project on events_json, an impersonated one included,
+    without switching the project for everyone. An impersonated session counts as staff because only staff can
+    start one.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+            return self.get_response(request)
+        user = cast(User, request.user)
+        if not (user.is_staff or is_impersonated_session(request)):
+            return self.get_response(request)
+        with new_events_schema_for_request():
+            return self.get_response(request)
 
 
 class UnversionedStaticPathMiddleware:
