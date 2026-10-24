@@ -16,7 +16,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parse as parseYaml } from 'yaml'
 
 import {
     applyNestedExclusions,
@@ -25,7 +24,7 @@ import {
     runOrvalParallel,
 } from '@posthog/openapi-codegen'
 
-import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { discoverDefinitions, parseToolDefinition, resolveSchemaPath } from './lib/definitions.mjs'
 import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
@@ -41,33 +40,6 @@ const schemaPath = resolveSchemaPath(repoRoot)
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
     process.exit(1)
-}
-
-/**
- * Parse a YAML tool definition and return operationIds plus all exclude_params
- * grouped by operationId for schema-level exclusion before Orval runs.
- */
-function parseToolDefinition(filePath) {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseYaml(content)
-    const operationIds = new Set()
-    /** @type {Map<string, string[]>} */
-    const schemaExclusions = new Map()
-
-    if (parsed?.tools) {
-        for (const tool of Object.values(parsed.tools)) {
-            if (!tool?.enabled || !tool?.operation) {
-                continue
-            }
-
-            operationIds.add(tool.operation)
-            const excludeParams = tool.exclude_params ?? []
-            if (excludeParams.length > 0) {
-                schemaExclusions.set(tool.operation, excludeParams)
-            }
-        }
-    }
-    return { operationIds, schemaExclusions }
 }
 
 // ------------------------------------------------------------------

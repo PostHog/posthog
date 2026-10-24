@@ -595,6 +595,10 @@ Product teams own their definitions and control which operations are exposed as 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
+   Enabled tools that share one `operation` in the same YAML file must list the same fields in `exclude_params`.
+   An omitted list counts as empty; order and duplicate entries do not matter. Disabled tools do not count.
+   Conflicting lists fail the build, because those tools share one generated request body schema.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
    Keep plan-limit guidance aligned with backend permissions. For `project-create`, `organization-get` exposes the plan feature limits and each team's `project_id` and `is_demo`. Count distinct project IDs among non-demo teams; neither the project list length nor the environment count matches the backend rule. Visible lists can omit inaccessible projects, so a count below the limit does not guarantee permission. The backend remains authoritative.
