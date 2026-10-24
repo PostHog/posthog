@@ -1,5 +1,5 @@
 import { makeSpan } from './__mocks__/span'
-import { buildAiEventSpans, TraceAiEvent } from './aiEventSpans'
+import { aiObservabilityUrl, buildAiEventSpans, TraceAiEvent } from './aiEventSpans'
 import type { Span } from './types'
 
 const TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
@@ -140,5 +140,18 @@ describe('buildAiEventSpans', () => {
 
         expect(second[0].parent_span_id).toBe('TURN')
         expect(buildAiEventSpans([aiEvent({ uuid: 'e3', started_at: '2026-06-02T08:00:03.000Z' })], [])).toEqual([])
+    })
+
+    // The gateway writes `$ai_trace_id` as a hyphenated UUID, so the link must use the event's own
+    // id, not the tracing trace id, or AI observability finds no trace.
+    it('links an AI row to its event in AI observability and a real span to nothing', () => {
+        const gatewayTraceId = '4bf92f35-77b3-4da6-a3ce-929d0e0e4736'
+        const [row] = buildAiEventSpans(
+            [aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z', ai_trace_id: gatewayTraceId })],
+            SPANS
+        )
+
+        expect(aiObservabilityUrl(row)).toBe(`/ai-observability/traces/${gatewayTraceId}?event=e1`)
+        expect(aiObservabilityUrl(TURN)).toBeNull()
     })
 })
