@@ -175,8 +175,9 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "password_reset": "01a1597a-5d91-0000-99fa-9eeb18d293c5",
 }
 
-# Release conditions match the `email` and `transactional_email_template` person properties passed at evaluation,
-# so one flag picks both the recipients and the templates that move.
+# Release conditions match the `email`, `transactional_email_template` and `region` person properties passed at
+# evaluation, so one flag picks the recipients, the templates that move and the instances that move them. Both regions
+# send to the US project, so a condition on `region` lets each one roll out on its own.
 WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
 
 # Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
@@ -280,11 +281,14 @@ def get_workflows_template_id(
         return None
     if pinned_template_id:
         return pinned_template_id
+    person_properties = {"email": dest["raw_email"], "transactional_email_template": template_name}
+    if region := get_instance_region():
+        person_properties["region"] = region
     try:
         enabled = posthoganalytics.feature_enabled(
             WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG,
             dest.get("distinct_id") or dest["raw_email"],
-            person_properties={"email": dest["raw_email"], "transactional_email_template": template_name},
+            person_properties=person_properties,
             send_feature_flag_events=False,
         )
     except Exception as err:
