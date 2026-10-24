@@ -69,12 +69,18 @@ async fn main() -> Result<()> {
     if cli.check {
         for c in registry.iter() {
             let r = c.requires();
-            let req = match (r.aurora, &r.extension) {
-                (true, Some(e)) => format!("aurora, ext:{e}"),
-                (true, None) => "aurora".into(),
-                (false, Some(e)) => format!("ext:{e}"),
-                _ => String::new(),
-            };
+            let req = [
+                match r.aurora {
+                    Some(true) => Some("aurora".to_string()),
+                    Some(false) => Some("not-aurora".to_string()),
+                    None => None,
+                },
+                r.extension.as_ref().map(|e| format!("ext:{e}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", ");
             let off = if c.default_enabled() {
                 ""
             } else {
