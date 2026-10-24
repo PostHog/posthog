@@ -1249,11 +1249,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 toggleDebugPanel: (state) => !state,
             },
         ],
-        /** The as_of of the last exposure query, so a new recalculation window can tell whether exposures need a reload. */
+        /**
+         * The as_of of the last exposure query, set when the request starts so a reload is not sent twice.
+         * A failed load clears it, so the next window change or mount sends the reload again.
+         */
         exposuresAsOf: [
             null as string | null,
             {
                 setExposuresAsOf: (_, { asOf }) => asOf,
+                loadExposuresFailure: () => null,
             },
         ],
         // A health finding is reported at most once per load, the unit of `experiment viewed`. A load

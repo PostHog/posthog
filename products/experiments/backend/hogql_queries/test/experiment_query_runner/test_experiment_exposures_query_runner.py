@@ -2339,3 +2339,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         date_to = runner._get_date_range().date_to
         assert date_to is not None
         assert datetime.fromisoformat(date_to) == expected_date_to.replace(tzinfo=utc)
+
+    def test_naive_as_of_is_a_validation_error(self) -> None:
+        feature_flag = self.create_feature_flag(key="naive-as-of")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=experiment.end_date.isoformat(),
+            as_of="2024-01-10T00:00:00",
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        with self.assertRaises(ValidationError):
+            ExperimentExposuresQueryRunner(team=self.team, query=query)

@@ -274,29 +274,34 @@ describe('experimentLogic', () => {
     })
 
     describe('loadExposures window', () => {
+        const terminalRun = (status: 'completed' | 'failed', metricErrors: Record<string, unknown>): object => ({
+            id: `latest-${status}`,
+            status,
+            total_metrics: 1,
+            completed_metrics: 0,
+            failed_metrics: status === 'failed' ? 1 : 0,
+            metric_errors: metricErrors,
+            completed_at: '2024-03-01T12:00:00Z',
+            query_to: '2024-03-01T12:00:00Z',
+            results: [],
+        })
+
         it.each([
-            ['ends at the latest run window', '2024-03-01T12:00:00Z', '2024-03-01T12:00:00Z'],
+            ['ends at the latest run window', terminalRun('completed', {}), '2024-03-01T12:00:00Z'],
+            [
+                'ends at the earlier window a rejected run keeps',
+                terminalRun('failed', {
+                    'metric-uuid': { error_type: 'recalculation_window_too_long', retriable: false },
+                }),
+                '2024-03-01T12:00:00Z',
+            ],
             ['evaluates at now without a run', null, null],
-        ])('%s', async (_, latestQueryTo, expectedAsOf) => {
+        ])('%s', async (_, latestRun, expectedAsOf) => {
             const exposureQueries: Record<string, any>[] = []
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () =>
-                        latestQueryTo
-                            ? [
-                                  200,
-                                  {
-                                      id: 'latest',
-                                      status: 'completed',
-                                      total_metrics: 0,
-                                      completed_metrics: 0,
-                                      failed_metrics: 0,
-                                      completed_at: latestQueryTo,
-                                      query_to: latestQueryTo,
-                                      results: [],
-                                  },
-                              ]
-                            : [404, {}],
+                        latestRun ? [200, latestRun] : [404, {}],
                 },
                 post: {
                     '/api/environments/:team/query/:kind': async ({ params, request }) => {

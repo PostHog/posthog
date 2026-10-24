@@ -64,8 +64,13 @@ export const experimentExposuresWindowLogic = kea<experimentExposuresWindowLogic
     actions({
         syncExposuresWindow: true,
     }),
-    listeners(({ actions, values }) => ({
-        setCurrentRecalculation: () => actions.syncExposuresWindow(),
+    listeners(({ actions, values, selectors }) => ({
+        /** Every poll dispatches this action, so react only when the window moves, not on every poll. */
+        setCurrentRecalculation: (_, __, ___, previousState) => {
+            if (selectors.resultsQueryTo(previousState) !== values.resultsQueryTo) {
+                actions.syncExposuresWindow()
+            }
+        },
         syncExposuresWindow: () => {
             if (values.resultsQueryTo && values.resultsQueryTo !== values.exposuresAsOf) {
                 actions.loadExposures()

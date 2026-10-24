@@ -154,9 +154,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # exposures end where the metrics end. end_date keeps meaning "stopped", which the bias check reads.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
-        self.as_of = (
-            datetime.fromisoformat(self.query.as_of) if self.query.as_of else self.window_end_date or datetime.now(UTC)
-        )
+        query_as_of = datetime.fromisoformat(self.query.as_of) if self.query.as_of else None
+        # analysis_window_end compares as_of with end_date, and a naive value raises a TypeError there.
+        if query_as_of is not None and query_as_of.tzinfo is None:
+            raise ValidationError("as_of must include a timezone offset")
+        self.as_of = query_as_of or self.window_end_date or datetime.now(UTC)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
