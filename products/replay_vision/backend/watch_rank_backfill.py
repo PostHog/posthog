@@ -1,9 +1,9 @@
 """Rank a window of past observations from the embeddings search already stored.
 
-The scan workflow ranks each new observation as it lands. This fills in the observations from before
+The watch rank consumer ranks each new observation as its embedding lands. This fills in the observations from before
 that shipped, so a team can move to the embedding ranker without waiting a week for ranks to build
 up. It reads stored vectors from ClickHouse rather than embedding again, and finds near-duplicates in
-memory per scanner, oldest first, the same way the scan workflow would have found them.
+memory per scanner, oldest first, the same way the consumer would have found them.
 """
 
 from collections import defaultdict
@@ -100,8 +100,8 @@ class _Neighbour:
 class _RecentVectors:
     """A scanner's newest vectors and ranks, capped like the live duplicate lookup so memory and work stay bounded."""
 
-    def __init__(self, capacity: int = DUPLICATE_CANDIDATE_ROWS) -> None:
-        self._capacity = capacity
+    def __init__(self) -> None:
+        self._capacity = DUPLICATE_CANDIDATE_ROWS
         self._matrix: np.ndarray | None = None
         self._ids: list[str] = []
         self._ranks: list[dict[str, Any] | None] = []
@@ -131,13 +131,12 @@ def _rank_scanner(
     rows: list[dict[str, Any]],
     vectors: dict[str, np.ndarray],
     anchors: dict[WatchCategory, np.ndarray],
-    recent: _RecentVectors | None = None,
+    recent: _RecentVectors,
 ) -> dict[str, dict[str, Any]]:
     """New ranks for the rows that lack a current one, walking oldest first.
 
     Pass the same `recent` across a scanner's batches, so a copy finds a match from an earlier batch.
     """
-    recent = recent if recent is not None else _RecentVectors()
     written: dict[str, dict[str, Any]] = {}
     for row in rows:
         observation_id = str(row["id"])
@@ -148,7 +147,7 @@ def _rank_scanner(
         if rank is None:
             category, contrast = classify(vector, anchors)
             duplicate_of: str | None = None
-            nearest = recent.nearest(vector)
+            nearest = recent.nearest(vector) if category != "routine" else None
             if nearest is not None and nearest.distance <= DUPLICATE_MAX_DISTANCE:
                 duplicate_of = duplicate_root(observation_id, nearest.observation_id, nearest.rank)
             rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of).to_json()

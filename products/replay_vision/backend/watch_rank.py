@@ -8,7 +8,6 @@ errors all the time does not fill the feed.
 """
 
 import asyncio
-import weakref
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -107,8 +106,7 @@ class WatchRank:
         return asdict(self)
 
 
-def _anchor_cache_key() -> str:
-    return f"replay-vision:watch-rank-anchors:v{ANCHOR_VERSION}:{OBSERVATION_EMBEDDING_MODEL.value}"
+_ANCHOR_CACHE_KEY = f"replay-vision:watch-rank-anchors:v{ANCHOR_VERSION}:{OBSERVATION_EMBEDDING_MODEL.value}"
 
 
 def normalize(matrix: np.ndarray) -> np.ndarray:
@@ -116,9 +114,7 @@ def normalize(matrix: np.ndarray) -> np.ndarray:
 
 
 # The anchors never change within a version, so each process keeps them after the first read.
-_anchors_in_process: dict[str, dict[WatchCategory, np.ndarray]] = {}
-# One lock per event loop, because an asyncio lock cannot be shared across loops.
-_anchor_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
+_anchors_in_process: dict[WatchCategory, np.ndarray] | None = None
 
 
 async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
@@ -127,19 +123,14 @@ async def anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
     Embedded under the calling team because the worker gates every call on a team's AI opt-in, and
     a team that ranks observations has already passed that gate.
     """
-    key = _anchor_cache_key()
-    if (in_process := _anchors_in_process.get(key)) is not None:
-        return in_process
-    lock = _anchor_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
-    # Concurrent scans on a cold cache wait for one embedding pass rather than each starting their own.
-    async with lock:
-        if (in_process := _anchors_in_process.get(key)) is not None:
-            return in_process
-        return await _load_anchor_vectors(key, team_id)
+    global _anchors_in_process
+    if _anchors_in_process is None:
+        _anchors_in_process = await _load_anchor_vectors(team_id)
+    return _anchors_in_process
 
 
-async def _load_anchor_vectors(key: str, team_id: int) -> dict[WatchCategory, np.ndarray]:
-    vectors: dict[WatchCategory, list[list[float]]] | None = await cache.aget(key)
+async def _load_anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
+    vectors: dict[WatchCategory, list[list[float]]] | None = await cache.aget(_ANCHOR_CACHE_KEY)
     if vectors is None:
         team = await Team.objects.aget(id=team_id)
         embedded = await asyncio.gather(
@@ -151,9 +142,8 @@ async def _load_anchor_vectors(key: str, team_id: int) -> dict[WatchCategory, np
         )
         rows = iter(response.embedding for response in embedded)
         vectors = {category: [next(rows) for _ in texts] for category, texts in ANCHORS.items()}
-        await cache.aset(key, vectors, _ANCHOR_CACHE_TTL_S)
+        await cache.aset(_ANCHOR_CACHE_KEY, vectors, _ANCHOR_CACHE_TTL_S)
     anchors = {category: normalize(np.array(rows, dtype=float)) for category, rows in vectors.items()}
-    _anchors_in_process[key] = anchors
     return anchors
 
 
@@ -234,29 +224,6 @@ def duplicate_root(observation_id: str, neighbour_id: str, neighbour_rank: dict[
     return root if isinstance(root, str) and root else neighbour_id
 
 
-async def rank_observation(*, team_id: int, scanner_id: str, observation_id: str, vector: list[float]) -> None:
-    """Rank one observation from its embedding and save the rank on the row."""
-    category, contrast = classify(vector, await anchor_vectors(team_id))
-    nearest = await asyncio.to_thread(
-        nearest_earlier_observation,
-        team_id=team_id,
-        scanner_id=scanner_id,
-        observation_id=observation_id,
-        vector=vector,
-        now=timezone.now(),
-    )
-    duplicate_of: str | None = None
-    if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
-        neighbour_rank = await (
-            ReplayObservation.objects.filter(team_id=team_id, id=nearest[0])
-            .values_list("watch_rank", flat=True)
-            .afirst()
-        )
-        duplicate_of = duplicate_root(observation_id, nearest[0], neighbour_rank)
-    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
-    await ReplayObservation.objects.filter(team_id=team_id, id=observation_id).aupdate(watch_rank=rank.to_json())
-
-
 def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
     """The row's rank when it comes from the current anchors, else None."""
     rank = row.get("watch_rank")
@@ -266,6 +233,53 @@ def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(contrast, int | float) or isinstance(contrast, bool):
         return None
     return rank
+
+
+@frozen
+class RankRequest:
+    team_id: int
+    scanner_id: str
+    observation_id: str
+    vector: list[float]
+
+
+async def rank_observation(request: RankRequest) -> bool:
+    """Rank one observation from its embedding and save the rank on the row, unless it has a current one.
+
+    Keeping an existing rank makes a redelivered result harmless, and stops a second pass from moving a
+    duplicate link in a way that could make two observations point at each other.
+    """
+    existing = await (
+        ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id)
+        .values_list("watch_rank", flat=True)
+        .afirst()
+    )
+    if current_rank({"watch_rank": existing}) is not None:
+        return False
+    category, contrast = classify(request.vector, await anchor_vectors(request.team_id))
+    duplicate_of: str | None = None
+    # The feed only groups issue rows, so a routine row skips the ClickHouse lookup.
+    if category != "routine":
+        nearest = await asyncio.to_thread(
+            nearest_earlier_observation,
+            team_id=request.team_id,
+            scanner_id=request.scanner_id,
+            observation_id=request.observation_id,
+            vector=request.vector,
+            now=timezone.now(),
+        )
+        if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
+            neighbour_rank = await (
+                ReplayObservation.objects.filter(team_id=request.team_id, id=nearest[0])
+                .values_list("watch_rank", flat=True)
+                .afirst()
+            )
+            duplicate_of = duplicate_root(request.observation_id, nearest[0], neighbour_rank)
+    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
+    await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
+        watch_rank=rank.to_json()
+    )
+    return True
 
 
 def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
@@ -299,7 +313,7 @@ def _group_root(observation_id: str, parents: dict[str, str]) -> str:
 
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `created_at`, `watch_rank`, `feed_viewed`) on the
-    embedding rank the scan workflow wrote.
+    embedding rank the watch rank consumer wrote.
 
     A pick is a row in its scanner's top fifth by score whose category is an issue. Near-duplicates
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted

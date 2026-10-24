@@ -1,25 +1,27 @@
 """Ranks observations for What to watch from the embedding worker's results topic.
 
 The scan emits each observation's text to the embedding worker over Kafka. The worker publishes every
-embedded document to the results topic, in the same transaction as the ClickHouse write, and this
-consumer ranks the Replay Vision ones from their vectors. A worker outage delays ranks, and loses none.
+embedded document to the results topic, and this consumer ranks the Replay Vision ones from their
+vectors. A worker outage only delays ranks, and a database outage shorter than the retry window too.
 """
 
-import json
+import time
 import signal
 import asyncio
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal, Protocol
 
 from django.conf import settings
 from django.db import close_old_connections
 
+import orjson
 import structlog
 from asgiref.sync import sync_to_async
+from confluent_kafka import Consumer, KafkaException, Message
 from prometheus_client import Counter
 
-from posthog.dataclasses import frozen
 from posthog.kafka_client import helper
-from posthog.kafka_client.client import _KafkaSecurityProtocol
+from posthog.kafka_client.client import _build_sasl_config, _KafkaSecurityProtocol
 from posthog.kafka_client.routing import get_profile_settings
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC
 from posthog.temporal.common.liveness_tracker import LivenessTracker
@@ -29,16 +31,22 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.watch_rank import rank_observation
+from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
 
 logger = structlog.get_logger(__name__)
 
 CONSUMER_GROUP = "replay-vision-watch-rank"
 
-_BATCH_SIZE = 500
+# Small batches keep a full batch well inside the liveness window and Kafka's poll interval.
+_BATCH_SIZE = 50
 _POLL_TIMEOUT_S = 1.0
-_RANK_ATTEMPTS = 3
+# ClickHouse loads the embeddings table from its own topic a few seconds after the worker writes both.
+_CLICKHOUSE_VISIBILITY_DELAY_S = 10.0
+_RETRY_WINDOW_S = 600.0
 _RETRY_BACKOFF_S = 2.0
+_RETRY_BACKOFF_MAX_S = 60.0
+
+Outcome = Literal["skipped", "ranked", "already_ranked", "failed", "interrupted"]
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
@@ -46,20 +54,18 @@ MESSAGES_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
-
-@frozen
-class RankRequest:
-    team_id: int
-    scanner_id: str
-    observation_id: str
-    vector: list[float]
+# The worker writes compact JSON, and a quote inside a string value is escaped, so this marks our results.
+_DOCUMENT_TYPE_MARKER = f'"document_type":"{EMBEDDING_DOCUMENT_TYPE}"'.encode()
 
 
-def parse_rank_request(value: bytes) -> RankRequest | None:
+def parse_rank_request(value: bytes | None) -> RankRequest | None:
     """The rank request in one results message, or None when it is not a Replay Vision observation."""
+    # Most messages belong to other products, and decoding their content and vectors is the expensive part.
+    if value is None or _DOCUMENT_TYPE_MARKER not in value:
+        return None
     try:
-        payload = json.loads(value)
-    except (ValueError, TypeError):
+        payload = orjson.loads(value)
+    except orjson.JSONDecodeError:
         return None
     if not isinstance(payload, dict):
         return None
@@ -81,9 +87,14 @@ def parse_rank_request(value: bytes) -> RankRequest | None:
     observation_id = payload.get("document_id")
     if not isinstance(team_id, int) or not isinstance(scanner_id, str) or not isinstance(observation_id, str):
         return None
-    if not isinstance(vector, list) or not vector:
+    # A zero vector has no direction, so the cosine scores would come out as NaN.
+    if not isinstance(vector, list) or not any(vector):
         return None
     return RankRequest(team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector)
+
+
+class OffsetStore(Protocol):
+    def store_offsets(self, *, message: Message) -> None: ...
 
 
 class WatchRankConsumer:
@@ -91,32 +102,62 @@ class WatchRankConsumer:
         self._liveness = liveness
         self._stop = asyncio.Event()
 
-    async def handle(self, value: bytes | None) -> str:
-        """Rank the observation in one message, retrying transient failures a few times."""
-        request = parse_rank_request(value) if value is not None else None
+    async def _wait(self, seconds: float) -> bool:
+        """Sleep, unless shutdown comes first. True when the full time passed."""
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=max(seconds, 0))
+        except TimeoutError:
+            return True
+        return False
+
+    async def handle(self, value: bytes | None, produced_at: float) -> Outcome:
+        """Rank the observation in one message, retrying failures for a bounded time."""
+        request = parse_rank_request(value)
         if request is None:
             return "skipped"
-        for attempt in range(1, _RANK_ATTEMPTS + 1):
+        if not await self._wait(produced_at + _CLICKHOUSE_VISIBILITY_DELAY_S - time.time()):
+            return "interrupted"
+        deadline = time.monotonic() + _RETRY_WINDOW_S
+        backoff = _RETRY_BACKOFF_S
+        while True:
+            # Async ORM calls share one thread, so a connection that broke must be replaced before a retry.
+            await sync_to_async(close_old_connections)()
             try:
-                await rank_observation(
-                    team_id=request.team_id,
-                    scanner_id=request.scanner_id,
-                    observation_id=request.observation_id,
-                    vector=request.vector,
-                )
-                return "ranked"
+                return "ranked" if await rank_observation(request) else "already_ranked"
             except Exception:
                 logger.exception(
                     "replay_vision.watch_rank_consumer.rank_failed",
                     team_id=request.team_id,
                     observation_id=request.observation_id,
-                    attempt=attempt,
                 )
-                self._liveness.record_heartbeat()
-                if attempt < _RANK_ATTEMPTS:
-                    await asyncio.sleep(_RETRY_BACKOFF_S * attempt)
-        # A missing rank only drops the observation from picks, and the backfill command can write it later.
-        return "failed"
+            self._liveness.record_heartbeat()
+            if time.monotonic() + backoff > deadline:
+                # The backfill command can write a rank this gave up on.
+                return "failed"
+            if not await self._wait(backoff):
+                return "interrupted"
+            backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
+
+    async def process_batch(self, consumer: OffsetStore, messages: Sequence[Message]) -> None:
+        for message in messages:
+            # The unhandled rest of the batch keeps no stored offset, so the next owner reads it again.
+            if self._stop.is_set():
+                return
+            if message.error():
+                logger.warning("replay_vision.watch_rank_consumer.kafka_error", error=str(message.error()))
+                continue
+            _, produced_at_ms = message.timestamp()
+            outcome = await self.handle(message.value(), produced_at_ms / 1000)
+            self._liveness.record_heartbeat()
+            if outcome == "interrupted":
+                return
+            MESSAGES_TOTAL.labels(outcome=outcome).inc()
+            try:
+                consumer.store_offsets(message=message)
+            except KafkaException:
+                # A rebalance took the partition, and its new owner starts from the last committed offset.
+                logger.warning("replay_vision.watch_rank_consumer.offset_store_failed", partition=message.partition())
+                return
 
     @staticmethod
     def _consumer_config() -> dict[str, Any]:
@@ -128,23 +169,23 @@ class WatchRankConsumer:
         config: dict[str, Any] = {
             "bootstrap.servers": ",".join(profile.hosts),
             "group.id": CONSUMER_GROUP,
-            "auto.offset.reset": "latest",
+            # Ranking skips rows that already have a current rank, so reading old results again is harmless.
+            "auto.offset.reset": "earliest",
             # Offsets are stored only after a message is handled, and committed in the background.
             "enable.auto.commit": True,
             "enable.auto.offset.store": False,
+            # One message can retry for the whole retry window before the loop polls again.
+            "max.poll.interval.ms": int((_RETRY_WINDOW_S + 300) * 1000),
             "security.protocol": security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
         }
-        if security_protocol in (_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL):
-            config["sasl.mechanism"] = profile.sasl_mechanism
-            config["sasl.username"] = profile.sasl_user
-            config["sasl.password"] = profile.sasl_password
+        config.update(
+            _build_sasl_config(security_protocol, profile.sasl_mechanism, profile.sasl_user, profile.sasl_password)
+        )
         if settings.KAFKA_BASE64_KEYS:
             config.update(helper.ssl_cert_config())
         return config
 
     async def run(self) -> None:  # pragma: no cover - exercised in dogfood
-        from confluent_kafka import Consumer  # noqa: PLC0415 — keeps the Kafka client off the import path
-
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, self._stop.set)
@@ -156,19 +197,7 @@ class WatchRankConsumer:
             while not self._stop.is_set():
                 self._liveness.record_heartbeat()
                 messages = await asyncio.to_thread(consumer.consume, _BATCH_SIZE, _POLL_TIMEOUT_S)
-                if not messages:
-                    continue
-                # Async ORM calls share one thread, so its connection must be refreshed like a request's.
-                await sync_to_async(close_old_connections)()
-                for message in messages:
-                    # The unhandled rest of the batch keeps no stored offset, so the next start reads it again.
-                    if self._stop.is_set():
-                        break
-                    if message.error():
-                        logger.warning("replay_vision.watch_rank_consumer.kafka_error", error=str(message.error()))
-                        continue
-                    MESSAGES_TOTAL.labels(outcome=await self.handle(message.value())).inc()
-                    consumer.store_offsets(message=message)
+                await self.process_batch(consumer, messages)
         finally:
             consumer.close()
             logger.info("replay_vision.watch_rank_consumer.stopped")

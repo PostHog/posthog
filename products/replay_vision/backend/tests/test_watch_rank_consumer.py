@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 
 import numpy as np
 from asgiref.sync import async_to_sync
+from confluent_kafka import KafkaException
 from parameterized import parameterized
 
 from products.replay_vision.backend.embeddings import (
@@ -18,9 +19,11 @@ from products.replay_vision.backend.embeddings import (
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.tests.helpers import snapshot_for
-from products.replay_vision.backend.watch_rank_consumer import RankRequest, WatchRankConsumer, parse_rank_request
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
+from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
 _WATCH_RANK = "products.replay_vision.backend.watch_rank"
+_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
 _CONSUMER = "products.replay_vision.backend.watch_rank_consumer"
 
 
@@ -35,7 +38,7 @@ def _result_message(
 ) -> bytes:
     result: dict[str, Any] = {"model": OBSERVATION_EMBEDDING_MODEL.value, "outcome": outcome}
     if outcome == "success":
-        result["embedding"] = vector or [1.0, 0.1, 0.0]
+        result["embedding"] = [1.0, 0.1, 0.0] if vector is None else vector
     else:
         result["error"] = "provider refused"
     return json.dumps(
@@ -50,7 +53,8 @@ def _result_message(
             "models": [OBSERVATION_EMBEDDING_MODEL.value],
             "metadata": {} if scanner_id is None else {"scanner_id": scanner_id},
             "results": [result],
-        }
+        },
+        separators=(",", ":"),
     ).encode()
 
 
@@ -65,7 +69,8 @@ class TestParseRankRequest(SimpleTestCase):
             ("another_product", _result_message(product="error-tracking")),
             ("failed_embedding", _result_message(outcome="failure")),
             ("no_scanner", _result_message(scanner_id=None)),
-            ("not_json", b"{"),
+            ("zero_vector", _result_message(vector=[0.0, 0.0, 0.0])),
+            ("not_json", b'{"document_type":"replay-observation"'),
         ]
     )
     def test_skips_what_it_cannot_rank(self, _name: str, value: bytes) -> None:
@@ -92,12 +97,24 @@ class TestWatchRankConsumer(BaseTest):
 
     @parameterized.expand(
         [
-            ("duplicate_points_at_the_group_root", None, "ranked", "root-id"),
-            ("ranking_failure_leaves_no_rank", RuntimeError("clickhouse down"), "failed", None),
+            (
+                "duplicate_points_at_the_group_root",
+                None,
+                None,
+                "ranked",
+                {"category": "failure", "duplicate_of": "root-id"},
+            ),
+            ("ranking_failure_leaves_no_rank", None, RuntimeError("clickhouse down"), "failed", None),
+            ("redelivery_keeps_the_current_rank", _CURRENT_RANK, None, "already_ranked", _CURRENT_RANK),
         ]
     )
     def test_ranks_the_observation_in_a_result(
-        self, _name: str, nearest_error: Exception | None, outcome: str, expected_duplicate_of: str | None
+        self,
+        _name: str,
+        existing_rank: dict[str, Any] | None,
+        nearest_error: Exception | None,
+        outcome: str,
+        expected_rank: dict[str, Any] | None,
     ) -> None:
         scanner = ReplayScanner.objects.create(
             team=self.team,
@@ -107,22 +124,33 @@ class TestWatchRankConsumer(BaseTest):
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
         neighbour = self._observation(scanner, "sess-earlier", watch_rank={"duplicate_of": "root-id"})
-        observation = self._observation(scanner, "sess-new")
+        observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
         nearest = MagicMock(side_effect=nearest_error, return_value=(str(neighbour.id), 0.05))
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
 
         with (
             patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(return_value=self._ANCHORS)),
             patch(f"{_WATCH_RANK}.nearest_earlier_observation", nearest),
-            patch(f"{_CONSUMER}.asyncio.sleep", AsyncMock()),
+            patch(f"{_CONSUMER}._RETRY_WINDOW_S", 0),
+            # It would close the connection that holds the test transaction.
+            patch(f"{_CONSUMER}.close_old_connections"),
         ):
-            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message) == outcome
+            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0) == outcome
 
         observation.refresh_from_db()
-        if expected_duplicate_of is None:
+        if expected_rank is None:
             assert observation.watch_rank is None
         else:
-            rank = observation.watch_rank
-            assert rank is not None
-            assert rank["category"] == "failure"
-            assert rank["duplicate_of"] == expected_duplicate_of
+            assert observation.watch_rank is not None
+            assert expected_rank.items() <= observation.watch_rank.items()
+
+    def test_a_revoked_partition_ends_the_batch_without_crashing(self) -> None:
+        messages = [
+            MagicMock(**{"error.return_value": None, "timestamp.return_value": (1, 0), "value.return_value": b"{}"})
+            for _ in range(2)
+        ]
+        consumer = MagicMock(**{"store_offsets.side_effect": KafkaException("partition revoked")})
+
+        async_to_sync(WatchRankConsumer(MagicMock()).process_batch)(consumer, messages)
+
+        consumer.store_offsets.assert_called_once_with(message=messages[0])

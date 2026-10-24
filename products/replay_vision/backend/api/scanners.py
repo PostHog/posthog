@@ -1888,7 +1888,7 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         choices=WatchFeedRanker.choices,
         help_text=(
             "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
-            "`embedding` on the rank the scan wrote from the observation's embedding, "
+            "`embedding` on the rank the watch rank consumer wrote from the observation's embedding, "
             "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
             "clients read it from here rather than evaluating the flag themselves."
         ),
