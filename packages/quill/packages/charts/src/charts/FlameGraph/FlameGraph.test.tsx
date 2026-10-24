@@ -175,26 +175,31 @@ describe('FlameGraph', () => {
     })
 
     it('lists group colors through the shared legend accessor, largest self share first', () => {
-        const { chart } = renderFlame({
-            data: {
-                name: 'main',
-                value: 100,
-                group: 'app',
-                children: [
-                    { name: 'query', value: 70, group: 'db' },
-                    { name: 'render', value: 10, group: 'app' },
-                ],
-            },
-        })
+        const data: FlameNode = {
+            name: 'main',
+            value: 100,
+            group: 'app',
+            children: [
+                { name: 'query', value: 70, group: 'db' },
+                { name: 'render', value: 10, group: 'app' },
+            ],
+        }
+        const { chart, rerender } = renderFlame({ data })
         expect(chart.legendItems()).toEqual([
             { label: 'db', secondaryLabel: '70%' },
             { label: 'app', secondaryLabel: '30%' },
         ])
+
+        rerender(<FlameGraph data={data} theme={THEME} config={{ legend: { show: false } }} />)
+        expect(chart.legendItems()).toEqual([])
     })
 
-    it('opens on defaultFocusedId and summarizes search matches', () => {
-        const { chart } = renderFlame({ defaultFocusedId: 'root/a', search: 'A' })
+    it('opens on defaultFocusedId only on mount and summarizes search matches', () => {
+        const { chart, rerender } = renderFlame({ defaultFocusedId: 'root/a', search: 'A' })
         expect(chart.flameBreadcrumb()).toEqual(['All', 'root', 'a'])
         expect(chart.flameSearchSummary()).toBe('2 matches · 60% of total')
+
+        rerender(<FlameGraph data={TREE} theme={THEME} defaultFocusedId="root/b" search="A" />)
+        expect(chart.flameBreadcrumb()).toEqual(['All', 'root', 'a'])
     })
 })

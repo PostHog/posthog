@@ -1,6 +1,6 @@
 import type React from 'react'
 
-import type { ChartTheme, TooltipContext } from '../../core/types'
+import type { ChartLegendConfig, ChartTheme, TooltipContext } from '../../core/types'
 
 /** One frame of a call tree: a function, a span name, an LLM step. */
 export interface FlameNode<Meta = unknown> {
@@ -162,8 +162,10 @@ export interface FlameGraphConfig {
     clickToFocus?: boolean
     /** Show the breadcrumb row with the focus path and a reset button. Defaults to true. */
     showBreadcrumb?: boolean
-    /** Show the color legend under the graph, for `group` and `diff` colors. Defaults to true. */
-    showLegend?: boolean
+    /** The color legend, for `group` and `diff` colors. Unlike other charts it shows by default, below
+     *  the graph and aligned to the start. Honors `show`, `position`, `align` and `gap`; its rows list
+     *  colors rather than series, so they are not clickable. */
+    legend?: ChartLegendConfig
     tooltip?: {
         /** Show the tooltip on hover. Defaults to true. */
         enabled?: boolean
@@ -198,7 +200,8 @@ export interface FlameGraphProps<Meta = unknown> {
     /** Case-insensitive substring matched against node names. Matches keep their color, the rest
      *  dims, and the breadcrumb row shows the match count and share. */
     search?: string
-    /** Node to zoom into on mount, and again whenever this prop changes. Pass `null` to reset. */
+    /** Node to zoom into on mount. Later changes are ignored; give the chart a new `key` to open on
+     *  another node. */
     defaultFocusedId?: string | null
     /** Replaces the tooltip content. */
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode

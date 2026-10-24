@@ -175,6 +175,8 @@ There is no `series` or `labels`.
 - `config.colorBy` defaults to `auto`: `diff` when any node has a `baselineValue`, else `group` when any node has a `group`, else `name`.
   `group` and `name` give each distinct key a palette color in first-seen order, blended toward the background so labels stay readable in both themes.
   The `group` legend shows each group's share of total self value, largest first.
+  `config.legend` is a `ChartLegendConfig`: unlike other charts it shows by default, below the graph and aligned to the start, and it honors `show`, `position`, `align` and `gap`.
+  Its rows list colors, not series, so they are not clickable.
   `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
   A change within `diff.threshold` (default 0.1) is neutral, and so is a node with fewer than `diff.minCount` samples in `count` or `baselineCount`.
   A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
@@ -195,6 +197,7 @@ There is no `series` or `labels`.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
   `onNodeClick` fires after the zoom with the resolved `FlameNodeDatum`; set `clickToFocus: false` to only report clicks.
   `onFocusChange` reports every zoom change, with `null` for the whole graph.
+  `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
   The host renders the search input.

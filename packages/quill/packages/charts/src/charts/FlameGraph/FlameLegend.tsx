@@ -7,11 +7,26 @@ import type { FlameInk, FlameLegendEntry } from './flame-colors'
  *  one- or two-line legend. The largest groups come first. */
 const MAX_ENTRIES = 12
 
-function FlameLegendInner({ entries, ink }: { entries: FlameLegendEntry[]; ink: FlameInk }): React.ReactElement {
+const JUSTIFY_CLASS = {
+    start: 'justify-start',
+    center: 'justify-center',
+    end: 'justify-end',
+} as const
+
+interface FlameLegendProps {
+    entries: FlameLegendEntry[]
+    ink: FlameInk
+    orientation: 'horizontal' | 'vertical'
+    align: 'start' | 'center' | 'end'
+}
+
+function FlameLegendInner({ entries, ink, orientation, align }: FlameLegendProps): React.ReactElement {
     const shown = entries.slice(0, MAX_ENTRIES)
     const rest = entries.length - shown.length
+    const layout =
+        orientation === 'vertical' ? 'flex-col gap-1' : `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
     return (
-        <div className="flex flex-row flex-wrap gap-x-3 gap-y-1 text-xs leading-4 min-w-0">
+        <div className={`flex ${layout} text-xs leading-4 min-w-0`}>
             {shown.map((entry) => (
                 <span key={entry.key} className="inline-flex items-center gap-1.5 min-w-0 max-w-[16rem]">
                     <span
