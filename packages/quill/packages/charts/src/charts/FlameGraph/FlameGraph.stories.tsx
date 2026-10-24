@@ -92,6 +92,10 @@ export const BottomUp: Story = {
     render: () => <Demo data={CPU_PROFILE} config={{ direction: 'bottom-up' }} />,
 }
 
+export const LegendRight: Story = {
+    render: () => <Demo data={LLM_TRACE} config={{ legend: { position: 'right' } }} />,
+}
+
 export const ColorByName: Story = {
     render: () => <Demo data={CPU_PROFILE} config={{ colorBy: 'name' }} />,
 }

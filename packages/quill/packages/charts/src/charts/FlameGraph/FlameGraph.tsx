@@ -1,6 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- the scroll viewport and canvas host are sized from the tree depth at runtime */
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { ChartLegendLayout } from '../../components/Legend/ChartLegendLayout'
 import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
@@ -171,7 +172,7 @@ function FlameGraphInner<Meta = unknown>({
         direction = 'top-down',
         clickToFocus = true,
         showBreadcrumb = true,
-        showLegend = true,
+        legend: legendConfig,
         tooltip: tooltipConfig,
         preset = 'profile',
     } = config ?? {}
@@ -242,16 +243,6 @@ function FlameGraphInner<Meta = unknown>({
         return cells.length > 0 ? cells[cells.length - 1].depth + 1 : 1
     }, [tree, focus, target, plotWidth])
     const rowCount = Math.max(targetRows, heldRows)
-    const rowCountRef = useCommittedRef(rowCount)
-    const isFirstFocusProp = useRef(true)
-    useEffect(() => {
-        if (isFirstFocusProp.current) {
-            isFirstFocusProp.current = false
-            return
-        }
-        setHeldRows(rowCountRef.current)
-        setFocusKey(idToKey(defaultFocusedId))
-    }, [defaultFocusedId, rowCountRef])
     const contentHeight = rowCount * rowHeight
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -603,6 +594,9 @@ function FlameGraphInner<Meta = unknown>({
     const isEmpty = tree.size === 0 || tree.x1[tree.rowStart[1] - 1] <= 0
     const clickable = !!hover && (hover.cell.kind === 'bundle' || clickToFocus || !!onNodeClick)
     const fillParent = height === 'fill'
+    const showLegend = legendConfig?.show !== false && colors.legend.length > 0 && !isEmpty
+    const legendPosition = legendConfig?.position ?? 'bottom'
+    const legendAlign = legendConfig?.align ?? 'start'
 
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
@@ -615,50 +609,68 @@ function FlameGraphInner<Meta = unknown>({
                     {showBreadcrumb && !isEmpty ? (
                         <FlameGraphHeader crumbs={crumbs} onReset={focus ? resetZoom : null} search={searchResult} />
                     ) : null}
-                    <div
-                        ref={scrollRef}
-                        className={`relative w-full overflow-y-auto overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair) ${fillParent ? 'flex-1 min-h-0' : ''}`}
-                        style={{ height: fixedViewportHeight ?? undefined, containerType: 'size' }}
-                        tabIndex={0}
-                        data-attr="hog-chart-flame-viewport"
-                        onScroll={onScroll}
-                        onKeyDown={onKeyDown}
+                    <ChartLegendLayout
+                        legend={
+                            showLegend ? (
+                                <FlameLegend
+                                    entries={colors.legend}
+                                    ink={ink}
+                                    orientation={
+                                        legendPosition === 'left' || legendPosition === 'right'
+                                            ? 'vertical'
+                                            : 'horizontal'
+                                    }
+                                    align={legendAlign}
+                                />
+                            ) : null
+                        }
+                        position={legendPosition}
+                        align={legendAlign}
+                        gap={legendConfig?.gap ?? 6}
+                        className={fillParent ? 'flex-1' : undefined}
                     >
-                        {/* The content box sets the scroll range. The canvas host inside it sticks to the top at
-                            the viewport's height (`cqh`), so only the visible rows are ever painted. */}
-                        <div className="relative w-full min-h-full" style={{ height: contentHeight }}>
-                            <div className="sticky top-0 flex flex-col w-full" style={{ height: '100cqh' }}>
-                                <ChartShell
-                                    wrapperRef={wrapperRef}
-                                    canvasRef={canvasRef}
-                                    overlayCanvasRef={overlayCanvasRef}
-                                    pointer={clickable}
-                                    ariaLabel={`Flame graph with ${tree.size} ${tree.size === 1 ? 'node' : 'nodes'}`}
-                                    handlers={handlers}
-                                    showOverlay={!!dimensions}
-                                >
-                                    {isEmpty ? (
-                                        <div className="flex items-center justify-center w-full h-full text-xs text-(--color-graph-axis-label)">
-                                            No data to show
-                                        </div>
-                                    ) : null}
-                                    {tooltipCtx && showTooltip ? (
-                                        <Tooltip
-                                            context={tooltipCtx}
-                                            // The context handed to the renderer is the FlameTooltipContext built above.
-                                            renderTooltip={
-                                                renderTooltip as (ctx: TooltipContext<Meta>) => React.ReactNode
-                                            }
-                                            placement="cursor"
-                                        />
-                                    ) : null}
-                                </ChartShell>
+                        <div
+                            ref={scrollRef}
+                            className={`relative w-full overflow-y-auto overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair) ${fillParent ? 'flex-1 min-h-0' : ''}`}
+                            style={{ height: fixedViewportHeight ?? undefined, containerType: 'size' }}
+                            tabIndex={0}
+                            data-attr="hog-chart-flame-viewport"
+                            onScroll={onScroll}
+                            onKeyDown={onKeyDown}
+                        >
+                            {/* The content box sets the scroll range. The canvas host inside it sticks to the top at
+                                the viewport's height (`cqh`), so only the visible rows are ever painted. */}
+                            <div className="relative w-full min-h-full" style={{ height: contentHeight }}>
+                                <div className="sticky top-0 flex flex-col w-full" style={{ height: '100cqh' }}>
+                                    <ChartShell
+                                        wrapperRef={wrapperRef}
+                                        canvasRef={canvasRef}
+                                        overlayCanvasRef={overlayCanvasRef}
+                                        pointer={clickable}
+                                        ariaLabel={`Flame graph with ${tree.size} ${tree.size === 1 ? 'node' : 'nodes'}`}
+                                        handlers={handlers}
+                                        showOverlay={!!dimensions}
+                                    >
+                                        {isEmpty ? (
+                                            <div className="flex items-center justify-center w-full h-full text-xs text-(--color-graph-axis-label)">
+                                                No data to show
+                                            </div>
+                                        ) : null}
+                                        {tooltipCtx && showTooltip ? (
+                                            <Tooltip
+                                                context={tooltipCtx}
+                                                // The context handed to the renderer is the FlameTooltipContext built above.
+                                                renderTooltip={
+                                                    renderTooltip as (ctx: TooltipContext<Meta>) => React.ReactNode
+                                                }
+                                                placement="cursor"
+                                            />
+                                        ) : null}
+                                    </ChartShell>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    {showLegend && colors.legend.length > 0 && !isEmpty ? (
-                        <FlameLegend entries={colors.legend} ink={ink} />
-                    ) : null}
+                    </ChartLegendLayout>
                 </div>
             </ChartHoverContext.Provider>
         </ChartLayoutContext.Provider>
