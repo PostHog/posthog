@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { EventPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
@@ -61,12 +61,14 @@ describe('propertyGroupFilterLogic', () => {
             expect(lastCall.properties).toBeUndefined()
         })
 
-        it('writes the filters when they contain real property values', async () => {
+        it('writes only the filter groups that contain real property values', async () => {
             const logic = buildLogic(undefined)
 
             logic.actions.setFilters({
                 type: FilterLogicalOperator.And,
                 values: [
+                    { type: FilterLogicalOperator.And, values: [] },
+                    { type: FilterLogicalOperator.Or, values: [] },
                     {
                         type: FilterLogicalOperator.And,
                         values: [
@@ -86,8 +88,38 @@ describe('propertyGroupFilterLogic', () => {
             const lastCall = setQuerySpy.mock.calls[setQuerySpy.mock.calls.length - 1][0]
             expect(lastCall.properties).not.toBeUndefined()
             expect(lastCall.properties.type).toBe(FilterLogicalOperator.And)
+            expect(lastCall.properties.values).toHaveLength(1)
             expect(lastCall.properties.values[0].values).toHaveLength(1)
             expect(lastCall.properties.values[0].values[0].key).toBe('$browser')
+        })
+
+        it('keeps a just-added filter group in the editor until it has a filter', async () => {
+            const browserFilter = (browser: string): EventPropertyFilter => ({
+                type: PropertyFilterType.Event,
+                key: '$browser',
+                value: [browser],
+                operator: PropertyOperator.Exact,
+            })
+            const logic = buildLogic({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [browserFilter('Chrome')] }],
+            })
+            // The insight editor passes each written query back in as props.
+            setQuerySpy.mockImplementation((query) =>
+                propertyGroupFilterLogic({ pageKey: 'test', query, setQuery: setQuerySpy })
+            )
+
+            logic.actions.addFilterGroup()
+            logic.actions.setPropertyFilters([browserFilter('Firefox')], 0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.filters.values.map((group) => group.values)).toEqual([[browserFilter('Firefox')], []])
+            expect(setQuerySpy.mock.lastCall[0].properties.values).toHaveLength(1)
+
+            logic.actions.setPropertyFilters([browserFilter('Safari')], 1)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(setQuerySpy.mock.lastCall[0].properties.values).toHaveLength(2)
         })
     })
 })
