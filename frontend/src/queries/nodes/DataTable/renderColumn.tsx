@@ -8,6 +8,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +22,7 @@ import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { samplePlaceholderColumn } from '~/queries/nodes/DataTable/sampleRows'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import {
@@ -113,6 +115,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (value === samplePlaceholderColumn) {
+        return <LemonSkeleton active={false} className="h-3 w-16" />
     } else if (columnFormat === 'mcp_harness' && typeof value === 'string') {
         return <HarnessLabel category={value} />
     } else if (queryContextColumnName && queryContextColumn?.render) {

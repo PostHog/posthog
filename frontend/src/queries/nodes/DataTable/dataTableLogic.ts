@@ -18,10 +18,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
+import type { SampleRowsSource } from '~/queries/nodes/DataTable/sampleRows'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyDataNode,
@@ -95,6 +97,7 @@ export interface dataTableLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[] // tabUiStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    shouldShowSampleData: boolean // sampleDataStateLogic
     canSort: boolean
     columnsInQuery: string[]
     columnsInResponse: string[] | null
@@ -107,6 +110,7 @@ export interface dataTableLogicValues {
         'contextKey' | 'defaultColumns' | 'tags' | 'version'
     >
     rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null
+    sampleRowsSource: SampleRowsSource | null
     sourceFeatures: Set<QueryFeature>
     sourceKind: NodeKind | null
 }
@@ -138,6 +142,7 @@ export interface dataTableLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         context: (arg: any) => any
+        sampleRowsSource: (shouldShowSampleData: boolean, context: any) => SampleRowsSource | null
         expandedRows: (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], arg: any) => number[]
         sourceKind: (query: DataTableNode) => NodeKind | null
         sourceFeatures: (query: DataTableNode, arg: any) => Set<QueryFeature>
@@ -240,6 +245,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentTeam'],
+            sampleDataStateLogic,
+            ['shouldShowSampleData'],
             tabUiStateLogic,
             ['expandedRowsFor'],
             dataNodeLogic({
@@ -263,6 +270,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     selectors({
         context: [() => [(_, props) => props.context], (context) => context],
+        // Null for a table without a sample source, so such a table does not re-render when the team changes.
+        sampleRowsSource: [
+            (s) => [s.shouldShowSampleData, s.context],
+            (
+                shouldShowSampleData: boolean,
+                context: QueryContext<DataTableNode> | undefined
+            ): SampleRowsSource | null => (shouldShowSampleData ? (context?.dataTableSampleRows ?? null) : null),
+        ],
         expandedRows: [
             (s) => [s.expandedRowsFor, (_, p) => p.vizKey],
             (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], vizKey: string): number[] =>

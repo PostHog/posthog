@@ -2,18 +2,20 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { type HTMLProps, useCallback, useMemo, useRef, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { SampleDataTagGroup } from 'scenes/insights/EmptyStates/SampleDataTagGroup'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -144,6 +146,11 @@ const sessionGroupTypes = [
 // Stable empty-rows reference: a fresh `[]` per render would defeat row memoization downstream.
 const NO_ROWS: DataTableRow[] = []
 
+// Sample rows hold invented data. `inert` keeps their links and popovers away from the pointer, the
+// keyboard and assistive tech, and the "Sample data" tag labels the table instead.
+const SAMPLE_ROW_PROPS = { 'aria-hidden': true, inert: '' }
+const sampleRowProps = (): Omit<HTMLProps<HTMLTableRowElement>, 'key'> => SAMPLE_ROW_PROPS
+
 const DEFAULT_COLUMN_FEATURES = [
     ColumnFeature.canSort,
     ColumnFeature.canEdit,
@@ -228,6 +235,7 @@ export function DataTable({
         canSort,
         sourceFeatures,
         expandedRows,
+        sampleRowsSource,
     } = useValues(dataTableLogic(dataTableLogicProps))
     const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
@@ -263,10 +271,24 @@ export function DataTable({
 
     const isReadOnly = !!readOnly
 
+    // A poll for new events (`newDataLoading`) or the next page keeps the current rows on screen, so only a
+    // blocking load hides the sample. The sample then never replaces the loading skeleton.
+    const blockingLoad = responseLoading && !nextDataLoading && !newDataLoading
+    // True from the first load until rows arrive. The real count hides for that whole time: it is zero, which
+    // contradicts the sample, and it would otherwise flash "Loading count..." before the sample appears.
+    const sampleRowsPending = !!sampleRowsSource && !responseError && !dataTableRows?.length
+    const showSampleRows = sampleRowsPending && !!response && !blockingLoad
+
     const eventActionsColumnShown =
-        showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+        !showSampleRows &&
+        showActions &&
+        sourceFeatures.has(QueryFeature.eventActionsColumn) &&
+        columnsInResponse?.includes('*')
     const recordingColumnShown =
-        showRecordingColumn && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
+        !showSampleRows &&
+        showRecordingColumn &&
+        sourceFeatures.has(QueryFeature.eventActionsColumn) &&
+        columnsInResponse?.includes('*')
     const hideRecordingButton = recordingColumnShown || context?.hideRecordingButton
 
     const allColumns = useMemo(
@@ -287,6 +309,10 @@ export function DataTable({
                 return !col?.queryContextColumn?.hidden
             }),
         [allColumns, contextColumns]
+    )
+    const sampleRows = useMemo(
+        () => (showSampleRows && sampleRowsSource ? sampleRowsSource.buildRows(columnsInLemonTable, dayjs()) : null),
+        [showSampleRows, sampleRowsSource, columnsInLemonTable]
     )
     const orderByForKey = useCallback(
         (key: string): string => {
@@ -378,7 +404,9 @@ export function DataTable({
                         },
                         sorter: undefined, // using custom sorting code
                         cellActions:
-                            sourceFeatures.has(QueryFeature.campaignMappingActions) && !!getMappableColumn(key)
+                            !showSampleRows &&
+                            sourceFeatures.has(QueryFeature.campaignMappingActions) &&
+                            !!getMappableColumn(key)
                                 ? (_: unknown, record: DataTableRow) => {
                                       if (!record.result) {
                                           return null
@@ -742,8 +770,15 @@ export function DataTable({
                           },
                       ]
                     : []),
-            ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*'),
+            ].filter(
+                (column) =>
+                    !query.hiddenColumns?.includes(column.dataIndex) &&
+                    column.dataIndex !== '*' &&
+                    !(showSampleRows && sampleRowsSource?.hiddenColumns.includes(column.dataIndex))
+            ),
         [
+            showSampleRows,
+            sampleRowsSource,
             columnsInLemonTable,
             query,
             setQuery,
@@ -957,12 +992,10 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
-    const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
+    const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount) && !sampleRowsPending
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
-        showCount && sourceFeatures.has(QueryFeature.showCount) ? (
-            <DataTableCount key="count" nouns={context?.dataTableNouns} />
-        ) : null,
+        shouldShowCount ? <DataTableCount key="count" nouns={context?.dataTableNouns} /> : null,
         shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
@@ -1018,6 +1051,10 @@ export function DataTable({
 
     const compactToolbarLeft = [...(showFirstRow ? firstRowLeft : []), ...(showSecondRow ? secondRowLeft : [])]
     const compactToolbarRight = [...(showFirstRow ? firstRowRight : []), ...(showSecondRow ? secondRowRight : [])]
+
+    const rowBehavior = sampleRows
+        ? { dataSource: sampleRows, expandable: undefined, onRow: sampleRowProps, rowActions: undefined }
+        : { dataSource: dataTableRows ?? NO_ROWS, expandable: expandableConfig, onRow, rowActions }
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
@@ -1081,7 +1118,11 @@ export function DataTable({
                                 'relative',
                                 context?.dataTableAllowContentScroll && 'min-h-0 flex-1 overflow-hidden'
                             )}
+                            data-attr={sampleRows ? sampleRowsSource?.dataAttr : undefined}
                         >
+                            {sampleRows ? (
+                                <SampleDataTagGroup className="absolute right-2 bottom-2 z-2 flex-wrap justify-end" />
+                            ) : null}
                             {usedWebAnalyticsLazyPrecompute ? (
                                 <PreAggregatedBadge
                                     variant="precomputed"
@@ -1094,10 +1135,10 @@ export function DataTable({
                             ) : null}
                             <LemonTable
                                 data-attr={dataAttr}
-                                className="DataTable"
+                                className={clsx('DataTable', sampleRows && 'DataTable--sample')}
                                 allowContentScroll={context?.dataTableAllowContentScroll}
                                 stickyHeader={context?.dataTableStickyHeader}
-                                loading={responseLoading && !nextDataLoading && !newDataLoading}
+                                loading={blockingLoad}
                                 columns={lemonColumns}
                                 tableLayout={context?.tableLayout}
                                 tableStyle={context?.tableStyle}
@@ -1107,7 +1148,6 @@ export function DataTable({
                                         '::'
                                     ) /* Bust the LemonTable cache when columns change */
                                 }
-                                dataSource={dataTableRows ?? NO_ROWS}
                                 rowKey={(_, rowIndex) => {
                                     return rowIndex
                                 }}
@@ -1150,7 +1190,6 @@ export function DataTable({
                                         />
                                     )
                                 }
-                                expandable={expandableConfig}
                                 rowClassName={({ result, label }) =>
                                     clsx('DataTable__row', {
                                         'DataTable__row--highlight_once': result && highlightedRows.has(result),
@@ -1171,9 +1210,8 @@ export function DataTable({
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}
-                                onRow={onRow}
                                 pinnedColumns={query.pinnedColumns}
-                                rowActions={rowActions}
+                                {...rowBehavior}
                             />
                         </div>
                     )}
