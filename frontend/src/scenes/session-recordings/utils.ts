@@ -7,11 +7,33 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
+    type SessionRecordingType,
     type SessionRecordingMaskingLevel,
     UniversalFilterValue,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+// Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
+// mutations); most large recordings are ordinary small events and play fine, so both must trip
+const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
+const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+
+export function isRecordingTooLargeToPlay(
+    recording: Pick<SessionRecordingType, 'snapshot_source' | 'total_size' | 'event_count'> | null | undefined
+): boolean {
+    // Mobile recordings are screenshot-based: large events, but cheap to play
+    if (recording?.snapshot_source !== 'web') {
+        return false
+    }
+    const totalSize = recording.total_size ?? 0
+    const eventCount = recording.event_count ?? 0
+    return (
+        totalSize > OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES &&
+        eventCount > 0 &&
+        totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
+    )
+}
 
 export const TimestampFormatToLabel = {
     relative: 'Relative',

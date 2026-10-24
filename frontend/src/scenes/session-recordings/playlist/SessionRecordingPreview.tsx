@@ -16,6 +16,7 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { isRecordingTooLargeToPlay } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
@@ -193,6 +194,18 @@ const SessionRecordingPreviewBase = memo(
                                     <Tooltip title="This recording is listed only because it's open. It doesn't match the current filters.">
                                         <LemonTag type="warning" size="small" className="shrink-0">
                                             Doesn't match filters
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isRecordingTooLargeToPlay(recording) && (
+                                    <Tooltip title="This recording has too much snapshot data in very large chunks for the player to render, so it can't play. Pages with rapidly changing content usually cause this.">
+                                        <LemonTag
+                                            type="danger"
+                                            size="small"
+                                            className="shrink-0"
+                                            data-attr="recording-too-large-to-play"
+                                        >
+                                            Too large to play
                                         </LemonTag>
                                     </Tooltip>
                                 )}
