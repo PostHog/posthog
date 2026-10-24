@@ -310,9 +310,9 @@ export interface FeedQueryPlanContext {
   spaces: readonly FeedQuerySpace[];
   me?: FeedQueryMember | null;
   /**
-   * Whether the `posthog-desktop-channel-reports` rollout is on. With it off,
-   * `type:report` is treated as an unsupported token rather than flipping the
-   * feed into reports-only mode, so the rollout flag stays a single switch.
+   * Whether the caller can show report results. With it off, `type:report` is
+   * treated as an unsupported token rather than flipping the feed into
+   * reports-only mode.
    */
   reportsEnabled: boolean;
 }
@@ -614,9 +614,9 @@ export function planFeedQuery(
   // `type:report` flips the whole feed into reports-only mode: reports are a
   // different resource with different filters, so the plan swaps its fetch
   // strategy instead of mixing kinds. Handled before the task groups so their
-  // tokens surface as "unsupported here" rather than half-applying. Gated on the
-  // reports rollout: with the flag off, the token falls through to the task-mode
-  // `type:` handling below, which reports it as unsupported.
+  // tokens surface as "unsupported here" rather than half-applying. With
+  // `reportsEnabled` off, the token falls through to the task-mode `type:`
+  // handling below, which reports it as unsupported.
   if (
     context.reportsEnabled &&
     groups
