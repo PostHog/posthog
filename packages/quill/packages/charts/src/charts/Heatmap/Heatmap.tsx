@@ -50,7 +50,8 @@ export interface HeatmapRowMeta {
 /** Tooltip context handed to consumer-supplied `tooltip` callbacks — `TooltipContext` with
  *  the row meta baked in. Each `seriesData` entry is one row at the hovered column; use
  *  `findClosestSeriesKey(ctx.seriesData, ctx.hoverPosition.y)` (as the built-in tooltip does)
- *  to narrow to the single hovered cell. */
+ *  to narrow to the single hovered cell. `hoverPosition` is null for a tooltip mirrored from
+ *  another chart in a `ChartGroup`, where no cell is hovered. */
 export type HeatmapTooltipContext = TooltipContext<HeatmapRowMeta>
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover/
@@ -164,6 +165,8 @@ export interface HeatmapProps {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function Heatmap({ onError, ...rest }: HeatmapProps): React.ReactElement {
@@ -186,6 +189,7 @@ function HeatmapInner({
     className,
     dataAttr,
     children,
+    syncWithGroup,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
     const { colorScale: requestedColorScale = 'auto' } = config ?? {}
     // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
@@ -327,9 +331,19 @@ function HeatmapInner({
     }, [])
 
     const drawHover = useCallback(
-        ({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean => {
+        ({ ctx, scales, hoverIndex, hoverPosition, hoverSource, hoverProgress }: ChartDrawArgs): boolean => {
             const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-            if (!priv || hoverIndex < 0 || !hoverPosition) {
+            if (!priv || hoverIndex < 0) {
+                return false
+            }
+            if (hoverSource === 'group') {
+                ctx.save()
+                ctx.globalAlpha = hoverProgress
+                drawColumnHighlights(ctx, priv.layout, [hoverIndex], priv.accent)
+                ctx.restore()
+                return true
+            }
+            if (!hoverPosition) {
                 return false
             }
             const row = rowAtY(priv.layout, hoverPosition.y)
@@ -512,6 +526,8 @@ function HeatmapInner({
             valueRangeSeries={valueRangeSeries}
             className={className}
             dataAttr={dataAttr}
+            syncWithGroup={syncWithGroup}
+            groupLabels={xLabels}
         >
             {config?.cellLabel && (
                 <HeatmapCellLabels

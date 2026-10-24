@@ -134,6 +134,8 @@ function StackedBarListInner<Meta = unknown>({
                 tooltip={tooltip}
                 onPointClick={onPointClick}
                 dataAttr={dataAttr}
+                // Rows are ranked categories, not a shared x axis.
+                syncWithGroup={false}
                 onError={onError}
             />
         ) : null

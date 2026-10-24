@@ -52,6 +52,12 @@ export { computeFallbackChangePercent } from './components/MetricCard/internals'
 export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
+// Linked charts: shared hover, crosshair, tooltip, zoom and selection
+export { ChartGroup } from './components/ChartGroup/ChartGroup'
+export type { ChartGroupProps } from './components/ChartGroup/ChartGroup'
+export type { ChartGroupRange } from './core/chart-group'
+export type { ChartGroupTooltipMode } from './core/chart-group-context'
+
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'

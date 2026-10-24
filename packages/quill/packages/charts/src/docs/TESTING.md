@@ -50,6 +50,7 @@ chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.annotationBadges() // HTMLElement[]
+chart.groupHoverIndex() // label index mirrored from another chart in its ChartGroup, or null
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
 chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding

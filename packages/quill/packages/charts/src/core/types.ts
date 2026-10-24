@@ -559,8 +559,12 @@ export interface ChartDrawArgs {
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
     hoverIndex: number
-    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave). */
+    /** Cursor position in canvas pixels, or `null` for non-hover redraws (static layer / post-mouseleave)
+     *  and for a hover mirrored from another chart in a `ChartGroup`. */
     hoverPosition: { x: number; y: number } | null
+    /** `group` when `hoverIndex` mirrors the pointer on another chart of the enclosing `ChartGroup`
+     *  rather than a pointer over this chart. There is no cursor then, so highlight the whole column. */
+    hoverSource?: 'pointer' | 'group'
     /** Chart theme colors. */
     theme: ChartTheme
     /** Hover-fade progress (0..1). Apply as `ctx.globalAlpha` around highlight rendering. */

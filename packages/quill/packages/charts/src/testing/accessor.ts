@@ -105,6 +105,9 @@ export interface HogChart<Meta = unknown> {
     sankeyColumnLabels(): string[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
+    /** The label index this chart highlights because another chart in its `ChartGroup` is hovered,
+     *  or null when it mirrors no hover. Its own pointer hover does not count. */
+    groupHoverIndex(): number | null
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
      *  rendered via `renderHogChart` (it reads label count from `ui.props.labels`); the
      *  module-level `hoverAtIndex(wrapper, index, totalLabels)` is the explicit alternative. */
@@ -260,6 +263,11 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
+        groupHoverIndex: () => {
+            const value = wrapper.querySelector('canvas[data-hog-charts-group-hover-index]')
+            const raw = value?.getAttribute('data-hog-charts-group-hover-index')
+            return raw == null ? null : Number(raw)
+        },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {

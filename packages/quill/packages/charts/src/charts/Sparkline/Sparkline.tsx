@@ -38,6 +38,9 @@ export interface SparklineProps {
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this sparkline out of the enclosing `ChartGroup`. A sparkline without
+     *  `labels` never joins, because its index labels line up with nothing. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 // A sparkline is a bare trend, but it renders through BarChart/LineChart, which layer the library's
@@ -80,6 +83,7 @@ function SparklineInner({
     tooltip,
     className,
     dataAttr,
+    syncWithGroup = true,
 }: Omit<SparklineProps, 'onError'>): React.ReactElement {
     const resolvedColor = color ?? theme.colors[0]
     const chartSeries = useMemo<Series[]>(() => {
@@ -121,6 +125,7 @@ function SparklineInner({
     )
     const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
 
+    const joinsGroup = syncWithGroup && labels != null
     const watcher = onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null
     return (
         <div
@@ -129,11 +134,25 @@ function SparklineInner({
             data-attr={dataAttr}
         >
             {type === 'bar' ? (
-                <BarChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <BarChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    syncWithGroup={joinsGroup}
+                >
                     {watcher}
                 </BarChart>
             ) : (
-                <LineChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <LineChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    syncWithGroup={joinsGroup}
+                >
                     {watcher}
                 </LineChart>
             )}

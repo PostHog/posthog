@@ -106,6 +106,8 @@ interface UseChartInteractionResult<Meta> {
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     dragRect: DragRect | null
+    /** Builds the tooltip context at a label index without touching hover state. */
+    buildTooltipCtx: (index: number, position: { x: number; y: number } | null) => TooltipContext<Meta> | null
     handlers: {
         onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -249,7 +251,7 @@ export function useChartInteraction<Meta = unknown>({
     )
 
     const buildCtxAt = useCallback(
-        (index: number, position: { x: number; y: number }): TooltipContext<Meta> | null => {
+        (index: number, position: { x: number; y: number } | null): TooltipContext<Meta> | null => {
             if (!scales) {
                 return null
             }
@@ -268,7 +270,7 @@ export function useChartInteraction<Meta = unknown>({
                 effectivePositionResolve,
                 resolveBottomValue,
                 scales.extent?.(labels[index]),
-                scales.bandSlotAtCursor?.(labels[index], position)
+                position ? scales.bandSlotAtCursor?.(labels[index], position) : undefined
             )
         },
         [
@@ -495,5 +497,5 @@ export function useChartInteraction<Meta = unknown>({
         [guardedMouseDown, onMouseMove, onMouseLeave, onClick, onPointerDown]
     )
 
-    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, buildTooltipCtx: buildCtxAt, handlers }
 }

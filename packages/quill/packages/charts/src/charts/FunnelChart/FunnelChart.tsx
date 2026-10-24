@@ -292,6 +292,8 @@ export function FunnelChart<Meta = unknown>({
             onPointClick={handlePointClick}
             className={className}
             dataAttr={dataAttr}
+            // Step labels are synthetic indices that would match unrelated categorical charts.
+            syncWithGroup={false}
             onError={onError}
         >
             {hasStepFooter && <StepBandProbe onBands={setBands} />}

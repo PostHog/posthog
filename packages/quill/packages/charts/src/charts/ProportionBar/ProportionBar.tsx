@@ -203,6 +203,8 @@ function ProportionBarInner<Meta = unknown>({
                         onPointClick={onSliceClick ? handlePointClick : undefined}
                         className={className}
                         dataAttr={dataAttr}
+                        // One synthetic band label, so every proportion bar would match every other.
+                        syncWithGroup={false}
                         onError={onError}
                     />
                 </div>

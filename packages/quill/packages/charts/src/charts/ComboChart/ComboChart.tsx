@@ -70,6 +70,8 @@ export interface ComboChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function ComboChart<Meta = unknown>({ onError, ...rest }: ComboChartProps<Meta>): React.ReactElement {
@@ -89,6 +91,7 @@ function ComboChartInner<Meta = unknown>({
     onPointClick,
     className,
     dataAttr,
+    syncWithGroup,
     children,
 }: Omit<ComboChartProps<Meta>, 'onError'>): React.ReactElement {
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
@@ -414,6 +417,7 @@ function ComboChartInner<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
+            syncWithGroup={syncWithGroup}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
             resolveBottomValue={resolveBottomValue}
