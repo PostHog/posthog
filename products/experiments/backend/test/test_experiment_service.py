@@ -2354,6 +2354,19 @@ class TestExperimentService(APIBaseTest):
         assert metadata["variants_with_notes_count"] == 1
         assert metadata["variants_with_screenshots_count"] == 1
 
+    def test_analytics_metadata_ignores_details_of_variants_no_longer_on_the_flag(self):
+        experiment = self._create_draft_experiment()
+        experiment.parameters = {
+            **(experiment.parameters or {}),
+            "variant_notes": {"renamed-away": "Note left behind by a rename"},
+            "variant_screenshot_media_ids": {"removed": ["media-1"]},
+        }
+
+        metadata = experiment.get_analytics_metadata()
+
+        assert metadata["variants_with_notes_count"] == 0
+        assert metadata["variants_with_screenshots_count"] == 0
+
     def test_analytics_metadata_counts_are_zero_without_variant_details(self):
         experiment = self._create_draft_experiment()
 
