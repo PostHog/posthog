@@ -8333,16 +8333,16 @@ Note: Compared the official Query API endpoint reference with the source discove
 
 ## Netlify — gaps
 
-Today (8): `accounts`, `builds`, `deploys`, `dns_zones`, `forms`, `members`, `sites`, `submissions`
+Today (11): `accounts`, `audit_events`, `builds`, `deploys`, `dns_records`, `dns_zones`, `forms`, `members`, `sites`, `submissions`, `traffic_splits`
 
 Diffed against: <https://open-api.netlify.com/swagger.json>
 
-- [ ] `/dns_zones/{zone_id}/dns_records` — the actual records inside the zones already synced — zones alone carry almost no queryable detail (high)
-- [ ] `/accounts/{account_id}/audit` — account audit log: who deployed, changed env vars, or altered site settings and when (high)
+- [x] `/dns_zones/{zone_id}/dns_records` — the actual records inside the zones already synced — zones alone carry almost no queryable detail (high). Added as `dns_records` (fan-out over `dns_zones`).
+- [x] `/accounts/{account_id}/audit` — account audit log: who deployed, changed env vars, or altered site settings and when (high). Added as `audit_events` (fan-out over `accounts`).
 - [ ] `/sites/{site_id}/functions` — serverless/edge function inventory per site, needed to attribute build and runtime behavior (medium)
 - [ ] `/sites/{site_id}/deployed-branches` — branch-to-deploy mapping for branch-deploy and preview analysis (medium)
-- [ ] `/sites/{site_id}/traffic_splits` — split test definitions and branch weights — the A/B testing objects (medium)
-- [ ] `/accounts/types` — lookup resolving the plan/type id on every account row (medium)
+- [x] `/sites/{site_id}/traffic_splits` — split test definitions and branch weights — the A/B testing objects (medium). Added as `traffic_splits` (fan-out over `sites`).
+- ~~`/accounts/types` — lookup resolving the plan/type id on every account row (medium)~~ — skipped: it lists the plans offered to new teams, not the plan of each existing account, and `accounts` rows already carry `type_id` and `type_name`
 - [ ] `/sites/{site_id}/plugin_runs/latest` — build plugin run outcomes per site, complementing build status (low)
 - [ ] `/sites/{site_id}/service-instances` — installed add-on instances per site (low)
 - [ ] `/sites/{site_id}/ssl/certificates` — certificate state and expiry per site (low)
