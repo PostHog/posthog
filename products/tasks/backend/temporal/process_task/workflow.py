@@ -20,6 +20,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.github_recovery import GITHUB_ACCESS_RESTORED_SIGNAL
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
     MAX_RENDERED_COMMENTS,
@@ -45,6 +46,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
 )
 from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import MarkPrReadyInput, mark_pr_ready
 
+from .activities.check_github_readiness import check_self_driving_github_readiness
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
     CompleteRunStreamInput,
@@ -396,6 +398,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._resume_snapshot_invalidated = False
         self._preview_progress_open: bool = False
         self._task_completed: bool = False
+        self._github_access_version = 0
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
         self._completion_error_type: Optional[str] = None
@@ -1163,6 +1166,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent_shadow_task: asyncio.Task[None] | None = None
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
         try:
+            if (
+                input.create_pr
+                and input.resumed_sandbox is None
+                and workflow.in_workflow()
+                and workflow.patched("self-driving-github-readiness")
+                and not await self._wait_for_github_readiness(input.run_id)
+            ):
+                return ProcessTaskOutput(success=False, error="Run cancelled while waiting for GitHub access")
             self._context = await self._get_task_processing_context(input)
             if self._stream_generation is not None:
                 self._context.stream_generation = self._stream_generation
@@ -1934,6 +1945,58 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._startup_context_loaded_at = (
             datetime.fromisoformat(resumed.startup_context_loaded_at) if resumed.startup_context_loaded_at else None
         )
+
+    @workflow.signal(name=GITHUB_ACCESS_RESTORED_SIGNAL)
+    def github_access_restored(self) -> None:
+        self._github_access_version += 1
+
+    async def _wait_for_github_readiness(self, run_id: str) -> bool:
+        while not self._task_completed:
+            version = self._github_access_version
+            readiness = await workflow.execute_activity(
+                check_self_driving_github_readiness,
+                run_id,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if readiness.status == "ready":
+                return True
+            if readiness.status in ("cancelled", "expired"):
+                await self._update_task_run_status(
+                    "cancelled",
+                    run_id=run_id,
+                    error_message="GitHub recovery expired after seven days. Start a new implementation."
+                    if readiness.status == "expired"
+                    else "This implementation is no longer eligible to resume. Start a new implementation.",
+                )
+                return False
+            assert readiness.retry_until is not None
+            remaining = readiness.retry_until - workflow.now()
+            if remaining <= timedelta(0):
+                await self._update_task_run_status(
+                    "cancelled",
+                    run_id=run_id,
+                    error_message="GitHub recovery expired after seven days. Start a new implementation.",
+                )
+                return False
+            try:
+
+                def connection_changed(observed_version: int = version) -> bool:
+                    return self._task_completed or self._github_access_version != observed_version
+
+                await workflow.wait_condition(
+                    connection_changed,
+                    timeout=remaining if readiness.status == "suspended" else min(remaining, timedelta(minutes=5)),
+                )
+            except TimeoutError:
+                if workflow.now() >= readiness.retry_until:
+                    await self._update_task_run_status(
+                        "cancelled",
+                        run_id=run_id,
+                        error_message="GitHub recovery expired after seven days. Start a new implementation.",
+                    )
+                    return False
+        return False
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(

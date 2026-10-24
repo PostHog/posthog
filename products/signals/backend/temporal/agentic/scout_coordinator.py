@@ -64,6 +64,7 @@ from products.signals.backend.scout_harness.limits import (
     DUE_GRACE_SECONDS,
     dispatch_ticks_per_interval,
 )
+from products.signals.backend.scout_harness.run_gates import check_github_gate
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -689,6 +690,8 @@ def _collect_planned_runs(
             team_count=skipped_without_consent,
         )
 
+    github_ready = {team_id: check_github_gate(team_id) is None for team_id in {run.team_id for run in due}}
+    due = [run for run in due if github_ready[run.team_id]]
     background_due: list[_BackgroundDueRun] = []
     runs_last_24h: int | None = None
     if background is not None and background.enabled:
@@ -700,6 +703,9 @@ def _collect_planned_runs(
             now,
             start_delay_spread_seconds=start_delay_spread_seconds,
         )
+        for team_id in {item.run.team_id for item in background_due} - github_ready.keys():
+            github_ready[team_id] = check_github_gate(team_id) is None
+        background_due = [item for item in background_due if github_ready[item.run.team_id]]
         admitted = [d.run for d in background_due]
         if background.budget is not None and background_due:
             runs_last_24h = _background_runs_since(background, background_team_ids, now - DAILY_BUDGET_WINDOW)
