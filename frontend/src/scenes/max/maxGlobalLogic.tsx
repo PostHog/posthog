@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { conversationsDestroy } from 'products/posthog_ai/frontend/generated/api'
 import { taskEventsLogic } from 'products/posthog_ai/frontend/logics/taskEventsLogic'
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
@@ -140,6 +142,9 @@ export interface maxGlobalLogicActions {
     requestAiAccess: () => {
         value: true
     } // aiConsentLogic
+    setDismissScope: (scope: string) => {
+        scope: string
+    } // attachedContextLogic
     locationChanged: ({
         method,
         pathname,
@@ -296,6 +301,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         actions: [
             router,
             ['locationChanged'],
+            attachedContextLogic,
+            ['setDismissScope'],
             sidePanelStateLogic,
             ['openSidePanel'],
             aiConsentLogic,
@@ -457,6 +464,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     afterMount(({ actions }) => {
         actions.loadConversationHistory()
     }),
+    subscriptions(({ actions }) => ({
+        sceneId: (sceneId: string | null) => actions.setDismissScope(sceneId ?? ''),
+    })),
 
     selectors({
         currentConversationId: [
