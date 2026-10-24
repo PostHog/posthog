@@ -524,6 +524,12 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
+def _organization_plan(team: Team) -> str:
+    if team.organization.has_active_subscription is None:
+        return "unknown"
+    return "paid" if team.organization.has_active_subscription else "free"
+
+
 def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     try:
@@ -532,6 +538,7 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
                 API_QUERIES_BUDGET_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
+                person_properties={"organization_plan": _organization_plan(team)},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -606,6 +613,7 @@ def enforce_api_queries_budget(team: Team) -> None:
                 {
                     "outcome": outcome,
                     "team_id": team.pk,
+                    "organization_plan": _organization_plan(team),
                     "bytes_per_hour": status.spec.bytes_per_hour,
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
@@ -2253,6 +2261,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            self._fill_cached_result_order(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
@@ -3285,6 +3294,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         elif isinstance(self.query, FunnelsQuery):
             return self._apply_funnels_custom_names(cached_response)
         return cached_response, False
+
+    def _fill_cached_result_order(self, cached_response: CR) -> None:
+        """Copy `action.order` to the top level of cached trends, stickiness and lifecycle rows that lack it.
+
+        Stickiness, lifecycle and calendar heatmap rows cached before those runners emitted a top-level `order`
+        carry it only on `action`, and readers take a row's series from the top-level `order`.
+        """
+        if not isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return
+        results = getattr(cached_response, "results", None)
+        if not isinstance(results, list):
+            return
+        for result in results:
+            if not isinstance(result, dict) or "order" in result:
+                continue
+            action = result.get("action")
+            if isinstance(action, dict) and isinstance(action.get("order"), int):
+                result["order"] = action["order"]
 
     def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """Apply custom_name values to TrendsQuery results (nested under action)."""

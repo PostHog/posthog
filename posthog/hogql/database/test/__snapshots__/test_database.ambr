@@ -2749,6 +2749,16 @@
                   "table": null,
                   "type": "string"
               },
+              "prompt_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_version",
+                  "id": null,
+                  "name": "prompt_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "engine": {
                   "chain": null,
                   "fields": null,
@@ -17366,6 +17376,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "prompt_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_version",
+                  "id": null,
+                  "name": "prompt_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "engine": {
                   "chain": null,

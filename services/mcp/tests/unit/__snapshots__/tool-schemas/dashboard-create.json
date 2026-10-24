@@ -93,12 +93,35 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
-        "group_titles": {
+        "groups": {
             "anyOf": [
                 {
                     "additionalProperties": {
-                        "maxLength": 200,
-                        "type": "string"
+                        "properties": {
+                            "collapsed": {
+                                "description": "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it.",
+                                "type": "boolean"
+                            },
+                            "color": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `blue` - Blue\n* `purple` - Purple\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red",
+                                        "enum": ["blue", "purple", "green", "yellow", "orange", "red"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Color of a dot before the group heading. Null or omitted shows no dot.\n\n* `blue` - Blue\n* `purple` - Purple\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red"
+                            },
+                            "title": {
+                                "description": "Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+                                "maxLength": 200,
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
                     },
                     "propertyNames": {
                         "type": "string"
@@ -109,7 +132,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            "description": "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
         },
         "include_dashboards": {
             "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
