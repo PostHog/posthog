@@ -297,6 +297,14 @@ describe("classifyPromptFailure", () => {
     ["boom", "upstream_stream_terminated", "transient", true],
     ["boom", "upstream_connection_error", "transient", true],
     ["boom", "upstream_provider_failure", "transient", true],
+    ["boom", "upstream_rate_limited", "transient", true],
+    ["Rate limit reached", "upstream_rate_limited", "transient", true],
+    [
+      "API Error: 429 user limit exceeded: hour:opus55",
+      "upstream_rate_limited",
+      "usage_limit",
+      false,
+    ],
     ["boom", "upstream_unknown", "unknown", false],
     ["boom", "upstream_request_rejected", "request_rejected", false],
     [
