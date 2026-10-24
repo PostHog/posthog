@@ -15,6 +15,11 @@ SearchPlan = Literal["project_scan", "trigram"]
 # are level for short terms; the largest projects have millions of rows and must keep the index.
 PROJECT_SCAN_MAX_DEFINITIONS = 50_000
 
+# Event search scans the team's `(team_id, name)` index up to this many definitions. The trigram index
+# reads the matches of every project, and each new term can find its posting lists cold, so its cost
+# follows the whole table. The team scan's cost follows only the team's size, and stays in cache across terms.
+EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS = 2_000_000
+
 # Nothing indexes `last_seen_at`, so a recency-ordered event list sorts every definition of the project
 # for each page. Above this many definitions the list defaults to name order, which the unique index
 # returns directly. Below it, the sort stays cheap enough to keep the recency default.
@@ -37,6 +42,7 @@ class ProjectDefinitionScale:
 
     large: bool
     orders_by_name: bool
+    searches_by_trigram: bool
 
 
 def project_definition_scale(
@@ -52,10 +58,11 @@ def project_definition_scale(
     scale = ProjectDefinitionScale(
         large=definition_count > PROJECT_SCAN_MAX_DEFINITIONS,
         orders_by_name=definition_count > NAME_ORDER_MIN_DEFINITIONS,
+        searches_by_trigram=definition_count > EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS,
     )
     # Every reader of the count records it, so a request tells which access path it took.
     span = trace.get_current_span()
-    span.set_attribute("taxonomy_search_plan", "trigram" if scale.large else "project_scan")
+    span.set_attribute("taxonomy_search_plan", "trigram" if scale.searches_by_trigram else "project_scan")
     span.set_attribute("taxonomy_definition_count", definition_count)
     return scale
 
@@ -104,19 +111,22 @@ def _cached_search_plan(table: DefinitionTable, project_id: int, db_alias: str) 
 
 
 def _cached_definition_count(table: Literal["posthog_eventdefinition"], project_id: int, db_alias: str) -> int:
+    limit = max(PROJECT_SCAN_MAX_DEFINITIONS, NAME_ORDER_MIN_DEFINITIONS, EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS) + 1
     # The key is not `taxonomy_search_plan:*`, which holds a plan name, so a release that reads the count
     # never reads an entry an earlier release wrote, in either direction.
-    cache_key = f"taxonomy_definition_count:{table}:{project_id}"
+    # The key holds the limit, so a count that stopped at a lower limit never reads as a full count.
+    cache_key = f"taxonomy_definition_count:{table}:{limit}:{project_id}"
     # A cache outage must only cost the count query, never the search itself.
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
 
-    limit = max(PROJECT_SCAN_MAX_DEFINITIONS, NAME_ORDER_MIN_DEFINITIONS) + 1
     with connections[db_alias].cursor() as cursor:
-        # Ordering by the index key keeps the probe on the project-scoped index; see `bounded_count_sql`.
+        # Ordering by the index key keeps the probe on the team's index; see `bounded_count_sql`.
+        # `team_id` lets that be an index-only scan. The expression index on `COALESCE(project_id, team_id)`
+        # fetches a heap row for each definition.
         cursor.execute(
-            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE COALESCE(project_id, team_id) = %(project_id)s ORDER BY name LIMIT %(limit)s) bounded",
+            f"SELECT count(*) FROM (SELECT 1 FROM {table} WHERE team_id = %(project_id)s ORDER BY name LIMIT %(limit)s) bounded",
             {"project_id": project_id, "limit": limit},
         )
         definition_count = cursor.fetchone()[0]

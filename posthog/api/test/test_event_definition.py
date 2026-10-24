@@ -349,7 +349,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["count"] == expected_count
         assert response.json()["count_is_capped"] is False
-        size_cache_key = f"taxonomy_definition_count:posthog_eventdefinition:{self.demo_team.project_id}"
+        limit = definition_search.EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS + 1
+        size_cache_key = f"taxonomy_definition_count:posthog_eventdefinition:{limit}:{self.demo_team.project_id}"
         assert (cache.get(size_cache_key) is not None) is sizes_the_project
 
     def test_capped_count_is_flagged_and_still_pages(self):
