@@ -13,6 +13,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -26,6 +27,7 @@ import { rankingSortScore } from '../../utils/reportOrdering'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
+import { FirstReportProgress } from '../emptyState/FirstReportProgress'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
@@ -206,6 +208,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  */
 export function ReportsTab(): JSX.Element {
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
+    const { savedState } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
@@ -350,6 +353,14 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
+            {showActivation && savedState?.first_report && (
+                <div className="min-w-0 py-2" data-attr="inbox-first-report-progress">
+                    <FirstReportProgress
+                        result={savedState.first_report}
+                        notificationEmail={savedState.first_report_notification_email}
+                    />
+                </div>
+            )}
 
             {inboxIsEmpty ? (
                 showActivation ? null : (

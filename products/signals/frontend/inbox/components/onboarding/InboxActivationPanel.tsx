@@ -18,7 +18,7 @@ interface InboxActivationPanelProps {
 export function InboxActivationPanel({ hasReports = false }: InboxActivationPanelProps): JSX.Element {
     const { savedState, sourceNames, generalScout, suggestions, recommendationsReady, pollingExpired, currentTeamId } =
         useValues(inboxActivationLogic)
-    const [expanded, setExpanded] = useState(false)
+    const [expanded, setExpanded] = useState(true)
     const { reportRecommendationsShown } = useActions(inboxActivationLogic)
     useEffect(() => {
         captureInboxPanelViewed({ panel: 'onboarding' })
@@ -46,7 +46,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     {expanded ? 'Show less' : 'Explore what’s enabled'}
                 </LemonButton>
             </div>
-            {(!hasReports || expanded) && (
+            {expanded && (
                 <>
                     <div className="flex flex-wrap gap-2">
                         {sourceNames.map((name) => (
@@ -59,7 +59,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                         explore your code and all your data to uncover issues and connect patterns. Reports arrive with
                         evidence and next steps.
                     </p>
-                    {!hasReports && generalScout?.enabled && (
+                    {!hasReports && !savedState?.first_report && generalScout?.enabled && (
                         <p className="m-0 text-sm" aria-live="polite">
                             {jobs?.scout === 'pending'
                                 ? 'Preparing your first general scout run.'
@@ -120,7 +120,7 @@ export function InboxActivationPanel({ hasReports = false }: InboxActivationPane
                     <Spinner />
                     <span>Preparing scout recommendations. They’ll appear here when ready.</span>
                 </div>
-            ) : jobs?.recommendations === 'failed' || jobs?.recommendations === 'skipped' || pollingExpired ? (
+            ) : jobs?.recommendations === 'failed' || pollingExpired ? (
                 <p className="m-0 text-sm text-secondary">
                     <span>
                         {pollingExpired

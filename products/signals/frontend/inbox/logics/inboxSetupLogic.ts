@@ -1239,9 +1239,22 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
         }
     }),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         if (values.currentTeamId) {
             actions.loadSetup()
         }
+        cache.disposables.add(() => {
+            const timer = window.setInterval(() => {
+                if (
+                    values.completed &&
+                    !values.savedStateLoading &&
+                    (values.savedState?.first_report?.status === 'pending' ||
+                        values.savedState?.first_report?.status === 'running')
+                ) {
+                    actions.loadSetup()
+                }
+            }, 10000)
+            return () => window.clearInterval(timer)
+        })
     }),
 ])

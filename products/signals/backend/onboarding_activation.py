@@ -9,8 +9,17 @@ from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
+from products.signals.backend.first_report_experiment import resolve_first_report_experiment
+from products.signals.backend.first_report_scout import (
+    build_first_report_context,
+    first_report_state,
+    set_first_report_state,
+)
+from products.signals.backend.first_report_scout_types import FirstReportStatus
 from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
+from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.suggestions import read_suggestion_settings, suggestions_allowed_for_team
 from products.signals.backend.temporal.agentic.scout_scheduler import start_onboarding_signals_scout_run
@@ -33,6 +42,10 @@ class InboxOnboardingActivation:
                     "job": job,
                     "status": status,
                     "reason": reason,
+                    "experiment_variant": (config.onboarding or {}).get("first_report_variant"),
+                    "first_report_outcome": first_report_state(config.team.parent_team_id or self.team_id).get("status")
+                    if job == "scout" and (config.onboarding or {}).get("first_report_variant")
+                    else None,
                 },
             )
 
@@ -46,13 +59,55 @@ class InboxOnboardingActivation:
             config.save(update_fields=["onboarding", "updated_at"])
             transaction.on_commit(lambda: self._capture_status(config, job, status, reason), robust=True)
 
-    def _start_scout(self, team: Team) -> bool:
+    def _start_scout(self, team: Team, acting_user_id: int | None) -> bool:
+        if resolve_first_report_experiment(team) is None:
+            set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
+            return False
+        if (
+            not InboxOnboardingReconciler.scouts_can_emit(team.id)
+            or check_fleet_gates(team.id)
+            or check_spend_gates(team)
+        ):
+            set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
+            return False
+        if check_run_in_flight(team.id, FIRST_REPORT_SCOUT):
+            return True
+        user = (
+            team.all_users_with_access().filter(pk=acting_user_id, is_active=True).first() if acting_user_id else None
+        )
+        if user is None:
+            set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
+            return False
+        context = build_first_report_context(team, user)
+        if not context.has_data():
+            if context.data_is_unknown():
+                raise RuntimeError("Project data availability is unknown")
+            set_first_report_state(team.id, FirstReportStatus.NO_DATA)
+            return False
+        scout, _ = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+            team_id=team.id,
+            skill_name=FIRST_REPORT_SCOUT,
+            defaults={
+                "enabled": False,
+                "emit": True,
+                "created_by": user,
+                "enabled_by": user,
+                "write_scopes": [],
+            },
+        )
+        set_first_report_state(team.id, FirstReportStatus.PENDING, activation_team_id=self.team_id)
+        start_onboarding_signals_scout_run(
+            sync_connect(), team_id=team.id, skill_name=scout.skill_name, run_note=context.prompt_context()
+        )
+        return True
+
+    def _start_general_scout(self, team: Team) -> bool:
         scout = (
             SignalScoutConfig.objects.for_team(team.id)
             .filter(skill_name="signals-scout-general", enabled=True, emit=True)
             .first()
         )
-        if scout is None or check_fleet_gates(team.id) or check_spend_gates(team):
+        if not scout or check_fleet_gates(team.id) or check_spend_gates(team):
             return False
         if check_run_in_flight(team.id, scout.skill_name):
             return True
@@ -77,21 +132,27 @@ class InboxOnboardingActivation:
             team_id=self.team_id
         )
         state = config.onboarding or {}
-        if state.get("variant") != "test-github" or not state.get("completed_at"):
+        if state.get("variant") not in ("test-github", "test-ui") or not state.get("completed_at"):
             return
         if state.get("jobs", {}).get(job) in ("started", "skipped"):
             return
         team = config.team.parent_team or config.team
+        first_report = job == "scout" and bool(state.get("first_report_variant"))
         if team.organization.is_ai_data_processing_approved is not True:
+            if first_report:
+                set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
             self._record_status(job, "skipped", "ai_consent_required")
             return
         try:
-            started = (
-                self._start_scout(team)
-                if job == "scout"
-                else self._start_recommendations(team, state.get("activated_by"))
-            )
+            if first_report:
+                started = self._start_scout(team, state.get("activated_by"))
+            elif job == "scout":
+                started = state.get("variant") == "test-github" and self._start_general_scout(team)
+            else:
+                started = self._start_recommendations(team, state.get("activated_by"))
         except Exception:
+            if first_report and final_attempt:
+                set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
             self._record_status(job, "failed" if final_attempt else "pending", "dispatch_error")
             raise
         self._record_status(job, "started" if started else "skipped", None if started else "not_eligible")
