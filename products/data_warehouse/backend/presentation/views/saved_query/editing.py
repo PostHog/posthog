@@ -412,7 +412,7 @@ class DataWarehouseSavedQuerySerializer(
                 with transaction.atomic():
                     modeling_api.sync_saved_query_to_dag(view)
             except Exception as e:
-                _capture_unless_user_error(e)
+                capture_exception(e)
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
             if sync_frequency is not None:
@@ -605,7 +605,7 @@ class DataWarehouseSavedQuerySerializer(
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
                 except Exception as e:
-                    _capture_unless_user_error(e)
+                    capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
 
