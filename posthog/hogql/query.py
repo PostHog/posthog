@@ -233,7 +233,11 @@ class HogQLQueryExecutor:
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
-                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
+                placeholders: dict[str, Any] = self.placeholders
+                if self.variables:
+                    variable_values = {variable.code_name: variable.value for variable in self.variables.values()}
+                    placeholders = {"variables": variable_values, **self.placeholders}
+                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, placeholders))
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_limit")
     def _apply_limit(self):
