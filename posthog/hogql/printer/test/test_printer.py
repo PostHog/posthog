@@ -3297,6 +3297,44 @@ class TestPrinter(BaseTest):
         assert "parseDateTime64BestEffort" not in printed, printed
         assert printed.startswith(expected_prefix), printed
 
+    @parameterized.expand(
+        [
+            (
+                "aggregated_array",
+                "SELECT toDate(d) AS day FROM (SELECT groupArrayIf(timestamp, event = 'a') AS ds FROM events) ARRAY JOIN ds AS d",
+                "toDate(d)",
+            ),
+            (
+                "nullable_items",
+                "SELECT toDate(d) AS day FROM (SELECT [toDateTime('2026-10-18 12:00:00'), NULL] AS ds) ARRAY JOIN ds AS d",
+                "toDate(d)",
+            ),
+            (
+                "where_clause",
+                "SELECT 1 FROM (SELECT groupArray(timestamp) AS ds FROM events) ARRAY JOIN ds AS d WHERE toDate(d) = today()",
+                "toDate(d)",
+            ),
+            (
+                "tuple_item",
+                "SELECT toDate(p.2) AS day FROM (SELECT groupArray((event, timestamp)) AS ps FROM events) ARRAY JOIN ps AS p",
+                "toDate(p.2)",
+            ),
+            (
+                "tuple_lambda",
+                "SELECT arrayMap((e, t) -> toDate(t), groupArray(event), groupArray(timestamp)) AS days FROM events",
+                "toDate(t)",
+            ),
+            (
+                "string_items",
+                "SELECT toDate(d) AS day FROM (SELECT groupArray(toString(timestamp)) AS ds FROM events) ARRAY JOIN ds AS d",
+                "toDateOrNull(d)",
+            ),
+        ]
+    )
+    def test_date_conversion_of_an_array_join_item_uses_the_item_type(self, _name: str, query: str, expected: str):
+        printed = self._select(query)
+        assert expected in printed, printed
+
     def test_window_functions(self):
         self.assertEqual(
             self._select(

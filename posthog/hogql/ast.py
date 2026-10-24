@@ -212,6 +212,19 @@ class FieldAliasType(Type):
         raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
+@dataclass(kw_only=True, slots=True, frozen=False)
+class ArrayJoinAliasType(FieldAliasType):
+    """An ARRAY JOIN alias holds one item of its array expression, not the whole array."""
+
+    def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        constant_type = self.type.resolve_constant_type(context)
+        if isinstance(constant_type, ArrayType):
+            return constant_type.item_type
+        if isinstance(constant_type, StringArrayType):
+            return StringType(nullable=False)
+        return UnknownType()
+
+
 @dataclass(kw_only=True, slots=True)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
