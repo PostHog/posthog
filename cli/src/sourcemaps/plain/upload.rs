@@ -591,7 +591,10 @@ fn restore_staged(staged: &Path, path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{sourcemaps::inject::inject_pairs, utils::files::FileSelection};
+    use crate::{
+        sourcemaps::{content::build_code_snippet, inject::inject_pairs},
+        utils::files::FileSelection,
+    };
     use clap::Parser;
     use posthog_symbol_data::{read_symbol_data, SourceAndMap};
 
@@ -624,13 +627,19 @@ mod tests {
     fn cleanup_strips_references_and_deletes_maps() {
         let dir = tempfile::tempdir().unwrap();
         let (source_path, map_path) = write_pair(dir.path(), "chunk");
-        let pairs = read_dir_pairs(dir.path());
+        let release_id = "0199f7c2-1c4e-7c3a-9f8b-2d6e4a1b7c05";
+        let pairs = inject_pairs(read_dir_pairs(dir.path()), Some(release_id)).unwrap();
+        pairs[0].save().unwrap();
+        let chunk_id = pairs[0].get_chunk_id().unwrap();
         let target = cleanup_target(&pairs[0]).unwrap();
 
         cleanup_pairs(vec![target]).unwrap();
 
-        let stripped = std::fs::read_to_string(&source_path).unwrap();
-        assert!(!stripped.contains("sourceMappingURL"), "{stripped}");
+        let snippet = build_code_snippet(&chunk_id, Some(release_id)).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&source_path).unwrap(),
+            format!("{snippet}console.log(1);\n\n//# chunkId={chunk_id}")
+        );
         assert!(!map_path.exists());
     }
 
