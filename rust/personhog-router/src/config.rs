@@ -223,6 +223,10 @@ pub struct Config {
     #[envconfig(default = "router-0")]
     pub pod_name: String,
 
+    /// Node this pod runs on (K8s downward API); empty leaves the router's zone unknown
+    #[envconfig(default = "")]
+    pub k8s_node_name: String,
+
     /// Registration lease TTL. A crashed router stays in every freeze
     /// quorum until this expires, stalling any handoff frozen in that
     /// window — keep it short. Graceful exits deregister immediately.
