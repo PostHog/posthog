@@ -757,6 +757,25 @@ class TestModalSandboxAgentServer:
         assert barrier < marker < process
         assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
 
+    def test_start_agent_server_launches_before_repository_when_supported(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            repo_ready_file="/tmp/workspace/.repo-ready",
+            wait_for_health=False,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert "while [ ! -f" not in command
+        assert "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N) &&" in command
+        assert "--repoReadyFile /tmp/workspace/.repo-ready" in command
+
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
