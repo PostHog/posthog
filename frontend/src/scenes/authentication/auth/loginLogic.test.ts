@@ -4,12 +4,13 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { handleLoginRedirect, loginLogic, redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { handleLoginRedirect, loginLogic, redirectAfterLogin } from './loginLogic'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 jest.mock('posthog-js')
@@ -276,7 +277,7 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('skips a redundant precheck for an already-resolved email but re-runs for a new one', async () => {
+        it('skips a redundant precheck for an already-resolved or in-flight email but re-runs for a new one', async () => {
             logic.actions.precheck({ email: 'a@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             logic.actions.precheck({ email: 'a@example.com' })
@@ -286,6 +287,15 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'b@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess'])
             expect(precheckHandler).toHaveBeenCalledTimes(2)
+
+            logic.actions.precheck({ email: 'c@example.com' })
+            logic.actions.precheck({ email: 'c@example.com' })
+            await expectLogic(logic)
+                .toDispatchActions(['precheckSuccess'])
+                .toMatchValues({
+                    precheckResponse: expect.objectContaining({ email: 'c@example.com', status: 'completed' }),
+                })
+            expect(precheckHandler).toHaveBeenCalledTimes(3)
         })
 
         it('prechecks the latest email only after typing pauses for 3 seconds', async () => {

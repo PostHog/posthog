@@ -5,22 +5,28 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { Signup } from './Signup'
+import { Auth } from './Auth'
 
-describe('Signup', () => {
+describe('Auth', () => {
     let signupRequestBody: Record<string, any> | null
+    let accountExists: boolean
 
     beforeEach(() => {
         signupRequestBody = null
+        accountExists = false
         useMocks({
             get: {
+                // An instance that cannot create organizations sends unknown emails to the login step
+                '/_preflight': () => [200, { ...preflightJson, can_create_org: true }],
                 // The form only renders for a logged-out user
                 '/api/users/@me/': () => [401, { detail: 'Not authenticated' }],
             },
             post: {
+                '/api/login/precheck': () => [200, { account_exists: accountExists, saml_available: false }],
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
                 // 400 rather than 201 so the submit handler never assigns `location.href`,
                 // which jsdom does not implement. The request body is captured before the response.
@@ -37,7 +43,7 @@ describe('Signup', () => {
         router.actions.push('/signup')
         render(
             <Provider>
-                <Signup />
+                <Auth />
             </Provider>
         )
     })
@@ -74,11 +80,19 @@ describe('Signup', () => {
         await userEvent.click(screen.getByTestId('signup-submit'))
     }
 
-    it('submitting without an email shows the error and stays on the email panel', async () => {
+    it('submitting without an email shows the error and stays on the email step', async () => {
         await submitEmail('')
 
         expect(await screen.findByText('Please enter your email to continue')).toBeVisible()
         expect(screen.getByTestId('signup-email')).toBeInTheDocument()
+    })
+
+    it('sends an email that already has an account to the password step instead of signup', async () => {
+        accountExists = true
+        await submitEmail('test@example.com')
+
+        expect(await screen.findByTestId('password-login')).toBeInTheDocument()
+        expect(screen.queryByTestId('signup-auth-continue')).not.toBeInTheDocument()
     })
 
     it('a too-short password blocks the auth panel; a valid one advances to onboarding', async () => {
@@ -93,17 +107,17 @@ describe('Signup', () => {
         expect(await screen.findByTestId('signup-name')).toBeInTheDocument()
     })
 
-    // The panels are the only place the three forms get wired to the logic, so this walkthrough
+    // The steps are the only place the signup forms get wired to the logics, so this walkthrough
     // guards that wiring. The payload shaping itself is covered in signupLogic.test.ts.
-    it('walks all three panels and posts what was typed into them', async () => {
-        await submitEmail('test@example.com')
+    it('walks a new email through every signup step and posts what was typed into them', async () => {
+        await submitEmail('Test@Example.com')
         await submitPassword('Str0ng-Test-Pass!')
         await fillOnboardingAndSubmit({ name: 'Alice Bob', organizationName: 'Hogflix SpinOff' })
 
         await waitFor(() => {
             expect(signupRequestBody).not.toBeNull()
         })
-        expect(signupRequestBody?.email).toBe('test@example.com')
+        expect(signupRequestBody?.email).toBe('Test@Example.com')
         expect(signupRequestBody?.password).toBe('Str0ng-Test-Pass!')
         expect(signupRequestBody?.first_name).toBe('Alice')
         expect(signupRequestBody?.last_name).toBe('Bob')

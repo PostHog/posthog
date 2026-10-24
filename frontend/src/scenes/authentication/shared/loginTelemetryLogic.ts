@@ -1,7 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus } from '~/types'
@@ -32,9 +32,9 @@ let reportedError: { code: string; detail: string } | null = null
  * matches, when an action is renamed, or when a logic's module moves.
  */
 export const LISTENED_ACTIONS = {
-    submitLoginRequest: 'submit login request (scenes.authentication.login.loginLogic)',
-    loginError: 'set general error (scenes.authentication.login.loginLogic)',
-    codeVerificationFailure: 'submit code verification failure (scenes.authentication.login.loginLogic)',
+    submitLoginRequest: 'submit login request (scenes.authentication.auth.loginLogic)',
+    loginError: 'set general error (scenes.authentication.auth.loginLogic)',
+    codeVerificationFailure: 'submit code verification failure (scenes.authentication.auth.loginLogic)',
     twoFactorError: 'set general error (scenes.authentication.login-2fa.login2FALogic)',
     resetRequested: 'submit request password reset success (scenes.authentication.password-reset.passwordResetLogic)',
 } as const
