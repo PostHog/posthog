@@ -6121,6 +6121,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.abortAnyRunningQuery()
             abortWidgetLoads(cache)
             abortGroupLoads(cache)
+            // Otherwise the reload after a tab switch restarts the loads the viewer just stopped.
+            cache.disposables.dispose('stoppedTileLoadsReload')
+            cache.stoppedTileLoadsSettled = undefined
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId, dashboardLoadData } = values
