@@ -12,6 +12,7 @@ function makeRecord(
         meta?: unknown
         options?: PermissionOption[]
         questions?: AgentQuestion[]
+        persistsApproval?: boolean
     } = {}
 ): PermissionRequestRecord {
     const rawToolCall: ToolInvocation = {
@@ -30,6 +31,7 @@ function makeRecord(
         options: overrides.options ?? [{ optionId: 'allow', name: 'Yes', kind: 'allow_once' }],
         rawToolCall,
         ...(overrides.questions ? { questions: overrides.questions } : {}),
+        ...(overrides.persistsApproval ? { persistsApproval: true } : {}),
     }
 }
 
@@ -116,6 +118,16 @@ describe('toolPolicy', () => {
                     rawToolName: '',
                     meta: { claudeCode: { toolName: 'AskUserQuestion' } },
                     questions: [{ question: 'Pick one', multiSelect: false, options: [{ label: 'A' }] }],
+                }),
+                'prompt',
+            ],
+            [
+                'saved approval for a posthog-named exec',
+                makeRecord({
+                    toolName: 'mcp__posthog_custom__exec',
+                    rawServerName: 'posthog_custom',
+                    input: { command: 'tools' },
+                    persistsApproval: true,
                 }),
                 'prompt',
             ],

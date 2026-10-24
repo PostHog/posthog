@@ -14,6 +14,7 @@ import type { Logger } from "../../utils/logger";
 import { stripCatLineNumbers } from "./conversion/sdk-to-acp";
 import type { TaskState } from "./conversion/task-state";
 import { neutralizeUnprocessableImages } from "./image-sanitization";
+import { getMcpToolApprovalState } from "./mcp/tool-metadata";
 import type { SettingsManager } from "./session/settings";
 import type { CodeExecutionMode } from "./tools";
 
@@ -421,6 +422,22 @@ export const createPreToolUseHook =
           },
         };
       }
+    }
+
+    // bypassPermissions skips canUseTool, so force "ask" to keep the
+    // needs_approval prompt there in every mode.
+    if (
+      permissionCheck.decision !== "deny" &&
+      getMcpToolApprovalState(toolName) === "needs_approval"
+    ) {
+      return {
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse" as const,
+          permissionDecision: "ask" as const,
+          permissionDecisionReason: `MCP tool '${toolName}' needs approval`,
+        },
+      };
     }
 
     switch (permissionCheck.decision) {

@@ -6875,19 +6875,10 @@ describe('runStreamLogic', () => {
                 )
             })
 
-            it('still surfaces a connected-project operation', async () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage(
-                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
-                )
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-connected-project',
+            it.each([
+                {
+                    label: 'a connected-project operation',
                     toolCall: {
-                        ...permissionFrame.toolCall,
                         serverName: 'posthog',
                         toolName: 'exec',
                         _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
@@ -6895,13 +6886,22 @@ describe('runStreamLogic', () => {
                             command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
                         },
                     },
-                })
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-connected-project')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
-
-            it('still surfaces a question in full-auto instead of picking an answer', async () => {
+                },
+                {
+                    label: 'a question instead of picking an answer',
+                    toolCall: {
+                        _meta: {
+                            codeToolKind: 'question',
+                            questions: [{ question: 'Which goal?', options: [{ label: 'A' }, { label: 'B' }] }],
+                        },
+                        rawInput: {},
+                    },
+                },
+                {
+                    label: 'an approval saved beyond the run',
+                    toolCall: { _meta: { claudeCode: { toolName: 'mcp__other__write' }, persistsApproval: true } },
+                },
+            ])('still surfaces $label', async ({ toolCall }) => {
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -6911,18 +6911,11 @@ describe('runStreamLogic', () => {
                 )
                 await source.emitMessage({
                     ...permissionFrame,
-                    requestId: 'req-question-fa',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        _meta: {
-                            codeToolKind: 'question',
-                            questions: [{ question: 'Which goal?', options: [{ label: 'A' }, { label: 'B' }] }],
-                        },
-                        rawInput: {},
-                    },
+                    requestId: 'req-surfaced',
+                    toolCall: { ...permissionFrame.toolCall, ...toolCall },
                 })
 
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-question-fa')
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-surfaced')
                 expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
         })

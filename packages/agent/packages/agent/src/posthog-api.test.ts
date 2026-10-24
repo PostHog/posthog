@@ -9,6 +9,8 @@ vi.stubGlobal("fetch", mockFetch);
 describe("PostHogAPIClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Drops queued once-responses a failing test left behind.
+    mockFetch.mockReset();
   });
 
   afterEach(() => {
@@ -175,32 +177,69 @@ describe("PostHogAPIClient", () => {
           description: "Search resources",
         },
       ],
+      failedServers: [],
     });
   });
 
-  it("omits a managed MCP server when its policies cannot be loaded", async () => {
-    const client = new PostHogAPIClient({
-      apiUrl: "https://app.posthog.com",
-      getApiKey: vi.fn().mockResolvedValue("token"),
-      projectId: 7,
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: "Server error",
-      json: vi.fn().mockResolvedValue({ detail: "failed" }),
-    });
+  it.each([
+    {
+      label: "loads a managed MCP server after transient failures",
+      failures: 2,
+      succeeds: true,
+      expected: { serverNames: ["flaky"], policyCount: 1, failedServers: [] },
+    },
+    {
+      label: "omits and reports a managed MCP server once retries run out",
+      failures: 3,
+      succeeds: false,
+      expected: { serverNames: [], policyCount: 0, failedServers: ["flaky"] },
+    },
+  ])("$label", async ({ failures, succeeds, expected }) => {
+    vi.useFakeTimers();
+    try {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      for (let i = 0; i < failures; i++) {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: "Unavailable",
+          json: vi.fn().mockResolvedValue({ detail: "failed" }),
+        });
+      }
+      if (succeeds) {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            results: [
+              { tool_name: "search", approval_state: "needs_approval" },
+            ],
+          }),
+        });
+      }
 
-    const configuration = await client.getMcpRuntimeConfiguration([
-      {
-        type: "http",
-        name: "broken",
-        url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
-        headers: [],
-      },
-    ]);
+      const pending = client.getMcpRuntimeConfiguration([
+        {
+          type: "http",
+          name: "flaky",
+          url: "https://app.posthog.com/api/environments/7/mcp_server_installations/installation-1/proxy/",
+          headers: [],
+        },
+      ]);
+      await vi.runAllTimersAsync();
+      const configuration = await pending;
 
-    expect(configuration).toEqual({ servers: [], policies: [] });
+      expect({
+        serverNames: configuration.servers.map((server) => server.name),
+        policyCount: configuration.policies.length,
+        failedServers: configuration.failedServers,
+      }).toEqual(expected);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("downloads artifacts through the backend endpoint", async () => {

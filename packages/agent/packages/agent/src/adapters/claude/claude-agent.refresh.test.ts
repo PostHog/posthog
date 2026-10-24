@@ -75,12 +75,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 const fetchMcpToolMetadataMock = vi.fn().mockResolvedValue(undefined);
 const clearMcpToolMetadataCacheMock = vi.fn();
-vi.mock("./mcp/tool-metadata", () => ({
-  fetchMcpToolMetadata: fetchMcpToolMetadataMock,
-  getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
-  getCachedMcpTools: vi.fn().mockReturnValue([]),
-  clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
-}));
+vi.mock("./mcp/tool-metadata", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./mcp/tool-metadata")>();
+  clearMcpToolMetadataCacheMock.mockImplementation(
+    actual.clearMcpToolMetadataCache,
+  );
+  return {
+    ...actual,
+    fetchMcpToolMetadata: fetchMcpToolMetadataMock,
+    getConnectedMcpServerNames: vi.fn().mockReturnValue([]),
+    getCachedMcpTools: vi.fn().mockReturnValue([]),
+    clearMcpToolMetadataCache: clearMcpToolMetadataCacheMock,
+  };
+});
+const { getMcpToolApprovalState, setMcpToolApprovalStates } = await import(
+  "./mcp/tool-metadata"
+);
 
 // Import after the mocks so ClaudeAcpAgent resolves the mocked SDK
 const { ClaudeAcpAgent } = await import("./claude-agent");
@@ -744,16 +754,36 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     expect(servers["posthog-code-tools"].instance).toEqual({ fresh: 1 });
   });
 
-  it("clears the MCP tool metadata cache on refresh", async () => {
-    const { agent } = makeAgent();
-    installFakeSession(agent, "s-cache");
+  it.each([
+    {
+      label: "keeps approval states when the refresh carries none",
+      mcpToolApprovals: undefined,
+      expected: { old: "needs_approval", fresh: undefined },
+    },
+    {
+      label: "replaces approval states with the ones the refresh carries",
+      mcpToolApprovals: { mcp__metrics__list_stats: "needs_approval" },
+      expected: { old: undefined, fresh: "needs_approval" },
+    },
+  ])(
+    "clears the MCP tool metadata cache on refresh and $label",
+    async ({ mcpToolApprovals, expected }) => {
+      const { agent } = makeAgent();
+      installFakeSession(agent, "s-cache");
+      setMcpToolApprovalStates({ mcp__metrics__get_stats: "needs_approval" });
 
-    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
-      mcpServers: freshMcpServers,
-    });
+      await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+        mcpServers: freshMcpServers,
+        ...(mcpToolApprovals && { mcpToolApprovals }),
+      });
 
-    expect(clearMcpToolMetadataCacheMock).toHaveBeenCalledTimes(1);
-  });
+      expect({
+        cleared: clearMcpToolMetadataCacheMock.mock.calls.length,
+        old: getMcpToolApprovalState("mcp__metrics__get_stats"),
+        fresh: getMcpToolApprovalState("mcp__metrics__list_stats"),
+      }).toEqual({ cleared: 1, ...expected });
+    },
+  );
 });
 
 const DISCONNECTED_STATUS = [{ name: "posthog-code-tools", status: "failed" }];

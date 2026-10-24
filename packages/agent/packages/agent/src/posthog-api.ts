@@ -6,6 +6,7 @@ import {
   type McpToolPolicy,
   PostHogHttpClient,
   type StoredLogEntry,
+  sleepWithBackoff,
   type TaskRunUpdate,
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
@@ -52,6 +53,8 @@ export class CodexSubscriptionTokenError extends Error {
   }
 }
 
+const MCP_TOOLS_FETCH_RETRIES = 2;
+
 export class PostHogAPIError extends Error {
   constructor(
     message: string,
@@ -70,9 +73,14 @@ export class PostHogAPIError extends Error {
   }
 }
 
+interface CurrentUser {
+  id?: number;
+  distinct_id?: string;
+}
+
 export class PostHogAPIClient {
   private readonly http: PostHogHttpClient;
-  private userNode: string | null | undefined;
+  private currentUser: CurrentUser | undefined;
 
   constructor(readonly config: PostHogAPIConfig) {
     this.http = new PostHogHttpClient(config, {
@@ -141,22 +149,28 @@ export class PostHogAPIClient {
    * doesn't permanently disable the spend-limit header.
    */
   async getUserNode(): Promise<string | null> {
-    if (this.userNode !== undefined) return this.userNode;
+    const user = await this.getCurrentUser();
+    if (!user) return null;
+    return user.distinct_id || (user.id != null ? `user_${user.id}` : null);
+  }
+
+  /** The id of the user the credential acts as, or null when it resolves to none. */
+  async getUserId(): Promise<number | null> {
+    return (await this.getCurrentUser())?.id ?? null;
+  }
+
+  private async getCurrentUser(): Promise<CurrentUser | null> {
+    if (this.currentUser !== undefined) return this.currentUser;
     try {
-      const user = await this.apiRequest<{
-        id?: number;
-        distinct_id?: string;
-      }>("/api/users/@me/", {
-        // Best-effort header on session start: bound the request so a stalled
+      this.currentUser = await this.apiRequest<CurrentUser>("/api/users/@me/", {
+        // Best-effort lookup on session start: bound the request so a stalled
         // socket can't hold up the run. The catch below then returns null.
         signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
       });
-      this.userNode =
-        user.distinct_id || (user.id != null ? `user_${user.id}` : null);
     } catch {
       return null;
     }
-    return this.userNode;
+    return this.currentUser;
   }
 
   async getTask(taskId: string): Promise<Task> {
@@ -166,7 +180,12 @@ export class PostHogAPIClient {
 
   async getMcpRuntimeConfiguration(
     servers: McpServerConnection[],
-  ): Promise<{ servers: McpServerConnection[]; policies: McpToolPolicy[] }> {
+    signal?: AbortSignal,
+  ): Promise<{
+    servers: McpServerConnection[];
+    policies: McpToolPolicy[];
+    failedServers: string[];
+  }> {
     const resolved = await Promise.all(
       servers.map(async (server) => {
         const installationId = this.mcpInstallationId(server.url);
@@ -175,14 +194,9 @@ export class PostHogAPIClient {
         }
 
         try {
-          const response = await this.apiRequest<{
-            results?: Array<{
-              tool_name: string;
-              approval_state?: McpToolApprovalState;
-              description?: string;
-            }>;
-          }>(
-            `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+          const response = await this.getMcpInstallationTools(
+            installationId,
+            signal,
           );
           const policies = (response.results ?? []).flatMap((tool) =>
             tool.approval_state
@@ -209,7 +223,40 @@ export class PostHogAPIClient {
     return {
       servers: resolved.flatMap((entry) => (entry ? [entry.server] : [])),
       policies: resolved.flatMap((entry) => entry?.policies ?? []),
+      failedServers: servers.flatMap((server, index) =>
+        resolved[index] ? [] : [server.name],
+      ),
     };
+  }
+
+  private async getMcpInstallationTools(
+    installationId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    results?: Array<{
+      tool_name: string;
+      approval_state?: McpToolApprovalState;
+      description?: string;
+    }>;
+  }> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.apiRequest(
+          `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+          { signal },
+        );
+      } catch (error) {
+        // A timeout is not retried: it already spent the full transfer budget.
+        const transient =
+          (error instanceof PostHogAPIError && error.retryable) ||
+          error instanceof TypeError;
+        if (!transient || attempt >= MCP_TOOLS_FETCH_RETRIES) throw error;
+        await sleepWithBackoff(attempt, {
+          initialDelayMs: 250,
+          maxDelayMs: 1000,
+        });
+      }
+    }
   }
 
   async approveMcpTool(

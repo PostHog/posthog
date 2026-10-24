@@ -3173,6 +3173,245 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).toHaveBeenCalledOnce();
     });
 
+    const RUN_USER_ID = 7;
+
+    function withNeedsApprovalTool(testServer: AgentServer) {
+      const approveMcpTool = vi.fn(async () => {});
+      const exposed = testServer as unknown as {
+        mcpToolPolicies: Map<string, unknown>;
+        posthogAPI: {
+          approveMcpTool: typeof approveMcpTool;
+          getUserId: () => Promise<number>;
+        };
+        productLaunch: { originProduct?: string };
+      };
+      exposed.productLaunch = {
+        ...exposed.productLaunch,
+        originProduct: "posthog_ai",
+      };
+      exposed.mcpToolPolicies = new Map([
+        [
+          "mcp__metrics__get_stats",
+          {
+            serverName: "metrics",
+            toolName: "get_stats",
+            installationId: "installation-1",
+            approvalState: "needs_approval",
+          },
+        ],
+      ]);
+      exposed.posthogAPI.approveMcpTool = approveMcpTool;
+      exposed.posthogAPI.getUserId = async () => RUN_USER_ID;
+      return approveMcpTool;
+    }
+
+    /** Raises the approval prompt and answers it through the `/command` path as `userId`. */
+    async function answerApproval(
+      testServer: ReturnType<typeof exposeCloudClient>,
+      optionId: string,
+      userId: number,
+    ) {
+      testServer.session = {
+        hasDesktopConnected: true,
+        payload: { run_id: "run-1" },
+        logWriter: { appendRawLine: vi.fn() },
+      } as never;
+      const commandServer = testServer as unknown as {
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+          caller: { user_id: number },
+        ): Promise<unknown>;
+      };
+      const { requestPermission } = testServer.createCloudClient(basePayload);
+      const result = requestPermission(
+        approvalRequestFor("mcp__metrics__get_stats"),
+      );
+      await vi.waitFor(() =>
+        expect(testServer.pendingPermissions.size).toBe(1),
+      );
+      const [requestId] = testServer.pendingPermissions.keys();
+      await commandServer.executeCommand(
+        "permission_response",
+        { requestId, optionId },
+        { user_id: userId },
+      );
+      return result;
+    }
+
+    function approvalRequestFor(mcpToolName: string) {
+      return {
+        ...permissionRequestFor(mcpToolName),
+        options: [
+          { optionId: "allow", kind: "allow_once" },
+          { optionId: "allow_always", kind: "allow_always" },
+          { optionId: "reject", kind: "reject_once" },
+        ],
+      };
+    }
+
+    function policyFor(serverName: string, installationId: string) {
+      return {
+        serverName,
+        toolName: "get.metrics",
+        installationId,
+        approvalState: "needs_approval",
+      };
+    }
+
+    it.each([
+      {
+        label: "keys loaded approvals by the sanitized names the SDK reports",
+        policies: [policyFor("Datadog (EU)", "installation-1")],
+        expected: { mcp__Datadog__EU___get_metrics: "needs_approval" },
+      },
+      {
+        label: "skips a key that two installations sanitize to",
+        policies: [
+          policyFor("metrics one", "installation-1"),
+          policyFor("metrics_one", "installation-2"),
+        ],
+        expected: {},
+      },
+    ])("$label", async ({ policies, expected }) => {
+      const testServer = createServer() as unknown as {
+        posthogAPI: { getMcpRuntimeConfiguration: unknown };
+        loadMcpToolPolicies: (servers: unknown[]) => Promise<unknown>;
+        applyMcpToolPolicies: (policies: unknown) => Record<string, string>;
+      };
+      testServer.posthogAPI.getMcpRuntimeConfiguration = vi.fn(async () => ({
+        servers: [],
+        policies,
+        failedServers: [],
+      }));
+
+      expect(
+        testServer.applyMcpToolPolicies(
+          await testServer.loadMcpToolPolicies([]),
+        ),
+      ).toEqual(expected);
+    });
+
+    it.each([
+      {
+        label: "the run's user allows",
+        optionId: "allow",
+        userId: RUN_USER_ID,
+        outcome: { outcome: "selected", optionId: "allow" },
+        saved: true,
+      },
+      {
+        label: "the run's user declines",
+        optionId: "reject",
+        userId: RUN_USER_ID,
+        outcome: { outcome: "selected", optionId: "reject" },
+        saved: false,
+      },
+      {
+        label: "a teammate allows",
+        optionId: "allow",
+        userId: RUN_USER_ID + 1,
+        outcome: { outcome: "cancelled" },
+        saved: false,
+      },
+    ])(
+      "relays one labeled allow and saves the approval only when $label",
+      async ({ optionId, userId, outcome, saved }) => {
+        const testServer = exposeCloudClient(createServer());
+        const approveMcpTool = withNeedsApprovalTool(
+          testServer as unknown as AgentServer,
+        );
+        const relaySpy = vi.spyOn(
+          testServer as unknown as {
+            awaitPermissionAnswer: (params: unknown) => Promise<unknown>;
+          },
+          "awaitPermissionAnswer",
+        );
+
+        const result = await answerApproval(testServer, optionId, userId);
+
+        const relayed = relaySpy.mock.calls[0][0] as {
+          options: Array<{ kind: string; name?: string }>;
+          toolCall: { _meta?: { persistsApproval?: boolean } };
+        };
+        expect({
+          relayed: relayed.options.map(({ kind, name }) => ({ kind, name })),
+          persistsApproval: relayed.toolCall._meta?.persistsApproval,
+          outcome: result.outcome,
+          saved: approveMcpTool.mock.calls.length > 0,
+        }).toEqual({
+          relayed: [
+            {
+              kind: "allow_once",
+              name: "Yes, and approve this tool in PostHog",
+            },
+            { kind: "reject_once", name: undefined },
+          ],
+          persistsApproval: true,
+          outcome,
+          saved,
+        });
+      },
+    );
+
+    it("cancels instead of allowing when saving the approval fails", async () => {
+      const testServer = exposeCloudClient(createServer());
+      withNeedsApprovalTool(
+        testServer as unknown as AgentServer,
+      ).mockRejectedValue(new Error("403"));
+
+      const result = await answerApproval(testServer, "allow", RUN_USER_ID);
+
+      expect(result.outcome).toEqual({ outcome: "cancelled" });
+    });
+
+    it.each([
+      {
+        label: "a background run",
+        mode: "background" as const,
+        connected: true,
+        originProduct: "posthog_ai",
+      },
+      {
+        label: "an interactive run with no client",
+        mode: "interactive" as const,
+        connected: false,
+        originProduct: "posthog_ai",
+      },
+      {
+        label: "a Slack run whose prompts are auto-answered",
+        mode: "interactive" as const,
+        connected: true,
+        originProduct: "slack",
+      },
+    ])(
+      "cancels a needs_approval MCP tool in $label instead of relaying it",
+      async ({ mode, connected, originProduct }) => {
+        const testServer = exposeCloudClient(createServer());
+        withNeedsApprovalTool(testServer as unknown as AgentServer);
+        testServer.session = { hasDesktopConnected: connected };
+        testServer.eventStreamSender = null;
+        const exposed = testServer as unknown as {
+          productLaunch: { originProduct?: string };
+        };
+        exposed.productLaunch = { ...exposed.productLaunch, originProduct };
+        const relaySpy = vi.spyOn(testServer, "relayPermissionToClient");
+
+        const { requestPermission } = testServer.createCloudClient({
+          ...basePayload,
+          mode,
+        });
+        const result = await requestPermission(
+          approvalRequestFor("mcp__metrics__get_stats"),
+        );
+
+        expect({
+          outcome: result.outcome,
+          relayed: relaySpy.mock.calls.length,
+        }).toEqual({ outcome: { outcome: "cancelled" }, relayed: 0 });
+      },
+    );
+
     // Codex registers servers under sanitized keys (its name pattern rejects
     // e.g. spaces) and suffixes collisions, so the always-ask gate must match
     // both forms; missing the suffixed one auto-runs a relayed local tool.
@@ -3483,7 +3722,10 @@ describe("AgentServer HTTP Mode", () => {
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
-        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          getTaskRun: ReturnType<typeof vi.fn>;
+          getMcpRuntimeConfiguration: ReturnType<typeof vi.fn>;
+        };
         contextSelectionAPI: PostHogAPIClient;
         handleAcpTransportMessage(message: unknown): void;
         executeCommand(
@@ -3512,6 +3754,11 @@ describe("AgentServer HTTP Mode", () => {
         getTaskRun: vi.fn(async () => {
           throw new Error("run fetch unavailable");
         }),
+        getMcpRuntimeConfiguration: vi.fn(async () => ({
+          servers: [],
+          policies: [],
+          failedServers: [],
+        })),
       };
     }
 
@@ -3634,6 +3881,40 @@ describe("AgentServer HTTP Mode", () => {
         mcpServers: Array<Record<string, unknown>>;
       };
       expect(forwarded.mcpServers[0]).not.toHaveProperty("description");
+
+      testServer.session = null;
+    });
+
+    it("reloads MCP tool approvals for the refreshed server list", async () => {
+      const testServer = exposeRefresh(createServer());
+      const extMethod = vi.fn(async () => ({ refreshed: true }));
+      attachSession(testServer, extMethod);
+      testServer.mcpRelayServer = null;
+      testServer.posthogAPI.getMcpRuntimeConfiguration.mockResolvedValue({
+        servers: [],
+        policies: [
+          {
+            serverName: "metrics",
+            toolName: "get_stats",
+            installationId: "installation-2",
+            approvalState: "needs_approval",
+          },
+        ],
+        failedServers: [],
+      });
+
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          { type: "http", name: "metrics", url: "https://mcp", headers: [] },
+        ],
+      });
+
+      const forwarded = (extMethod.mock.calls[0] as unknown[])[1] as {
+        mcpToolApprovals: Record<string, string>;
+      };
+      expect(forwarded.mcpToolApprovals).toEqual({
+        mcp__metrics__get_stats: "needs_approval",
+      });
 
       testServer.session = null;
     });
