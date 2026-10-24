@@ -5248,8 +5248,9 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
-            # Only on an add: assignment is additive, so a removal leaves the pull request alone.
-            if added_github_logins:
+            # A changed reviewer set may change the automatic PR owners in either direction.
+            # The worker protects human and unknown-origin assignments before it mutates GitHub.
+            if added_entries or removed_payloads:
                 for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team.id).get(
                     str(report_id), []
                 ):
