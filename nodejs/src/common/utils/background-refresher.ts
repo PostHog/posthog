@@ -33,6 +33,17 @@ export class BackgroundRefresher<T> {
         return this.cachedValue
     }
 
+    /**
+     * Refreshes now and waits for the new value, unless the last refresh finished less than minAgeMs ago.
+     * Returns undefined when it skips the refresh.
+     */
+    public async refreshIfOlderThan(minAgeMs: number): Promise<T | undefined> {
+        if (!this.cachedValuePromise && Date.now() - this.lastRefreshTime < minAgeMs) {
+            return undefined
+        }
+        return await this.refresh()
+    }
+
     public async get(): Promise<T> {
         if (!this.cachedValue) {
             await this.refresh()
