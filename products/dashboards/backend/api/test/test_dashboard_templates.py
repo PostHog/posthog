@@ -78,7 +78,7 @@ def _listable_dashboard_template_db_count(team_pk: int) -> int:
     return DashboardTemplate.objects.filter(Q(scope=DashboardTemplate.Scope.GLOBAL) | Q(team_id=team_pk)).count()
 
 
-variable_template = {
+variable_template: dict[str, Any] = {
     "template_name": "Sign up conversion template with variables",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},

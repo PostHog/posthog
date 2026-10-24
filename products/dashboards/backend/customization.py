@@ -61,22 +61,27 @@ def validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
     return normalized
 
 
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def validate_template_groups(customization: Any, tiles: Any) -> None:
     """Reject template groups that a dashboard made from the template could not hold."""
-    if isinstance(customization, dict):
-        groups = customization.get("groups") if isinstance(customization.get("groups"), dict) else {}
-        titles = customization.get("group_titles") if isinstance(customization.get("group_titles"), dict) else {}
-        try:
-            validated_group_keys({**groups, **titles})
-        except serializers.ValidationError as error:
-            raise serializers.ValidationError({"customization": error.detail}) from error
+    customization = _dict_or_empty(customization)
+    try:
+        validated_group_keys(
+            {**_dict_or_empty(customization.get("groups")), **_dict_or_empty(customization.get("group_titles"))}
+        )
+    except serializers.ValidationError as error:
+        raise serializers.ValidationError({"customization": error.detail}) from error
     for tile in tiles if isinstance(tiles, list) else []:
-        if not isinstance(tile, dict):
-            continue
         try:
-            validated_group_key(tile.get("group_key"))
+            validated_group_key(_dict_or_empty(tile).get("group_key"))
         except serializers.ValidationError as error:
-            raise serializers.ValidationError({"tiles": error.detail["group_key"]}) from error
+            detail = error.detail
+            raise serializers.ValidationError(
+                {"tiles": detail["group_key"] if isinstance(detail, dict) else detail}
+            ) from error
 
 
 _NO_DEFAULT = object()
