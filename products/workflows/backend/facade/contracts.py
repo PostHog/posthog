@@ -599,6 +599,16 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class TransactionalEmailSender:
+    """The verified sender a code send goes out from. `email` and `name` override the sender's own, on its
+    verified domain. None keeps the sender's own."""
+
+    integration_id: int
+    email: str | None
+    name: str | None
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

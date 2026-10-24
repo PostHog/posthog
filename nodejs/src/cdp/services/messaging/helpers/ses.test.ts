@@ -85,6 +85,31 @@ describe('SesWebhookHandler', () => {
         })
     })
 
+    it("adds the send's own tags as $email_tags, without PostHog's and SES's", async () => {
+        const mailWithTags = {
+            ...baseMail,
+            tags: {
+                ...baseMail.tags,
+                ph_sensitive: ['false'],
+                'ses:configuration-set': ['tracked'],
+                category: ['password_reset'],
+                'plan-tier': ['pro'],
+            },
+        }
+        const body = [
+            {
+                eventType: 'Delivery',
+                mail: mailWithTags,
+                delivery: { timestamp: '2025-10-03T12:01:00Z', recipients: ['to@example.com'] },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.metrics?.[0].properties).toEqual({
+            $email_to: 'to@example.com',
+            $email_tags: { category: 'password_reset', 'plan-tier': 'pro' },
+        })
+    })
+
     it('parses a raw Click event with link URL', async () => {
         const body = [
             {
