@@ -174,7 +174,7 @@ export const MetricsViewer = (): JSX.Element => {
 
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // The rail writes builder filter chips, which PromQL and SQL queries do not read.
-    const facetRailEnabled = useFeatureFlag('METRICS_FACET_RAIL') && language === 'builder'
+    const facetRailEnabled = useFeatureFlag('METRICS') && language === 'builder'
 
     return (
         <MetricsFacetRailLayout enabled={facetRailEnabled}>
