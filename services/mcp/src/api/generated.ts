@@ -48228,6 +48228,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureQuery {
+      /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+      as_of?: string | null;
       end_date?: string | null;
       experiment_id?: number | null;
       experiment_name: string;
