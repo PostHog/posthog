@@ -138,12 +138,15 @@ describe('session usage', () => {
             expect(ingested).toEqual([expect.objectContaining({ recordId: 'session-1', timestampMs: SECOND_FLUSH })])
         })
 
-        it('does not bill a session that an earlier release billed when it first saw it', async () => {
-            redisValues.set(sessionKey, '1')
+        it.each([
+            ['a session the tracker marked seen but did not bill', 'seen', ['session-1']],
+            ['nothing for a session that an earlier release billed when it first saw it', '1', []],
+        ])('bills %s', async (_name, trackerValue, billedSessionIds) => {
+            redisValues.set(sessionKey, trackerValue)
 
             await flush([metadata('web', FIRST_FLUSH)])
 
-            expect(ingested).toEqual([])
+            expect(ingested.map((record) => record.recordId)).toEqual(billedSessionIds)
         })
 
         it.each([
