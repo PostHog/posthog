@@ -17,6 +17,8 @@ export const dashboardTemplatesCreateBodyTagsItemMax = 255
 
 export const dashboardTemplatesCreateBodyCustomizationOneGroupsTitleMax = 200
 
+export const dashboardTemplatesCreateBodyCustomizationOneGroupTitlesMaxOne = 200
+
 export const dashboardTemplatesCreateBodyImageUrlMax = 8201
 
 export const dashboardTemplatesCreateBodyAvailabilityContextsItemMax = 255
@@ -84,7 +86,10 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
                         "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
                     ),
                 group_titles: zod
-                    .record(zod.string(), zod.string())
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesCreateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
                     .optional()
                     .describe(
                         'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
@@ -122,6 +127,8 @@ export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
 export const dashboardTemplatesUpdateBodyTagsItemMax = 255
 
 export const dashboardTemplatesUpdateBodyCustomizationOneGroupsTitleMax = 200
+
+export const dashboardTemplatesUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
 
 export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
 
@@ -190,7 +197,10 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                         "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
                     ),
                 group_titles: zod
-                    .record(zod.string(), zod.string())
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesUpdateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
                     .optional()
                     .describe(
                         'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
@@ -228,6 +238,8 @@ export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
 export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
 
 export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsTitleMax = 200
+
+export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
 
 export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
 
@@ -296,7 +308,10 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                         "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
                     ),
                 group_titles: zod
-                    .record(zod.string(), zod.string())
+                    .record(
+                        zod.string(),
+                        zod.string().max(dashboardTemplatesPartialUpdateBodyCustomizationOneGroupTitlesMaxOne)
+                    )
                     .optional()
                     .describe(
                         'Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.'
