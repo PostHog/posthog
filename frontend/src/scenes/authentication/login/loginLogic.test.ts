@@ -630,6 +630,12 @@ describe('loginLogic', () => {
             expect(replaceSpy).toHaveBeenCalledWith('/project/5/insights?foo=bar#tab=raw')
         })
 
+        it('lands on the app root instead of organization creation', () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/create-organization')}`)
+            redirectAfterLogin()
+            expect(replaceSpy).toHaveBeenCalledWith('/')
+        })
+
         it('ignores a next path pointing at another origin', () => {
             router.actions.push('/login?next=//google.com')
             redirectAfterLogin()
