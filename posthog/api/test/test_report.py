@@ -404,21 +404,44 @@ class TestCspReport(BaseTest):
 
     @parameterized.expand(
         [
-            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_violation"),
-            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], "$csp_violation"),
-            ("crash", "application/reports+json", [CRASH_REPORT], "$browser_crash_report"),
+            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_violation", "", "203.0.113.7"),
+            (
+                "report_to",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO],
+                "$csp_violation",
+                "",
+                "203.0.113.7",
+            ),
+            ("crash", "application/reports+json", [CRASH_REPORT], "$browser_crash_report", "", "203.0.113.7"),
+            (
+                "report_uri_discard_ip",
+                "application/csp-report",
+                SINGLE_VIOLATION_REPORT_URI,
+                "$csp_violation",
+                "&discard_ip=1",
+                None,
+            ),
+            (
+                "crash_discard_ip",
+                "application/reports+json",
+                [CRASH_REPORT],
+                "$browser_crash_report",
+                "&discard_ip=1",
+                None,
+            ),
         ]
     )
     @patch("posthog.api.report.capture_batch_internal")
     @patch("posthog.api.report.capture_internal")
-    def test_report_events_carry_the_reporting_client_ip(
-        self, _name, content_type, payload, event_name, mock_capture, mock_batch_capture
+    def test_report_events_carry_the_reporting_client_ip_unless_discarded(
+        self, _name, content_type, payload, event_name, extra_query, expected_ip, mock_capture, mock_batch_capture
     ):
         mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
 
         response = self.client.post(
-            f"/report/?token={self.team.api_token}",
+            f"/report/?token={self.team.api_token}{extra_query}",
             data=json.dumps(payload),
             content_type=content_type,
             HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
@@ -432,7 +455,7 @@ class TestCspReport(BaseTest):
             (event,) = mock_batch_capture.call_args.kwargs["events"]
             assert event["event"] == event_name
             properties = event["properties"]
-        assert properties["$ip"] == "203.0.113.7"
+        assert properties.get("$ip") == expected_ip
 
     @patch("posthog.api.report.capture_internal")
     def test_capture_csp_no_trailing_slash(self, mock_capture):
