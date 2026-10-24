@@ -378,7 +378,7 @@ def generate_config_yaml(*, enable_ptrace: bool = True, full_trace: bool = True)
                 "signal": full_trace,
             },
             "performance": {
-                "seccomp_prefilter": False,
+                "seccomp_prefilter": True,
                 "max_tracees": 500,
                 "max_hold_ms": 5000,
             },
