@@ -36,16 +36,21 @@ ARTICLE_SEARCH_MAX_PAGES = 100
 REQUEST_DELAY_SECONDS = 6.0
 
 TIMES_WIRE_PAGE_SIZE = 20
-TIMES_WIRE_MAX_PAGES = 100
+# The feed is newest first, so a run that stops early would advance the watermark past unread items.
+# This only guards against an API that never returns a short page: 30 days of items fit well inside it.
+TIMES_WIRE_MAX_PAGES = 1000
 # The {time-period} path segment accepts at most 30 days of hours.
 TIMES_WIRE_MAX_TIME_PERIOD_HOURS = 720
 
 BOOKS_LIST_NAMES_PATH = "/svc/books/v3/lists/names.json"
 BOOKS_LIST_PAGE_SIZE = 20
-BOOKS_MAX_EDITIONS_PER_LIST = 52
 
 
 class NewYorkTimesRetryableError(Exception):
+    pass
+
+
+class NewYorkTimesPageCapError(Exception):
     pass
 
 
@@ -331,7 +336,12 @@ def _get_times_wire_rows(
             "New York Times: times_wire can only look back 30 days; items published before that are not synced"
         )
 
-    while page < TIMES_WIRE_MAX_PAGES:
+    while True:
+        if page >= TIMES_WIRE_MAX_PAGES:
+            raise NewYorkTimesPageCapError(
+                f"New York Times: times_wire reached {TIMES_WIRE_MAX_PAGES} pages without reaching the end of the window"
+            )
+
         # Recomputed per request so the window start stays fixed while a long sync pages through it.
         time_period = min(_times_wire_hours_since(window_start), TIMES_WIRE_MAX_TIME_PERIOD_HOURS)
         path = config.path.format(time_period=time_period)
@@ -347,10 +357,6 @@ def _get_times_wire_rows(
         yield rows
 
         if len(rows) < TIMES_WIRE_PAGE_SIZE:
-            break
-
-        if page >= TIMES_WIRE_MAX_PAGES:
-            logger.info("New York Times: times_wire hit the page cap; older items in this window are not synced")
             break
 
         interruptible_wait(REQUEST_DELAY_SECONDS, safe_point=resumable_source_manager.safe_point)
@@ -432,25 +438,19 @@ def _get_best_seller_rows(
                     continue
                 edition_date = resume.published_date
 
-        editions = 0
         while edition_date is not None:
             interruptible_wait(REQUEST_DELAY_SECONDS, safe_point=resumable_source_manager.safe_point)
             rows, previous_date = _get_best_seller_edition(
                 session, config, api_key, logger, list_name_encoded, edition_date
             )
-            editions += 1
 
             # Without a watermark only the newest edition is synced; with one, walk back to cover editions
-            # published since the last sync.
+            # published since the last sync. Each step must move back in time, so the walk always ends.
             next_date = (
-                previous_date if watermark is not None and previous_date and previous_date >= watermark else None
+                previous_date
+                if watermark is not None and previous_date and watermark <= previous_date < edition_date
+                else None
             )
-            if next_date is not None and editions >= BOOKS_MAX_EDITIONS_PER_LIST:
-                logger.info(
-                    f"New York Times: books_best_sellers hit the edition cap for list={list_name_encoded}; "
-                    "older editions are not synced"
-                )
-                next_date = None
 
             resumable_source_manager.save_state(
                 NewYorkTimesResumeConfig(list_name_encoded=list_name_encoded, published_date=next_date)

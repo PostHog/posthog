@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import time_machine
+from unittest import mock
 
 import requests
 from parameterized import parameterized
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times import (
     ARTICLE_SEARCH_MAX_PAGES,
+    NewYorkTimesPageCapError,
     NewYorkTimesResumeConfig,
     NewYorkTimesRetryableError,
     _format_begin_date,
@@ -218,6 +220,24 @@ class TestGetRowsTimesWire:
         assert [len(batch) for batch in result.items] == [20, 3]
         assert [state.page for state in result.saved_states] == [1, 2]
 
+    def test_page_cap_fails_the_run_instead_of_completing_it(self) -> None:
+        with (
+            time_machine.travel(datetime(2026, 7, 2, 0, 0, tzinfo=UTC), tick=False),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.new_york_times.TIMES_WIRE_MAX_PAGES",
+                3,
+            ),
+        ):
+            result = _driver().run(
+                "times_wire",
+                always(ScriptedResponse(json=self._items(20))),
+                incremental_field="published_date",
+                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+
+        assert isinstance(result.raised, NewYorkTimesPageCapError)
+        assert len(result.items) == 3
+
     def test_resume_keeps_window_start(self) -> None:
         with time_machine.travel(datetime(2026, 7, 2, 0, 0, tzinfo=UTC), tick=False):
             result = _driver().run(
@@ -315,6 +335,22 @@ class TestGetRowsBooksBestSellers:
             "2026-06-14/hardcover-fiction.json",
         ]
         assert result.saved_states[2] == NewYorkTimesResumeConfig(list_name_encoded="advice", published_date=None)
+
+    def test_walk_back_stops_when_previous_date_does_not_move_back(self) -> None:
+        result = _driver().run(
+            "books_best_sellers",
+            route(
+                {
+                    "/lists/names.json": [ScriptedResponse(json={"results": [self.NAMES["results"][1]]})],
+                    "/2026-06-28/advice.json": [self._edition("2026-06-28", "2026-06-28")],
+                }
+            ),
+            incremental_field="published_date",
+            db_incremental_field_last_value=date(2026, 6, 1),
+        )
+
+        assert result.raised is None
+        assert len(result.paths) == 2
 
     def test_paginates_lists_longer_than_one_page(self) -> None:
         result = _driver().run(
