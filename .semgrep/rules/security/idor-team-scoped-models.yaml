@@ -408,6 +408,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -880,6 +881,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

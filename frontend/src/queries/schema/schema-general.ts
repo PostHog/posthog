@@ -145,6 +145,7 @@ export enum NodeKind {
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebBotsTableQuery = 'WebBotsTableQuery',
     WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
+    WebPageDirectoryQuery = 'WebPageDirectoryQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -253,6 +254,7 @@ export type AnyDataNode =
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
     | WebAgentAnalyticsQuery
+    | WebPageDirectoryQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -347,6 +349,7 @@ export type QuerySchema =
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
     | WebAgentAnalyticsQuery
+    | WebPageDirectoryQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -4266,6 +4269,74 @@ export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBa
     offset?: integer
 }
 export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
+
+export enum WebPageDirectoryMetric {
+    Visitors = 'visitors',
+    GoogleSearch = 'google_search',
+    AiReferrals = 'ai_referrals',
+    AiCrawls = 'ai_crawls',
+    Conversions = 'conversions',
+    TimeOnPage = 'time_on_page',
+    BounceRate = 'bounce_rate',
+}
+
+export enum WebPageDirectorySortBy {
+    Page = 'page',
+    Visitors = 'visitors',
+    GoogleSearch = 'google_search',
+    AiReferrals = 'ai_referrals',
+    AiCrawls = 'ai_crawls',
+    Conversions = 'conversions',
+    TimeOnPage = 'time_on_page',
+    BounceRate = 'bounce_rate',
+}
+
+export interface WebPageDirectoryQuery extends WebAnalyticsQueryBase<WebPageDirectoryQueryResponse> {
+    kind: NodeKind.WebPageDirectoryQuery
+    search?: string
+    sortBy?: WebPageDirectorySortBy
+    sortDirection?: 'ASC' | 'DESC'
+    metrics?: WebPageDirectoryMetric[]
+    pageKeys?: string[]
+    includeSiteTotals?: boolean
+    excludeStaticAssets?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export interface WebPageDirectoryValue {
+    current: number
+    previous?: number | null
+}
+
+export interface WebPageDirectoryMetrics {
+    visitors?: WebPageDirectoryValue
+    googleSearch?: WebPageDirectoryValue
+    aiReferrals?: WebPageDirectoryValue
+    aiCrawls?: WebPageDirectoryValue
+    aiCrawlers?: integer | null
+    aiCrawlerNames?: string[] | null
+    conversions?: WebPageDirectoryValue
+    timeOnPageP90?: number | null
+    bounceRate?: number | null
+}
+
+export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
+    page: string
+}
+
+export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
+    serverLogs: integer
+}
+
+export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
+    results: WebPageDirectoryRow[]
+    siteTotals?: WebPageDirectorySiteTotals
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery

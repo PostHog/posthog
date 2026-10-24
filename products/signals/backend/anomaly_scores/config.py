@@ -6,6 +6,7 @@ field falls back to its default, and no default is unbounded.
 
 import uuid
 import dataclasses
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -80,6 +81,23 @@ def resolve_profile(team: "Team", insight: "Insight") -> ScoringProfile:
     return DEFAULT_PROFILE
 
 
+class ScoringRun(StrEnum):
+    """The kind of visit when the train and score split is on."""
+
+    # Fetch the full detector history, score the new buckets, and store the series tail.
+    TRAIN = "train"
+    # Fetch only the refresh and new buckets, merge them into the stored tail, and score the new buckets.
+    SCORE = "score"
+
+
+# Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
+DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
+MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}
+# Stored buckets that a score step fetches again, so late events reach the stored values.
+DEFAULT_REFRESH_BUCKETS = {IntervalType.HOUR: 3, IntervalType.DAY: 3, IntervalType.WEEK: 2, IntervalType.MONTH: 1}
+MAX_REFRESH_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 14, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
+
+
 # Hourly insights are left out by default: with many eligible insights, the time between two visits of
 # one insight passes the hourly backfill cap, and the buckets in between are never scored.
 DEFAULT_TICK_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH)
@@ -100,6 +118,15 @@ class AnomalyScoringConfig:
     max_queries_per_hour: int = 120
     max_queries_per_project_per_hour: int = 30
     limits: ScoringLimits = DEFAULT_LIMITS
+    # Off keeps one full fetch per visit and stores no state. On, most visits are cheap score steps.
+    train_score_split: bool = False
+    train_every_buckets: dict[IntervalType, int] = dataclasses.field(
+        default_factory=lambda: dict(DEFAULT_TRAIN_EVERY_BUCKETS)
+    )
+    refresh_buckets: dict[IntervalType, int] = dataclasses.field(default_factory=lambda: dict(DEFAULT_REFRESH_BUCKETS))
+    # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
+    max_score_queries_per_hour: int = 600
+    max_score_queries_per_project_per_hour: int = 150
 
 
 DISABLED = AnomalyScoringConfig()
@@ -108,6 +135,8 @@ MAX_INSIGHTS_PER_TICK = 50
 MAX_CONCURRENCY = 8
 MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
+MAX_SCORE_QUERIES_PER_HOUR = 5000
+MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -142,6 +171,18 @@ def _intervals(value: Any) -> tuple[IntervalType, ...]:
     scored = {interval.value: interval for interval in DEFAULT_PROFILE.intervals}
     intervals = tuple(dict.fromkeys(scored[item] for item in value if isinstance(item, str) and item in scored))
     return intervals or DEFAULT_TICK_INTERVALS
+
+
+def _buckets_per_interval(
+    value: Any, defaults: dict[IntervalType, int], maxima: dict[IntervalType, int]
+) -> dict[IntervalType, int]:
+    """An object of interval name to bucket count. A missing or invalid count gets its default, a large one its maximum."""
+    if not isinstance(value, dict):
+        return dict(defaults)
+    return {
+        interval: min(_positive_int(value.get(interval.value), default), maxima[interval])
+        for interval, default in defaults.items()
+    }
 
 
 def parse_limits(payload: Any) -> ScoringLimits:
@@ -181,6 +222,23 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
             MAX_QUERIES_PER_PROJECT_PER_HOUR,
         ),
         limits=parse_limits(payload.get("limits")),
+        train_score_split=payload.get("train_score_split") is True,
+        train_every_buckets=_buckets_per_interval(
+            payload.get("train_every_buckets"), DEFAULT_TRAIN_EVERY_BUCKETS, MAX_TRAIN_EVERY_BUCKETS
+        ),
+        refresh_buckets=_buckets_per_interval(
+            payload.get("refresh_buckets"), DEFAULT_REFRESH_BUCKETS, MAX_REFRESH_BUCKETS
+        ),
+        max_score_queries_per_hour=min(
+            _positive_int(payload.get("max_score_queries_per_hour"), defaults.max_score_queries_per_hour),
+            MAX_SCORE_QUERIES_PER_HOUR,
+        ),
+        max_score_queries_per_project_per_hour=min(
+            _positive_int(
+                payload.get("max_score_queries_per_project_per_hour"), defaults.max_score_queries_per_project_per_hour
+            ),
+            MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR,
+        ),
     )
 
 
