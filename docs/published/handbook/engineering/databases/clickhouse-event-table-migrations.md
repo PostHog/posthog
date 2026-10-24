@@ -6,6 +6,12 @@ showTitle: true
 
 This document outlines how to do large-scale data migrations on PostHog Cloud without using [Async Migrations](./async-migrations).
 
+It is about moving data, not about changing the schema.
+The ClickHouse schema is declared as Terraform in [`posthog/clickhouse/schema/`](https://github.com/PostHog/posthog/tree/master/posthog/clickhouse/schema), and most changes to it need no data migration.
+You need a procedure like this one when a change would replace a table that holds data, for example a new sorting key.
+The SQL below is a record of the 2022 migration and predates the Terraform schema.
+After a migration like this, update the declaration to match the new table so that the next plan is empty.
+
 ## Background
 
 Start of 2022 we [wanted to change events table schema to better support our querying patterns](https://github.com/PostHog/posthog/issues/5684).

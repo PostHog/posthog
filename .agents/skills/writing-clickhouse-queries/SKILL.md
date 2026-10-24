@@ -19,13 +19,13 @@ Then pull in whichever related docs the task touches:
 
 - Writing or reviewing a `QueryRunner` subclass in `posthog/hogql_queries/` or `products/*/backend/`
 - Adding or reviewing any ClickHouse call site, in request code, a Celery task, a Temporal activity, or a Dagster asset: pick its `Workload` with [`references/choosing-a-workload.md`](references/choosing-a-workload.md)
-- Adding a new ClickHouse table or ALTER for a product (`posthog/clickhouse/migrations/`)
+- Adding a new ClickHouse table or altering one for a product (`posthog/clickhouse/schema/`)
 - Choosing a row ID format for a new table
 - Adding or removing materialized columns, skip indexes, or projections
 
 For investigating an existing slow query, debugging a `system.query_log` row, or reviewing a proposed HogQL printer change for performance, use [`/optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md).
 
-Not the right skill for: customer-facing ad-hoc HogQL via Max / `posthog:execute-sql`, use `query-examples` for that. For migration mechanics (node roles, engines, replication), use `clickhouse-migrations`.
+Not the right skill for: customer-facing ad-hoc HogQL via Max / `posthog:execute-sql`, use `query-examples` for that. For how to declare and roll out a schema change, use `clickhouse-migrations`.
 
 ## Choose a workload on purpose
 
