@@ -51,7 +51,8 @@ from products.experiments.backend.temporal.models import (
 # stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
 # after the start activity: the calc budget (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure
 # backstop and the finish step. test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this
-# value, so a legitimately-slow run can finish without being clobbered. It is also tight enough that an operator
+# value, so a legitimately-slow run of up to MAX_CONCURRENT_METRICS_PER_RUN metrics can finish without being
+# clobbered. A wider run of slow metrics can pass it, because its later metrics wait for a slot. It is also tight enough that an operator
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
 # is the defense-in-depth backstop if that rollback itself fails.
