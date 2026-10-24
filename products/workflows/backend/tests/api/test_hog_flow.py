@@ -596,6 +596,32 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
         assert response.status_code == 400
 
+    def test_source_record_is_set_on_create_filters_the_list_and_never_changes(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "source_record": "early_access:feature-1"}
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        HogFlow.objects.create(team=self.team, name="Other record", created_by=self.user, source_record="cohort:7")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"source_record": "early_access:feature-2"}
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(id=flow_id).source_record == "early_access:feature-1"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?source_record=early_access:feature-1")
+        assert response.status_code == 200, response.json()
+        assert [flow["id"] for flow in response.json()["results"]] == [flow_id]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "source_record": "not a record"}
+        )
+        assert response.status_code == 400
+
     def test_list_returns_last_run_for_loops_from_one_lookup(self):
         loop = HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
         HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)

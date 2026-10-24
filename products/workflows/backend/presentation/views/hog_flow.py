@@ -3236,6 +3236,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
         "creating a workflow. Filter the list with `?origin_product=`.",
     )
+    source_record = serializers.RegexField(
+        r"^[a-z_]+:[A-Za-z0-9_-]+$",
+        max_length=255,
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="The record another product's entry point started this workflow from, as '<kind>:<id>'. "
+        "Set only when creating a workflow. Filter the list with `?source_record=`.",
+    )
     name = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Workflow name."
     )
@@ -3544,6 +3553,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "version",
             "status",
             "origin_product",
+            "source_record",
             "created_at",
             "created_by",
             "updated_at",
@@ -3802,6 +3812,10 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
         allow_null=True,
         help_text="Product surface that owns this workflow. This value cannot change after creation.",
     )
+
+    class Meta(HogFlowSerializer.Meta):
+        # Set on create only.
+        fields = [field for field in HogFlowSerializer.Meta.fields if field != "source_record"]
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4895,6 +4909,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 OpenApiTypes.STR,
                 enum=HogFlowOriginProduct.values,
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
+            ),
+            OpenApiParameter(
+                "source_record",
+                OpenApiTypes.STR,
+                description="Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.",
             ),
             OpenApiParameter(
                 "trigger",
