@@ -27,7 +27,7 @@ import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition, getToolDefinitions } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
-import { makeToolExecutorState, mockApi } from '../shared/test-utils'
+import { makeToolExecutorState, mockApi, toolFromPreBuilt } from '../shared/test-utils'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -379,6 +379,55 @@ describe('ToolExecutor', () => {
             expect(result.tools).toHaveLength(3)
             expect(result.tools.map((t) => t.name)).toEqual(subset.map((e) => e.name))
         })
+
+        it.each(
+            ['query-trends', 'query-funnel', 'query-retention'].flatMap((toolName) =>
+                [
+                    { skillsEnabled: true, consumer: undefined, installed: true, expected: true },
+                    { skillsEnabled: false, consumer: undefined, installed: true, expected: false },
+                    { skillsEnabled: true, consumer: 'plugin', installed: true, expected: false },
+                    { skillsEnabled: true, consumer: undefined, installed: false, expected: false },
+                ].map((options) => ({ toolName, ...options }))
+            )
+        )(
+            'advertises the matching skill for $toolName only when it can be loaded ($skillsEnabled, $consumer, $installed)',
+            async ({ toolName, skillsEnabled, consumer, installed, expected }) => {
+                const entry = catalog.getPreBuiltEntries().find(({ name }) => name === toolName)!
+                const skills = new SkillCatalog(
+                    installed
+                        ? [
+                              {
+                                  name: toolName,
+                                  description: 'Query guidance.',
+                                  files: [makeSkillFile('SKILL.md', '# Query guidance')],
+                              },
+                          ]
+                        : []
+                )
+                const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeToolExecutorState([toolFromPreBuilt(catalog.getToolByName(toolName)!, entry)], {
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    ...(consumer ? { requestContext: { mcpConsumer: consumer } as any } : {}),
+                })
+                const listed = await skillExecutor.handleToolsList(state)
+                const info = (await skillExecutor.handleToolCall(
+                    { name: 'exec', arguments: { command: `info ${toolName}` } },
+                    { ...state, useSingleExec: true }
+                )) as { content: { text: string }[]; isError?: boolean }
+                expect(info.isError).toBeFalsy()
+                const command = `learn posthog:${toolName}`
+                expect(listed.tools[0]!.description!.includes(command)).toBe(expected)
+                expect(
+                    info.content
+                        .map(({ text }) => text)
+                        .join('\n')
+                        .includes(command)
+                ).toBe(expected)
+                expect(listed.tools[0]!.description).toContain(entry.description!)
+            }
+        )
 
         it('returns empty list when allTools is empty', async () => {
             const result = await executor.handleToolsList(makeToolExecutorState([]))

@@ -199,13 +199,8 @@ export class ToolExecutor {
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
         return filteredTools.map((entry) => {
-            if (entry.name === EXECUTE_SQL_TOOL_NAME) {
-                return {
-                    ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
-                }
-            }
-            return entry
+            const description = this.servedToolDescription(entry.name, state)
+            return description ? { ...entry, description } : entry
         })
     }
 
@@ -383,16 +378,23 @@ export class ToolExecutor {
         return noDataNotice ? prependNoDataNotice(result, noDataNotice.text) : result
     }
 
-    // execute-sql is the one tool whose advertised description is formatted per
-    // request (the schema-discovery splice is assembled at render time) instead of served
-    // from the catalog, on both the native tools/list path and exec's `info` output.
-    // trackToolCall stamps the catalog text by default, so it needs the served text
-    // for this tool or $mcp_tool_description records words the agent never saw.
-    private servedToolDescription(toolName: string): string | undefined {
+    // Analytics must record the client-specific description that the agent received.
+    private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
             return this.instructionsBuilder.formatExecuteSqlDescription()
         }
-        return undefined
+        if (
+            !['query-trends', 'query-funnel', 'query-retention'].includes(toolName) ||
+            !this.instructionsBuilder.execSkillsEnabled(state) ||
+            !this.skillCatalogService?.getCatalog()?.has(toolName)
+        ) {
+            return undefined
+        }
+        const tool = state.allTools.find(({ name }) => name === toolName)
+        if (!tool) {
+            return undefined
+        }
+        return `## Important\n\nBefore constructing this query, run \`learn posthog:${toolName}\` unless you already loaded that skill in this session. Follow its query and answer instructions.\n\n${tool.description}`
     }
 
     // Guarded because analytics must never break `tools/call`. The SDK only strips
@@ -474,7 +476,7 @@ export class ToolExecutor {
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -551,7 +553,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
@@ -602,7 +604,7 @@ export class ToolExecutor {
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                 },
                 analyticsMeta,
-                this.servedToolDescription(tool.name)
+                this.servedToolDescription(tool.name, state)
             )
 
             const errorMessage = extractErrorMessage(error)
@@ -765,7 +767,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                 },
                 analyticsMeta,
-                this.servedToolDescription(execToolName())
+                this.servedToolDescription(execToolName(), state)
             )
 
             return execMetrics.noDataNotice ? prependNoDataNotice(response, execMetrics.noDataNotice.text) : response
@@ -799,7 +801,7 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                 },
                 analyticsMeta,
-                this.servedToolDescription(metricTool)
+                this.servedToolDescription(metricTool, state)
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -877,7 +879,7 @@ export class ToolExecutor {
             { ...state, noDataAction: 'blocked' },
             extraProperties,
             analyticsMeta,
-            this.servedToolDescription(toolName)
+            this.servedToolDescription(toolName, state)
         )
         return { content: [{ type: 'text', text }] }
     }
@@ -970,17 +972,10 @@ export class ToolExecutor {
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
-        // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same prompt tools-mode advertises, so the
-        // information_schema schema-discovery steering matches across both modes.
-        const execTools = state.allTools.map((tool) =>
-            tool.name === EXECUTE_SQL_TOOL_NAME
-                ? {
-                      ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
-                  }
-                : tool
-        )
+        const execTools = state.allTools.map((tool) => {
+            const description = this.servedToolDescription(tool.name, state)
+            return description ? { ...tool, description } : tool
+        })
 
         const execTool = createExecTool(
             execTools,

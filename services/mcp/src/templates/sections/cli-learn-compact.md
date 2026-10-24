@@ -1,6 +1,12 @@
 **SKILLS FIRST: HARD REQUIREMENT**
 
-For non-trivial PostHog/team work, first run `learn -s "<task keywords>"`, even if unasked. Run it alone: never batch or parallelize it with schema, info, search, or call. Wait, load matches, then continue. Skip only trivial lookups or unrelated chat.
+For PostHog product or data work:
+
+1. Run `learn -s "<task keywords>"` alone, then load the matching skills.
+2. For metric questions, call `metric-list` next, before querying project data.
+3. Inspect schemas, query, and answer using the skill.
+
+Load each skill once per session. Skill loading comes before catalog lookup; approved catalog definitions take precedence over calculation examples. If no skill matches, continue. Skip unrelated chat.
 
 Load exact qualified names; never guess. Follow `SKILL.md`; fetch references on demand. If no match, continue. Advertised topics load separately.
 
