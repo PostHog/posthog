@@ -15,6 +15,7 @@ OMNIBUS_SKILL_NAMES = frozenset(
         "instrument-llm-analytics",
         "instrument-logs",
         "instrument-metrics",
+        "send-transactional-email",
     }
 )
 
