@@ -19,6 +19,7 @@ const selectionFixture = (extra) => ({
         segments: segments({ core: ['posthog/models/test_a.py'] }),
     },
     durations: {
+        total_seconds: 90000,
         selected_seconds: 120,
         skipped_seconds: 4500,
         selected_seconds_by_segment: { core: 0, poe: 0, temporal: 0 },
@@ -62,6 +63,8 @@ test('each distrusted input has its own reason, so telemetry can tell them apart
         [{ selection: null }, 'selector_error'],
         [{ selection: selectionFixture({ ast: { full_run_reasons: ['posthog/settings/base.py'] } }) }, 'full_run_requested'],
         [{ selection: selectionFixture({ combined: { count: 0, products: [], segments: segments() } }) }, 'empty_selection'],
+        [{ selection: selectionFixture({ durations: { total_seconds: 0, selected_seconds: 0, skipped_seconds: 0 } }) }, 'no_durations'],
+        [{ selection: selectionFixture({ durations: undefined }) }, 'no_durations'],
     ]
     for (const [overrides, reason] of cases) {
         const decision = decide(overrides)
@@ -101,7 +104,7 @@ test('a selected run hands each matrix leg its own file list', () => {
                     compat: ['posthog/clickhouse/test_b.py'],
                 },
             },
-            durations: { selected_seconds_by_segment: { core: 5000, poe: 0, temporal: 900 } },
+            durations: { total_seconds: 90000, selected_seconds_by_segment: { core: 5000, poe: 0, temporal: 900 } },
         }),
     })
 
