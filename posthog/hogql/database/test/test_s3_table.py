@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -20,6 +20,12 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+class TestS3FunctionCall(SimpleTestCase):
+    def test_empty_format_is_preserved(self) -> None:
+        result = build_function_call("http://url.com", "", access_key="key", access_secret="secret")
+        assert result == "s3('http://url.com', 'key', 'secret', '')"
 
 
 class TestS3Table(BaseTest):
