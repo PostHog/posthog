@@ -171,7 +171,12 @@ class SessionRecording(UUIDTModel):
             if person is not None:
                 self.person = person
 
-        personhog_call("load_person", _fn)
+        try:
+            personhog_call("load_person", _fn)
+        except Exception:
+            # The person is optional, so a personhog outage must not fail the recording.
+            # personhog_call already logs and counts the failure.
+            pass
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:

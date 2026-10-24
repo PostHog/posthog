@@ -1967,8 +1967,13 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        with personhog_caller_tag("replay/recordings-persons"):
-            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        try:
+            with personhog_caller_tag("replay/recordings-persons"):
+                distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        except Exception:
+            # The person is optional, so a personhog outage must not fail the listing.
+            # personhog_call already logs and counts the failure.
+            distinct_id_to_person = {}
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:

@@ -957,6 +957,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         )
 
+    @parameterized.expand([("retrieve", "/id_personhog_down"), ("list", "")])
+    def test_session_recording_returns_without_person_when_personhog_fails(self, _name: str, path: str) -> None:
+        create_person(team=self.team, distinct_ids=["d1"], properties={"email": "test@example.com"})
+        produce_replay_summary(
+            session_id="id_personhog_down",
+            team_id=self.team.pk,
+            first_timestamp=(now() - relativedelta(days=1)).isoformat(),
+            last_timestamp=(now() - relativedelta(days=1)).isoformat(),
+            distinct_id="d1",
+        )
+        failing_client = MagicMock()
+        failing_client.get_person_by_distinct_id.side_effect = RuntimeError("query_wait_timeout")
+        failing_client.get_persons_by_distinct_ids_in_team.side_effect = RuntimeError("query_wait_timeout")
+
+        with patch("posthog.personhog_client.client.get_personhog_client", return_value=failing_client):
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response_data = response.json()
+        recording = response_data if path else response_data["results"][0]
+        assert recording["id"] == "id_personhog_down"
+        assert recording["person"]["id"] is None
+        assert recording["person"]["distinct_ids"] == ["d1"]
+
     def test_load_person_found(self):
         person = create_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
 
