@@ -6328,6 +6328,8 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
     feature_flag: Record<string, any>
     start_date: string | null
     end_date: string | null
+    /** The instant the window is evaluated at, when it ends before `end_date`. Unset means now. */
+    as_of?: string | null
     holdout?: ExperimentHoldoutType
 }
 

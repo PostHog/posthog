@@ -2272,7 +2272,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+        def _runner(end_date: str | None, as_of: str | None = None) -> ExperimentExposuresQueryRunner:
             query = ExperimentExposureQuery(
                 kind="ExperimentExposureQuery",
                 experiment_id=experiment.id,
@@ -2280,6 +2280,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 feature_flag=model_to_dict(feature_flag),
                 start_date=experiment.start_date.isoformat(),
                 end_date=end_date,
+                as_of=as_of,
                 exposure_criteria=experiment.exposure_criteria,
             )
             return ExperimentExposuresQueryRunner(team=self.team, query=query)
@@ -2292,12 +2293,27 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             )
         )
 
-        # Query end_date cleared -> reads as running, warning evaluated.
-        risk = _runner(None)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
-        assert risk is not None
-        self.assertGreater(risk.multiple_variant_percentage, 0)
+        # Query end_date cleared -> reads as running, warning evaluated, also when as_of pins the window end.
+        for as_of in (None, "2024-01-05T00:00:00+00:00"):
+            risk = _runner(None, as_of)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
+            assert risk is not None
+            self.assertGreater(risk.multiple_variant_percentage, 0)
 
-    def test_date_range_follows_query_not_model(self):
+    @parameterized.expand(
+        [
+            ("end_date_only", datetime(2024, 1, 10), None, datetime(2024, 1, 10)),
+            ("as_of_on_running_experiment", None, datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_before_end_date", datetime(2024, 1, 20), datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
+        ]
+    )
+    def test_date_range_follows_query_not_model(
+        self,
+        _name: str,
+        query_end: datetime | None,
+        query_as_of: datetime | None,
+        expected_date_to: datetime,
+    ) -> None:
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window
         # must come from the query — not live model state. A query whose end_date differs from the
         # model's must yield the query's window, or the cache key would describe a window the result
@@ -2308,17 +2324,18 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 31),
         )
-        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        utc = ZoneInfo("UTC")
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=experiment.id,
             experiment_name=experiment.name,
             feature_flag=model_to_dict(feature_flag),
             start_date=experiment.start_date.isoformat(),
-            end_date=query_end.isoformat(),
+            end_date=query_end.replace(tzinfo=utc).isoformat() if query_end else None,
+            as_of=query_as_of.replace(tzinfo=utc).isoformat() if query_as_of else None,
             exposure_criteria=experiment.exposure_criteria,
         )
         runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
         date_to = runner._get_date_range().date_to
         assert date_to is not None
-        assert datetime.fromisoformat(date_to) == query_end
+        assert datetime.fromisoformat(date_to) == expected_date_to.replace(tzinfo=utc)

@@ -26158,6 +26158,10 @@
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
+                "as_of": {
+                    "description": "The instant the window is evaluated at, when it ends before `end_date`. Unset means now.",
+                    "type": ["string", "null"]
+                },
                 "end_date": {
                     "type": ["string", "null"]
                 },

@@ -309,6 +309,7 @@ export interface experimentMetricsLogicValues {
     }
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
+    resultsQueryTo: string | null
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -455,6 +456,23 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 abandonRecalculation: () => true,
                 loadLatestRecalculation: () => false,
                 setCurrentRecalculation: () => false,
+            },
+        ],
+        /**
+         * The window end of the latest terminal run, which is the window of the results on screen. A run in
+         * flight keeps the previous value, so the exposures move to the new window only when its results land.
+         * A rejected run computed nothing, so it keeps the previous value too.
+         */
+        resultsQueryTo: [
+            null as string | null,
+            {
+                setCurrentRecalculation: (state, { recalculation }) =>
+                    (recalculation?.status === RECALCULATION_STATUSES.completed ||
+                        recalculation?.status === RECALCULATION_STATUSES.failed) &&
+                    recalculation.query_to &&
+                    !rejectionMessage(recalculation)
+                        ? recalculation.query_to
+                        : state,
             },
         ],
         // Bumped when the manual refresh window closes, so isManualRefreshBlocked recomputes without new data.

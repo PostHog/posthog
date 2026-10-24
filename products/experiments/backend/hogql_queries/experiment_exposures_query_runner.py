@@ -150,10 +150,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # window the query declares. Otherwise the key can describe a window the result was not
         # computed for. A running experiment serializes end_date=None, which expands to now() here.
         # The expansion does not change self.query, so the moving instant stays out of the cache key
-        # and the cache TTL governs refresh.
+        # and the cache TTL governs refresh. The page sets as_of to the latest recalculation's query_to, so the
+        # exposures end where the metrics end. end_date keeps meaning "stopped", which the bias check reads.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
-        self.as_of = self.window_end_date or datetime.now(UTC)
+        self.as_of = (
+            datetime.fromisoformat(self.query.as_of) if self.query.as_of else self.window_end_date or datetime.now(UTC)
+        )
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout

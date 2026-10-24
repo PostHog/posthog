@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scene
 import { Experiment } from '~/types'
 
 import { SummarizeExperimentButton } from 'products/experiments/frontend/components/SummarizeExperimentButton'
+import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -32,6 +33,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 }
 
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
+    useMountedLogic(experimentExposuresWindowLogic({ experiment }))
     const { hasMinimumExposureForResults } = useValues(experimentLogic)
     const {
         primaryMetricsResults,

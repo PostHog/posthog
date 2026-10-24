@@ -32022,6 +32022,10 @@ class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    as_of: str | None = Field(
+        default=None,
+        description=("The instant the window is evaluated at, when it ends before `end_date`. Unset means now."),
+    )
     end_date: str | None = None
     experiment_id: int | None = None
     experiment_name: str

@@ -273,6 +273,57 @@ describe('experimentLogic', () => {
         )
     })
 
+    describe('loadExposures window', () => {
+        it.each([
+            ['ends at the latest run window', '2024-03-01T12:00:00Z', '2024-03-01T12:00:00Z'],
+            ['evaluates at now without a run', null, null],
+        ])('%s', async (_, latestQueryTo, expectedAsOf) => {
+            const exposureQueries: Record<string, any>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () =>
+                        latestQueryTo
+                            ? [
+                                  200,
+                                  {
+                                      id: 'latest',
+                                      status: 'completed',
+                                      total_metrics: 0,
+                                      completed_metrics: 0,
+                                      failed_metrics: 0,
+                                      completed_at: latestQueryTo,
+                                      query_to: latestQueryTo,
+                                      results: [],
+                                  },
+                              ]
+                            : [404, {}],
+                },
+                post: {
+                    '/api/environments/:team/query/:kind': async ({ params, request }) => {
+                        if (params.kind === NodeKind.ExperimentExposureQuery) {
+                            const body = (await request.json()) as { query: Record<string, any> }
+                            exposureQueries.push(body.query)
+                        }
+                        return [200, {}]
+                    },
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                        201,
+                        { id: 'cold', status: 'pending', total_metrics: 0, completed_metrics: 0, failed_metrics: 0 },
+                    ],
+                },
+            })
+            logic.actions.setExperiment(experiment)
+            const metricsLogic = experimentMetricsLogic({ experiment })
+            metricsLogic.mount()
+            await expectLogic(metricsLogic).toDispatchActions(['loadLatestRecalculation', 'setRecalculationLoading'])
+
+            await logic.asyncActions.loadExposures()
+
+            expect(exposureQueries.at(-1)?.as_of).toEqual(expectedAsOf)
+            metricsLogic.unmount()
+        })
+    })
+
     describe('updateExperimentMetrics', () => {
         it('keeps the existing results when saving the metric definitions fails', async () => {
             logic.actions.setExperiment(experiment)
