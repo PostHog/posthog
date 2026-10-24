@@ -630,8 +630,19 @@ async def _arun_signals_scout(
             if row_persisted
             else (0, None)
         )
+        # A retry is a new run with its own idempotency keys, so an attempt that already wrote
+        # output is not retried: the retry would publish that output a second time.
         upstream_retry_pending = (
-            trial is None and upstream_retries_left > 0 and isinstance(exc, AgentTurnFailed) and exc.retryable_upstream
+            trial is None
+            and upstream_retries_left > 0
+            and isinstance(exc, AgentTurnFailed)
+            and exc.retryable_upstream
+            and not (
+                row_persisted
+                and await database_sync_to_async(_run_wrote_output, thread_sensitive=False)(
+                    run_id, team.parent_team_id or team.id
+                )
+            )
         )
         # Advance the breaker before the event so the failure that trips it is the one whose
         # `error_message` explains the pause. Scheduled failures only: the threshold is sized
@@ -1699,6 +1710,16 @@ def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
         return 0, None
     emitted_count, task_run_id = row
     return emitted_count or 0, str(task_run_id) if task_run_id else None
+
+
+def _run_wrote_output(run_id: Any, team_id: int) -> bool:
+    row = (
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, id=run_id)
+        .values_list("emitted_count", "emitted_report_ids", "edited_report_ids")
+        .first()
+    )
+    return row is not None and any(row)
 
 
 def _capture_run_started(

@@ -3106,6 +3106,37 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("wrote_output", [False, True])
+async def test_upstream_failure_is_retried_only_when_the_attempt_wrote_nothing(ateam, aerrors_skill, wrote_output):
+    session, _ = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        if wrote_output:
+            await SignalScoutRun.objects.unscoped().filter(task_run_id=session.task_run.id).aupdate(emitted_count=1)
+        raise AgentTurnFailed(
+            "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 503)",
+            category="upstream_provider_failure",
+            agent_message="API Error: 503",
+        )
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture"),
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-errors", upstream_retries_left=2
+        )
+
+    # A retry is a new run, so retrying an attempt that already emitted would emit twice.
+    assert run_result.upstream_retry_pending is not wrote_output
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    assert config.consecutive_failure_count == (1 if wrote_output else 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_skipped_when_no_acting_user(ateam, aerrors_skill):
     # When no user can be resolved to act as (no active org member — `resolve_acting_user_id_for_team`
     # returns None), the run must skip rather than crash deep in _spawn_and_run and book a bogus
