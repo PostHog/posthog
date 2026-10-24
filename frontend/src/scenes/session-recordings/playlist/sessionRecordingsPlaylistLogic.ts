@@ -400,7 +400,28 @@ export function asUniversalFilters(
     if (!filters) {
         return undefined
     }
-    return isUniversalFilters(filters) ? filters : convertLegacyFiltersToUniversalFilters({}, filters)
+    return isUniversalFilters(filters)
+        ? coerceStringTypedFilters(filters)
+        : convertLegacyFiltersToUniversalFilters({}, coerceStringTypedFilters(filters))
+}
+
+/**
+ * The default playlists seeded into older projects store `"true"` and `"null"` as strings.
+ * `isValidRecordingFilters` rejects them, so the saved filter resets to the defaults on every click.
+ */
+function coerceStringTypedFilters<T extends RecordingUniversalFilters | LegacyRecordingFilters>(filters: T): T {
+    const raw = filters as Record<string, unknown>
+    const fixes: Record<string, unknown> = {}
+    if (raw.filter_test_accounts === 'true' || raw.filter_test_accounts === 'false') {
+        fixes.filter_test_accounts = raw.filter_test_accounts === 'true'
+    }
+    if (raw.date_from === 'null') {
+        fixes.date_from = null
+    }
+    if (raw.date_to === 'null') {
+        fixes.date_to = null
+    }
+    return Object.keys(fixes).length ? { ...filters, ...fixes } : filters
 }
 
 export function convertLegacyFiltersToUniversalFilters(
