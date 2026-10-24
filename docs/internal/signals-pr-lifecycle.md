@@ -294,6 +294,8 @@ Clients can send explicit `targets` with an add/remove action while retaining a 
 Protected reports reject full replacements without state; older Desktop/mobile clients must update before rollout.
 
 Automatic results distinguish `selected`, `no_suitable_owner`, and `lookup_failed`.
+Generated clients omit `reviewer_outcome` unless the caller supplies it; the backend treats an omitted outcome as `selected` only while processing reviewer state.
+This keeps unrelated report edits compatible while the MCP server and API deploy separately.
 A deliberate empty result clears automatic recipients but retains pins and confirmed lists.
 Failed lookup or wholly invalid selection retains valid current recipients.
 Accepted recipients must be active members with project access.
