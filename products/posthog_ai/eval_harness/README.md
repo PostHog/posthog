@@ -18,6 +18,12 @@ Two other docs sit next to this one:
 - [`../evals/AGENTS.md`](../evals/AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
 - [`harness/AGENTS.md`](harness/AGENTS.md) lists the invariants to preserve when changing the harness itself.
 
+## Custom scout runners
+
+Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedCaseRunner` protocol. The shared harness retains isolation, setup hooks, concurrency slots, timeout handling, logs, and scoring; the runner owns its task workflow cleanup and provider registration. Returning an `AgentArtifacts` subclass preserves product-specific fields in local artifacts and scorer input. Scout runners collect structured closeout fields from persisted run metadata, including when a visible report takes precedence over the agent's claimed outcome.
+
+Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs.
+
 ## Running
 
 ```bash
@@ -128,6 +134,7 @@ git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
 ```
 
 The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+Sandboxed agents and server-side tool judges, including the scout report safety judge, both use this isolated gateway.
 It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
 The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
 Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet. The harness refreshes the mint key during long runs. It retries temporary database or Redis errors until the credential expires. Retry delays increase to at most one minute.
