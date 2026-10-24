@@ -21082,11 +21082,29 @@ export namespace Schemas {
     }
 
     /**
-     * The action registry: every verb a canvas may declare and invoke.
+     * One PostHog MCP tool a canvas may declare, as the host renders it before running it.
+     */
+    export interface CanvasToolDefinition {
+      /** MCP tool name, e.g. 'feature-flag-enable'. */
+      name: string;
+      /** Human-readable tool title. */
+      title: string;
+      /** One line naming what the tool does. */
+      summary: string;
+      /** True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with ph.tools.call. */
+      read_only: boolean;
+      /** True when the tool deletes or overwrites something; the host warns the viewer before it runs. */
+      destructive: boolean;
+    }
+
+    /**
+     * The action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
      */
     export interface CanvasActionsResponse {
       /** Registered verbs, sorted by name. */
       actions: CanvasActionDefinition[];
+      /** PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each tool's input schema with the MCP `info` command. */
+      tools: CanvasToolDefinition[];
     }
 
     /**
@@ -21354,6 +21372,12 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       actions?: string[];
+      /**
+         * PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review.
+         * @maxItems 32
+         * @items.maxLength 200
+         */
+      tools?: string[];
       agentRequests?: boolean;
     }
 
@@ -21414,6 +21438,8 @@ export namespace Schemas {
       state_scopes_added: string[];
       /** Action verbs the draft newly declares it may invoke via ph.actions. */
       actions_added: string[];
+      /** PostHog MCP tools the draft newly declares it may run via ph.tools. */
+      tools_added: string[];
       /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
       connectors_added: CanvasConnectorDeclaration[];
     }
@@ -22590,6 +22616,39 @@ export namespace Schemas {
       next_offset: number | null;
       /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
       complete: boolean;
+    }
+
+    /**
+     * The tool's input, exactly as an MCP client passes it.
+     */
+    export type CanvasToolInvokeArguments = { [key: string]: unknown };
+
+    /**
+     * Payload for running one PostHog MCP tool.
+     */
+    export interface CanvasToolInvoke {
+      /**
+         * MCP tool to run, e.g. 'feature-flag-enable'.
+         * @maxLength 200
+         */
+      tool: string;
+      /** The tool's input, exactly as an MCP client passes it. */
+      arguments?: CanvasToolInvokeArguments;
+    }
+
+    /**
+     * The tool's JSON result.
+     */
+    export type CanvasToolResultResult = { [key: string]: unknown };
+
+    /**
+     * Result of one PostHog MCP tool run.
+     */
+    export interface CanvasToolResult {
+      /** The tool that ran. */
+      tool: string;
+      /** The tool's JSON result. */
+      result: CanvasToolResultResult;
     }
 
     /**

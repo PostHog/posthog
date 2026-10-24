@@ -34,12 +34,14 @@ from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
+from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision
 from products.tasks.backend.facade.ai_run_defaults import update_team_ai_run_preferences, update_user_ai_run_preferences
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.models import Channel, Task, TaskRun, TaskThreadMessage
+from products.webmcp.backend.facade.contracts import CallToolInput, McpServerError, ToolCallResult
 from products.workflows.backend.facade.api import get_workflow_summary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -2529,6 +2531,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert set(rows) == set(CANVAS_ACTIONS)
         for row in rows.values():
             assert row["usage"].strip(), f"verb {row['verb']} shipped without usage docs"
+        # A renamed or removed MCP tool drops out of the catalogue, so a canvas
+        # that declares it would fail at runtime with no build-time warning.
+        assert {row["name"] for row in response.json()["tools"]} == CANVAS_MCP_TOOL_ALLOWLIST
 
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()
@@ -2743,6 +2748,130 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestCanvasTools(CanvasAPIBaseTest):
+    def setUp(self):
+        super().setUp()
+        enabled = patch(
+            "products.canvas.backend.presentation.views.canvas_api.canvas_mcp_tools_enabled", return_value=True
+        )
+        self.enabled = enabled.start()
+        self.addCleanup(enabled.stop)
+        call_tool = patch(
+            "products.canvas.backend.mcp_tools.webmcp_facade.call_tool",
+            return_value=ToolCallResult(structured_content={"id": 7, "active": True}, text="", is_error=False),
+        )
+        self.call_tool = call_tool.start()
+        self.addCleanup(call_tool.stop)
+
+    def _tools_canvas(self, tools: tuple[str, ...] = ("feature-flag-enable",)) -> str:
+        canvas_id = self._create_canvas()
+        capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "tools": list(tools)},
+            "network": {"origins": []},
+        }
+        response = self._publish(canvas_id, project=self._project(capabilities=capabilities))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id
+
+    def _invoke(self, canvas_id: str, tool: str, arguments: dict[str, Any], **extra: Any):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/tools/invoke/",
+            {"tool": tool, "arguments": arguments},
+            format="json",
+            **extra,
+        )
+
+    def test_runs_a_declared_tool_as_the_viewer(self):
+        canvas_id = self._tools_canvas()
+
+        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"tool": "feature-flag-enable", "result": {"id": 7, "active": True}}
+        self.call_tool.assert_called_once_with(
+            CallToolInput(user_id=self.user.id, team_id=self.team.id, tool="feature-flag-enable", arguments={"id": 7})
+        )
+        assert [entry.detail["trigger"]["job_id"] for entry in self._activity("tool_invoked")] == [
+            "feature-flag-enable"
+        ]
+
+    @parameterized.expand(
+        [
+            ("undeclared", "feature-flag-disable", {}, status.HTTP_403_FORBIDDEN),
+            ("not_allowlisted", "feature-flags-bulk-delete-create", {}, status.HTTP_400_BAD_REQUEST),
+            ("rollout_flag_off", "feature-flag-enable", {"enabled": False}, status.HTTP_403_FORBIDDEN),
+            ("kill_switch", "feature-flag-enable", {"kill_switch": True}, status.HTTP_403_FORBIDDEN),
+            ("impersonated", "feature-flag-enable", {"impersonated": True}, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_refuses_before_reaching_the_mcp_server(self, _name, tool, gates, expected_status):
+        canvas_id = self._tools_canvas()
+        self.enabled.return_value = gates.get("enabled", True)
+
+        with (
+            patch(
+                "products.canvas.backend.presentation.views.canvas_actions_disabled",
+                return_value=gates.get("kill_switch", False),
+            ),
+            patch(
+                "products.canvas.backend.presentation.views.is_impersonated",
+                return_value=gates.get("impersonated", False),
+            ),
+        ):
+            response = self._invoke(canvas_id, tool, {"id": 7})
+
+        assert response.status_code == expected_status, response.json()
+        self.call_tool.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "tool_error",
+                ToolCallResult(structured_content=None, text="Error: version conflict", is_error=True),
+                status.HTTP_400_BAD_REQUEST,
+                "Error: version conflict",
+            ),
+            (
+                "server_unreachable",
+                McpServerError("Could not reach the MCP server: ConnectionError"),
+                status.HTTP_502_BAD_GATEWAY,
+                "The PostHog MCP server could not run this tool. Try again.",
+            ),
+        ]
+    )
+    def test_reports_a_failed_tool_to_the_canvas(self, _name, outcome, expected_status, expected_detail):
+        canvas_id = self._tools_canvas()
+        if isinstance(outcome, Exception):
+            self.call_tool.side_effect = outcome
+        else:
+            self.call_tool.return_value = outcome
+
+        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7})
+
+        assert response.status_code == expected_status
+        assert response.json()["detail"] == expected_detail
+        assert self._activity("tool_invoked") == []
+
+    @parameterized.expand(
+        [
+            # canvas:write alone is not consent to change feature flags.
+            ("canvas_scope_only", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("target_scope_held", ["canvas:write", "feature_flag:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_scoped_keys_need_the_tools_scope(self, _name, scopes, expected_status):
+        canvas_id = self._tools_canvas()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-tools", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self._invoke(canvas_id, "feature-flag-enable", {"id": 7}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        assert response.status_code == expected_status, response.json()
 
 
 class TestTaskCreatePayloadSerializer(SimpleTestCase):
