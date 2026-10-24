@@ -16,7 +16,7 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
 
-import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
+import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName, shortContentHash } from './chunkLoader.mjs'
 import { cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
 
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
@@ -38,15 +38,24 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-export function copySnappyWASMFile(absWorkingDir, destDir = path.resolve(absWorkingDir, 'dist')) {
+/** Returns the written file name. A hashed copy is for production, so a failure there throws. */
+export function copySnappyWASMFile(
+    absWorkingDir,
+    destDir = path.resolve(absWorkingDir, 'dist'),
+    { contentHash = false } = {}
+) {
     try {
+        const wasm = fse.readFileSync(path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'))
+        const fileName = contentHash ? `snappy_bg-${shortContentHash(wasm)}.wasm` : 'snappy_bg.wasm'
         fse.ensureDirSync(destDir)
-        fse.copyFileSync(
-            path.resolve(absWorkingDir, 'node_modules/snappy-wasm/es/snappy_bg.wasm'),
-            path.resolve(destDir, 'snappy_bg.wasm')
-        )
+        fse.writeFileSync(path.resolve(destDir, fileName), wasm)
+        return fileName
     } catch (error) {
+        if (contentHash) {
+            throw error
+        }
         console.warn('Could not copy snappy wasm file:', error.message)
+        return null
     }
 }
 
@@ -75,7 +84,8 @@ export function copyIndexHtml(
     entry = 'index',
     chunks = {},
     entrypoints = [],
-    stable = null
+    stable = null,
+    staticFileNames = {}
 ) {
     // Takes a html file, `from`, and some artifacts from esbuild, and injects
     // some javascript that will load these artifacts dynamically, based on an
@@ -173,11 +183,17 @@ export function copyIndexHtml(
         ? `{% if stable_chunks %}${bootScript(stable.chunks, stable.entrypoints, { isStable: true, eagerCss: stable.eagerCss ?? [] })}{% else %}${bootScript(chunks, entrypoints)}{% endif %}`
         : bootScript(chunks, entrypoints)
 
+    // Read by frontend/src/lib/utils/staticFileUrl.ts.
+    const staticFilesScript =
+        Object.keys(staticFileNames).length > 0
+            ? `<script nonce="{{ request.csp_nonce }}" type="application/javascript">window.ESBUILD_STATIC_FILES = ${JSON.stringify(staticFileNames)}</script>`
+            : ''
+
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
-            `   ${scripts}
+            `   ${staticFilesScript}${scripts}
             </head>`
         )
     )

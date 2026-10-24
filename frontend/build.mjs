@@ -39,7 +39,19 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
-copySnappyWASMFile(__dirname)
+
+// Unhashed name to content-hashed name for the files the app loads by URL: the workers and
+// snappy_bg.wasm. Every HTML page embeds this map, so production HTML is written only after
+// all worker builds finish.
+const staticFileNames = {}
+if (isDev) {
+    copySnappyWASMFile(__dirname)
+} else {
+    staticFileNames['snappy_bg.wasm'] = copySnappyWASMFile(__dirname, path.resolve(__dirname, 'dist'), {
+        contentHash: true,
+    })
+}
+const workersBuilt = Promise.withResolvers()
 copyRRWebWorkerFiles(__dirname)
 
 writeIndexHtml()
@@ -72,9 +84,9 @@ await buildInParallel(
         },
         ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
-            entryPoints: [entryPoint],
+            entryPoints: { [path.basename(outfileName, '.js')]: entryPoint },
             format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', outfileName),
+            outdir: path.resolve(__dirname, 'dist'),
             ...appBundle,
             ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
@@ -117,6 +129,20 @@ await buildInParallel(
             }
 
             const { chunks, entrypoints } = buildResponse
+
+            const worker = WORKER_ENTRIES.find((entry) => entry.name === config.name)
+            if (worker) {
+                staticFileNames[worker.outfileName] = path.basename(entrypoints.find((file) => file.endsWith('.js')))
+                if (WORKER_ENTRIES.every((entry) => entry.outfileName in staticFileNames)) {
+                    workersBuilt.resolve()
+                }
+                // No hashless copy: an unhashed worker URL can serve a worker from another build.
+                return
+            }
+            // A failed dev rebuild never marks the workers built, so dev does not wait.
+            if (!isDev) {
+                await workersBuilt.promise
+            }
 
             if (config.name === 'PostHog App') {
                 if (Object.keys(chunks).length === 0) {
@@ -271,20 +297,23 @@ function copyEmojibaseData() {
     }
 }
 
+function writeHtml(from, to, entry, chunks, entrypoints, stable = null) {
+    copyIndexHtml(__dirname, from, to, entry, chunks, entrypoints, stable, staticFileNames)
+}
+
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    writeHtml('src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
     // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
     // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
+    writeHtml('src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    writeHtml('src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }
 
 export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(
-        __dirname,
+    writeHtml(
         '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
         'dist/infrastructure_admin.html',
         'infrastructure-admin',
@@ -294,12 +323,5 @@ export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(
-        __dirname,
-        'src/render-query/index.html',
-        'dist/render_query.html',
-        'render-query',
-        chunks,
-        entrypoints
-    )
+    writeHtml('src/render-query/index.html', 'dist/render_query.html', 'render-query', chunks, entrypoints)
 }

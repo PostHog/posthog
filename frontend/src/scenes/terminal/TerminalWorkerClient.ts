@@ -1,5 +1,7 @@
 import posthog, { type Properties } from 'posthog-js'
 
+import { staticFileUrl } from 'lib/utils/staticFileUrl'
+
 import type { NinePServer } from './ninepServer'
 import type { TerminalWorkerBoot, TerminalWorkerRequest, TerminalWorkerResponse } from './terminalWorkerProtocol'
 
@@ -16,7 +18,7 @@ export class TerminalWorkerClient {
         server: NinePServer,
         private onError: (message: string) => void
     ) {
-        this.worker = new Worker('/static/terminalWorker.js', { type: 'module', name: 'PostHog terminal' })
+        this.worker = new Worker(staticFileUrl('terminalWorker.js'), { type: 'module', name: 'PostHog terminal' })
         this.loaded = new Promise((resolve, reject) => {
             this.rejectLoaded = reject
             this.timeout = setTimeout(() => this.fail('Terminal worker timed out. Restart the terminal.'), 60_000)

@@ -1,7 +1,13 @@
 import type { PostHog } from 'posthog-js'
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
+import { staticFileUrl } from 'lib/utils/staticFileUrl'
+
 import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
+
+// Passed to snappyInit explicitly. Without an argument, snappy-wasm fetches the unhashed
+// snappy_bg.wasm next to the calling module, which can come from another build.
+const SNAPPY_WASM_FILE = 'snappy_bg.wasm'
 
 interface PendingRequest {
     resolve: (data: Uint8Array) => void
@@ -26,7 +32,7 @@ export class DecompressionWorkerManager {
 
     private async initWorker(): Promise<void> {
         try {
-            this.worker = new Worker('/static/decompressionWorker.js', { type: 'module' })
+            this.worker = new Worker(staticFileUrl('decompressionWorker.js'), { type: 'module' })
 
             const readyPromise = Promise.race([
                 new Promise<void>((resolve) => {
@@ -95,7 +101,7 @@ export class DecompressionWorkerManager {
         if (this.snappyInitialized) {
             return
         }
-        await snappyInit()
+        await snappyInit(staticFileUrl(SNAPPY_WASM_FILE))
         this.snappyInitialized = true
     }
 
@@ -169,6 +175,7 @@ export class DecompressionWorkerManager {
             const message: DecompressionRequest = {
                 id,
                 compressedData: owned,
+                wasmUrl: staticFileUrl(SNAPPY_WASM_FILE),
             }
 
             try {
@@ -240,7 +247,7 @@ export function terminateDecompressionWorker(): void {
 export function preWarmDecompression(): void {
     // Initialize WASM module in background
     // Don't await - let it warm up while app loads
-    snappyInit().catch((error) => {
+    snappyInit(staticFileUrl(SNAPPY_WASM_FILE)).catch((error) => {
         console.error('[DecompressionWorkerManager] Failed to pre-warm WASM:', error)
     })
 }
