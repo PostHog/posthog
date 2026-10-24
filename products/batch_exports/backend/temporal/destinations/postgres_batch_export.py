@@ -59,6 +59,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -148,6 +149,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "PostgreSQLMissingRequiredInputsError",
     # The final merge waited on locks or hit the destination's statement timeout after several attempts.
     "PostgreSQLMergeTimeoutError",
+    # A column of the exported data has no PostgreSQL type, so no run of this query can load.
+    "UnsupportedColumnTypeError",
 )
 
 MERGE_LOCK_TIMEOUT_SECONDS = 5 * 60
@@ -844,7 +847,7 @@ def get_postgres_fields_from_record_schema(
             pg_type = "TEXT[]"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise UnsupportedColumnTypeError("PostgreSQL", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 

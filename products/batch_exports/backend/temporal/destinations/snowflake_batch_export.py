@@ -45,6 +45,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -116,6 +117,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeIntegrationRequiredError",
     # The linked Integration is the wrong kind or has invalid/missing credentials.
     "SnowflakeIntegrationError",
+    # A column of the exported data has no Snowflake type, so no run of this query can load.
+    "UnsupportedColumnTypeError",
 )
 
 
@@ -391,7 +394,10 @@ class SnowflakeField(Field):
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self:
-        snowflake_type = data_type_to_snowflake_type(field.type)
+        try:
+            snowflake_type = data_type_to_snowflake_type(field.type)
+        except TypeError as err:
+            raise UnsupportedColumnTypeError("Snowflake", field.name, field.type) from err
         return cls(field.name, snowflake_type, field.type, field.nullable)
 
     @classmethod

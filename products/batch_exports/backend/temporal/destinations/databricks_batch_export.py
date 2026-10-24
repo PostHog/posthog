@@ -46,6 +46,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import UnsupportedColumnTypeError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -86,6 +87,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when the destination table's column names or types are incompatible with the exported
     # data (e.g. the table column is VARIANT but the export is configured to write STRING).
     "DatabricksIncompatibleSchemaError",
+    # A column of the exported data has no Databricks type, so no run of this query can load.
+    "UnsupportedColumnTypeError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -1036,7 +1039,7 @@ def _get_databricks_fields_from_record_schema(
         is_variant = pa_field.name in known_variant_columns
         databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
         if databricks_type is None:
-            raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
+            raise UnsupportedColumnTypeError("Databricks", name, pa_field.type)
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
