@@ -55,6 +55,7 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+_MIN_FENCED_CODE_BODY_CAPACITY = 100
 
 
 class _SlackChunkPacker:
@@ -95,23 +96,25 @@ class _SlackChunkPacker:
         if remaining:
             self._append_atom(remaining, "\n")
 
-    def _pack(self, body: str, separator: str, overflow: Callable[[str], None]) -> None:
+    def _pack(
+        self, body: str, separator: str, overflow: Callable[[str], None], *, initial_separator: bool = True
+    ) -> None:
         """Pack the parts of ``body``, sending a part that alone overflows to ``overflow``."""
         # The joiner rule here differs from _append_atom's: on a part after the first it
         # keeps the separator even when the open chunk is empty, where _append_atom drops
         # it. The two are not interchangeable, because merging them changes which
         # characters start a chunk.
         for index, atom in enumerate(body.split(separator)):
-            joiner = separator if index > 0 or self._current else ""
+            joiner = separator if index > 0 or (initial_separator and self._current) else ""
             if self._try_append(atom, joiner):
                 continue
             if len(atom) <= self._limit:
                 self._append_atom(atom, separator)
             else:
-                overflow(atom)
+                overflow(f"{joiner}{atom}")
 
     def _pack_lines(self, paragraph: str) -> None:
-        self._pack(paragraph, "\n", self._split_long_line)
+        self._pack(paragraph, "\n", self._split_long_line, initial_separator=False)
 
     def _add_text(self, body: str) -> None:
         self._pack(body, "\n\n", self._pack_lines)
@@ -122,16 +125,26 @@ class _SlackChunkPacker:
         Every chunk repeats the fence pair, so it comes out of that chunk's own budget.
         A break lands on a line boundary when one falls inside the remaining room.
         """
-        room = max(1, self._limit - len(fence_open) - len(fence_close))
+        overhead = len(fence_open) + len(fence_close)
+        room = self._limit - overhead
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            fence_open = "```\n"
+            overhead = len(fence_open) + len(fence_close)
+            room = self._limit - overhead
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            # Too little body room amplifies the number of chunks even when the fence itself
+            # is short. Plain-text packing keeps output growth bounded.
+            self._pack_lines(body)
+            return
         cursor = 0
         while cursor < len(body):
             end = min(cursor + room, len(body))
             if end < len(body):
                 newline = body.rfind("\n", cursor, end)
                 if newline > cursor:
-                    end = newline
+                    end = newline + 1
             self._chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
-            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+            cursor = end
 
     def _add_code_block(self, language: str, body: str) -> None:
         fence_open = f"```{language}\n" if language else "```\n"
