@@ -9,6 +9,7 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -1223,9 +1224,9 @@ export interface eventUsageLogicActions {
         step: string,
         stepNumber: number,
         previousStep: string | null,
-        navigation: string
+        navigation: ExperimentWizardStepNavigation
     ) => {
-        navigation: string
+        navigation: ExperimentWizardStepNavigation
         previousStep: string | null
         step: string
         stepNumber: number
@@ -1821,7 +1822,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             step: string,
             stepNumber: number,
             previousStep: string | null,
-            navigation: string
+            navigation: ExperimentWizardStepNavigation
         ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,

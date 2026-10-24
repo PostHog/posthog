@@ -124,9 +124,9 @@ export interface experimentWizardLogicActions {
         step: string,
         stepNumber: number,
         previousStep: string | null,
-        navigation: string
+        navigation: ExperimentWizardStepNavigation
     ) => {
-        navigation: string
+        navigation: ExperimentWizardStepNavigation
         previousStep: string | null
         step: string
         stepNumber: number
