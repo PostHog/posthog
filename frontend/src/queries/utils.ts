@@ -361,14 +361,6 @@ export function isFunnelsQuery(node?: Record<string, any> | null): node is Funne
     return node?.kind === NodeKind.FunnelsQuery
 }
 
-export function isFunnelsBoldNumberQuery(node?: Record<string, any> | null): boolean {
-    return (
-        isFunnelsQuery(node) &&
-        (node.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps &&
-        node.funnelsFilter?.layout === FunnelLayout.number
-    )
-}
-
 export function isFunnelsMetricQuery(node?: Record<string, any> | null): boolean {
     return (
         isFunnelsQuery(node) &&

@@ -18,7 +18,7 @@ import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
-import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
+import { FunnelChartFilter } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelChartFilter'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
@@ -48,9 +48,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         insightData,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
-    const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const { isTrendsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(funnelDataLogic(insightProps))
     const isMetric = display === ChartDisplayType.Metric
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (compare, smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -162,9 +160,9 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <RetentionChartPicker />
                     </ConfigFilter>
                 )}
-                {!!(isStepsFunnel || isTrendsFunnel) && (
+                {!!isFunnels && (
                     <ConfigFilter>
-                        <FunnelDisplayLayoutPicker />
+                        <FunnelChartFilter />
                     </ConfigFilter>
                 )}
                 {!!isTimeToConvertFunnel && (

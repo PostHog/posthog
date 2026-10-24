@@ -644,7 +644,6 @@ export const PROPERTY_MATCH_TYPE = 'properties'
 export enum FunnelLayout {
     horizontal = 'horizontal',
     vertical = 'vertical',
-    number = 'number',
     metric = 'metric',
 }
 

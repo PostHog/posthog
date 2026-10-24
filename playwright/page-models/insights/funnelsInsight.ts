@@ -9,7 +9,7 @@ export class FunnelsInsight {
     readonly histogram: Locator
     readonly trendsLineGraph: Locator
     readonly stepLegends: Locator
-    readonly layoutSelector: Locator
+    readonly chartTypeSelector: Locator
     readonly stepOrderFilter: Locator
     readonly tooltip: Locator
     readonly taxonomicFilter: TaxonomicFilter
@@ -23,7 +23,7 @@ export class FunnelsInsight {
         this.histogram = page.getByTestId('funnel-histogram')
         this.trendsLineGraph = page.getByTestId('trend-line-graph-funnel')
         this.stepLegends = this.verticalChart.getByTestId('funnel-step-legend')
-        this.layoutSelector = page.getByTestId('funnel-bar-layout-selector')
+        this.chartTypeSelector = page.getByTestId('funnel-viz-type-select')
         this.stepOrderFilter = page.getByTestId('funnel-step-order-filter')
         this.tooltip = page.locator('[data-hog-charts-tooltip]')
         this.taxonomicFilter = new TaxonomicFilter(page)
@@ -65,11 +65,6 @@ export class FunnelsInsight {
         await this.taxonomicFilter.selectItem(eventName)
     }
 
-    async selectVizType(name: string): Promise<void> {
-        await this.page.getByTestId('funnel-viz-type-select').click()
-        await this.page.getByRole('menuitem', { name }).click()
-    }
-
     async selectStepEvent(stepIndex: number, eventName: string): Promise<void> {
         await this.page.getByTestId(`trend-element-subject-${stepIndex}`).click()
         await this.taxonomicFilter.selectItem(eventName)
@@ -99,8 +94,8 @@ export class FunnelsInsight {
         await expect(eventButton).toContainText(eventName)
     }
 
-    async selectLayout(label: string): Promise<void> {
-        await this.layoutSelector.click()
+    async selectChartType(label: string): Promise<void> {
+        await this.chartTypeSelector.click()
         await this.page.getByRole('menuitem', { name: label }).click()
     }
 

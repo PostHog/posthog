@@ -1940,9 +1940,6 @@ describe('funnelDataLogic', () => {
             expect(steps[0].nested_breakdown?.[1].count).toBe(150)
             expect(steps[1].nested_breakdown?.[0].count).toBe(100)
             expect(steps[1].nested_breakdown?.[1].count).toBe(60)
-
-            expect(logic.values.conversionMetrics.totalRate).toBe(100 / 200)
-            expect(logic.values.previousPeriodTotalRate).toBe(60 / 150)
         })
 
         it('scales both periods against a shared baseline so the previous bar reflects its volume', async () => {

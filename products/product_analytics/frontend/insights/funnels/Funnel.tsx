@@ -10,7 +10,6 @@ import { ChartParams, FunnelVizType } from '~/types'
 
 import { FunnelBarHorizontalChart } from './FunnelBarHorizontalChart/FunnelBarHorizontalChart'
 import { FunnelBarListChart } from './FunnelBarListChart/FunnelBarListChart'
-import { FunnelBoldNumber } from './FunnelBoldNumber/FunnelBoldNumber'
 import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogramChart } from './FunnelHistogramChart/FunnelHistogramChart'
@@ -31,8 +30,6 @@ export function Funnel(props: ChartParams): JSX.Element {
         viz = <FunnelHistogramChart />
     } else if (funnelVizType === FunnelVizType.Flow) {
         viz = <FunnelFlowGraph />
-    } else if (layout === FunnelLayout.number) {
-        viz = <FunnelBoldNumber {...props} />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
         viz = <FunnelStepsBarChart {...props} />
     } else {

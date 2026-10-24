@@ -5929,7 +5929,6 @@ export namespace Schemas {
     export const FunnelLayout = {
       Horizontal: 'horizontal',
       Vertical: 'vertical',
-      Number: 'number',
       Metric: 'metric',
     } as const;
 

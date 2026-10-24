@@ -807,7 +807,7 @@ const FunnelVizType = z.enum(['steps', 'time_to_convert', 'trends', 'flow'])
 
 const FunnelConversionWindowTimeUnit = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month'])
 
-const FunnelLayout = z.enum(['horizontal', 'vertical', 'number', 'metric'])
+const FunnelLayout = z.enum(['horizontal', 'vertical', 'metric'])
 
 const AssistantFunnelsFilter = z.object({
     binCount: z.coerce

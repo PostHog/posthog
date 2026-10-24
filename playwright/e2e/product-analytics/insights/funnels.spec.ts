@@ -194,19 +194,19 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('switch to Time to convert', async () => {
-            await insight.funnels.selectVizType('Time to convert')
+            await insight.funnels.selectChartType('Time to convert')
             await insight.funnels.waitForHistogram()
             await expect(insight.funnels.verticalChart).not.toBeVisible()
         })
 
         await test.step('switch to Historical trends', async () => {
-            await insight.funnels.selectVizType('Historical trends')
+            await insight.funnels.selectChartType('Historical trends')
             await insight.funnels.waitForTrendsLineGraph()
             await expect(insight.funnels.histogram).not.toBeVisible()
         })
 
         await test.step('switch back to Conversion steps and verify counts preserved', async () => {
-            await insight.funnels.selectVizType('Conversion steps')
+            await insight.funnels.selectChartType('Left to right')
             await insight.funnels.waitForChart()
             await expect(insight.funnels.trendsLineGraph).not.toBeVisible()
             await expect(insight.funnels.stepLegend(0)).toContainText('20')

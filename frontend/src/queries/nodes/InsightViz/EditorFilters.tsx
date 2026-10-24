@@ -15,22 +15,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
+import { InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebAnalyticsInsightQuery } from '~/queries/utils'
-import {
-    AvailableFeature,
-    ChartDisplayType,
-    EditorFilterProps,
-    FunnelVizType as FunnelVizTypeEnum,
-    InsightEditorFilterGroup,
-    PathType,
-} from '~/types'
+import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
 
 import { FunnelAttribution } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelAttributionFilter'
 import { FunnelsAdvanced } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelsQuerySteps'
 import { FunnelStepConfiguration } from 'products/product_analytics/frontend/insights/funnels/editor/FunnelStepConfiguration'
-import { FunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { JourneysExclusions } from 'products/product_analytics/frontend/insights/journeys/JourneysExclusions'
 import { JourneysSettings } from 'products/product_analytics/frontend/insights/journeys/JourneysSettings'
@@ -162,15 +154,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             title: isFunnels ? 'Steps' : 'General',
             show: !isRetention,
             defaultExpanded: true,
-            headerExtra:
-                isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
-                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                        {/* span so the tooltip has a ref-able anchor — FunnelVizType is a plain function component */}
-                        <span className="inline-flex">
-                            <FunnelVizType insightProps={insightProps} />
-                        </span>
-                    </Tooltip>
-                ) : null,
             editorFilters: visibleFilters([
                 { key: 'query-steps', component: FunnelsQuerySteps, show: isFunnels },
                 { key: 'event-types', label: 'Event Types', component: PathsEventsTypes, show: isPaths },

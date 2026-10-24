@@ -37,7 +37,7 @@ import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isFunnelsBoldNumberQuery, isFunnelsMetricQuery, shouldQueryBeAsync } from '~/queries/utils'
+import { isFunnelsMetricQuery, shouldQueryBeAsync } from '~/queries/utils'
 import {
     ChartDisplayType,
     ExporterFormat,
@@ -464,7 +464,6 @@ export function InsightVizDisplay({
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
             !disableTable &&
-            !isFunnelsBoldNumberQuery(querySource) &&
             !isFunnelsMetricQuery(querySource)
         ) {
             const funnelTable =

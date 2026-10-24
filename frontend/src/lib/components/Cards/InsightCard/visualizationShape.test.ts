@@ -34,15 +34,6 @@ describe('visualizationShape', () => {
             'line',
         ],
         [
-            'funnel big number',
-            insightVisualization({
-                kind: NodeKind.FunnelsQuery,
-                series: [],
-                funnelsFilter: { layout: FunnelLayout.number },
-            }),
-            'number',
-        ],
-        [
             'funnel metric',
             insightVisualization({
                 kind: NodeKind.FunnelsQuery,
@@ -50,15 +41,6 @@ describe('visualizationShape', () => {
                 funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.metric },
             }),
             'number',
-        ],
-        [
-            'funnel trends with a stale big number layout',
-            insightVisualization({
-                kind: NodeKind.FunnelsQuery,
-                series: [],
-                funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.number },
-            }),
-            'line',
         ],
         [
             'funnel time to convert',

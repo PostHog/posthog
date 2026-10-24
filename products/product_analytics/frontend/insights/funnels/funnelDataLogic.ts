@@ -352,7 +352,6 @@ export interface funnelDataLogicValues {
     isTrendsFunnel: boolean | null
     newExclusionDefaults: Partial<FunnelExclusionEventsNode>
     numericBinCount: number
-    previousPeriodTotalRate: number | null
     querySource: FunnelsQuery | null
     resultCustomizations: Record<string, ResultCustomizationByValue> | undefined
     results: FunnelResultType
@@ -543,11 +542,6 @@ export interface funnelDataLogicMeta {
             timeConversionResults: FunnelsTimeConversionBins | null,
             insightData: Record<string, any>
         ) => FunnelTimeConversionMetrics
-        previousPeriodTotalRate: (
-            visibleSteps: FunnelStepWithConversionMetrics[],
-            isComparedFunnel: boolean,
-            isBreakdownCompareFunnel: boolean
-        ) => number | null
         conversionWindow: (funnelsFilter: FunnelsFilter | null | undefined) => Required<FunnelConversionWindow>
         incompletenessOffsetFromEnd: (
             steps: FunnelStepWithNestedBreakdown[],
@@ -1319,22 +1313,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                             ? 0
                             : visibleSteps[visibleSteps.length - 1].count / visibleSteps[0].count,
                 }
-            },
-        ],
-        // Breakdown × compare has one previous rate per breakdown value, so only pure compare gets one.
-        previousPeriodTotalRate: [
-            (s) => [s.visibleStepsWithConversionMetrics, s.isComparedFunnel, s.isBreakdownCompareFunnel],
-            (
-                visibleSteps: FunnelStepWithConversionMetrics[],
-                isComparedFunnel: boolean,
-                isBreakdownCompareFunnel: boolean
-            ): number | null => {
-                if (!isComparedFunnel || isBreakdownCompareFunnel) {
-                    return null
-                }
-                const firstStep = visibleSteps[0]?.nested_breakdown?.[1]
-                const lastStep = visibleSteps[visibleSteps.length - 1]?.nested_breakdown?.[1]
-                return firstStep?.count && lastStep ? lastStep.count / firstStep.count : null
             },
         ],
         conversionWindow: [
