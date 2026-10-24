@@ -104,6 +104,7 @@ class BaseDetector(ABC):
         ``data`` holds ``context_buckets()`` buckets, then the buckets to score. The result has one entry in
         ``all_scores`` and ``all_metadata`` per scored bucket, and ``triggered_indices`` count from the first scored bucket.
         """
+        self._check_artifact(artifact)
         context = self.context_buckets()
         if len(data) <= context:
             return DetectionResult(is_anomaly=False)

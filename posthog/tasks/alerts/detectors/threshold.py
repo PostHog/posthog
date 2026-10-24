@@ -90,7 +90,6 @@ class ThresholdDetector(BaseDetector):
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
-        self._check_artifact(artifact)
         lower = self.config.get("lower_bound")
         upper = self.config.get("upper_bound")
         scores: list[float | None] = []

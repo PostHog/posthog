@@ -87,7 +87,6 @@ class BasePyODDetector(BaseDetector):
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
-        self._check_artifact(artifact)
         if artifact.model_bytes is None:
             raise ValueError("The artifact has no model")
         # Only bytes this code wrote reach here. The caller checks their hash before it loads them.

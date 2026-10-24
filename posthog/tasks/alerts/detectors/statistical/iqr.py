@@ -206,7 +206,6 @@ class IQRDetector(BaseDetector):
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
-        self._check_artifact(artifact)
         params = artifact.params
         iqr = params["iqr"]
         lower_fence = params["lower_fence"]

@@ -137,7 +137,6 @@ class MADDetector(BaseDetector):
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
-        self._check_artifact(artifact)
         params = artifact.params
         values = rows if rows.ndim == 1 else rows[:, 0]
         clf = MAD()

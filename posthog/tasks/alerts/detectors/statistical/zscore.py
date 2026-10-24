@@ -170,7 +170,6 @@ class ZScoreDetector(BaseDetector):
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
-        self._check_artifact(artifact)
         mean = artifact.params["mean"]
         std = artifact.params["std"]
         scores: list[float | None] = []

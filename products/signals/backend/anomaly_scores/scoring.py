@@ -393,19 +393,14 @@ def score_with_artifact(
     points: list[ScoredPoint] = []
     for i in indices:
         position = positions.get(i)
-        score = None if result is None or position is None else result.all_scores[position]
+        score = flag = None
+        details: dict[str, Any] = {}
+        if result is not None and position is not None and result.all_scores[position] is not None:
+            score = float(cast(float, result.all_scores[position]))
+            flag = position in result.triggered_indices
+            details = _details_of(result.all_metadata[position])
         points.append(
-            ScoredPoint(
-                bucket_start=buckets[i],
-                value=float(values[i]),
-                score=None if score is None else float(score),
-                flag=None
-                if result is None or position is None or score is None
-                else position in result.triggered_indices,
-                details={}
-                if result is None or position is None or score is None
-                else _details_of(result.all_metadata[position]),
-            )
+            ScoredPoint(bucket_start=buckets[i], value=float(values[i]), score=score, flag=flag, details=details)
         )
     return points
 
