@@ -1,6 +1,6 @@
 import { SELECTION_FILL, SELECTION_STROKE } from '../../core/canvas-renderer'
-import type { HistogramLayout, HistogramSegment } from '../../core/histogram-layout'
 import type { ChartDimensions } from '../../core/types'
+import type { HistogramLayout, HistogramSegment } from './histogram-layout'
 
 /** Bars outside a selection fade to this alpha so the selected range reads as the subject. */
 export const OUTSIDE_SELECTION_ALPHA = 0.35

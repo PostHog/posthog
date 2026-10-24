@@ -1,9 +1,9 @@
 import { scaleLinear, scaleLog } from 'd3-scale'
 
-import { measureLabelWidth } from '../utils/text-measure'
-import { autoFormatterFor, buildValueScale, yTickCountForHeight } from './scales'
-import type { D3YScale, SeriesValueRange } from './scales'
-import type { ChartDimensions } from './types'
+import { autoFormatterFor, buildValueScale, yTickCountForHeight } from '../../core/scales'
+import type { D3YScale, SeriesValueRange } from '../../core/scales'
+import type { ChartDimensions } from '../../core/types'
+import { measureLabelWidth } from '../../utils/text-measure'
 
 export type HistogramScaleType = 'linear' | 'log'
 

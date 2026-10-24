@@ -6,15 +6,6 @@ import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../c
 import { Chart } from '../../core/Chart'
 import { useChartHover, useChartLayout } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import {
-    estimateHistogramPercentile,
-    histogramColumnAtPixel,
-    histogramRangeToPixels,
-    histogramTotals,
-    prepareHistogramBins,
-    snapPixelRangeToBins,
-} from '../../core/histogram-layout'
-import type { PreparedHistogramBin } from '../../core/histogram-layout'
 import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import { SINGLE_LABEL_MIN_DRAG_PX } from '../../core/interaction'
 import type {
@@ -40,6 +31,15 @@ import {
     drawHistogramSelectionBand,
     drawHistogramSelectionEdges,
 } from './draw-histogram'
+import {
+    estimateHistogramPercentile,
+    histogramColumnAtPixel,
+    histogramRangeToPixels,
+    histogramTotals,
+    prepareHistogramBins,
+    snapPixelRangeToBins,
+} from './histogram-layout'
+import type { PreparedHistogramBin } from './histogram-layout'
 import {
     createHistogramScales,
     readHistogramColors,
