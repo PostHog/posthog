@@ -31,6 +31,8 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
+import type { SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
 import { NEW_QUERY, normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
@@ -38,7 +40,7 @@ import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 export interface SaveAsMenuItem {
-    action: 'insight' | 'endpoint' | 'view' | 'metric'
+    action: SaveAsTargetId
     label: string
     dataAttr?: string
 }
@@ -131,6 +133,7 @@ export interface editorSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     isCreateViewFlow: boolean
     isHistoryModalOpen: boolean
+    isSaveAsModalOpen: boolean
     projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
         primary: SaveAsMenuItem
@@ -202,11 +205,20 @@ export interface editorSceneLogicActions {
     closeHistoryModal: () => {
         value: true
     }
+    closeSaveAsModal: () => {
+        value: true
+    }
     convertToNotebook: () => {
         value: true
     }
     openHistoryModal: () => {
         value: true
+    }
+    openSaveAsModal: () => {
+        value: true
+    }
+    selectSaveAsTarget: (target: SaveAsTargetId) => {
+        target: SaveAsTargetId
     }
     shareTab: () => {
         value: true
@@ -318,6 +330,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         shareTab: true,
         openHistoryModal: true,
         closeHistoryModal: true,
+        openSaveAsModal: true,
+        closeSaveAsModal: true,
+        selectSaveAsTarget: (target: SaveAsTargetId) => ({ target }),
     }),
     reducers({
         isHistoryModalOpen: [
@@ -325,6 +340,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             {
                 openHistoryModal: () => true,
                 closeHistoryModal: () => false,
+            },
+        ],
+        isSaveAsModalOpen: [
+            false as boolean,
+            {
+                openSaveAsModal: () => true,
+                closeSaveAsModal: () => false,
+                selectSaveAsTarget: () => false,
             },
         ],
     }),
@@ -612,6 +635,19 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openSaveAsModal: () => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('sql-editor-save-as-modal-opened', {
+                editor_source: values.editorSource,
+            })
+        },
+        selectSaveAsTarget: ({ target }) => {
+            // pinned: analytics event name and property - renaming breaks dashboards
+            posthog.capture('sql-editor-save-as-target-selected', {
+                target,
+                editor_source: values.editorSource,
+            })
+        },
         convertToNotebook: () => {
             const { title, content } = buildSqlNotebook(
                 values.queryInput ?? '',
