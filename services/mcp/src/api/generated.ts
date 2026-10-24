@@ -39988,7 +39988,7 @@ export namespace Schemas {
     export interface EditReportRequest {
       /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+      /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
        *
        * * `selected` - Selected
        * * `no_suitable_owner` - No suitable owner
@@ -106851,7 +106851,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+      /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
        *
        * * `selected` - Selected
        * * `no_suitable_owner` - No suitable owner

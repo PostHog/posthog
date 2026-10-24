@@ -832,7 +832,6 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
         ),
 })
 
-export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
 export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
 
 export const SignalsReportArtefactsCreateBody = () => zod
@@ -857,9 +856,9 @@ export const SignalsReportArtefactsCreateBody = () => zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()
@@ -2787,7 +2786,6 @@ export const SignalsScoutEditReportParams = () => zod.object({
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
-export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -2862,9 +2860,9 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()

@@ -5943,6 +5943,7 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, SuggestedReviewers):
             try:
                 expected = request.validated_data.get("expected_reviewers")
+                reviewer_outcome = request.validated_data.get("reviewer_outcome", "selected")
                 with transaction.atomic():
                     SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
                     previous = ReviewerRules.read_for_report(
@@ -5955,13 +5956,13 @@ class SignalReportArtefactViewSet(
                         attribution=attribution,
                         reviewer_proposal=ReviewerProposal(
                             expected_state=ReviewerState.model_validate(expected),
-                            outcome=request.validated_data["reviewer_outcome"],
+                            outcome=reviewer_outcome,
                             retry_reason=request.validated_data.get("reviewer_retry_reason"),
                         )
                         if expected is not None
                         else None,
                         reviewer_edit=ReviewerEdit(action="replace", expected_state=expected)
-                        if attribution.kind == "user" and request.validated_data["reviewer_outcome"] == "selected"
+                        if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
                     )

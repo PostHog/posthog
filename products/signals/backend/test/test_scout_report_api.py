@@ -665,11 +665,11 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
 
-    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
-    def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
-        # A DRF default renders as a default on the generated client, which sends an explicit `false`
-        # for a flag the caller omitted. The validator below rejects a field it does not declare, so a
-        # client deployed ahead of this endpoint would fail every edit, not only a supersede request.
+    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",), ("reviewer_outcome",)])
+    def test_an_omitted_edit_field_stays_out_of_the_request_body(self, field: str) -> None:
+        # A DRF default becomes a generated-client default, which sends a value the caller omitted.
+        # An older endpoint rejects fields it does not declare, so a client deployed ahead of the API
+        # would fail every edit instead of only requests that use the new field.
         serializer = EditReportRequestSerializer(data={"report_id": str(uuid4())})
         assert serializer.is_valid(), serializer.errors
         assert field not in serializer.validated_data
