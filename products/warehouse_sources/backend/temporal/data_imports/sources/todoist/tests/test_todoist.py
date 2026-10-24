@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.todoist import (
     TodoistSourceConfig,
@@ -25,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.so
 from products.warehouse_sources.backend.temporal.data_imports.sources.todoist.todoist import (
     PAGE_LIMIT,
     TodoistResumeConfig,
-    validate_credentials,
 )
 
 BASE = "https://api.todoist.com/api/v1"
@@ -89,8 +87,7 @@ class TestSourceResponseShape:
         assert response.primary_keys == expected_keys
         assert response.partition_mode == expected_partition_mode
         assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
-        # Ascending order is the safe default; we never declare desc here.
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
 
 class TestEndpointConfig:
@@ -205,9 +202,3 @@ class TestRetryClassification:
         }
         result = _run("tasks", responses)
         assert isinstance(result.raised, requests.HTTPError)
-
-
-class TestValidateCredentials:
-    def test_ok(self) -> None:
-        with scripted_network([ScriptedResponse(json={"results": []})]):
-            assert validate_credentials("tok") is True

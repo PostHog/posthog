@@ -19,8 +19,9 @@ use personhog_common::partitioning::partition_for_person;
 use personhog_coordination::authority::AuthorityClock;
 
 use crate::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
+    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream,
 };
+use crate::coordination::ChangelogCaptures;
 use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fence::{
     fenced_status, semantic_refusal, target_mark_status, FenceHealer, FenceMap, FenceState,
@@ -82,6 +83,12 @@ struct Committer {
     dirty_index: Arc<DirtyIndex>,
     emitted_versions: Arc<EmittedVersions>,
     fenced: Arc<FencedChangelogProducers>,
+    /// Shared with the service; a mark names the partition's captured topic.
+    captures: ChangelogCaptures,
+}
+
+fn not_served(partition: u32) -> Status {
+    Status::failed_precondition(format!("partition {partition} is not served by this pod"))
 }
 
 /// A committed document, with the locks the handler took for it, so the
@@ -103,10 +110,8 @@ pub struct PersonHogLeaderService {
     fallback: Option<PgFallback>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
-    /// Total changelog partition count, read from etcd at startup (the same
-    /// source the router uses). Used to validate the router's routing
-    /// decision against each request's key.
-    num_partitions: u32,
+    /// What each served partition was acquired under; shared with the handler.
+    captures: ChangelogCaptures,
     /// Persons whose latest acked state the writer may not have applied to
     /// PG yet. Consulted on every cache miss: marked persons recover from
     /// the changelog, unmarked persons' PG rows are known current.
@@ -208,7 +213,7 @@ impl PersonHogLeaderService {
         fallback: Option<PgFallback>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
-        num_partitions: u32,
+        captures: ChangelogCaptures,
         dirty_index: Arc<DirtyIndex>,
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
@@ -223,6 +228,7 @@ impl PersonHogLeaderService {
             dirty_index: Arc::clone(&dirty_index),
             emitted_versions: Arc::clone(&emitted_versions),
             fenced,
+            captures: Arc::clone(&captures),
         });
         Self {
             committer,
@@ -234,7 +240,7 @@ impl PersonHogLeaderService {
             mark_verifier: fallback.as_ref().map(MarkVerifier::new),
             fallback,
             inflight,
-            num_partitions,
+            captures,
             dirty_index,
             recovery,
             size_limits,
@@ -267,10 +273,16 @@ impl PersonHogLeaderService {
         team_id: i64,
         person_id: i64,
     ) -> Result<(), Status> {
-        let expected = partition_for_person(team_id, person_id, self.num_partitions);
+        let modulus = self
+            .captures
+            .get(&partition)
+            .map(|c| c.config.partitions)
+            .ok_or_else(|| not_served(partition))?;
+        let expected = partition_for_person(team_id, person_id, modulus);
         if partition != expected {
             counter!("personhog_leader_partition_mismatch_total").increment(1);
-            return Err(Status::invalid_argument(format!(
+            // A precondition, so the router bounces and retries, landing once it adopts the new count.
+            return Err(Status::failed_precondition(format!(
                 "x-partition {partition} does not match partition {expected} \
                  derived from team_id={team_id} person_id={person_id}"
             )));
@@ -288,9 +300,7 @@ impl PersonHogLeaderService {
     #[allow(clippy::result_large_err)]
     fn validate_ownership(&self, partition: u32) -> Result<(), Status> {
         if !self.cache.has_partition(partition) {
-            return Err(Status::failed_precondition(format!(
-                "partition {partition} is not served by this pod"
-            )));
+            return Err(not_served(partition));
         }
         Ok(())
     }
@@ -561,6 +571,17 @@ impl PersonHogLeaderService {
 }
 
 impl Committer {
+    /// The producer was acquired on the capture's topic, so its records land there.
+    #[allow(clippy::result_large_err)]
+    fn stream_of(&self, partition: u32) -> Result<Stream, Status> {
+        let topic = self
+            .captures
+            .get(&partition)
+            .map(|c| Arc::clone(&c.topic))
+            .ok_or_else(|| not_served(partition))?;
+        Ok(Stream { topic, partition })
+    }
+
     async fn commit(
         &self,
         partition: u32,
@@ -570,6 +591,7 @@ impl Committer {
         lock: OwnedMutexGuard<()>,
         inflight: InflightGuard,
     ) -> Result<Committed, Status> {
+        let stream = self.stream_of(partition)?;
         // The guard is what makes the version un-reusable if this task
         // never reports.
         let mut emitted = EmittedVersionGuard::new(
@@ -689,6 +711,7 @@ impl Committer {
                 version: person.version,
                 offset,
                 partition,
+                stream,
                 is_deleted: person.is_deleted,
             },
         );
@@ -1660,9 +1683,7 @@ mod tests {
 
     use common_kafka::config::KafkaConfig;
     use envconfig::Envconfig;
-    use health::HealthRegistry;
     use personhog_proto::personhog::types::v1::{LifecycleOpType, ReleaseOutcome};
-    use rdkafka::ClientConfig;
     use tonic::Code;
 
     use super::*;
@@ -1784,30 +1805,30 @@ mod tests {
         assert_eq!(stats.clamped_numbers, 1);
     }
 
-    /// A service with no PG pool and a producer that never connects —
-    /// enough to exercise the miss path, where no test reaches Kafka or PG.
+    /// A service with no PG pool and no reachable Kafka — enough to
+    /// exercise the miss path, where no test reaches Kafka or PG.
     async fn make_test_service() -> PersonHogLeaderService {
         let kafka = KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap();
-        let liveness = HealthRegistry::new("test")
-            .register("kafka".to_string(), Duration::from_secs(60))
-            .await;
-        let producer: rdkafka::producer::FutureProducer<
-            common_kafka::kafka_producer::KafkaContext,
-        > = ClientConfig::new()
-            .set("bootstrap.servers", "127.0.0.1:1")
-            .create_with_context(common_kafka::kafka_producer::KafkaContext::from(liveness))
-            .unwrap();
         PersonHogLeaderService::new(
             Arc::new(PartitionedCache::new(16)),
             None,
             Arc::new(DashMap::new()),
             Arc::new(InflightTracker::new()),
-            1,
+            // Partition 0 served under one partition.
+            Arc::new(DashMap::from_iter([(
+                0,
+                crate::coordination::Capture {
+                    topic: Arc::from("personhog_updates"),
+                    config: personhog_coordination::types::ChangelogConfig::new(
+                        "personhog_updates",
+                        1,
+                    ),
+                },
+            )])),
             Arc::new(DirtyIndex::new(16)),
             Arc::new(
                 ChangelogRecovery::new(RecoveryConfig {
                     kafka,
-                    topic: "personhog_updates".to_string(),
                     pod_name: "test".to_string(),
                     recv_timeout: Duration::from_millis(10),
                     pool_size: 1,
@@ -1815,13 +1836,12 @@ mod tests {
                 .expect("build recovery pool"),
             ),
             PropertySizeLimits::new(655360, 524288),
-            WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            WarningsProducer::disabled(),
             Arc::new(DashMap::new()),
             // Lazily built: nothing here connects until a write acquires
             // a partition, which these tests never do.
             Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: KafkaConfig::init_from_hashmap(&HashMap::new()).unwrap(),
-                topic: "personhog_updates".to_string(),
                 init_timeout: Duration::from_secs(1),
                 commit_timeout: Duration::from_secs(1),
                 broker_txn_timeout: Duration::from_secs(10),
@@ -2177,7 +2197,7 @@ mod tests {
 
         // The handoff completes while the release is parked.
         service.cache.drop_partition(0);
-        crate::fence::drop_partition_fences(&service.fences, 0, 1);
+        crate::fence::drop_partition_fences(&service.fences, 0, 1, |_| false);
         drop(held);
 
         let err = releasing

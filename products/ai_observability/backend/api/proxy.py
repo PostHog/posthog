@@ -95,7 +95,6 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
     "minimax": "MiniMax",
-    "zeabur": "Zeabur AI Hub",
     "openai_compatible": "OpenAI-compatible",
 }
 

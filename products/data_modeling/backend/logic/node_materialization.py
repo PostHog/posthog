@@ -1,15 +1,24 @@
 import asyncio
 from dataclasses import asdict
-from uuid import UUID
+from datetime import timedelta
+from uuid import UUID, uuid4
 
 from django.conf import settings
 
 import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.hogql.database.database import Database
+
+from posthog.models import User
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.contracts import MaterializationForbiddenError, MaterializationRunDirection
+from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
 from products.data_modeling.backend.models import Node
@@ -17,6 +26,9 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
 logger = structlog.get_logger(__name__)
+
+
+RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 
 
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
@@ -40,7 +52,6 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
         node_id=str(node.id),
         manually_triggered_by_id=triggered_by_id,
     )
-
     temporal = sync_connect()
     asyncio.run(
         temporal.start_workflow(
@@ -53,6 +64,74 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
             retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
+
+
+def run_related_node_materializations(
+    team_id: int,
+    node_id: UUID | str,
+    *,
+    direction: MaterializationRunDirection | str,
+    user: User,
+    hidden_types: frozenset[str] = frozenset(),
+) -> list[str]:
+    try:
+        node = Node.objects.select_related("team").get(team_id=team_id, id=node_id)
+    except Node.DoesNotExist:
+        raise MissingDagNodeError(f"Node {node_id} not found")
+    graph = Graph(team_id=node.team_id, dag_id=node.dag_id, hidden_types=hidden_types)
+    if direction == MaterializationRunDirection.UPSTREAM:
+        node_ids = graph.get_upstream(node.id)
+    else:
+        node_ids = graph.get_downstream(node.id)
+
+    managed_view_node_ids = {
+        str(node_id)
+        for node_id in Node.objects.filter(
+            team_id=node.team_id,
+            id__in=node_ids,
+            saved_query__managed_viewset__isnull=False,
+        ).values_list("id", flat=True)
+    }
+    node_ids = managed_view_node_ids if node.belongs_to_managed_viewset else node_ids - managed_view_node_ids
+    node_ids.add(str(node.id))
+
+    # A dependency run materializes every node it touches, so it needs the same edit and data access checks as
+    # enabling materialization for each view.
+    database = Database.create_for(team_id=node.team_id, user=user)
+    access_control = UserAccessControl(user=user, team=node.team)
+    saved_queries = DataWarehouseSavedQuery.objects.filter(
+        team_id=node.team_id,
+        node__id__in=node_ids,
+    ).distinct()
+    for saved_query in saved_queries:
+        if not access_control.check_access_level_for_object(saved_query, "editor"):
+            raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
+        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+
+    # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
+    unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")
+
+    inputs = ExecuteDAGInputs(
+        team_id=node.team_id,
+        dag_id=str(node.dag_id),
+        node_ids=sorted(node_ids),
+    )
+    temporal = sync_connect()
+    asyncio.run(
+        temporal.start_workflow(
+            "data-modeling-execute-dag",
+            asdict(inputs),
+            id=f"execute-dag-{uuid4()}",
+            task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=10),
+                maximum_interval=timedelta(seconds=60),
+                maximum_attempts=3,
+                non_retryable_error_types=["NondeterminismError", "CancelledError"],
+            ),
+        )
+    )
+    return sorted(node_ids)
 
 
 def is_saved_query_on_v2_schedule(saved_query: DataWarehouseSavedQuery) -> bool:
@@ -92,7 +171,7 @@ def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) ->
 
 def materialize_saved_query(
     saved_query: DataWarehouseSavedQuery, *, resume: bool = True, triggered_by_id: int | None = None
-) -> None:
+) -> UUID:
     """Materialize the saved query's backing node via the v2 workflow.
 
     Fire a single materialization — don't fan out over duplicate-DAG nodes, or two workers race to
@@ -107,3 +186,4 @@ def materialize_saved_query(
         # trace of, and there is no v1 schedule left to fall back to.
         raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
     start_node_materialization(node, resume=resume, triggered_by_id=triggered_by_id)
+    return node.id

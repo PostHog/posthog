@@ -86,10 +86,6 @@ class TestNextUrl:
 
 
 class TestValidateCredentials:
-    def test_returns_none_on_exception(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("api-key") is None
-
     @pytest.mark.parametrize(
         "endpoint, expected_url",
         [

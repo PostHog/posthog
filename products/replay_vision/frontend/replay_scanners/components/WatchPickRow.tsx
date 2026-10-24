@@ -2,13 +2,15 @@ import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
-import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
+import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
+import { watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
 import { WatchPickPreview } from './WatchPickPreview'
@@ -17,22 +19,23 @@ import { WatchPickRankBadge } from './WatchPickRankBadge'
 interface WatchPickRowProps {
     item: WatchFeedItemApi
     position: number
-    surface: WatchPickSurface
     isActive: boolean
     rank?: number
 }
 
-export function WatchPickRow({ item, position, surface, isActive, rank }: WatchPickRowProps): JSX.Element {
-    const { watchPick } = useActions(watchPicksLogic)
+export function WatchPickRow({ item, position, isActive, rank }: WatchPickRowProps): JSX.Element {
+    const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName } = watchPickSummary(observation)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
 
     return (
         <LemonButton
+            ref={rowRef}
             fullWidth
             size="small"
             active={isActive}
-            onClick={() => watchPick(item, position, surface)}
+            onClick={() => watchPick(item, position)}
             tooltip={<WatchPickPreview item={item} />}
             tooltipPlacement="right"
             className="min-w-0"

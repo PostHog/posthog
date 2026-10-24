@@ -50,11 +50,19 @@ def property_restrictions(team: Team, user: User) -> str:
 class Context:
     """Today's `HighlightContext`. A source sees only the protocol, so these internals stay private."""
 
-    def __init__(self, team: Team, user: User, today: date, scopes: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        today: date,
+        scopes: frozenset[str] | None = None,
+        pinned: frozenset[str] = frozenset(),
+    ) -> None:
         self.team = team
         self.user = user
         self.today = today
         self.scopes = scopes
+        self.pinned = pinned
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)
 

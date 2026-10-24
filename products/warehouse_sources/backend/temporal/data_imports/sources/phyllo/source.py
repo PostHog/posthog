@@ -59,7 +59,7 @@ class PhylloSource(ResumableSource[PhylloSourceConfig, PhylloResumeConfig]):
             name=ExternalDataSourceType.PHYLLO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Phyllo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Phyllo API credentials to pull creator accounts, profiles, content, and income data into the PostHog Data warehouse.
 
 You can find your client ID and secret in the [Phyllo developer dashboard](https://dashboard.getphyllo.com) under **API credentials**. Credentials are environment-specific — sandbox credentials only authenticate against the sandbox environment.

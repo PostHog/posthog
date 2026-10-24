@@ -113,6 +113,8 @@ interface InsightMetaProps extends Pick<
     | 'dashboardId'
     | 'canEditDashboard'
     | 'moveToDashboard'
+    | 'tileGroupMoveOptions'
+    | 'moveToTileGroup'
     | 'copyToDashboard'
     | 'showEditingControls'
     | 'showDetailsControls'
@@ -132,6 +134,7 @@ interface InsightMetaProps extends Pick<
     refreshDisabledReason?: string
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    onInfoVisibilityChange?: (visible: boolean) => void
     persistDisplayOptions?: (node: Node) => void
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
@@ -159,9 +162,12 @@ export function InsightMeta({
     duplicate,
     setOverride,
     moveToDashboard,
+    tileGroupMoveOptions,
+    moveToTileGroup,
     copyToDashboard,
     areDetailsShown,
     setAreDetailsShown,
+    onInfoVisibilityChange,
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
@@ -520,6 +526,7 @@ export function InsightMeta({
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
+                                    onVisibilityChange={onInfoVisibilityChange}
                                     popoverTopHeading={popoverTopHeadingEl ?? topHeadingEl}
                                     metaTitle={name}
                                     metaDescription={metaDescriptionEl}
@@ -679,6 +686,8 @@ export function InsightMeta({
                                         <DashboardWidgetPlacementMenus
                                             placementDestinations={copyToDestinations}
                                             onMoveToDashboard={moveToDashboard}
+                                            tileGroupMoveOptions={tileGroupMoveOptions}
+                                            onMoveToTileGroup={moveToTileGroup}
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
@@ -982,6 +991,7 @@ export function InsightMetaContent({
 }
 
 function CompactInfoPopover({
+    onVisibilityChange,
     popoverTopHeading,
     metaTitle,
     metaDescription,
@@ -989,6 +999,7 @@ function CompactInfoPopover({
     onMetaSave,
     metaDetails,
 }: {
+    onVisibilityChange?: (visible: boolean) => void
     popoverTopHeading?: JSX.Element | null
     metaTitle: string
     metaDescription?: JSX.Element | null
@@ -997,6 +1008,10 @@ function CompactInfoPopover({
     metaDetails?: JSX.Element | null
 }): JSX.Element {
     const [popoverVisible, setPopoverVisible] = useState(false)
+    useEffect(() => {
+        onVisibilityChange?.(popoverVisible)
+    }, [popoverVisible, onVisibilityChange])
+    useEffect(() => () => onVisibilityChange?.(false), [onVisibilityChange])
     const [pinned, setPinned] = useState(false)
     const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
 

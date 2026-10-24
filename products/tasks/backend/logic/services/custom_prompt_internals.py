@@ -161,6 +161,7 @@ class CustomPromptSandboxContext:
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    system_prompt: dict[str, str] | None = None
     mcp_exclude_tools: tuple[str, ...] = ()
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
@@ -322,6 +323,7 @@ async def _create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -336,6 +338,8 @@ async def _create_task_and_trigger(
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
     extra_run_state: dict[str, Any] = {}
+    if context.system_prompt is not None:
+        extra_run_state["systemPrompt"] = context.system_prompt
     if context.mcp_exclude_tools:
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
@@ -381,6 +385,7 @@ async def _create_task_and_trigger(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
+        mcp_tool_allowlist=mcp_tool_allowlist,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
         origin_key=origin_key,

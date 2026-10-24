@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
@@ -42,7 +43,7 @@ impl PersonHogLifecycleService {
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
         leader_call_concurrency: usize,
-        num_partitions: u32,
+        changelog: LiveChangelog,
         outbox_writes: OutboxWrites,
     ) -> Self {
         Self {
@@ -51,7 +52,7 @@ impl PersonHogLifecycleService {
                 leader,
                 tables,
                 leader_call_concurrency,
-                num_partitions,
+                changelog,
                 outbox_writes,
             ),
         }

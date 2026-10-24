@@ -926,6 +926,46 @@ export const EmptyTabWithJumpsToOtherCategories: Story = {
     },
 }
 
+export const EmptyTabSearchingACategoryName: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery, setActiveTab } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => {
+            setSearchQuery('person')
+            setActiveTab(TaxonomicFilterGroupType.Events)
+        })
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'empty-tab-category-name',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
+    parameters: {
+        // Hidden tabs stay mounted and render the same button, so wait for the one on the open tab.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-show-group-person_properties"] >> visible=true' },
+        docs: {
+            description: {
+                story: 'A search for a category name, such as "person", offers to show that whole category.',
+            },
+        },
+    },
+}
+
 function EventMatchStoryRender({
     resetMatches = false,
     ...args

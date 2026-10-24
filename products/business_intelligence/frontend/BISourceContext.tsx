@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -20,21 +21,29 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
     const { loadRelationships } = useActions(biSourceContextLogic({ table }))
     const catalog = `${urls.dataCatalog('relationships')}&table=${encodeURIComponent(table.name)}`
     return (
-        <div className="flex min-w-0 flex-col gap-1 text-xs" data-attr="bi-source-context">
-            <div>
+        <details className="min-w-0 text-xs" data-attr="bi-source-context">
+            <summary className="cursor-pointer">
+                <span className="mr-1">Catalog details</span>
                 <TableCertificationTag certification={table.certification} />
-            </div>
-            {description && <p className="m-0 break-words text-secondary">{description}</p>}
-            {table.certification?.notes && <p className="m-0 break-words">{table.certification.notes}</p>}
-            <Link
-                to={`${urls.dataCatalog('certifications')}&table=${encodeURIComponent(table.name)}`}
-                onClick={() => captureBIWorksheetAction('catalog_source_opened', config)}
+            </summary>
+            <div
+                className="flex max-h-48 flex-col gap-2 overflow-y-auto overscroll-contain py-2"
+                role="region"
+                aria-label="Catalog details"
+                tabIndex={0}
             >
-                View catalog details
-            </Link>
-            <details>
-                <summary className="cursor-pointer">Relationships and review status</summary>
-                <div className="flex flex-col gap-2 py-2">
+                {description && <p className="m-0 break-words text-secondary">{description}</p>}
+                {table.certification?.notes && <p className="m-0 break-words">{table.certification.notes}</p>}
+                <LemonButton
+                    size="xsmall"
+                    sideIcon={<IconExternal />}
+                    to={`${urls.dataCatalog('certifications')}&table=${encodeURIComponent(table.name)}`}
+                    onClick={() => captureBIWorksheetAction('catalog_source_opened', config)}
+                >
+                    View catalog details
+                </LemonButton>
+                <div className="flex flex-col gap-2">
+                    <span className="font-semibold">Relationships and review status</span>
                     {joins.map((join) => (
                         <div key={join.id} className="break-words">
                             {join.source_table_name}.{join.source_table_key} → {join.joining_table_name}.
@@ -76,16 +85,19 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
                             {contextError ? 'Retry' : 'Load more'}
                         </LemonButton>
                     )}
-                    <Link to={catalog}>Review in catalog</Link>
+                    <LemonButton size="xsmall" sideIcon={<IconExternal />} to={catalog}>
+                        Review in catalog
+                    </LemonButton>
                 </div>
-            </details>
-            <LemonButton
-                size="xsmall"
-                to={`${catalog}&propose_table=${encodeURIComponent(table.name)}`}
-                onClick={() => captureBIWorksheetAction('catalog_relationship_requested', config)}
-            >
-                Propose a relationship
-            </LemonButton>
-        </div>
+                <LemonButton
+                    size="xsmall"
+                    sideIcon={<IconExternal />}
+                    to={`${catalog}&propose_table=${encodeURIComponent(table.name)}`}
+                    onClick={() => captureBIWorksheetAction('catalog_relationship_requested', config)}
+                >
+                    Propose a relationship
+                </LemonButton>
+            </div>
+        </details>
     )
 }

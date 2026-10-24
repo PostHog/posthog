@@ -66,6 +66,17 @@ _IP_NOT_ALLOWED_MARKERS = (
 # wall. Match the stable quota phrase; it names no volatile host/IP/port detail.
 _QUOTA_EXCEEDED_MARKER = "exceeded the quota"
 
+# A Supabase/Supavisor pooler that can't resolve the tenant behind the pooler username, in its
+# older ("Tenant or user not found") and newer ("(ENOTFOUND) tenant/user <user> not found")
+# wordings, or whose upstream DNS record is gone ("{:error, :nxdomain}"). The project is paused or
+# deleted, or the pooler username is wrong, so every reconnect re-hits it. Mirrors the
+# non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors).
+_POOLER_TENANT_NOT_FOUND_MARKERS = (
+    "tenant or user not found",
+    "(enotfound) tenant/user",
+    "{:error, :nxdomain}",
+)
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. Deterministic for the configured tunnel, so it's
@@ -142,6 +153,8 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.HOST_UNREACHABLE
         if _QUOTA_EXCEEDED_MARKER in message:
             return CDCErrorCategory.QUOTA_EXCEEDED
+        if any(marker in message for marker in _POOLER_TENANT_NOT_FOUND_MARKERS):
+            return CDCErrorCategory.POOLER_TENANT_NOT_FOUND
         # psycopg raises ConnectionTimeout only from connect() itself, and the reader already
         # retries it in-process first (stream_reader._open_streaming_connection wraps every
         # connect in _connect_with_dropped_retry, which widens its predicate to connect-time

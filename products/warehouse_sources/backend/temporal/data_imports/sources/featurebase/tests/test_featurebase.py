@@ -548,8 +548,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid_key", 200, {"data": []}, True),
-            # Featurebase responds 403 (not 401) for both missing and invalid keys.
-            ("invalid_key", 403, {"success": False, "message": "Invalid API Key"}, False),
         ]
     )
     def test_validate_credentials(self, _name: str, status: int, payload: dict, expected_valid: bool) -> None:

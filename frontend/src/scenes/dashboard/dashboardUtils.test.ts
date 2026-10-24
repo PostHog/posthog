@@ -5,7 +5,13 @@ import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { BreakdownFilter, DashboardFilter, HogQLVariable, QueryStatus } from '~/queries/schema/schema-general'
+import {
+    BreakdownFilter,
+    DashboardFilter,
+    HogQLVariable,
+    MetricsDashboardVariable,
+    QueryStatus,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     DashboardPlacement,
@@ -17,6 +23,7 @@ import {
 } from '~/types'
 
 import {
+    combineSavedAndUrlFilters,
     dashboardSearchParamsFromOverrides,
     dashboardTemplateForExport,
     dashboardToSaveableTemplate,
@@ -30,6 +37,7 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
+    TaskQueue,
 } from './dashboardUtils'
 
 describe('searchParamsWithUrlFilters', () => {
@@ -65,6 +73,44 @@ describe('searchParamsWithUrlFilters', () => {
         const searchParams = searchParamsWithUrlFilters({}, { explicitDate: false }, { explicitDate: true })
 
         expect(parseURLFilters(searchParams)).toEqual({ explicitDate: false })
+    })
+
+    it('keeps a saved metric variable query out of the URL, and reads it back from the saved filters', () => {
+        const saved: MetricsDashboardVariable = {
+            name: 'env',
+            source: 'sql',
+            query: 'SELECT private_value',
+            current: { values: ['a'] },
+        }
+        const persistedFilters = { metricVariables: [saved] }
+        const filters = { metricVariables: [{ ...saved, current: { values: ['b'] } }] }
+
+        const searchParams = searchParamsWithUrlFilters({}, filters, persistedFilters)
+
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).not.toContain('private_value')
+        expect(combineSavedAndUrlFilters(persistedFilters, parseURLFilters(searchParams))).toEqual(filters)
+        expect(
+            searchParamsWithUrlFilters({}, persistedFilters, persistedFilters)[SEARCH_PARAM_FILTERS_KEY]
+        ).toBeUndefined()
+        expect(combineSavedAndUrlFilters({}, parseURLFilters(searchParams))).toEqual({
+            metricVariables: [{ name: 'env', current: { values: ['b'] } }],
+        })
+    })
+
+    it('keeps a metric variable that is not saved yet out of the URL', () => {
+        const draft: MetricsDashboardVariable = {
+            name: 'region',
+            source: 'custom',
+            customValues: ['private_option'],
+            current: { values: ['private_option'] },
+        }
+
+        const searchParams = searchParamsWithUrlFilters({}, { metricVariables: [draft] }, {})
+
+        expect(parseURLFilters(searchParams)).toEqual({
+            metricVariables: [{ name: 'region', current: { values: ['private_option'] } }],
+        })
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).not.toContain('customValues')
     })
 
     it('keeps an override that clears an external filter', () => {
@@ -564,6 +610,34 @@ describe('getInsightWithRetry', () => {
             { source: 'dashboard_tile', recovered: cachedResult !== null },
             undefined
         )
+    })
+})
+
+describe('TaskQueue', () => {
+    it.each([
+        { name: 'before it joins the queue', abortBeforeRun: true },
+        { name: 'while it waits', abortBeforeRun: false },
+    ])('drops a task whose signal aborts $name and starts the next one', async ({ abortBeforeRun }) => {
+        const queue = new TaskQueue(1)
+        const started: string[] = []
+        let finishFirst: () => void = () => {}
+        const first = queue.run(() => {
+            started.push('first')
+            return new Promise<void>((resolve) => (finishFirst = resolve))
+        })
+        const controller = new AbortController()
+        if (abortBeforeRun) {
+            controller.abort()
+        }
+        const dropped = queue.run(async () => void started.push('dropped'), controller.signal)
+        const last = queue.run(async () => void started.push('last'))
+        controller.abort()
+
+        await expect(dropped).rejects.toMatchObject({ name: 'AbortError' })
+        expect(started).toEqual(['first'])
+        finishFirst()
+        await Promise.all([first, last])
+        expect(started).toEqual(['first', 'last'])
     })
 })
 

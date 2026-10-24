@@ -32,6 +32,9 @@ env:
     # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
+    # Shard counts — change here to resize the matrix. CHROMIUM_SHARDS also caps narrowed PR runs.
+    CHROMIUM_SHARDS: 28
+    WEBKIT_SHARDS: 8
 
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
@@ -60,6 +63,9 @@ jobs:
     # Job to decide if we should run storybook ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        permissions:
+            contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
@@ -119,7 +125,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -143,6 +149,9 @@ jobs:
                         - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
+                        # Served to the replay stories through staticDirs, so it never
+                        # enters the module graph. WF013 checks each staticDirs source.
+                        - 'posthog/templates/replay_player_frame/**'
                         - '.storybook/**'
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
@@ -209,7 +218,7 @@ jobs:
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
             # only. That coverage is worth a batched queue run, because a webkit-only break then
             # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so author PRs stay chromium-only.
+            # so author PRs stay chromium-only. Flake verification still renders changed stories in webkit.
             - name: Build matrix
               id: matrix
               env:
@@ -220,10 +229,6 @@ jobs:
                           && startsWith(github.head_ref, 'trunk-merge/')
                       }}
               run: |
-                  # Shard counts — change here to resize the matrix.
-                  CHROMIUM_SHARDS=16
-                  WEBKIT_SHARDS=4
-
                   shards() {
                     jq -cn --arg browser "$1" --argjson count "$2" \
                       '[range(1; $count + 1) | {browser: $browser, shard_count: $count, shard: .}]'
@@ -456,6 +461,7 @@ jobs:
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
+            && github.repository == 'PostHog/posthog'
             && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
@@ -754,7 +760,7 @@ jobs:
             # from the base branch (see vr-setup for the rationale), which also keeps fork
             # code out of the CLI.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -768,7 +774,7 @@ jobs:
             # the cache version. The save below writes the container version.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -779,7 +785,7 @@ jobs:
             # Runs only on a miss, and retries the install for the reason given at vr-setup.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
@@ -825,9 +831,14 @@ jobs:
             # bad signature, so the merge queue still catches a forged one.
             # !cancelled() keeps the check after a test-runner failure. A failed CLI build
             # fails this step too, so a fork PR never passes unverified.
+            # Outside PostHog/posthog the check warns instead of failing: another runner
+            # renders a third of the unchanged stories a pixel off, and Visual Review
+            # verifies the change once it reaches PostHog/posthog.
             - name: Verify snapshots against the baseline offline
-              if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+              if: ${{ !cancelled() && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') }}
               shell: bash
+              env:
+                  BLOCKING: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   set +e
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js verify --partial \
@@ -839,15 +850,19 @@ jobs:
                   {
                       echo "### Offline snapshot check (${{ matrix.browser }} ${{ matrix.shard }}/${{ matrix.shard_count }})"
                       echo
-                      echo "Fork PRs get no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
+                      echo "This run has no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
                       echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky story can also fail it."
                       echo
                       echo '```'
                       cat /tmp/vr-verify.log
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
+                  if [ "$status" -ne 0 ] && [ "$BLOCKING" != "true" ]; then
+                      echo "::warning title=Snapshots not verified::The offline snapshot check did not pass for this shard. This repository has no Visual Review run, and the exact-pixel fallback also flags stories that another runner renders a pixel off, so it does not block here. Visual Review verifies the change when it reaches PostHog/posthog. The job log lists the snapshots that differ."
+                      exit 0
+                  fi
                   if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
-                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. Fork PRs get no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
+                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
                   elif [ "$status" -ne 0 ]; then
                       echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare this shard's screenshots. The job log shows the error."
                   fi
@@ -914,13 +929,13 @@ jobs:
               run: exit 1
 
     # Verify changed story files are stable by re-running them multiple times.
-    # Catches flaky snapshots before they land on master.
+    # Catches flaky snapshots and webkit-only breaks before they land on master.
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
         needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
-        # which on a queue branch is the same set the PR's own run already re-ran three times.
+        # which on a queue branch is the same set the PR's own run already verified.
         if: |
             needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
@@ -1032,6 +1047,7 @@ jobs:
                 build-storybook,
                 select-stories,
                 visual-regression,
+                flake-verification,
                 vr-setup,
                 vr-complete,
                 check-baseline-removals,
@@ -1069,6 +1085,11 @@ jobs:
 
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.flake-verification.result }}" != "success" && "${{ needs.flake-verification.result }}" != "skipped" ]]; then
+                    echo "Storybook flake verification did not pass (result: ${{ needs.flake-verification.result }})."
                     exit 1
                   fi
 
@@ -1382,7 +1403,7 @@ jobs:
                       if [[ -s /tmp/selection-result.json ]]; then
                           total=$(jq -r '.total_story_count // empty' /tmp/selection-result.json)
                           affected=$(jq -r '.affected_story_count // empty' /tmp/selection-result.json)
-                          shards=$(jq -r '(([.suggested_shards, 16] | min) // empty)' /tmp/selection-result.json)
+                          shards=$(jq -r --argjson cap "$CHROMIUM_SHARDS" '(([.suggested_shards, $cap] | min) // empty)' /tmp/selection-result.json)
                       fi
                       {
                           echo "narrowed=$1"
@@ -1427,7 +1448,7 @@ jobs:
 
                   # Size the narrowed matrix from the estimated affected workload.
                   AFFECTED_FILES_JSON=$(jq -c '.affected_stories' /tmp/selection-result.json)
-                  SHARDS=$(jq -r '[.suggested_shards, 16] | min' /tmp/selection-result.json)
+                  SHARDS=$(jq -r --argjson cap "$CHROMIUM_SHARDS" '[.suggested_shards, $cap] | min' /tmp/selection-result.json)
                   MATRIX=$(jq -cn --argjson count "$SHARDS" \
                       '{include: [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]}')
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
@@ -1435,11 +1456,11 @@ jobs:
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
                   echo "affected_files_json=$AFFECTED_FILES_JSON" >> "$GITHUB_OUTPUT"
 
-                  # Est. minutes saved vs the full 16-shard run — same formula as the
-                  # "Write summary" step (CURRENT_SHARDS=16, SHARD_OVERHEAD_MINUTES=3).
+                  # Est. minutes saved vs the full chromium run — same formula as the
+                  # "Write summary" step (SHARD_OVERHEAD_MINUTES=3).
                   AFFECTED_DUR=$(jq -r '.affected_duration_seconds' /tmp/selection-result.json)
                   TOTAL_DUR=$(jq -r '.total_duration_seconds' /tmp/selection-result.json)
-                  FULL_MINUTES=$(( (16 * 3) + (TOTAL_DUR / 60) ))
+                  FULL_MINUTES=$(( (CHROMIUM_SHARDS * 3) + (TOTAL_DUR / 60) ))
                   SELECTIVE_MINUTES=$(( (SHARDS * 3) + (AFFECTED_DUR / 60) ))
                   emit_metrics true "" "$(( FULL_MINUTES - SELECTIVE_MINUTES ))"
                   echo "Selective mode: $COUNT affected story files across $SHARDS shard(s)"
@@ -1448,7 +1469,7 @@ jobs:
               if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
-                  CURRENT_SHARDS: 16
+                  CURRENT_SHARDS: ${{ env.CHROMIUM_SHARDS }}
                   SHARD_OVERHEAD_MINUTES: 3
               run: |
                   MODE=$(echo "$RESULT" | jq -r '.mode')
@@ -1458,7 +1479,7 @@ jobs:
                       COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
                       AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
                       TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
-                      SHARDS=$(echo "$RESULT" | jq -r '[.suggested_shards, 16] | min')
+                      SHARDS=$(echo "$RESULT" | jq -r --argjson cap "$CURRENT_SHARDS" '[.suggested_shards, $cap] | min')
 
                       SAVED_STORIES=$((TOTAL - COUNT))
                       SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))

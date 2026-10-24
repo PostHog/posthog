@@ -1,9 +1,12 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FLAG_CALLS_NOT_LOADABLE } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
@@ -132,7 +135,7 @@ describe('hogFlowEditorTestLogic', () => {
         })
     })
 
-    describe('createGlobalsFromResponse groups', () => {
+    describe('createGlobalsFromResponse', () => {
         const event = {
             uuid: 'e1',
             distinct_id: 'd1',
@@ -154,6 +157,26 @@ describe('hogFlowEditorTestLogic', () => {
         it('defaults groups to an empty object', () => {
             const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
             expect(globals.groups).toEqual({})
+        })
+
+        it.each([
+            [
+                'the events query person column',
+                { uuid: 'p-uuid', properties: { plan: 'pro' }, distinct_id: 'd1' },
+                'p-uuid',
+            ],
+            ['a person with an id', { id: 'p-id', properties: { plan: 'pro' } }, 'p-id'],
+        ])('reads the person id from %s', (_name, person, expectedId) => {
+            const globals = createGlobalsFromResponse(event, person, 1, 'wf')
+            expect(globals.person).toMatchObject({
+                id: expectedId,
+                properties: { plan: 'pro' },
+                url: expect.stringMatching(new RegExp(`/person/${expectedId}$`)),
+            })
+        })
+
+        it('leaves the person out for an event with no person', () => {
+            expect(createGlobalsFromResponse(event, { distinct_id: 'd1' }, 1, 'wf').person).toBeUndefined()
         })
     })
 
@@ -510,6 +533,73 @@ describe('hogFlowEditorTestLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadSampleGlobals', 'setSampleGlobalsError'])
             expect(logic.values.sampleGlobalsError).toEqual('Failed to load matching events. Please try again.')
         })
+    })
+
+    describe('a trigger on feature flag calls', () => {
+        const FLAG_CALLED = {
+            id: '$feature_flag_called',
+            type: 'events',
+            properties: [{ key: '$feature_flag', type: 'event', operator: 'exact', value: 'my-flag' }],
+        }
+        const PAGEVIEW = { id: '$pageview', type: 'events', properties: [] }
+        const NO_MATCH_IN_7_DAYS =
+            'No events match these filters in the last 7 days. Using an example $pageview event instead.'
+
+        function workflowTriggeredBy(events: (typeof FLAG_CALLED)[]): typeof WORKFLOW_FIXTURE {
+            const filters = { events }
+            return {
+                ...WORKFLOW_FIXTURE,
+                actions: WORKFLOW_FIXTURE.actions.map((action) =>
+                    action.id === 'trigger_node' ? { ...action, config: { type: 'event', filters } } : action
+                ),
+                trigger: { type: 'event', filters },
+            }
+        }
+
+        it.each([
+            [
+                'events mode',
+                FlagEvaluationsModeEnumApi.Number0,
+                [FLAG_CALLED],
+                NO_MATCH_IN_7_DAYS,
+                true,
+                '$pageview',
+                undefined,
+            ],
+            // The example flag call names the flag that the trigger filters on, so a test run passes the trigger.
+            [
+                'flag evaluations only mode',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED],
+                `${FLAG_CALLS_NOT_LOADABLE} Using an example $feature_flag_called event instead.`,
+                false,
+                '$feature_flag_called',
+                'my-flag',
+            ],
+            // An older pageview can still match, so the 30-day search stays available.
+            [
+                'flag evaluations only mode with a pageview matcher',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED, PAGEVIEW],
+                NO_MATCH_IN_7_DAYS,
+                true,
+                '$pageview',
+                undefined,
+            ],
+        ])(
+            'explains a missing test event on the %s',
+            async (_name, mode, events, message, canTryExtendedSearch, exampleEvent, exampleFlagKey) => {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': workflowTriggeredBy(events) } })
+                teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+                logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
+                await expectLogic(logic).toMatchValues({ sampleGlobalsError: message, canTryExtendedSearch })
+                expect(logic.values.sampleGlobals?.event?.event).toEqual(exampleEvent)
+                expect(logic.values.sampleGlobals?.event?.properties.$feature_flag).toEqual(exampleFlagKey)
+            }
+        )
     })
 
     describe('showTestEvent', () => {

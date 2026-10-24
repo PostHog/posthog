@@ -123,7 +123,7 @@ class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
             name=ExternalDataSourceType.PICQER,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Picqer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Picqer account name and API key to pull your Picqer warehouse and fulfilment data into the PostHog Data warehouse.
 
 Create an API key under **Settings → API keys** in your Picqer account. The key inherits its permissions from its scope, so it can read the records that scope allows.""",

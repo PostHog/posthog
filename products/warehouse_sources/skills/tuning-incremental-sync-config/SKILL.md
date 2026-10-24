@@ -150,8 +150,9 @@ When the change invalidates data, the clean flow is:
 2. Warn the user this is destructive
 3. `external-data-schemas-resync` to wipe and re-import under the new config
 
-Or equivalently, `external-data-schemas-delete-data` → `external-data-schemas-reload`. `delete-data` + `reload` is
-cleaner when the table is large and the user wants to start from zero.
+Or `external-data-schemas-delete-data` → `external-data-schemas-partial-update` with `should_sync: true` →
+`external-data-schemas-reload`. `delete-data` turns syncing off, so the update must turn it on again, or the
+schedule stays paused after the reload.
 
 ### Step 5 — Trigger and confirm
 

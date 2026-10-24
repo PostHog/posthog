@@ -332,6 +332,13 @@ describe('TeamManager()', () => {
             )
         })
 
+        it('flips the flag and captures once for a batch that repeats a team', async () => {
+            await teamManager.setTeamsIngestedData([newTeam.id, newTeam.id, newTeam.id])
+
+            expect(await readIngestedEvent(newTeam.id)).toBe(true)
+            expect(mockCaptureTeamEvent).toHaveBeenCalledTimes(1)
+        })
+
         it('does nothing on a repeat call through a stale team object', async () => {
             await teamManager.setTeamIngestedEvent(newTeam, { $lib: 'web' })
             mockCaptureTeamEvent.mockClear()

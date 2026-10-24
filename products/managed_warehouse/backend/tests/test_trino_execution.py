@@ -66,21 +66,31 @@ async def test_success_preserves_result() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error_name,expected_attempts",
-    [("CLUSTER_OUT_OF_MEMORY", 2), ("EXCEEDED_LOCAL_MEMORY_LIMIT", 1)],
+    [("CLUSTER_OUT_OF_MEMORY", 2), ("TOO_MANY_REQUESTS_FAILED", 2), ("EXCEEDED_LOCAL_MEMORY_LIMIT", 1)],
 )
-async def test_retries_only_cluster_out_of_memory(error_name: str, expected_attempts: int) -> None:
+async def test_retries_only_transient_trino_errors(error_name: str, expected_attempts: int) -> None:
     attempts = 0
+    processed: list[int] = []
 
     def execute(control: execution.TrinoQueryControl) -> int:
         nonlocal attempts
         attempts += 1
+        control.record_processed_bytes(10)
         if attempts == 1:
             raise TrinoQueryError({"errorName": error_name, "message": "Query killed"})
         return 42
 
     if expected_attempts == 1:
         with pytest.raises(TrinoQueryError):
-            await execution.run_trino_model_with_retries(execute, query_seconds=60, retry_delays=(0,))
+            await execution.run_trino_model_with_retries(
+                execute, query_seconds=60, retry_delays=(0,), on_processed_bytes=processed.append
+            )
     else:
-        assert await execution.run_trino_model_with_retries(execute, query_seconds=60, retry_delays=(0,)) == 42
+        assert (
+            await execution.run_trino_model_with_retries(
+                execute, query_seconds=60, retry_delays=(0,), on_processed_bytes=processed.append
+            )
+            == 42
+        )
     assert attempts == expected_attempts
+    assert processed == [10] * expected_attempts

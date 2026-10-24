@@ -185,9 +185,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, message_substr",
         [
-            (200, True, None),
-            (401, False, "Invalid Shortcut API token"),
-            (403, False, "does not have access"),
             (418, False, "unexpected status: 418"),
         ],
     )

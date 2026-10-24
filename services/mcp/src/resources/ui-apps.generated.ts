@@ -32,6 +32,8 @@ export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI = 'ui://posthog/workflow-data-suggestions.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
+export const WORKFLOW_SENDING_RULES_RESOURCE_URI = 'ui://posthog/workflow-sending-rules.html'
+export const WORKFLOW_SETUP_STATUS_RESOURCE_URI = 'ui://posthog/workflow-setup-status.html'
 
 export type UiAppKey =
     | 'action'
@@ -66,6 +68,8 @@ export type UiAppKey =
     | 'workflow'
     | 'workflow-data-suggestions'
     | 'workflow-list'
+    | 'workflow-sending-rules'
+    | 'workflow-setup-status'
 
 export const URI_MAP: Record<UiAppKey, string> = {
     action: ACTION_RESOURCE_URI,
@@ -100,6 +104,8 @@ export const URI_MAP: Record<UiAppKey, string> = {
     workflow: WORKFLOW_RESOURCE_URI,
     'workflow-data-suggestions': WORKFLOW_DATA_SUGGESTIONS_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
+    'workflow-sending-rules': WORKFLOW_SENDING_RULES_RESOURCE_URI,
+    'workflow-setup-status': WORKFLOW_SETUP_STATUS_RESOURCE_URI,
 }
 
 /**
@@ -135,6 +141,8 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'vision-observation-list',
     'workflow',
     'workflow-list',
+    'workflow-sending-rules',
+    'workflow-setup-status',
 ]
 
 export const UI_APPS: Array<{
@@ -339,5 +347,18 @@ export const UI_APPS: Array<{
         uri: WORKFLOW_LIST_RESOURCE_URI,
         description: 'Workflow List view',
         appDir: 'generated/workflow-list',
+    },
+    {
+        name: 'PostHog Sending Rules',
+        uri: WORKFLOW_SENDING_RULES_RESOURCE_URI,
+        description:
+            'Sending rules for the project, with a button to apply the recommended frequency cap and a switch for engagement events.',
+        appDir: 'workflow-sending-rules',
+    },
+    {
+        name: 'PostHog Messaging Setup',
+        uri: WORKFLOW_SETUP_STATUS_RESOURCE_URI,
+        description: 'The messaging setup checklist, with a link to finish each open step.',
+        appDir: 'generated/workflow-setup-status',
     },
 ]

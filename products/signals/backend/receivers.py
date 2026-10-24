@@ -24,7 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -37,6 +37,39 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
+
+
+def _enqueue_first_report_notification(team_id: int) -> None:
+    if (
+        SignalFirstReportNotification.objects.for_team(team_id)
+        .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
+        .exists()
+    ):
+        from products.signals.backend.first_report_notification_tasks import (
+            dispatch_first_report_notification,  # noqa: PLC0415 - keep the task graph off Django startup
+        )
+
+        dispatch_first_report_notification.delay(team_id)
+
+
+def _schedule_first_report_notification(team_id: int) -> None:
+    def enqueue() -> None:
+        _enqueue_first_report_notification(team_id)
+
+    transaction.on_commit(enqueue, robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def enqueue_first_report_notification(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    if instance.status == SignalReport.Status.READY and (created or update_fields is None or "status" in update_fields):
+        _schedule_first_report_notification(instance.team_id)
+
 
 _SNOOZE_SOURCE_STATUSES = frozenset(
     {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
@@ -107,6 +140,30 @@ def schedule_handover_for_report_change(sender: type, instance: SignalReport, **
 
     team_id, report_id = instance.team_id, str(instance.id)
     transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def push_report_to_reviewers_when_first_visible(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send the "new report" mobile push once, on the save that stamps `first_visible_at`.
+
+    A pipeline report gets the stamp from `transition_to`, which always names it in `update_fields`.
+    A report born visible (scout, custom agent, plan layer) carries it from creation.
+    """
+    if instance.first_visible_at is None:
+        return
+    if not created and (update_fields is None or "first_visible_at" not in update_fields):
+        return
+    # Function-local to keep the push module's imports (Slack notifications, the Celery sender) off
+    # the django.setup() path.
+    from products.signals.backend.inbox_push_notifications import schedule_report_visible_push  # noqa: PLC0415
+
+    schedule_report_visible_push(team_id=instance.team_id, report_id=str(instance.id))
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -419,7 +476,7 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
-def arm_pending_checks_when_report_resolved(
+def arm_pending_checks_when_report_monitoring(
     sender: type[SignalReport],
     instance: SignalReport,
     created: bool,
@@ -433,7 +490,7 @@ def arm_pending_checks_when_report_resolved(
     ):
         return
     effective_status = instance.effective_status
-    if effective_status not in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+    if effective_status != SignalReport.Status.MONITORING:
         if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
@@ -441,19 +498,16 @@ def arm_pending_checks_when_report_resolved(
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    monitoring_started_at = (
-        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
-    )
-    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
+    monitoring_started_at = instance.monitoring_started_at
+    if monitoring_started_at is None:
         return
-    resolved_at = monitoring_started_at or timezone.now()
     # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
     transaction.on_commit(
         partial(
             _arm_pending_checks_safely,
             team_id=team_id,
             report_id=report_id,
-            resolved_at=resolved_at,
+            resolved_at=monitoring_started_at,
             expected_monitoring_started_at=monitoring_started_at,
         )
     )
@@ -795,6 +849,8 @@ def sync_report_latest_actionability_on_save(
     tools. Not gated on `created`, because `update_content` edits a judgment row in place.
     """
     _sync_report_latest_actionability(instance)
+    if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        _schedule_first_report_notification(instance.team_id)
 
 
 def _deleted_directly(origin: Any) -> bool:
@@ -897,6 +953,12 @@ def capture_status_change_analytics(
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
+    # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
+    if getattr(instance, "_status_from_pr_state", False):
+        if instance.status == SignalReport.Status.RESOLVED:
+            properties["resolution_reason"] = "pr_merged"
+        elif instance.status == SignalReport.Status.SUPPRESSED:
+            properties["dismissal_cause"] = "pr_closed_without_merge"
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team

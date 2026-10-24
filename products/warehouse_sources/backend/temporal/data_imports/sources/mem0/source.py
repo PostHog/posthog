@@ -107,7 +107,7 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

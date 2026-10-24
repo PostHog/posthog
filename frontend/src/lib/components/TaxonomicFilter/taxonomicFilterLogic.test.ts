@@ -693,9 +693,21 @@ describe('taxonomicFilterLogic', () => {
                 barrierLogic.actions.setSearchQuery('whatever')
             }).toMatchValues({ revealBarrierOpen: false })
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+
+            const latencyCalls = captureSpy.mock.calls.filter(([event]) => event === 'taxonomic filter search latency')
+            expect(latencyCalls).toHaveLength(1)
+            expect(latencyCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: 'whatever',
+                time_to_see_data_ms: expect.any(Number),
+                revealedBy: 'all_groups_settled',
+                pendingGroupTypes: [],
+            })
+            captureSpy.mockRestore()
         })
     })
 
@@ -1136,6 +1148,69 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+    })
+
+    describe('search-only groups', () => {
+        it.each([
+            {
+                picker: 'property picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                hidden: [TaxonomicFilterGroupType.EmailAddresses],
+                shown: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.PageviewUrls],
+            },
+            {
+                picker: 'series picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                hidden: [
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            },
+            {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
+                picker: 'picker of only a search-only group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+        ])(
+            'keeps search-only groups searched but out of the categories in a $picker',
+            ({ picker, groupTypes, hidden, shown }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testSearchOnly-${picker}`,
+                    taxonomicGroupTypes: groupTypes,
+                })
+                testLogic.mount()
+
+                for (const groupType of hidden) {
+                    expect(testLogic.values.categoryGroupTypes).not.toContain(groupType)
+                    expect(testLogic.values.taxonomicGroupTypes).toContain(groupType)
+                }
+                for (const groupType of shown) {
+                    expect(testLogic.values.categoryGroupTypes).toContain(groupType)
+                }
+
+                testLogic.unmount()
+            }
+        )
     })
 
     describe('searchPlaceholder', () => {

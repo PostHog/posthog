@@ -116,3 +116,22 @@ class EmailDraftFallbackReason(LabeledStrEnum):
     TIMEOUT = "timeout", "The model took too long"
     MODEL_ERROR = "model_error", "The model call failed"
     INVALID_OUTPUT = "invalid_output", "The model returned an unusable draft"
+
+
+# pinned: step keys in the setup status API - renaming breaks agents that read them
+class SetupStepKey(LabeledStrEnum):
+    CHANNEL = "channel", "Channel"
+    DOMAIN = "domain", "Domain"
+    OPT_OUTS = "opt-outs", "Opt-outs"
+    SENDING_RULES = "sending-rules", "Sending rules"
+    EMAIL_TEMPLATE = "email-template", "Email template"
+    FIRST_WORKFLOW = "first-workflow", "First workflow"
+
+
+class RealtimeAudienceCohortState(LabeledStrEnum):
+    """How far a realtime cohort audience's membership has come, as the audience size response reports it."""
+
+    READY = "ready", "Ready"
+    BUILDING = "building", "Building"
+    REBUILDING = "rebuilding", "Rebuilding"
+    NEEDS_ATTENTION = "needs_attention", "Needs attention"

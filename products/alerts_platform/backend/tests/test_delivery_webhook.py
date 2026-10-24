@@ -229,6 +229,7 @@ class TestWebhookThreads(APIBaseTest):
                 configuration_id=str(self.configuration.id),
                 evaluation_key=evaluation_key,
                 target=TARGET,
+                destination_id="destination-1",
                 announcement=announcement,
             )
         return adapter

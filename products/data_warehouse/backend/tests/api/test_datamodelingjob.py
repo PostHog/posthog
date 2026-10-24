@@ -1,10 +1,12 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
 from posthog.models.team.team import Team
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class TestDataModelingJob(APIBaseTest):
@@ -67,6 +69,8 @@ class TestDataModelingJob(APIBaseTest):
         first_job = results[0]
         self.assertEqual(first_job["status"], DataModelingJob.Status.FAILED)
         self.assertEqual(first_job["saved_query_id"], str(self.saved_query.id))
+        self.assertEqual(first_job["saved_query_name"], "Test saved query")
+        self.assertFalse(first_job["saved_query_deleted"])
         self.assertEqual(first_job["rows_materialized"], 0)
         self.assertEqual(first_job["error"], "Something went wrong")
         # The frontend derives failed-run duration and the log-search window from updated_at.
@@ -117,6 +121,76 @@ class TestDataModelingJob(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
+
+    def test_filters_by_finished_date_range(self):
+        DataModelingJob.objects.filter(id=self.job1.id).update(last_run_at=datetime(2026, 10, 10, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job2.id).update(last_run_at=datetime(2026, 10, 11, tzinfo=UTC))
+        DataModelingJob.objects.filter(id=self.job3.id).update(last_run_at=datetime(2026, 10, 12, tzinfo=UTC))
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/",
+            {"after": "2026-10-11T00:00:00Z", "before": "2026-10-12T00:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job2.id)])
+
+    def test_excludes_managed_warehouse_jobs(self):
+        warehouse_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(str(warehouse_job.id), [job["id"] for job in response.json()["results"]])
+
+    def test_all_engines_includes_managed_warehouse_jobs_with_usage(self):
+        warehouse_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=timezone.now(),
+            read_bytes=1024,
+            read_rows=20,
+            cpu_microseconds=300,
+            query_count=4,
+            usage_updated_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/?all_engines=true")
+
+        self.assertEqual(response.status_code, 200)
+        jobs_by_id = {job["id"]: job for job in response.json()["results"]}
+        self.assertIn(str(warehouse_job.id), jobs_by_id)
+        self.assertNotIn(str(self.other_team_job.id), jobs_by_id)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["engine"], DataModelingJobEngine.MANAGED_WAREHOUSE)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["read_bytes"], 1024)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["read_rows"], 20)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["cpu_microseconds"], 300)
+        self.assertEqual(jobs_by_id[str(warehouse_job.id)]["query_count"], 4)
+        self.assertIsNotNone(jobs_by_id[str(warehouse_job.id)]["usage_updated_at"])
+
+        managed_only = self.client.get(
+            f"/api/environments/{self.team.pk}/data_modeling_jobs/?all_engines=true&engine=managed_warehouse"
+        )
+        self.assertEqual(managed_only.status_code, 200)
+        self.assertEqual([job["id"] for job in managed_only.json()["results"]], [str(warehouse_job.id)])
+
+    def test_job_keeps_name_for_an_endpoint_or_soft_deleted_model(self):
+        self.saved_query.deleted = True
+        self.saved_query.save(update_fields=["deleted"])
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.job1.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["saved_query_name"], "Test saved query")
+        self.assertTrue(response.json()["saved_query_deleted"])
 
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")

@@ -1,4 +1,5 @@
 import math
+from functools import cached_property
 from typing import Optional, Union
 
 import structlog
@@ -18,8 +19,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
@@ -326,6 +325,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
         )
 
     @cached_property
@@ -436,6 +437,8 @@ WHERE and(
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=visitors_response.preComputeStrategy,
             preComputeIneligibleReason=visitors_response.preComputeIneligibleReason,
+            preComputeStale=visitors_response.preComputeStale,
+            preComputedAt=visitors_response.preComputedAt,
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:

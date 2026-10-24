@@ -7,6 +7,7 @@ import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
+import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '~/types'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
@@ -155,7 +156,7 @@ export class HogFlowManagerService {
         const response = await this.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
-            [teamIds],
+            [validTeamIds(teamIds)],
             'fetchAllTeamHogFlows'
         )
 

@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconChat, IconDocument, IconPlus } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
@@ -13,6 +15,7 @@ import {
 } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { QuillScoutNewMenu } from './QuillScoutNewMenu'
 import { SCOUT_CHAT_PROMPT_MAX_LENGTH, ScoutChatModal } from './ScoutChatModal'
 import { ScoutCreateModalHost, useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 
@@ -46,6 +49,7 @@ export function ScoutNewButton({
     const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const chatDisabledReason =
         aiConsentDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : undefined)
 
@@ -60,7 +64,14 @@ export function ScoutNewButton({
 
     return (
         <>
-            {layout === 'menu' ? (
+            {layout === 'menu' && todayRailNav ? (
+                <QuillScoutNewMenu
+                    creationDisabledReason={creationDisabledReason}
+                    chatDisabledReason={chatDisabledReason}
+                    onChat={openChat}
+                    onForm={openForm}
+                />
+            ) : layout === 'menu' ? (
                 <LemonMenu
                     items={[
                         {

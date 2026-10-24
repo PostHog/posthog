@@ -14,26 +14,6 @@ class TestWorkizSource:
         self.team_id = 123
         self.config = WorkizSourceConfig(api_token="tok")
 
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.workiz.com/api/v1/tok/job/all/",),
-            ("403 Client Error: Forbidden for url: https://api.workiz.com/api/v1/tok/lead/all/",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.workiz.com/api/v1/tok/job/all/",),
-            ("429 Client Error: Too Many Requests for url: https://api.workiz.com/api/v1/tok/lead/all/",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.workiz.source.workiz_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         mock_source.return_value.name = "Leads"

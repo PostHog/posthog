@@ -53,9 +53,10 @@ CODEOWNERS @PostHog/team-security
 rust/persons_migrations/** @PostHog/team-ingestion
 
 # Critical authentication logic
+ee/api/authentication.py @PostHog/team-security
 posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
-ee/api/scim/auth.py @PostHog/team-security
+posthog/api/scim/auth.py @PostHog/team-security
 
 # The Content Security Policy every app and admin page carries. A browser refuses a resource the
 # policy does not name and shows the user no error, so a policy mistake breaks a feature with no

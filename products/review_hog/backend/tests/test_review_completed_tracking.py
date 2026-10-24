@@ -209,6 +209,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_draft"] is True
         # The finding budget's effect is measured by splitting on this, so it must be on every turn.
         assert props["finding_budget_arm"] == budget_arm("o/r", 7)
+        assert props["review_round"] == 1
         assert 90 <= props["duration_seconds"] < 600
         assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"

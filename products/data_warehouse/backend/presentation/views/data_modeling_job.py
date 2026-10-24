@@ -1,19 +1,38 @@
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
+import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.ph_client import feature_enabled_or_false
+from posthog.permissions import is_service_auth
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
-
-MANAGED_WAREHOUSE_SHADOW_FLAG = "managed-warehouse-data-modeling-shadow"
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    saved_query_name = serializers.CharField(
+        source="saved_query.name",
+        read_only=True,
+        allow_null=True,
+        help_text="Model name, or null if permanently deleted.",
+    )
+    saved_query_deleted = serializers.BooleanField(
+        source="saved_query.deleted",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the model is soft-deleted, or null if permanently deleted.",
+    )
+    engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
+    read_bytes = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Bytes read by this run, or null if it has not been measured yet.",
+    )
     updated_at = serializers.DateTimeField(
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
@@ -39,7 +58,10 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "saved_query_id",
+            "saved_query_name",
+            "saved_query_deleted",
             "status",
+            "engine",
             "run_mode",
             "full_refresh_reason",
             "rows_materialized",
@@ -50,6 +72,11 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "workflow_id",
             "workflow_run_id",
             "rows_expected",
+            "read_bytes",
+            "read_rows",
+            "cpu_microseconds",
+            "query_count",
+            "usage_updated_at",
         ]
         read_only_fields = fields
 
@@ -59,6 +86,55 @@ class DataModelingJobPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
+DATA_MODELING_JOB_LIST_FIELDS = (
+    "id",
+    "saved_query_id",
+    "status",
+    "engine",
+    "run_mode",
+    "full_refresh_reason",
+    "rows_materialized",
+    "error",
+    "created_at",
+    "last_run_at",
+    "updated_at",
+    "workflow_id",
+    "workflow_run_id",
+    "rows_expected",
+    "read_bytes",
+    "read_rows",
+    "cpu_microseconds",
+    "query_count",
+    "usage_updated_at",
+)
+
+
+class DataModelingJobFilterSet(django_filters.FilterSet):
+    after = django_filters.IsoDateTimeFilter(
+        field_name="last_run_at", lookup_expr="gte", help_text="Include jobs finished at or after this time."
+    )
+    before = django_filters.IsoDateTimeFilter(
+        field_name="last_run_at", lookup_expr="lt", help_text="Include jobs finished before this time."
+    )
+
+    class Meta:
+        model = DataModelingJob
+        fields = ["saved_query_id", "status", "engine"]
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="all_engines",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Include jobs from every materialization engine. Defaults to ClickHouse jobs only.",
+            )
+        ]
+    )
+)
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List data modeling jobs which are "runs" for our saved queries.
@@ -69,35 +145,34 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id", "status"]
+    filterset_class = DataModelingJobFilterSet
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
-    def _is_managed_warehouse_shadow_enabled(self) -> bool:
-        try:
-            return feature_enabled_or_false(
-                MANAGED_WAREHOUSE_SHADOW_FLAG,
-                str(self.team.pk),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            return False
+    def safely_get_queryset(self, queryset: QuerySet[DataModelingJob]) -> QuerySet[DataModelingJob]:
+        all_engines = serializers.BooleanField(required=False, default=False).run_validation(
+            self.request.query_params.get("all_engines", False)
+        )
+        queryset = queryset.filter(team_id=self.team_id)
+        if not all_engines:
+            queryset = queryset.filter(engine=DataModelingJobEngine.CLICKHOUSE)
 
-    def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id)
-        if not self._is_managed_warehouse_shadow_enabled():
-            qs = qs.filter(engine=DataModelingJobEngine.CLICKHOUSE)
-        return qs.order_by("-created_at")
+        if not is_service_auth(self.request):
+            accessible_saved_queries = self.user_access_control.filter_queryset_by_access_level(
+                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id), resource="warehouse_view"
+            )
+            queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
+
+        return (
+            queryset.select_related("saved_query")
+            .only(
+                *DATA_MODELING_JOB_LIST_FIELDS,
+                "saved_query__name",
+                "saved_query__deleted",
+            )
+            .order_by("-created_at")
+        )
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

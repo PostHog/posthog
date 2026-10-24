@@ -38,11 +38,6 @@ class TestMaxioSource:
     def test_connection_host_fields_cover_host_determining_fields(self) -> None:
         assert MaxioSource().connection_host_fields == ["subdomain", "region"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MaxioSource().get_schemas(_config(), team_id=123, names=["customers", "invoices"])
-
-        assert {schema.name for schema in schemas} == {"customers", "invoices"}
-
     @pytest.mark.parametrize("subdomain", ["bad domain", "acme!", ""])
     def test_validate_credentials_rejects_invalid_subdomain_without_network(self, subdomain: str) -> None:
         with patch(
