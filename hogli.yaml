@@ -953,6 +953,9 @@ tools:
     doctor:report:
         click: hogli_commands.doctor:doctor_report
         description: Dump a paste-ready dev-environment diagnostics report for devex triage
+    tasks:doctor:
+        click: hogli_commands.tasks_doctor:tasks_doctor
+        description: Check that local task runs (sandboxes, wizard cloud runs) can work (read-only, --json)
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure

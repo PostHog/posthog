@@ -1,6 +1,6 @@
 ---
 name: debugging-local-task-agent-runs
-description: 'Debug the output of local PostHog task runs — the wizard cloud-run path that executes inside a Docker sandbox under the local Temporal `process-task` workflow (the wizard that integrates PostHog, then the coding agent that commits and opens the PR). Use when a local run looks stuck, failed, or silent, or when you need to read the wizard or agent logs. Covers the `.env.local` keys + `ai_features` intent required for cloud runs locally, finding the task UUID (docker ps, temporal CLI, Temporal UI at localhost:8081), tailing live logs inside the sandbox container (`/tmp/posthog-wizard.log`, `/tmp/agent-server.log`), and reading the durable per-run console log from object storage after the sandbox is torn down. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, LLM_GATEWAY, cloud_run, posthog-wizard.log.'
+description: 'Debug the output of local PostHog task runs — the wizard cloud-run path that executes inside a Docker sandbox under the local Temporal `process-task` workflow (the wizard that integrates PostHog, then the coding agent that commits and opens the PR). Use when a local run looks stuck, failed, or silent, or when you need to read the wizard or agent logs. Covers `hogli tasks:doctor` (run it first), the env keys + `tasks` intent required for cloud runs locally, finding the task UUID (docker ps, temporal CLI, Temporal UI at localhost:8081), tailing live logs inside the sandbox container (`/tmp/posthog-wizard.log`, `/tmp/agent-server.log`), and reading the durable per-run console log from object storage after the sandbox is torn down. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, LLM_GATEWAY, cloud_run, posthog-wizard.log.'
 ---
 
 # Debugging local task/agent runs
@@ -12,9 +12,18 @@ A "cloud run" of the Tasks product (e.g. the setup-wizard `cloud_run` endpoint) 
 
 The hard part of debugging is that **the Temporal UI doesn't show this output** — workflow result/failure payloads are `binary/encrypted`, and the activity captures the wizard/agent output to the run's logs, not to the timeline. This skill is how you actually read it.
 
+## Step 0 — run the doctor
+
+```bash
+hogli tasks:doctor          # human output, exit 1 on any error
+hogli tasks:doctor --json   # [{id, status, summary, fix}] for agents
+```
+
+It checks everything in the prerequisites below (env keys and where each value comes from, the intent, the gateway, MCP, Temporal worker, sandbox network reach, OAuth apps, the `tasks` flag) and prints a fix per failure. It is read-only. `--skip-db` skips the checks that boot Django.
+
 ## Prerequisites: env for local cloud runs
 
-Cloud runs only work locally if **all** of these are set in `.env.local` (values shown are the local targets — never commit real secrets). Inside the Docker sandbox, `localhost` is the container itself, so PostHog URLs use `host.docker.internal`.
+Cloud runs only work locally if **all** of these are set in `.env` or `.env.local` (values shown are the local targets — never commit real secrets). Inside the Docker sandbox, `localhost` is the container itself, so PostHog URLs use `host.docker.internal`.
 
 | Key                             | Purpose / local value                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -30,10 +39,10 @@ Cloud runs only work locally if **all** of these are set in `.env.local` (values
 
 Two non-env requirements, or the keys above are inert:
 
-- **The LLM gateway must actually be running on `:3308`.** It's gated behind the `llm_gateway` capability — enable the **`ai_features`** intent (`hogli dev:setup`) so the `llm-gateway` proc starts. `SANDBOX_LLM_GATEWAY_URL` pointing at a dead port just yields `ConnectionRefused` from the agent.
+- **The LLM gateway must actually be running on `:3308`.** It's gated behind the `llm_gateway` capability — enable the **`tasks`** intent (`hogli dev:setup`) so the `llm-gateway` proc starts. `SANDBOX_LLM_GATEWAY_URL` pointing at a dead port just yields `ConnectionRefused` from the agent.
 - **The wizard OAuth app must exist** — `bin/ensure-local-setup` provisions it and sets `WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`; without it the `cloud_run` endpoint returns 404 "not available".
 
-After editing `.env.local`, **restart the stack** — env is read at process start, not hot-reloaded.
+After editing `.env.local`, **restart the stack** — env is read at process start, not hot-reloaded. `.env` is applied by flox activation and wins over `.env.local`, so after editing `.env` run `direnv reload` before restarting.
 
 ## Step 1 — find the task UUID
 
@@ -109,6 +118,6 @@ Notes on what you'll (not) see here:
 ## Common failure signatures
 
 - **`Could not determine cloud region from access token`** — the wizard hit cloud auth instead of your local instance. Local needs the wizard pointed at the local base URL; see `run_wizard._build_wizard_command` (`--base-url`, DEBUG-gated).
-- **`Unable to connect to API (ConnectionRefused)`** from the agent — `LLM_GATEWAY_URL=UNSET` or the gateway isn't on `:3308`. Check `SANDBOX_LLM_GATEWAY_URL` + the `ai_features` intent (gateway proc).
+- **`Unable to connect to API (ConnectionRefused)`** from the agent — `LLM_GATEWAY_URL=UNSET` or the gateway isn't on `:3308`. Check `SANDBOX_LLM_GATEWAY_URL` + the `tasks` intent (gateway proc).
 - **Auth/4xx from the gateway** — the gateway is reachable but has no upstream provider key (`LLM_GATEWAY_ANTHROPIC_API_KEY`) or the token lacks `llm_gateway:read`.
 - **Workflow "running" but nothing happening** — it's in the wait loop (CI follow-up / inactivity). The workflow's Temporal **Current Details** field names what it's waiting on.
