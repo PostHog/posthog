@@ -98,6 +98,12 @@ class ModelUsageRowSerializer(ModelUsageTotalsSerializer):
     engines = ModelUsageEngineSerializer(many=True, help_text="Usage totals for each selected engine.")
 
 
+class ModelStatusBreakdownSerializer(serializers.Serializer):
+    engine = serializers.CharField(help_text="Materialization engine: clickhouse or managed_warehouse.")
+    status = serializers.CharField(help_text="Status of the latest run for the model and engine in this range.")
+    models = serializers.IntegerField(help_text="Models whose latest run on this engine has this status.")
+
+
 class ModelUsageSerializer(serializers.Serializer):
     date_from = serializers.DateField(help_text="Inclusive UTC start date.")
     date_to = serializers.DateField(help_text="Exclusive UTC end date. Today's incomplete usage is excluded.")
@@ -105,6 +111,9 @@ class ModelUsageSerializer(serializers.Serializer):
     trends = ModelUsageDaySerializer(many=True, help_text="Daily usage, attributed to when each run finished.")
     models = ModelUsageRowSerializer(many=True, help_text="Model breakdown, highest measured bytes first.")
     count = serializers.IntegerField(help_text="Total number of models in the breakdown.")
+    status_breakdown = ModelStatusBreakdownSerializer(
+        many=True, help_text="Latest run status for each model and engine in the selected complete-day range."
+    )
     usage_updated_at = serializers.DateTimeField(
         allow_null=True, help_text="Latest usage collection timestamp in this range."
     )

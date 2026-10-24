@@ -74,6 +74,13 @@ const populated: ModelUsageApi = {
     overview: totals,
     models,
     count: 3,
+    status_breakdown: [
+        { engine: 'clickhouse', status: 'Completed', models: 2 },
+        { engine: 'clickhouse', status: 'Failed', models: 1 },
+        { engine: 'managed_warehouse', status: 'Completed', models: 1 },
+        { engine: 'managed_warehouse', status: 'Running', models: 1 },
+        { engine: 'managed_warehouse', status: 'Failed', models: 1 },
+    ],
     usage_updated_at: '2026-10-16T03:00:00Z',
     trends: Array.from({ length: 30 }, (_, index) => {
         const readBytes = (150 + ((index * 71) % 300)) * 1024 ** 3

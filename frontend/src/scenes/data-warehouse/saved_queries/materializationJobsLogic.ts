@@ -24,6 +24,7 @@ import type { DataWarehouseSavedQuery } from '~/types'
 import { DataModelingSyncInterval, DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
 import { dataModelingJobsList, warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
+import { DataModelingJobsListEngine } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type {
     DataModelingJobApi,
     PaginatedDataModelingJobListApi,
@@ -44,6 +45,13 @@ const IDLE_REFRESH_INTERVAL_MS = 60000
 // Give up waiting after this long so the controls do not stay blocked when no job ever appears.
 const STARTING_TIMEOUT_MS = 120000
 export const DEFAULT_JOBS_PAGE_SIZE = 10
+
+function runHistoryEngineParams(engine: DataModelingJobsListEngine): {
+    all_engines?: boolean
+    engine?: DataModelingJobsListEngine
+} {
+    return engine === DataModelingJobsListEngine.ManagedWarehouse ? { all_engines: true, engine } : {}
+}
 
 function isNewRunVisible(newestJob: DataModelingJobApi | undefined, previousJobId: string | null | undefined): boolean {
     return !!newestJob && newestJob.id !== previousJobId
@@ -79,11 +87,17 @@ export interface materializationJobsLogicValues {
     olderJobsPageLoading: boolean
     refreshModeChanged: boolean
     resumingMaterialization: boolean
+    runHistoryError: boolean
+    runHistoryJobs: PaginatedDataModelingJobListApi | null
+    runHistoryJobsError: boolean
+    runHistoryJobsLoading: boolean
+    runHistoryLoading: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
     savedQueryLoading: boolean
     savedQueryRefreshPending: boolean
     savingMaterialization: boolean
+    selectedRunHistoryEngine: DataModelingJobsListEngine
     startingMaterialization: boolean
     syncFrequencyDraft: SyncFrequencyValue | null
 }
@@ -205,6 +219,21 @@ export interface materializationJobsLogicActions {
         olderJobsPage: PaginatedDataModelingJobListApi
         payload?: void
     }
+    loadRunHistoryJobs: (_: void) => void
+    loadRunHistoryJobsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunHistoryJobsSuccess: (
+        runHistoryJobs: PaginatedDataModelingJobListApi,
+        payload?: void
+    ) => {
+        runHistoryJobs: PaginatedDataModelingJobListApi
+        payload?: void
+    }
     loadSavedQuery: (_: void) => void
     loadSavedQueryFailure: (
         error: string,
@@ -247,6 +276,9 @@ export interface materializationJobsLogicActions {
     setResumingMaterialization: (resuming: boolean) => {
         resuming: boolean
     }
+    setSelectedRunHistoryEngine: (engine: DataModelingJobsListEngine) => {
+        engine: DataModelingJobsListEngine
+    }
     setStartingMaterialization: (starting: boolean) => {
         starting: boolean
     }
@@ -272,9 +304,25 @@ export interface materializationJobsLogicMeta {
         ) => boolean
         jobsPageResults: (
             jobsPage: number,
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
+            runHistoryJobs: PaginatedDataModelingJobListApi | null,
             olderJobsPage: PaginatedDataModelingJobListApi | null
         ) => PaginatedDataModelingJobListApi | null
+        runHistoryError: (
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
+            dataModelingJobsError: boolean,
+            runHistoryJobsError: boolean,
+            olderJobsPageError: boolean,
+            jobsPage: number
+        ) => boolean
+        runHistoryLoading: (
+            selectedRunHistoryEngine: DataModelingJobsListEngine,
+            dataModelingJobsLoading: boolean,
+            runHistoryJobsLoading: boolean,
+            olderJobsPageLoading: boolean,
+            jobsPage: number
+        ) => boolean
         lastSuccessfulSyncAt: (
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
             latestCompletedJob: PaginatedDataModelingJobListApi | null
@@ -313,6 +361,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     actions({
         refreshMaterialization: true,
         setJobsPage: (page: number) => ({ page }),
+        setSelectedRunHistoryEngine: (engine: DataModelingJobsListEngine) => ({ engine }),
         deleteView: true,
         finishDeletingView: true,
         scheduleJobsRefresh: (delay: number) => ({ delay }),
@@ -381,6 +430,21 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 },
             },
         ],
+        runHistoryJobs: [
+            null as PaginatedDataModelingJobListApi | null,
+            {
+                loadRunHistoryJobs: async (_: void, breakpoint) => {
+                    const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
+                        saved_query_id: props.viewId,
+                        limit: DEFAULT_JOBS_PAGE_SIZE,
+                        offset: 0,
+                        ...runHistoryEngineParams(values.selectedRunHistoryEngine),
+                    })
+                    breakpoint()
+                    return jobs
+                },
+            },
+        ],
         // The newest completed run when the first page holds none. The panel reports when the data the
         // view serves was built, and a view whose last ten runs all failed still serves an older build.
         latestCompletedJob: [
@@ -406,6 +470,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                         saved_query_id: props.viewId,
                         limit: DEFAULT_JOBS_PAGE_SIZE,
                         offset: (values.jobsPage - 1) * DEFAULT_JOBS_PAGE_SIZE,
+                        ...runHistoryEngineParams(values.selectedRunHistoryEngine),
                     })
                     breakpoint()
                     return jobs
@@ -414,7 +479,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        jobsPage: [1, { setJobsPage: (_, { page }) => page }],
+        jobsPage: [1, { setJobsPage: (_, { page }) => page, setSelectedRunHistoryEngine: () => 1 }],
+        selectedRunHistoryEngine: [
+            DataModelingJobsListEngine.Clickhouse as DataModelingJobsListEngine,
+            { setSelectedRunHistoryEngine: (_, { engine }) => engine },
+        ],
+        runHistoryJobsError: [false, { loadRunHistoryJobs: () => false, loadRunHistoryJobsFailure: () => true }],
         olderJobsPageError: [false, { loadOlderJobsPage: () => false, loadOlderJobsPageFailure: () => true }],
         deletingView: [false, { deleteView: () => true, finishDeletingView: () => false }],
         savedQueryError: [
@@ -549,12 +619,57 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 (modeChanged || (frequency !== null && frequency !== (savedQuery.sync_frequency || 'never'))),
         ],
         jobsPageResults: [
-            (s) => [s.jobsPage, s.dataModelingJobs, s.olderJobsPage],
+            (s) => [s.jobsPage, s.selectedRunHistoryEngine, s.dataModelingJobs, s.runHistoryJobs, s.olderJobsPage],
             (
                 page: number,
+                engine: DataModelingJobsListEngine,
                 latest: PaginatedDataModelingJobListApi | null,
+                filtered: PaginatedDataModelingJobListApi | null,
                 older: PaginatedDataModelingJobListApi | null
-            ): PaginatedDataModelingJobListApi | null => (page === 1 ? latest : older),
+            ): PaginatedDataModelingJobListApi | null =>
+                page === 1 ? (engine === DataModelingJobsListEngine.Clickhouse ? latest : filtered) : older,
+        ],
+        runHistoryError: [
+            (s) => [
+                s.selectedRunHistoryEngine,
+                s.dataModelingJobsError,
+                s.runHistoryJobsError,
+                s.olderJobsPageError,
+                s.jobsPage,
+            ],
+            (
+                engine: DataModelingJobsListEngine,
+                clickhouseError: boolean,
+                managedError: boolean,
+                olderError: boolean,
+                page: number
+            ): boolean =>
+                page > 1
+                    ? olderError
+                    : engine === DataModelingJobsListEngine.Clickhouse
+                      ? clickhouseError
+                      : managedError,
+        ],
+        runHistoryLoading: [
+            (s) => [
+                s.selectedRunHistoryEngine,
+                s.dataModelingJobsLoading,
+                s.runHistoryJobsLoading,
+                s.olderJobsPageLoading,
+                s.jobsPage,
+            ],
+            (
+                engine: DataModelingJobsListEngine,
+                clickhouseLoading: boolean,
+                managedLoading: boolean,
+                olderLoading: boolean,
+                page: number
+            ): boolean =>
+                page > 1
+                    ? olderLoading
+                    : engine === DataModelingJobsListEngine.Clickhouse
+                      ? clickhouseLoading
+                      : managedLoading,
         ],
         lastSuccessfulSyncAt: [
             (s) => [s.dataModelingJobs, s.latestCompletedJob],
@@ -593,10 +708,19 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     }),
     listeners(({ actions, cache, props, values }) => ({
         setJobsPage: () => {
-            if (values.jobsPage === 1) {
+            if (values.jobsPage === 1 && values.selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse) {
                 actions.loadDataModelingJobs()
+            } else if (values.jobsPage === 1) {
+                actions.loadRunHistoryJobs()
             } else {
                 actions.loadOlderJobsPage()
+            }
+        },
+        setSelectedRunHistoryEngine: () => {
+            if (values.selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse) {
+                actions.loadDataModelingJobs()
+            } else {
+                actions.loadRunHistoryJobs()
             }
         },
         deleteView: () => actions.deleteDataWarehouseSavedQuery(props.viewId),

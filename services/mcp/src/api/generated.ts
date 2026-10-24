@@ -71129,6 +71129,15 @@ export namespace Schemas {
       models: ModelChoice[];
     }
 
+    export interface ModelStatusBreakdown {
+      /** Materialization engine: clickhouse or managed_warehouse. */
+      engine: string;
+      /** Status of the latest run for the model and engine in this range. */
+      status: string;
+      /** Models whose latest run on this engine has this status. */
+      models: number;
+    }
+
     export interface ModelUsageTotals {
       /** Finished materialization runs, including failures and cancellations. */
       runs: number;
@@ -71267,6 +71276,8 @@ export namespace Schemas {
       models: ModelUsageRow[];
       /** Total number of models in the breakdown. */
       count: number;
+      /** Latest run status for each model and engine in the selected complete-day range. */
+      status_breakdown: ModelStatusBreakdown[];
       /**
          * Latest usage collection timestamp in this range.
          * @nullable

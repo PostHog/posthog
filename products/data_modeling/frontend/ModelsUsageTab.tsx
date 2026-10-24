@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { TimeSeriesBarChart } from '@posthog/quill-charts'
+import { BarChart, TimeSeriesBarChart, type BarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -76,6 +76,8 @@ export function ModelsUsageTab({
         dateTo,
         chartLabels,
         chartSeries,
+        statusChartLabels,
+        statusChartSeries,
         jobsLoading,
         managedWarehouseEnabled,
         materializedViewOptions,
@@ -97,6 +99,18 @@ export function ModelsUsageTab({
             legend: { show: chartSeries.length > 1, position: 'top' as const, interactive: true },
         }),
         [chartSeries.length]
+    )
+    const statusChartConfig = useChartConfig<BarChartConfig>(
+        () => ({
+            barLayout: 'stacked',
+            showGrid: true,
+            showAxisLines: true,
+            showTickMarks: true,
+            yTickFormatter: (value: number) => humanFriendlyNumber(value),
+            tooltip: { valueFormatter: (value: number) => humanFriendlyNumber(value) },
+            legend: { show: statusChartSeries.length > 1, position: 'top', interactive: true },
+        }),
+        [statusChartSeries.length]
     )
 
     return (
@@ -198,7 +212,7 @@ export function ModelsUsageTab({
                         </Button>
                     </CardContent>
                 </Card>
-            ) : !usage || usageLoading ? (
+            ) : !usage ? (
                 <div className="flex justify-center py-16">
                     <Spinner />
                 </div>
@@ -211,7 +225,7 @@ export function ModelsUsageTab({
                     </CardContent>
                 </Card>
             ) : (
-                <>
+                <div className="relative space-y-4" aria-busy={usageLoading}>
                     {usage.overview.measured_runs < usage.overview.runs ? (
                         <Card size="sm">
                             <CardContent>
@@ -243,31 +257,61 @@ export function ModelsUsageTab({
                         />
                         <MetricTile title="Runs" value={humanFriendlyNumber(usage.overview.runs)} />
                     </div>
-                    {usage.overview.measured_runs > 0 ? (
-                        <Card size="sm" className="min-w-0">
-                            <CardHeader>
-                                <CardTitle role="heading" aria-level={3}>
-                                    Bytes read by day
-                                </CardTitle>
-                                <CardDescription>
-                                    Usage is attributed to the day each run finished. Gaps have no measured usage.
-                                    {chartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="h-64 flex flex-col">
-                                    <TimeSeriesBarChart
-                                        series={chartSeries}
-                                        labels={chartLabels}
-                                        theme={theme}
-                                        config={chartConfig}
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ) : null}
+                    <div className="grid grid-cols-1 gap-4 @min-[64rem]/main-content:grid-cols-2">
+                        {usage.overview.measured_runs > 0 ? (
+                            <Card size="sm" className="min-w-0">
+                                <CardHeader>
+                                    <CardTitle role="heading" aria-level={3}>
+                                        Bytes read by day
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Usage is attributed to the day each run finished. Gaps have no measured usage.
+                                        {chartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="h-64 flex flex-col">
+                                        <TimeSeriesBarChart
+                                            series={chartSeries}
+                                            labels={chartLabels}
+                                            theme={theme}
+                                            config={chartConfig}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : null}
+                        {statusChartLabels.length > 0 ? (
+                            <Card size="sm" className="min-w-0">
+                                <CardHeader>
+                                    <CardTitle role="heading" aria-level={3}>
+                                        Models by latest run status
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Latest run for each model and engine in the selected complete-day range.
+                                        {statusChartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="flex h-64 flex-col">
+                                        <BarChart
+                                            series={statusChartSeries}
+                                            labels={statusChartLabels}
+                                            theme={theme}
+                                            config={statusChartConfig}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : null}
+                    </div>
                     <ModelsUsageByModelTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
-                </>
+                    {usageLoading ? (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center rounded bg-background/60">
+                            <Spinner />
+                        </div>
+                    ) : null}
+                </div>
             )}
 
             <MaterializationJobsTable savedQueryIdToNodeId={savedQueryIdToNodeId} />

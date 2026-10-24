@@ -32,6 +32,14 @@ export const MATERIALIZATION_ENGINE_LABELS: Record<string, string> = {
     managed_warehouse: 'Managed warehouse',
 }
 
+const MODEL_STATUS_ORDER = [
+    DataModelingJobsListStatus.Completed,
+    DataModelingJobsListStatus.Running,
+    DataModelingJobsListStatus.Failed,
+    DataModelingJobsListStatus.Cancelled,
+    DataModelingJobsListStatus.Skipped,
+]
+
 const JOB_ENGINE_BY_USAGE_ENGINE: Partial<Record<DataModelingUsageListEngine, DataModelingJobsListEngine>> = {
     [DataModelingUsageListEngine.Clickhouse]: DataModelingJobsListEngine.Clickhouse,
     [DataModelingUsageListEngine.ManagedWarehouse]: DataModelingJobsListEngine.ManagedWarehouse,
@@ -127,6 +135,8 @@ export interface modelsUsageLogicValues {
     selectedEngine: DataModelingUsageListEngine
     selectedJobStatus: DataModelingJobsListStatus | null
     selectedSavedQueryId: string | null
+    statusChartLabels: string[]
+    statusChartSeries: Series[]
     usage: ModelUsageApi | null
     usageLoading: boolean
 }
@@ -208,6 +218,8 @@ export interface modelsUsageLogicMeta {
         jobsLoading: (materializationJobsLoading: boolean, dataWarehouseSavedQueriesLoading: boolean) => boolean
         chartLabels: (usage: ModelUsageApi | null) => string[]
         chartSeries: (usage: ModelUsageApi | null) => Series[]
+        statusChartLabels: (usage: ModelUsageApi | null) => string[]
+        statusChartSeries: (usage: ModelUsageApi | null, statusChartLabels: string[]) => Series[]
     }
 }
 
@@ -366,6 +378,30 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                             (day) => day.engines.find((item) => item.engine === engine)?.read_bytes ?? NaN
                         ) ?? [],
                 })),
+        ],
+        statusChartLabels: [
+            (s) => [s.usage],
+            (usage: ModelUsageApi | null): string[] =>
+                MODEL_STATUS_ORDER.filter((status) =>
+                    usage?.status_breakdown.some((item) => item.status === status)
+                ).map((status) => (status === DataModelingJobsListStatus.Cancelled ? 'Canceled' : status)),
+        ],
+        statusChartSeries: [
+            (s) => [s.usage, s.statusChartLabels],
+            (usage: ModelUsageApi | null, labels: string[]): Series[] => {
+                const engines = [...new Set(usage?.status_breakdown.map((item) => item.engine) ?? [])]
+                return engines.map((engine) => ({
+                    key: engine,
+                    label: MATERIALIZATION_ENGINE_LABELS[engine] ?? engine,
+                    data: labels.map((label) => {
+                        const status = label === 'Canceled' ? DataModelingJobsListStatus.Cancelled : label
+                        return (
+                            usage?.status_breakdown.find((item) => item.engine === engine && item.status === status)
+                                ?.models ?? 0
+                        )
+                    }),
+                }))
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

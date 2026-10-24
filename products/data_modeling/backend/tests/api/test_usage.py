@@ -78,7 +78,7 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         }
         base = {"team": self.team, "saved_query": model, "status": "Completed", "last_run_at": finished}
         DataModelingJob.objects.create(**base, **measured)
-        DataModelingJob.objects.create(**{**base, "status": "Failed"})
+        DataModelingJob.objects.create(**{**base, "status": "Failed", "last_run_at": finished + timedelta(seconds=1)})
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
         managed = DataModelingJob.objects.create(
             **{**base, "engine": "managed_warehouse"}, read_bytes=4096, usage_updated_at=finished
@@ -106,6 +106,7 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(data["trends"][-1]["engines"][0]["engine"], "clickhouse")
         self.assertEqual(data["models"][0]["name"], "daily_orders")
         self.assertEqual(data["count"], 1)
+        self.assertEqual(data["status_breakdown"], [{"engine": "clickhouse", "status": "Failed", "models": 1}])
 
         combined = self.client.get(
             f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "all"}
@@ -120,6 +121,13 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(
             [(item["engine"], item["read_bytes"]) for item in combined["models"][0]["engines"]],
             [("clickhouse", 1024), ("managed_warehouse", managed.read_bytes)],
+        )
+        self.assertEqual(
+            combined["status_breakdown"],
+            [
+                {"engine": "clickhouse", "status": "Failed", "models": 1},
+                {"engine": "managed_warehouse", "status": "Completed", "models": 1},
+            ],
         )
 
         managed_only = self.client.get(
@@ -228,4 +236,5 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(data["overview"]["runs"], 1)
         self.assertEqual(data["trends"][-1]["read_bytes"], 100)
         self.assertEqual(data["count"], 1)
+        self.assertEqual(data["status_breakdown"], [{"engine": "clickhouse", "status": "Completed", "models": 1}])
         self.assertEqual([row["saved_query_id"] for row in data["models"]], [str(visible.id)])

@@ -5,11 +5,14 @@ import posthog from 'posthog-js'
 import { createElement } from 'react'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { DataModelingJobsListEngine } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
@@ -171,7 +174,36 @@ describe('materializationJobsLogic', () => {
 
         expect(screen.getByText('Last run')).toBeTruthy()
         expect(screen.getAllByText('Failed').length).toBeGreaterThan(0)
+        expect(screen.getByLabelText('Failed. Query failed')).toBeTruthy()
         expect(screen.getByText('Materialization').parentElement?.children).toHaveLength(1)
+    })
+
+    it('loads managed warehouse run history without changing the ClickHouse status data', async () => {
+        const requests: URLSearchParams[] = []
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            requests.push(params)
+            return [200, { count: 0, results: [] }]
+        }
+        useMocks(mocks)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MANAGED_TRINO_QUERY], {
+            [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true,
+        })
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+        expect(document.querySelector('[data-attr="materialization-run-history-engine-filter"]')).toBeTruthy()
+
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedRunHistoryEngine(DataModelingJobsListEngine.ManagedWarehouse)
+        ).toDispatchActions(['loadRunHistoryJobsSuccess'])
+
+        expect(requests.at(-1)?.get('all_engines')).toBe('true')
+        expect(requests.at(-1)?.get('engine')).toBe('managed_warehouse')
+        expect(logic.values.dataModelingJobs).toEqual({ count: 0, results: [] })
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {

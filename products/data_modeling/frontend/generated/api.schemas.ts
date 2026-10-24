@@ -391,6 +391,15 @@ export interface ModelUsageRowApi {
     engines: ModelUsageEngineApi[]
 }
 
+export interface ModelStatusBreakdownApi {
+    /** Materialization engine: clickhouse or managed_warehouse. */
+    engine: string
+    /** Status of the latest run for the model and engine in this range. */
+    status: string
+    /** Models whose latest run on this engine has this status. */
+    models: number
+}
+
 export interface ModelUsageApi {
     /** Inclusive UTC start date. */
     date_from: string
@@ -404,6 +413,8 @@ export interface ModelUsageApi {
     models: ModelUsageRowApi[]
     /** Total number of models in the breakdown. */
     count: number
+    /** Latest run status for each model and engine in the selected complete-day range. */
+    status_breakdown: ModelStatusBreakdownApi[]
     /**
      * Latest usage collection timestamp in this range.
      * @nullable

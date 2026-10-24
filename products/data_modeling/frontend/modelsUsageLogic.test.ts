@@ -24,6 +24,7 @@ const emptyUsage = {
     },
     models: [],
     count: 0,
+    status_breakdown: [],
     usage_updated_at: null,
     trends: [],
 }
@@ -92,6 +93,25 @@ describe('modelsUsageLogic', () => {
         expect(jobRequests.at(-1)?.get('saved_query_id')).toBe('view-a')
         expect(jobRequests.at(-1)?.get('offset')).toBe('20')
         expect(logic.values.page).toBe(1)
+    })
+
+    it('builds a status breakdown by engine', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess'])
+
+        logic.actions.loadUsageSuccess({
+            ...emptyUsage,
+            status_breakdown: [
+                { engine: 'clickhouse', status: 'Completed', models: 3 },
+                { engine: 'clickhouse', status: 'Failed', models: 1 },
+                { engine: 'managed_warehouse', status: 'Failed', models: 2 },
+            ],
+        })
+
+        expect(logic.values.statusChartLabels).toEqual(['Completed', 'Failed'])
+        expect(logic.values.statusChartSeries).toEqual([
+            { key: 'clickhouse', label: 'ClickHouse', data: [3, 1] },
+            { key: 'managed_warehouse', label: 'Managed warehouse', data: [0, 2] },
+        ])
     })
 
     it('filters all tab requests by engine', async () => {
