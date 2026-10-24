@@ -471,6 +471,9 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(assignee["type"], "user")
         self.assertEqual(assignee["id"], self.user.id)
         self.assertEqual(assignee["user"]["email"], self.user.email)
+        self.assertEqual(assignee["user"]["id"], self.user.id)
+        # This user has no first or last name, so the display name falls back to the email.
+        self.assertEqual(assignee["user"]["name"], self.user.email)
 
     def test_get_ticket_returns_role_assignee(self):
         from products.access_control.backend.models.role import Role
@@ -484,6 +487,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(assignee["type"], "role")
         self.assertEqual(assignee["id"], str(role.id))
         self.assertEqual(assignee["role"]["name"], "Support")
+        self.assertEqual(assignee["role"]["id"], str(role.id))
         self.assertIsNone(assignee["user"])
 
     def test_get_ticket_returns_url(self):
