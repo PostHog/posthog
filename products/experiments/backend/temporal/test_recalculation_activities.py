@@ -946,6 +946,7 @@ class TestCalculateActivity(BaseTest):
             ("out_of_time_backstop", None, True),
         ]
     )
+    @time_machine.travel("2026-05-29T13:00:00Z", tick=False)
     def test_every_metric_outcome_stamps_run_progress(self, name: str, run_error: Exception | None, out_of_time: bool):
         exp = self._experiment(flag_key=f"calc-progress-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
