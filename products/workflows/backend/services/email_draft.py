@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.db.models import Model
 
+import anthropic
 import structlog
 import posthoganalytics
 
@@ -36,7 +37,7 @@ EMAIL_DRAFT_MODEL = "claude-haiku-5-5"
 # The user waits on this with a loader before the email opens, and the template is always there.
 EMAIL_DRAFT_TIMEOUT_SECONDS = 10.0
 EMAIL_DRAFT_MAX_TOKENS = 1200
-# Drafts are free to the customer, so the cap protects our spend rather than theirs.
+# Drafts use the team's AI credits, so the cap stops one burst of drafts from using them all.
 EMAIL_DRAFT_BUDGET = Budget(burst=20, per_hour=20)
 
 MAX_SUBJECT_CHARS = 120
@@ -118,6 +119,8 @@ def _draft_email(team: Team, context: EmailDraftContext) -> EmailDraft:
     try:
         raw = _call_model(client, team.id, context)
     except Exception as error:
+        if _is_ai_credits_exhausted(error):
+            return _template_draft(context, EmailDraftFallbackReason.AI_CREDITS_EXHAUSTED)
         timed_out = _is_timeout(error)
         if not timed_out:
             capture_exception(error, {"team_id": team.id, "source": context.source})
@@ -298,6 +301,15 @@ def _call_model(client: object, team_id: int, context: EmailDraftContext) -> str
 
 def _is_timeout(error: Exception) -> bool:
     return "timeout" in type(error).__name__.lower() or "timed out" in str(error).lower()
+
+
+def _is_ai_credits_exhausted(error: Exception) -> bool:
+    # Only the gateway's own denial carries this header. A 402 that the provider passes through is our problem.
+    return (
+        isinstance(error, anthropic.APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def _parse_copy(raw: str) -> _DraftCopy | None:

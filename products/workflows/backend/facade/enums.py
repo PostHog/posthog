@@ -113,6 +113,7 @@ class EmailDraftFallbackReason(LabeledStrEnum):
     AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
     RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
+    AI_CREDITS_EXHAUSTED = "ai_credits_exhausted", "The organization used its monthly PostHog AI credits"
     TIMEOUT = "timeout", "The model took too long"
     MODEL_ERROR = "model_error", "The model call failed"
     INVALID_OUTPUT = "invalid_output", "The model returned an unusable draft"
