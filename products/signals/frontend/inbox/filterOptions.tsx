@@ -119,10 +119,10 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     {
         field: 'ranking_action',
         head: 'action',
-        name: 'Engage',
+        name: 'Action',
         sortLabel: 'Most likely to be acted on',
-        tagLabel: 'engage',
-        description: 'A person acts on the report within 14 days.',
+        tagLabel: 'action',
+        description: 'A person or their agent acts on the report within 14 days.',
     },
     {
         field: 'ranking_fixed',

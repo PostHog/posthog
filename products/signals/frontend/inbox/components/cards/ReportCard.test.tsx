@@ -427,7 +427,7 @@ describe('ReportCard', () => {
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% engage',
+            '6.2% action',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
