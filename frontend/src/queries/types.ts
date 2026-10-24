@@ -15,6 +15,7 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import { SampleRowsSource } from './nodes/DataTable/sampleRows'
 import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
@@ -35,6 +36,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     emptyStateDetail?: string | JSX.Element
     emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
+    /**
+     * Fills an empty data table with invented rows before the project ingests its first event. Off by default.
+     */
+    dataTableSampleRows?: SampleRowsSource
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
      * Displayed in insight tooltip's "Click to view {groupTypeLabel}".

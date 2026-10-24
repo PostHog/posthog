@@ -38,6 +38,11 @@
         background-color: var(--color-bg-primary);
     }
 
+    // Fades the last sample rows out, which tells the reader the rows are a preview and not data
+    &.DataTable--sample {
+        mask-image: linear-gradient(to bottom, black calc(100% - 6rem), transparent);
+    }
+
     @keyframes DataTable__highlight {
         0% {
             background-color: var(--mark);
