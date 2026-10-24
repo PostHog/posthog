@@ -39,7 +39,7 @@ export function WizardChannelStep(): JSX.Element {
                         <IconLetter className="size-6" />
                     </div>
                     <p className="mb-0 max-w-md text-secondary">
-                        You need a domain you control, such as mail.example.com. You can add SMS and push later in
+                        You need a domain you control, such as mail.example.com. You can add more channels later in
                         Messaging.
                     </p>
                     <LemonButton

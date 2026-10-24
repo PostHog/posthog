@@ -19,6 +19,7 @@ import { WizardConnectStep } from './WizardConnectStep'
 import { WizardCreateStep } from './WizardCreateStep'
 import { WizardDomainStep } from './WizardDomainStep'
 import { WizardPushStep } from './WizardPushStep'
+import { WizardReachStep } from './WizardReachStep'
 import { WizardSendingRulesStep } from './WizardSendingRulesStep'
 import { WizardTemplateStep } from './WizardTemplateStep'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
@@ -121,6 +122,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                 )}
             </div>
             <LemonCard hoverEffect={false} className="p-6">
+                {currentStep === 'reach' && <WizardReachStep />}
                 {currentStep === 'channel' && <WizardChannelStep />}
                 {currentStep === 'domain' && <WizardDomainStep />}
                 {currentStep === 'opt-outs' && (
