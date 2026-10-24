@@ -297,6 +297,23 @@ class TestObjectStorageStrictHead(SimpleTestCase):
             storage.head_object_strict("test-bucket", "test-key")
 
 
+class TestObjectStorageTag(SimpleTestCase):
+    @parameterized.expand([("not_implemented", "NotImplemented", False), ("access_denied", "AccessDenied", True)])
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_reports_only_unexpected_tagging_errors(
+        self, _name: str, error_code: str, expect_capture: bool, mock_capture_exception: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        error_response = {"Error": {"Code": error_code, "Message": "tagging failed"}}
+        mock_client.put_object_tagging.side_effect = ClientError(error_response, "PutObjectTagging")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.tag("test-bucket", "test-key", {"data_class": "task_session"})
+
+        assert mock_capture_exception.called is expect_capture
+
+
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
         object_storage_module._client = UnavailableStorage()
