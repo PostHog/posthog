@@ -1,4 +1,5 @@
 import type { ChartLegendConfig, ChartMargins, TooltipConfig, TooltipContext } from '../../core/types'
+import type { YAxisConfig } from '../../utils/use-axis-formatters'
 import type { YFormatterConfig } from '../../utils/y-formatters'
 
 export interface HistogramBin<Meta = unknown> {
@@ -50,17 +51,11 @@ export type HistogramMarker =
           color?: string
       }
 
-export interface HistogramAxisConfig extends YFormatterConfig {
+export interface HistogramAxisConfig extends YFormatterConfig, Pick<YAxisConfig, 'label' | 'tickFormatter' | 'hide'> {
     /** Defaults to `linear`. On the x axis `log` suits latency, where bins grow geometrically: a bin
      *  starting at or below zero is drawn one bin-ratio wide, and a bin ending at or below zero is not
      *  drawn but still counts toward totals. On the y axis `log` keeps a long tail readable. */
-    scaleType?: 'linear' | 'log'
-    /** Axis title. */
-    label?: string
-    /** Wins over `format`. */
-    tickFormatter?: (value: number) => string
-    /** Hides the tick labels and their margin. */
-    hide?: boolean
+    scale?: YAxisConfig['scale']
 }
 
 export interface HistogramTooltipConfig {

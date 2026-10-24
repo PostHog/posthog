@@ -112,7 +112,7 @@ describe('Histogram', () => {
                 { start: 1, end: 10, count: 5 },
                 { start: 10, end: 100, count: 5 },
             ],
-            { markers: [{ value: 5000, label: 'SLO' }], xAxis: { scaleType: 'log' } },
+            { markers: [{ value: 5000, label: 'SLO' }], xAxis: { scale: 'log' } },
             [],
         ],
     ])('%s', (_, bins, config, expected) => {
@@ -123,7 +123,7 @@ describe('Histogram', () => {
 
     it('ticks a log axis in 1-2-5 steps in the axis format, dropping labels the edges would clip', () => {
         const bins: HistogramBin[] = [1, 10, 100].map((start) => ({ start: start * 1e6, end: start * 1e7, count: 1 }))
-        const { chart } = renderHistogram({ bins, config: { xAxis: { scaleType: 'log', format: 'duration_ns' } } })
+        const { chart } = renderHistogram({ bins, config: { xAxis: { scale: 'log', format: 'duration_ns' } } })
 
         expect(chart.xTicks()).toEqual(['2ms', '5ms', '10ms', '20ms', '50ms', '100ms', '200ms', '500ms'])
     })

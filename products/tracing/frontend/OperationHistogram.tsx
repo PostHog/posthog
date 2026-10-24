@@ -15,7 +15,7 @@ import { getColorVar } from 'lib/colors'
 import { bucketUpperBound, formatBucketLabel, type TracingDurationHistogramData } from './durationBuckets'
 import type { DurationRange } from './operationFilters'
 
-const HISTOGRAM_CONFIG: HistogramConfig = { xAxis: { scaleType: 'log', format: 'duration_ns' } }
+const HISTOGRAM_CONFIG: HistogramConfig = { xAxis: { scale: 'log', format: 'duration_ns' } }
 
 interface OperationHistogramProps {
     data: TracingDurationHistogramData
