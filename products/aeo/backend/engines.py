@@ -245,13 +245,19 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
+def is_target_host(host: str, target_domains: list[str]) -> bool:
+    """True when the host is one of the target domains or a subdomain of it."""
+    host = host.lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
+
+
 def is_target_url(url: str, target_domains: list[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
-        host = (urlparse(url).hostname or "").lower()
+        host = urlparse(url).hostname or ""
     except ValueError:
         return False
-    return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
+    return is_target_host(host, target_domains)
 
 
 def target_position(cited_urls: list[str], target_domains: list[str]) -> int | None:
