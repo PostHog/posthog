@@ -182,6 +182,7 @@ class TestConversionRecordings(ClickhouseTestMixin, APIBaseTest):
                 mock.return_value.run.side_effect = ConcurrencyLimitExceeded("internal limiter detail")
                 throttled = self.client.post(url, payload, format="json")
                 self.assertEqual(throttled.status_code, 429)
+                self.assertEqual(throttled["Retry-After"], "5")
                 self.assertNotIn("internal limiter detail", throttled.json()["detail"])
 
     def test_campaign_mapping_and_missing_row(self) -> None:

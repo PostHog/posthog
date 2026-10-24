@@ -22,6 +22,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
@@ -1070,6 +1071,20 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == expected, response.content
+
+    def test_a_full_organization_concurrency_limit_returns_a_retry_after(self) -> None:
+        with patch(
+            "products.product_analytics.backend.presentation.query_concurrency.app_org_concurrency_slot",
+            side_effect=ConcurrencyLimitExceeded("full"),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/data_checks/",
+                {"query": self._query()},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.content
+        assert response["Retry-After"] == "5"
 
     def test_a_member_without_query_access_can_only_check_a_saved_insight(self) -> None:
         insight = Insight.objects.create(team=self.team, query=self._query())
