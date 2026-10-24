@@ -70,7 +70,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(10, "ratio", baseline)
         assert variance is not None
-        assert math.isclose(variance, 32, rel_tol=1e-6)
+        assert math.isclose(variance, 32 * 10000 / 9999, rel_tol=1e-6)
 
     def test_ratio_zero_covariance(self):
         baseline = BaselineStats(
@@ -83,7 +83,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(0.5, "ratio", baseline)
         assert variance is not None
-        assert math.isclose(variance, 0.0625, rel_tol=1e-6)
+        assert math.isclose(variance, 0.0625 * 1000 / 999, rel_tol=1e-6)
 
     def test_ratio_high_positive_covariance_reduces_variance(self):
         baseline = BaselineStats(
@@ -109,7 +109,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(0.7, "retention", baseline)
         assert variance is not None
-        assert math.isclose(variance, 0.21, rel_tol=1e-6)
+        assert math.isclose(variance, 0.21 * 10000 / 9999, rel_tol=1e-6)
 
     @parameterized.expand(
         [
@@ -132,6 +132,15 @@ class TestCalculateVarianceFromStats:
         assert variance is not None
         assert math.isclose(variance, 0, abs_tol=1e-9)
 
+    @parameterized.expand(
+        [
+            ("observed_spread", BaselineStats(number_of_samples=1000, sum=1000, sum_squares=26000), 25000 / 999),
+            ("sum_squares_left_out", BaselineStats(number_of_samples=1000, sum=1000), 0.25),
+        ]
+    )
+    def test_mean_variance_follows_the_observed_spread(self, _name, baseline, expected):
+        assert math.isclose(calculate_variance_from_stats(1, "mean_sum_or_avg", baseline) or 0, expected)
+
     def test_returns_none_without_baseline(self):
         assert calculate_variance_from_stats(0.05, "ratio", None) is None
 
@@ -139,10 +148,9 @@ class TestCalculateVarianceFromStats:
         baseline = BaselineStats(number_of_samples=0, sum=100, denominator_sum=1000)
         assert calculate_variance_from_stats(10, "ratio", baseline) is None
 
-    def test_handles_missing_optional_fields(self):
+    def test_returns_none_without_the_denominators_spread(self):
         baseline = BaselineStats(number_of_samples=1000, sum=5000, sum_squares=30000, denominator_sum=10000)
-        variance = calculate_variance_from_stats(0.5, "ratio", baseline)
-        assert variance is not None
+        assert calculate_variance_from_stats(0.5, "ratio", baseline) is None
 
 
 class TestCalculateSampleSize:
@@ -156,6 +164,18 @@ class TestCalculateSampleSize:
     )
     def test_sample_size(self, metric_type, baseline_value, mde, variants, expected):
         assert calculate_sample_size(metric_type, baseline_value, mde, variants) == expected
+
+    @parameterized.expand(
+        [
+            ("uneven_split", [80, 20], 1800),
+            ("even_split_of_three", [1, 1, 1], 1728),
+        ]
+    )
+    def test_sample_size_powers_the_comparison_with_the_smallest_variant(self, _name, split, expected):
+        assert calculate_sample_size("funnel", 0.1, 50, len(split), split=split) == expected
+
+    def test_sizes_an_even_split_of_any_count_without_a_list_per_variant(self):
+        assert calculate_sample_size("funnel", 0.1, 50, 10**12) == pytest.approx(576 * 10**12, rel=1e-9)
 
     def test_returns_none_for_zero_mde(self):
         assert calculate_sample_size("funnel", 0.1, 0, 2) is None

@@ -26,8 +26,16 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.running_time_target import load_running_time_target
 
-from .contracts import CreateExperimentInput, Experiment, ExperimentHealth, ExperimentHealthReaderAccess
+from .contracts import (
+    CreateExperimentInput,
+    Experiment,
+    ExperimentHealth,
+    ExperimentHealthReaderAccess,
+    ExperimentRunningTimeTarget,
+    RunningTimeMode,
+)
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -146,6 +154,24 @@ def get_experiment_health_inputs(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
     return health_inputs_payload(inputs)
+
+
+def get_running_time_target(
+    *,
+    team_id: int,
+    experiment_id: int,
+    minimum_detectable_effect: float | None = None,
+    mode: RunningTimeMode | None = None,
+) -> ExperimentRunningTimeTarget:
+    """The target sample of the experiment's running time estimate. `minimum_detectable_effect` and `mode` replace the
+    saved ones, so that the page can show the target for settings the user is still editing."""
+    experiment = ExperimentModel.objects.select_related("feature_flag").get(team_id=team_id, id=experiment_id)
+    target = load_running_time_target(experiment, minimum_detectable_effect=minimum_detectable_effect, mode=mode)
+    return ExperimentRunningTimeTarget(
+        minimum_detectable_effect=target.minimum_detectable_effect,
+        recommended_sample_size=target.recommended_sample_size,
+        current_sample_size=target.current_sample_size,
+    )
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
@@ -53,6 +54,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     HealthExposureInputsStatus,
+    RunningTimeMode,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
@@ -1733,7 +1735,12 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
         help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
     )
     sum_squares = serializers.FloatField(
-        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+        required=False,
+        default=0.0,
+        help_text=(
+            "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need "
+            "it. Without it, a mean metric's variance is approximated from the baseline value."
+        ),
     )
     denominator_sum = serializers.FloatField(
         required=False,
@@ -1774,7 +1781,8 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         required=False,
         default=2,
         min_value=2,
-        help_text="Total number of variants including control (default 2).",
+        max_value=100,
+        help_text="Total number of variants including control (default 2, at most 100).",
     )
     exposure_rate_per_day = serializers.FloatField(
         required=False,
@@ -1794,8 +1802,9 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
-            "ratio/retention and baseline_value is given directly."
+            "Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and "
+            "baseline_value is given directly. When given, it replaces the variance the calculator derives for any "
+            "metric type, including p(1-p) for funnels."
         ),
     )
     baseline_stats = RunningTimeBaselineStatsSerializer(
@@ -1805,8 +1814,9 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("minimum_detectable_effect", 0) <= 0:
-            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
+        minimum_detectable_effect = attrs.get("minimum_detectable_effect", 0)
+        if not math.isfinite(minimum_detectable_effect) or minimum_detectable_effect <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be a number greater than 0."})
 
         has_baseline_value = attrs.get("baseline_value") is not None
         has_baseline_stats = attrs.get("baseline_stats") is not None
@@ -1847,6 +1857,56 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class RunningTimeTargetQuerySerializer(serializers.Serializer):
+    minimum_detectable_effect = serializers.FloatField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0. Defaults to the "
+            "experiment's saved minimum detectable effect, else the project default."
+        ),
+    )
+
+    mode = serializers.ChoiceField(
+        required=False,
+        choices=RunningTimeMode.choices,
+        help_text=(
+            "The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes "
+            "it from the results, also for an experiment saved in manual mode."
+        ),
+    )
+
+    def validate_minimum_detectable_effect(self, value: float) -> float:
+        # FloatField accepts "nan" and "inf", and neither sizes a sample.
+        if not math.isfinite(value) or value <= 0:
+            raise ValidationError("Must be a number greater than 0.")
+        return value
+
+
+class RunningTimeTargetSerializer(serializers.Serializer):
+    """The target sample of the experiment's running time estimate."""
+
+    minimum_detectable_effect = serializers.FloatField(
+        help_text="The relative change, as a percentage, that the target sample is sized to detect."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures needed across the analyzed variants, so that the comparison of each variant with the control "
+            "can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, "
+            "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
+            "analysis uses and the flag's traffic split. Null when no result can size it yet."
+        ),
+    )
+    current_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures so far that count toward the target: the control's and those of the variants that get "
+            "traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target."
+        ),
     )
 
 

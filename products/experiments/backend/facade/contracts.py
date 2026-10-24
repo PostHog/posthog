@@ -351,3 +351,23 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+class RunningTimeMode(LabeledStrEnum):
+    # pinned: the page's `ConversionRateInputType` values in frontend/src/types.ts, stored in
+    # `running_time_calculation.exposure_estimate_config.conversionRateInputType`.
+    AUTOMATIC = "automatic", "Sized from the results"
+    MANUAL = "manual", "Saved from a baseline the user entered"
+
+
+@frozen
+class ExperimentRunningTimeTarget:
+    """The target sample of an experiment's running time estimate."""
+
+    # The relative effect, as a percentage, that the target sizes the experiment to detect.
+    minimum_detectable_effect: float
+    # The exposures across the analyzed variants that the experiment needs. None when no stored result can size it.
+    recommended_sample_size: int | None
+    # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
+    # None in manual mode, and when no stored result can size the target.
+    current_sample_size: int | None
