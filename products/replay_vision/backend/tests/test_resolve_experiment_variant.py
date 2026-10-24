@@ -8,6 +8,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.test.persons import create_person
 
 from products.replay_vision.backend.error_kinds import IneligibleSessionKind
@@ -222,6 +223,8 @@ class TestResolveExperimentVariant(ClickhouseTestMixin, BaseTest):
         ):
             _resolve(self._inputs(scanner, session_id))
         assert excinfo.value.kind == FailureKind.INFRA_TRANSIENT
+        assert excinfo.value.non_retryable is False
+        assert is_expected_activity_failure(excinfo.value)
 
     def test_a_deleted_experiment_is_ineligible_with_experiment_unresolved(self) -> None:
         # Its own distinct id: ClickHouse rows outlive each test's transaction, so reusing another
