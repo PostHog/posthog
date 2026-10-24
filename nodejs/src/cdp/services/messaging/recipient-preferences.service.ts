@@ -8,6 +8,7 @@ import { workflowStepDispatchKeyFromInvocation } from '../../utils/workflow-step
 import { PersonsManagerService } from '../managers/persons-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { findSuppressedRecipients } from './email-send-policy'
 import { EmailSuppressionService } from './email-suppression.service'
 
 type MessageFunctionActionType = 'function_email' | 'function_sms' | 'function_push'
@@ -165,10 +166,12 @@ export class RecipientPreferencesService {
         }
 
         try {
-            const results = await Promise.all(
-                recipients.map((email) => this.emailSuppressionService.isSuppressed(invocation.teamId, email))
+            const suppressed = await findSuppressedRecipients(
+                this.emailSuppressionService,
+                invocation.teamId,
+                recipients
             )
-            return results.some(Boolean)
+            return suppressed.length > 0
         } catch (error) {
             // Fail open — never block a send on a suppression-lookup error.
             logger.error(`Failed to check suppression list for recipients ${recipients.join(', ')}:`, error)

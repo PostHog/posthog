@@ -10,25 +10,23 @@ from django.db import transaction
 import structlog
 
 from posthog.models.integration import Integration
-from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     reload_hog_flows_on_workers,
     send_transactional_email as run_transactional_workflow,
 )
 
 from products.messaging.backend.facade.contracts import (
-    DeliveryUnavailable,
-    IdempotencyKeyInFlight,
-    IdempotencyKeyReused,
-    InvalidIdempotencyKey,
-    InvalidRecipient,
+    EmailSendCommand,
+    EmailSendOutcome,
     MarketingTemplate,
-    QueuedEmail,
-    QuotaLimited,
+    Queued,
+    Rejected,
     SenderUnavailable,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TransactionalEmailError,
     TransactionalEmailPaused,
+    Unavailable,
 )
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 from products.messaging.backend.models.message_category import MessageCategoryType
@@ -168,31 +166,22 @@ def _workflow_exists(team_id: int, hog_flow_id: UUID) -> bool:
     return True
 
 
-def lock_transactional_workflow_id(team_id: int, template_id: UUID) -> UUID | None:
-    """Lock the template row for the rest of the transaction and return its workflow id. Holding the lock
-    keeps make_transactional from linking a workflow between this read and the update that follows."""
-    return (
-        MessageTemplate.objects.select_for_update()
-        .filter(team_id=team_id, id=template_id)
-        .values_list("transactional_hog_flow_id", flat=True)
-        .get()
+def is_transactional(template: MessageTemplate) -> bool:
+    return template.transactional_hog_flow_id is not None and _workflow_exists(
+        template.team_id, template.transactional_hog_flow_id
     )
 
 
-def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str, Any]) -> None:
-    """Raise when an update would leave a transactional template unable to send. `fields` are validated
-    serializer fields, where `message_category` holds a category id."""
-    template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
-    if not template.transactional_hog_flow_id or fields.get("deleted"):
-        return
-    # A link to a deleted workflow no longer restricts the template. The sync after the update clears it.
-    if not _workflow_exists(team_id, template.transactional_hog_flow_id):
+def check_still_sendable(template: MessageTemplate) -> None:
+    """Raise when a written but unsaved template could no longer send as a transactional email."""
+    # A link to a deleted workflow no longer restricts the template. The sync after the save clears it.
+    if template.deleted or not is_transactional(template):
         return
     check_sendable(
-        team_id,
-        template_type=fields.get("type", template.type),
-        content=fields.get("content", template.content),
-        message_category_id=fields.get("message_category", template.message_category_id),
+        template.team_id,
+        template_type=template.type,
+        content=template.content,
+        message_category_id=template.message_category_id,
     )
 
 
@@ -254,57 +243,56 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
     return template.transactional_hog_flow_id
 
 
-def send_transactional_email(
-    team: Team,
-    template_id: UUID,
-    *,
-    to: str,
-    distinct_id: str | None,
-    message_data: dict[str, Any],
-    idempotency_key: str | None = None,
-) -> QueuedEmail:
-    if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
-        raise InvalidIdempotencyKey(
-            "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
+def send_email(command: EmailSendCommand) -> EmailSendOutcome:
+    if command.idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(command.idempotency_key):
+        return Rejected(
+            code="invalid_idempotency_key",
+            detail="The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces.",
         )
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
-    if "{" in to or "}" in to:
-        raise InvalidRecipient("The recipient address can't contain { or }.")
-
-    hog_flow_id = _transactional_workflow_id(team.id, template_id)
-    payload = {
-        "to": to,
-        # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
-        "distinct_id": distinct_id or to,
-        "variables": message_data,
-    }
-    if idempotency_key is not None:
-        # The CDP service holds the key, because only it knows whether the email was queued.
-        payload["idempotency_key"] = idempotency_key
+    if "{" in command.to or "}" in command.to:
+        return Rejected(code="invalid_recipient", detail="The recipient address can't contain { or }.")
     try:
-        response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
-    except Exception as e:
-        logger.exception("transactional_email_queue_failed", team_id=team.id, template_id=str(template_id))
-        raise DeliveryUnavailable() from e
+        hog_flow_id = _transactional_workflow_id(command.team_id, command.template_id)
+    except TransactionalEmailError as e:
+        return Rejected(code=e.code, detail=str(e))
+    payload = {
+        "to": command.to,
+        # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.
+        "distinct_id": command.distinct_id or command.to,
+        "variables": dict(command.message_data),
+    }
+    if command.idempotency_key is not None:
+        # The CDP service holds the key, because only it knows whether the email was queued.
+        payload["idempotency_key"] = command.idempotency_key
+    try:
+        response = run_transactional_workflow(command.team_id, str(hog_flow_id), payload)
+    except Exception:
+        logger.exception(
+            "transactional_email_queue_failed", team_id=command.team_id, template_id=str(command.template_id)
+        )
+        return Unavailable()
 
     if response.status_code != 202:
         if response.status_code == 429:
-            raise QuotaLimited("The project is over its email quota.")
+            return Rejected(code="quota_limited", detail="The project is over its email quota.")
         if response.status_code == 409:
-            raise IdempotencyKeyInFlight(
-                "A request with this Idempotency-Key is still being processed. Retry in a few seconds."
+            return Rejected(
+                code="idempotency_key_in_flight",
+                detail="A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
             )
         if response.status_code == 422:
-            raise IdempotencyKeyReused(
-                "This Idempotency-Key was already used for a different request. Use a new key for a new email."
+            return Rejected(
+                code="idempotency_key_reused",
+                detail="This Idempotency-Key was already used for a different request. Use a new key for a new email.",
             )
         logger.error(
             "transactional_email_queue_rejected",
-            team_id=team.id,
-            template_id=str(template_id),
+            team_id=command.team_id,
+            template_id=str(command.template_id),
             status_code=response.status_code,
         )
-        raise DeliveryUnavailable()
+        return Unavailable()
 
     body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return Queued(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))

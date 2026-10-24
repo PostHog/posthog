@@ -19,13 +19,17 @@ from posthog.models.utils import generate_random_token_secret
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.presentation.views.message_templates import MessageTemplatesViewSet
+from products.messaging.backend.presentation.views.transactional_email_api import TransactionalEmailBurstThrottle
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
+PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
 
-@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+
+@patch("products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture")
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -36,25 +40,36 @@ class TestTransactionalEmail(APIBaseTest):
             team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
         )
         set_default_email_sender_if_unset(self.team.id, self.sender.id)
-        self.template = self._template()
+        self.template = self._template(key="password-reset")
         self.hog_flow_id = make_transactional(
             self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
         )
         self.url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/send/"
+        self.send_email_url = f"/api/projects/{self.team.id}/messaging/send/email/"
         self.body = {
             "to": "user@example.com",
             "identifiers": {"distinct_id": "user-1"},
             "message_data": {"link": "https://example.com/reset", "nickname": None},
         }
 
-    def _template(self, content: dict | None = None) -> MessageTemplate:
+    def _template(self, content: dict | None = None, key: str | None = None) -> MessageTemplate:
         return MessageTemplate.objects.create(
             team=self.team,
             name="Password reset",
             content=content
             or {"email": {"subject": "Reset your password", "html": "<a href='{{ variables.link }}'>Reset</a>"}},
             type="email",
+            key=key,
         )
+
+    def _route(self, path: str) -> str:
+        return f"/api/projects/{self.team.id}/{path.format(id=self.template.id)}"
+
+    def _send_request(self, addressed_by: str, body: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        if addressed_by == "url_id":
+            return self.url, body
+        template = {"key": "password-reset"} if addressed_by == "key" else {"id": str(self.template.id)}
+        return self.send_email_url, {**body, "template": template}
 
     def _workflow(self, hog_flow_id) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}")
@@ -79,25 +94,32 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("with_distinct_id", {"distinct_id": "user-1"}, "user-1"),
+            ("with_distinct_id", "url_id", {"distinct_id": "user-1"}, "user-1"),
             # Without a distinct_id the recipient's address is the person the send is tracked against.
-            ("email_only", None, "user@example.com"),
+            ("email_only", "url_id", None, "user@example.com"),
+            ("by_key", "key", {"distinct_id": "user-1"}, "user-1"),
+            ("by_id", "id", None, "user@example.com"),
         ]
     )
     def test_runs_the_templates_workflow_for_the_recipient(
-        self, mock_post, _flag, _capture, _name, identifiers, expected_distinct_id
+        self, mock_post, _flag, capture, _name, addressed_by, identifiers, expected_distinct_id
     ):
         self._cdp_accepts(mock_post)
-        body = (
+        url, body = self._send_request(
+            addressed_by,
             {**self.body, "identifiers": identifiers}
             if identifiers
-            else {k: v for k, v in self.body.items() if k != "identifiers"}
+            else {k: v for k, v in self.body.items() if k != "identifiers"},
         )
 
-        response = self._psak_client(["hog_flow:write"]).post(self.url, body, format="json")
+        response = self._psak_client(["hog_flow:write"]).post(url, body, format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "invocation-1", "replayed": False}
+        expected_response: dict[str, Any] = {"message_id": "invocation-1", "replayed": False}
+        if addressed_by != "url_id":
+            expected_response["warnings"] = []
+        assert response.json() == expected_response
+        assert capture.call_args.kwargs["properties"]["addressed_by"] == addressed_by
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
         )
@@ -122,45 +144,104 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("send_with_write_scope", "post", "send/", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
-            ("send_with_read_scope", "post", "send/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
-            ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "send_with_write_scope",
+                "post",
+                "messaging_templates/{id}/send/",
+                ["hog_flow:write"],
+                status.HTTP_202_ACCEPTED,
+            ),
+            (
+                "send_with_read_scope",
+                "post",
+                "messaging_templates/{id}/send/",
+                ["hog_flow:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "send_email_with_write_scope",
+                "post",
+                "messaging/send/email/",
+                ["hog_flow:write"],
+                status.HTTP_202_ACCEPTED,
+            ),
+            (
+                "send_email_with_read_scope",
+                "post",
+                "messaging/send/email/",
+                ["hog_flow:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "retrieve_is_not_a_psak_action",
+                "get",
+                "messaging_templates/{id}/",
+                ["hog_flow:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             (
                 "make_transactional_is_not_a_psak_action",
                 "post",
-                "make_transactional/",
+                "messaging_templates/{id}/make_transactional/",
                 ["hog_flow:write"],
                 status.HTTP_403_FORBIDDEN,
             ),
         ]
     )
     def test_project_secret_api_key_can_only_send(
-        self, mock_post, _flag, _capture, _name, method, suffix, scopes, expected_status
+        self, mock_post, _flag, _capture, _name, method, path, scopes, expected_status
     ):
         self._cdp_accepts(mock_post)
-        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}"
 
         response = getattr(self._psak_client(scopes), method)(
-            url, self.body if method == "post" else None, format="json"
+            self._route(path),
+            {**self.body, "template": {"key": "password-reset"}} if method == "post" else None,
+            format="json",
         )
 
         assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [
-            ("not_transactional", "template_not_transactional"),
-            ("workflow_archived", "transactional_email_paused"),
-            ("category_turned_marketing", "marketing_template"),
-            ("liquid_in_recipient", "invalid_recipient"),
-            ("idempotency_key_with_spaces", "invalid_idempotency_key"),
-            ("idempotency_key_too_long", "invalid_idempotency_key"),
+            (
+                "not_transactional",
+                "url_id",
+                "template_not_transactional",
+                "The template isn't transactional. Make it transactional to send it.",
+            ),
+            *[
+                (case, addressed_by, code, detail)
+                for addressed_by in ("url_id", "key")
+                for case, code, detail in [
+                    (
+                        "workflow_archived",
+                        "transactional_email_paused",
+                        "The template's transactional email isn't active.",
+                    ),
+                    (
+                        "category_turned_marketing",
+                        "marketing_template",
+                        "The template is in a marketing category. Only transactional templates can be sent.",
+                    ),
+                    ("liquid_in_recipient", "invalid_recipient", "The recipient address can't contain { or }."),
+                ]
+            ],
+            *[
+                (
+                    case,
+                    "url_id",
+                    "invalid_idempotency_key",
+                    "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces.",
+                )
+                for case in ("idempotency_key_with_spaces", "idempotency_key_too_long")
+            ],
         ]
     )
-    def test_rejects_a_send_it_cannot_make(self, mock_post, _flag, _capture, case, expected_code):
-        url, body, headers = self.url, dict(self.body), {}
-        if case == "not_transactional":
-            url = f"/api/projects/{self.team.id}/messaging_templates/{self._template().id}/send/"
-        elif case == "workflow_archived":
+    def test_rejects_a_send_it_cannot_make(
+        self, mock_post, _flag, capture, case, addressed_by, expected_code, expected_detail
+    ):
+        body, headers = dict(self.body), {}
+        if case == "workflow_archived":
             archived = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}", {"status": "archived"}
             )
@@ -177,30 +258,127 @@ class TestTransactionalEmail(APIBaseTest):
             headers["Idempotency-Key"] = "reset user 1"
         elif case == "idempotency_key_too_long":
             headers["Idempotency-Key"] = "k" * 256
+        url, body = self._send_request(addressed_by, body)
+        if case == "not_transactional":
+            url = f"/api/projects/{self.team.id}/messaging_templates/{self._template().id}/send/"
 
         response = self.client.post(url, body, format="json", headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == expected_code
-        assert response.json()["type"] == "invalid_request"
+        error = response.json()
+        assert (error["type"], error["code"], error["detail"]) == ("invalid_request", expected_code, expected_detail)
         mock_post.assert_not_called()
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["outcome"], reported["error_code"]) == ("rejected", expected_code)
 
     @parameterized.expand(
         [
-            ("timeout", requests.ReadTimeout()),
-            ("cdp_api_error", MagicMock(status_code=500)),
+            ("unknown_key", {"key": "welcome"}, status.HTTP_404_NOT_FOUND, "template_not_found", "template__key"),
+            ("unknown_id", {"id": str(uuid4())}, status.HTTP_404_NOT_FOUND, "template_not_found", "template__id"),
+            ("deleted", {"key": "password-reset"}, status.HTTP_404_NOT_FOUND, "template_not_found", "template__key"),
+            (
+                "key_and_id",
+                {"key": "password-reset", "id": str(uuid4())},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_request",
+                "template",
+            ),
+            ("neither_key_nor_id", {}, status.HTTP_400_BAD_REQUEST, "invalid_request", "template"),
+            (
+                "hash_with_id",
+                {"id": str(uuid4()), "hash": f"v1:{'0' * 64}"},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_request",
+                "template",
+            ),
+            (
+                "invalid_key",
+                {"key": "password reset"},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_template_key",
+                "template__key",
+            ),
+            (
+                "key_with_trailing_newline",
+                {"key": "password-reset\n"},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_template_key",
+                "template__key",
+            ),
         ]
     )
-    def test_a_send_the_pipeline_does_not_confirm_is_unavailable(self, mock_post, _flag, _capture, _name, outcome):
+    def test_refuses_a_template_reference_it_cannot_send_with_what_to_fix(
+        self, mock_post, _flag, _capture, case, template, expected_status, expected_code, expected_attr
+    ):
+        if case == "deleted":
+            deleted = self.client.patch(self._route("messaging_templates/{id}/"), {"deleted": True}, format="json")
+            assert deleted.status_code == status.HTTP_200_OK, deleted.json()
+
+        response = self.client.post(self.send_email_url, {**self.body, "template": template}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        error = response.json()
+        assert (error["code"], error["attr"]) == (expected_code, expected_attr)
+        assert error["docs_url"] == f"https://posthog.com/docs/workflows/transactional-email-api#{expected_code}"
+        assert error["why"] and error["fix"]
+        mock_post.assert_not_called()
+
+    @parameterized.expand([("list", [{"to": "user@example.com"}]), ("string", "user@example.com")])
+    def test_refuses_a_body_that_is_not_an_object(self, mock_post, _flag, _capture, _name, body):
+        response = self.client.post(self.send_email_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        error = response.json()
+        assert (error["code"], error["attr"]) == ("invalid_request", None)
+        assert error["detail"].startswith("Invalid data.")
+        assert error["fix"] == "Send the body as a JSON object and send again."
+        mock_post.assert_not_called()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_both_send_routes_share_one_rate_limit_per_key(self, _rate_limit, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+
+        with patch.object(TransactionalEmailBurstThrottle, "rate", "1/minute"):
+            by_url_id = psak.post(self.url, self.body, format="json")
+            by_key = psak.post(self.send_email_url, {**self.body, "template": {"key": "password-reset"}}, format="json")
+
+        assert by_url_id.status_code == status.HTTP_202_ACCEPTED, by_url_id.json()
+        assert by_key.status_code == status.HTTP_429_TOO_MANY_REQUESTS, by_key.json()
+
+    @parameterized.expand(
+        [
+            (f"{name}_{addressed_by}", addressed_by, outcome)
+            for addressed_by in ("url_id", "key")
+            for name, outcome in [
+                ("timeout", requests.ReadTimeout()),
+                ("cdp_api_error", MagicMock(status_code=500)),
+            ]
+        ]
+    )
+    def test_a_send_the_pipeline_does_not_confirm_is_unavailable(
+        self, mock_post, _flag, capture, _name, addressed_by, outcome
+    ):
         if isinstance(outcome, Exception):
             mock_post.side_effect = outcome
         else:
             mock_post.return_value = outcome
+        url, body = self._send_request(addressed_by, self.body)
 
-        response = self.client.post(self.url, self.body, format="json")
+        response = self.client.post(url, body, format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
+        assert capture.call_args.kwargs["properties"]["outcome"] == "unavailable"
+
+    def test_a_send_that_breaks_after_the_pipeline_answers_is_counted_as_an_error(self, mock_post, _flag, capture):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {})
+        self.client.raise_request_exception = False
+
+        response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert capture.call_args.kwargs["properties"]["outcome"] == "error"
 
     @parameterized.expand(
         [
@@ -255,25 +433,47 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("quota_limited", 429),
-            ("idempotency_key_in_flight", 409),
-            ("idempotency_key_reused", 422),
+            *[
+                (f"quota_limited_{addressed_by}", addressed_by, 429, "quota_limited")
+                for addressed_by in ("url_id", "key")
+            ],
+            ("idempotency_key_in_flight", "url_id", 409, "idempotency_key_in_flight"),
+            ("idempotency_key_reused", "url_id", 422, "idempotency_key_reused"),
         ]
     )
-    def test_reports_a_send_the_pipeline_refuses(self, mock_post, _flag, _capture, code, status_code):
+    def test_reports_a_send_the_pipeline_refuses(
+        self, mock_post, _flag, capture, _name, addressed_by, status_code, code
+    ):
         mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
+        url, body = self._send_request(addressed_by, self.body)
 
-        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
+        response = self.client.post(url, body, format="json", headers={"Idempotency-Key": "key-1"})
 
         assert response.status_code == status_code
         assert response.json()["code"] == code
+        assert (
+            response.json()["detail"]
+            == {
+                "quota_limited": "The project is over its email quota.",
+                "idempotency_key_in_flight": "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
+                "idempotency_key_reused": "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
+            }[code]
+        )
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["outcome"], reported["error_code"]) == ("rejected", code)
 
-    @parameterized.expand([("send", "send/"), ("make_transactional", "make_transactional/")])
-    def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture, _name, suffix):
+    @parameterized.expand(
+        [
+            ("send", "messaging_templates/{id}/send/"),
+            ("make_transactional", "messaging_templates/{id}/make_transactional/"),
+            ("send_email", "messaging/send/email/"),
+        ]
+    )
+    def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture, _name, path):
         flag.return_value = False
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}", self.body, format="json"
+            self._route(path), {**self.body, "template": {"key": "password-reset"}}, format="json"
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -497,7 +697,7 @@ class TestTransactionalEmail(APIBaseTest):
 
 @pytest.mark.ee
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -517,6 +717,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
             name="Password reset",
             content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
             type="email",
+            key="password-reset",
         )
         self.hog_flow_id = make_transactional(
             self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
@@ -538,18 +739,99 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("send", "post", "send/", {"to": "user@example.com"}),
-            ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
-            ("save_draft", "patch", "", {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}}),
+            ("send", "post", "messaging_templates/{id}/send/", {"to": "user@example.com"}),
+            (
+                "send_email",
+                "post",
+                "messaging/send/email/",
+                {"to": "user@example.com", "template": {"key": "password-reset"}},
+            ),
+            (
+                "update",
+                "patch",
+                "messaging_templates/{id}/",
+                {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}},
+            ),
+            (
+                "save_draft",
+                "patch",
+                "messaging_templates/{id}/",
+                {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}},
+            ),
         ]
     )
-    def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, suffix, body):
-        url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}"
+    def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, path, body):
+        url = f"/api/projects/{self.team.id}/{path.format(id=self.template.id)}"
 
         response = getattr(self.client, method)(url, body, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("update", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+            ("save_draft", {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}}),
+        ]
+    )
+    def test_a_member_denied_a_workflow_linked_mid_request_cannot_change_the_template(self, _post, _flag, _name, edit):
+        MessageTemplate.objects.filter(id=self.template.id).update(transactional_hog_flow_id=None)
+        original = MessageTemplatesViewSet.dangerously_get_object
+
+        def read_then_link_the_workflow(viewset: MessageTemplatesViewSet) -> Any:
+            template = original(viewset)
+            MessageTemplate.objects.filter(id=template.id).update(transactional_hog_flow_id=self.hog_flow_id)
+            return template
+
+        with patch.object(MessageTemplatesViewSet, "dangerously_get_object", read_then_link_the_workflow):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", edit, format="json"
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.template.refresh_from_db()
+        assert (self.template.content["email"]["subject"], self.template.draft_content) == (
+            "Reset your password",
+            None,
+        )
+
+    @parameterized.expand(
+        [
+            ("unchanged_content", False, {"content_hash": PASSWORD_RESET_HASH}),
+            (
+                "superseded_content",
+                True,
+                {"content_hash": "v1:" + "0" * 64, "superseded_content_hashes": [PASSWORD_RESET_HASH]},
+            ),
+        ]
+    )
+    def test_a_member_denied_the_workflow_cannot_upload_to_it(
+        self, mock_post, _flag, _name, if_not_superseded, stored_hashes
+    ):
+        MessageTemplate.objects.filter(id=self.template.id).update(managed_by="code", **stored_hashes)
+
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/messaging_templates/by_key/password-reset/",
+                {
+                    "name": "Password reset",
+                    "subject": "Reset your password",
+                    "html": "<p>Reset</p>",
+                    "source": {"repository": "github.com/example/other"},
+                    "if_not_superseded": if_not_superseded,
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.template.refresh_from_db()
+        assert self.template.source_repository is None
+        uploaded_events = [
+            c for c in capture.call_args_list if c.kwargs["event"] == "transactional email template uploaded"
+        ]
+        assert [e.kwargs["properties"]["error_code"] for e in uploaded_events] == ["permission_denied"]
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):
