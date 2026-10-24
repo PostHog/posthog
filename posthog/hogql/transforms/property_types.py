@@ -20,7 +20,12 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
+from posthog.hogql.type_system import (
+    convert_literal_to_runtime_type,
+    normalized_runtime_type,
+    parse_sql_runtime_type,
+    runtime_type_from_constant_type,
+)
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
@@ -158,6 +163,17 @@ class PropertySwapper(CloningVisitor):
     # wrapping property_to_expr applies to typed exception filters.
     _ARRAY_MEMBERSHIP_FUNCTIONS: set[str] = {"has", "hasAll", "hasAny", "hasSubstr"}
 
+    _TEXT_COMPARISON_OPS: set[ast.CompareOperationOp] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
+    }
+    _COMMUTATIVE_TEXT_COMPARISON_OPS: set[ast.CompareOperationOp] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+    }
+
     def __init__(
         self,
         timezone: str,
@@ -177,6 +193,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._field_read_as_text: ast.Field | None = None
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -528,7 +545,12 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        saved_field_read_as_text = self._field_read_as_text
+        self._field_read_as_text = self._numeric_field_compared_to_text(node)
+        try:
+            result = super().visit_compare_operation(node)
+        finally:
+            self._field_read_as_text = saved_field_read_as_text
 
         if (
             not self.setTimeZones
@@ -539,6 +561,52 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _numeric_field_compared_to_text(self, node: ast.CompareOperation) -> ast.Field | None:
+        """The Numeric property field in this comparison that must be read as text instead of cast to Float64.
+
+        A property definition records the type of the first value a project sent, so a Numeric key can still hold
+        text. A Float64 read cannot match a text literal: the comparison matches no row, or fails with TYPE_MISMATCH
+        once a row holds a number. Reading the stored text matches what the legacy property-group read returns.
+        """
+        if node.op not in self._TEXT_COMPARISON_OPS:
+            return None
+        sides = [(node.left, node.right)]
+        if node.op in self._COMMUTATIVE_TEXT_COMPARISON_OPS:
+            sides.append((node.right, node.left))
+        for operand, compared in sides:
+            while isinstance(operand, ast.Alias):
+                operand = operand.expr
+            if isinstance(operand, ast.Field) and self._is_numeric_property_compared_to_text(operand, compared):
+                return operand
+        return None
+
+    def _is_numeric_property_compared_to_text(self, field: ast.Field, compared: ast.Expr) -> bool:
+        texts = self._string_literals(compared)
+        if not texts:
+            return False
+        access_plan = plan_property_access(field, self.context)
+        if access_plan is None or self._is_persons_table_property(access_plan.property_type):
+            return False
+        semantic_type = runtime_type_from_constant_type(access_plan.semantic_type)
+        return semantic_type.family == "float" and not all(
+            convert_literal_to_runtime_type(text, semantic_type) is not None for text in texts
+        )
+
+    def _is_persons_table_property(self, property_type: ast.PropertyType) -> bool:
+        # The persons where-optimization copies the comparison into a subquery over the raw persons table. Only that
+        # copy would read text while the outer filter still compares the Float64 projection, which silently matches
+        # nothing instead of failing.
+        table_type = property_type.field_type.table_type
+        return isinstance(table_type, ast.BaseTableType) and isinstance(
+            table_type.resolve_database_table(self.context), PersonsTable | RawPersonsTable
+        )
+
+    @staticmethod
+    def _string_literals(expr: ast.Expr) -> list[str] | None:
+        values = expr.exprs if isinstance(expr, ast.Tuple | ast.Array) else [expr]
+        texts = [value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)]
+        return texts if len(texts) == len(values) else None
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
@@ -752,7 +820,7 @@ class PropertySwapper(CloningVisitor):
         # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
         # toFloatOrDefault). Those ClickHouse functions require a String argument, so
         # leave the raw materialized-column/JSON value in place rather than casting it.
-        if self._suppress_numeric_conversion:
+        if self._suppress_numeric_conversion or node is self._field_read_as_text:
             return node
 
         # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
