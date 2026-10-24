@@ -1054,6 +1054,7 @@ So with `ordering=status`, **`failed` sorts after actionable `ready`**. With `or
 Default ordering is **`-is_suggested_reviewer,status,-updated_at,id`**.
 
 **Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
+`wrong_assignee` records a routing error, while `wontfix_irrelevant` records that the report is not useful to the project; neither says the report analysis is incorrect.
 When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
 The artefact alone only reaches a scout if some later run happens to search the inbox and land on that report; notes are read by name at the start of every run, which is where a "this was noise, and here is why" verdict belongs.
 "Forward" rather than "promote" because promotion in this product means the pipeline moving a report up the status ladder to `candidate` (`promoted_at`, `signals_at_run`, re-promotion), and nothing here changes a report's standing.
@@ -1382,7 +1383,13 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
+"Assignee" here means GitHub's assignee, the person responsible.
+A single assignee receives a review request even when another person or team request exists.
+Without a single owner, the worker requests the highest-ranked eligible report reviewer only when no request exists.
+Each attempt requests at most one person and preserves other requests.
+The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
+Incomplete review or removal history prevents a new request.
+A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 

@@ -113,7 +113,7 @@ class DashboardTile(models.Model):
 
     transparent_background = models.BooleanField(null=True, blank=True)
 
-    # Tiles that share a group key belong together. The dashboard's `customization.group_titles` names each group.
+    # Tiles that share a group key belong together. The dashboard's `customization.groups` holds each group's title and style.
     group_key = models.CharField(max_length=MAX_GROUP_KEY_LENGTH, null=True, blank=True)
     badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True)
 

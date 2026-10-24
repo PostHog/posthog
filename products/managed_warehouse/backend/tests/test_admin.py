@@ -11,6 +11,7 @@ from django.http import Http404, HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
 
+from parameterized import parameterized
 from rest_framework.response import Response
 
 from posthog.models import Organization, Team
@@ -228,7 +229,8 @@ class TestDuckgresServerAdminProvision(BaseTest):
         server.refresh_from_db()
         assert server.trino_password == "trino-test-secret"
 
-    def test_provision_post_calls_managed_warehouse_bypassing_flag(self) -> None:
+    @parameterized.expand([False, True])
+    def test_provision_post_calls_managed_warehouse_bypassing_flag(self, internal_only: bool) -> None:
         request = self._post(
             "/admin/posthog/duckgresserver/provision/",
             {
@@ -236,6 +238,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "team_id": str(self.team.id),
                 "database_name": "my-warehouse",
                 "schema_name": "prod_events",
+                **({"internal_only": "on"} if internal_only else {}),
             },
         )
         body = {"username": "root", "password": "sup3r-secret-pw"}
@@ -249,6 +252,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
             "prod_events",
             require_enabled=False,
             triggered_by=f"django-admin:{self.user.email}",
+            internal_only=internal_only,
         )
         # Success renders the credentials once, in the page body...
         assert response.status_code == 200

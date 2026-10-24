@@ -157,13 +157,24 @@ class TestPagination:
 
 
 class TestBareArrayEndpoints:
-    @parameterized.expand([("users",), ("roles",), ("products",)])
-    def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("users", "/users/"),
+            ("roles", "/roles/"),
+            ("products", "/products/"),
+            ("currencies", "/currencies/"),
+            ("activity_types", "/activityTypes/"),
+            ("ticket_processes", "/ticketProcesses/"),
+            ("account_growth_processes", "/accountGrowthProcesses/"),
+        ]
+    )
+    def test_yields_rows_from_a_single_unpaged_request(self, endpoint: str, path: str) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=[{"Id": "u1"}, {"Id": "u2"}])])
 
         assert result.raised is None
         assert result.rows == [{"Id": "u1"}, {"Id": "u2"}]
         assert len(result.requests) == 1
+        assert result.requests[0].path == f"/API/v2{path}"
         assert result.params("From") == [None]
         assert result.saved_states == []
 
