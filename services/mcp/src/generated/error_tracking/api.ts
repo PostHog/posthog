@@ -8550,6 +8550,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod

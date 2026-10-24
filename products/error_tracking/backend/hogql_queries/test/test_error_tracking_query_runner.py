@@ -1256,7 +1256,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "first_seen",
                 PropertyOperator.IS_DATE_AFTER,
                 "2022-01-01",
-                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+                "in(e.issue_id, (SELECT issue_id FROM posthog.error_tracking_fingerprint_issue_state GROUP BY issue_id HAVING greater(min(first_seen), parseDateTimeBestEffort('2022-01-01'))))",
             ),
             (
                 "first_seen_is_date_before",

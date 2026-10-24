@@ -1055,6 +1055,26 @@ class ErrorTrackingQueryBuilder:
             return ast.CompareOperation(
                 op=pattern_operator, left=field, right=ast.Constant(value=template.format(prop.value))
             )
+        if prop.key == "first_seen" and operator == PropertyOperator.IS_DATE_AFTER:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=self._legacy_issue_state_expr("issue_id"),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["issue_id"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"])
+                    ),
+                    group_by=[ast.Field(chain=["issue_id"])],
+                    having=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Gt,
+                        left=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])]),
+                        right=ast.Call(
+                            name="parseDateTimeBestEffort",
+                            args=[ast.Constant(value=str(prop.value))],
+                        ),
+                    ),
+                ),
+            )
         if (range_operator := _RANGE_OPERATORS.get(operator)) is not None:
             return ast.CompareOperation(op=range_operator, left=field, right=make_value(prop.value))
         if (nullability_operator := _NULLABILITY_OPERATORS.get(operator)) is not None:
