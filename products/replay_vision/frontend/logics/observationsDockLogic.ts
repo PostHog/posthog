@@ -125,11 +125,11 @@ export interface observationsDockLogicActions {
     setScannerSearch: (search: string) => {
         search: string
     }
-    showObservations: () => {
-        value: true
+    showObservations: (inWatchLayout: boolean) => {
+        inWatchLayout: boolean
     }
-    summarize: () => {
-        value: true
+    summarize: (inWatchLayout?: boolean) => {
+        inWatchLayout: boolean
     }
     summarizeFailure: () => {
         value: true
@@ -140,7 +140,11 @@ export interface observationsDockLogicActions {
     summarizeSuccess: () => {
         value: true
     }
-    summarizeWith: (scannerId: string | null) => {
+    summarizeWith: (
+        scannerId: string | null,
+        inWatchLayout?: boolean
+    ) => {
+        inWatchLayout: boolean
         scannerId: string | null
     }
 }
@@ -202,14 +206,14 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         retryObservation: (observationId: string) => ({ observationId }),
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
-        showObservations: true,
+        showObservations: (inWatchLayout: boolean) => ({ inWatchLayout }),
         focusObservation: (observationId: string) => ({ observationId }),
         setFollowMoments: (follow: boolean) => ({ follow }),
         setHoveredMark: (timestampMs: number | null) => ({ timestampMs }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
-        summarize: true,
-        summarizeWith: (scannerId: string | null) => ({ scannerId }),
+        summarize: (inWatchLayout: boolean = false) => ({ inWatchLayout }),
+        summarizeWith: (scannerId: string | null, inWatchLayout: boolean = false) => ({ scannerId, inWatchLayout }),
         summarizeSuccess: true,
         summarizeFailure: true,
         summarizeSettled: true,
@@ -396,8 +400,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         }
         // Run a summary, through one of the team's own scanners or the built-in prompt. A named scanner
         // is just `observe`, which already owns its double-click guard and its already-run check.
-        const runSummary = async (scannerId: string | null): Promise<void> => {
-            actions.showObservations()
+        const runSummary = async (scannerId: string | null, inWatchLayout: boolean): Promise<void> => {
+            actions.showObservations(inWatchLayout)
             if (scannerId) {
                 // Flagged as the summary's run, so only this one settles the button.
                 actions.observe(scannerId, true)
@@ -528,8 +532,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 reschedulePoll()
             },
 
-            showObservations: () => {
-                actions.setSidebarOpen(true)
+            showObservations: ({ inWatchLayout }) => {
+                // In the watch layout the observations live in the list column's Moments segment, which follows the
+                // tab change on its own. Opening the sidebar there would switch the page into Debug mode instead.
+                if (!inWatchLayout) {
+                    actions.setSidebarOpen(true)
+                }
                 actions.setTab(SessionRecordingSidebarTab.OBSERVATIONS)
             },
 
@@ -593,12 +601,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             // Runs whatever the button currently resolves to, without disturbing the stored preference.
-            summarize: () => runSummary(values.defaultSummarizer?.id ?? null),
+            summarize: ({ inWatchLayout }) => runSummary(values.defaultSummarizer?.id ?? null, inWatchLayout),
 
             // An explicit pick from the dropdown, which also becomes the preference for next time.
-            summarizeWith: ({ scannerId }) => {
+            summarizeWith: ({ scannerId, inWatchLayout }) => {
                 actions.setPreferredSummarizerId(scannerId ?? BUILT_IN_SUMMARIZER)
-                return runSummary(scannerId)
+                return runSummary(scannerId, inWatchLayout)
             },
 
             retryObservation: async ({ observationId }) => {

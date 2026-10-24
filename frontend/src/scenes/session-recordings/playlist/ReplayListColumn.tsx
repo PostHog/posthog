@@ -1,0 +1,190 @@
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { ReactNode } from 'react'
+
+import { IconSparkles } from '@posthog/icons'
+import { LemonBadge, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
+
+import { colonDelimitedDuration } from 'lib/utils/durations'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { SessionRecordingType } from '~/types'
+
+import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
+import { RecordingMoments } from 'products/replay_vision/frontend/components/RecordingMoments'
+import { observationsDockLogic } from 'products/replay_vision/frontend/logics/observationsDockLogic'
+import { momentCount } from 'products/replay_vision/frontend/utils/recordingTimeline'
+
+import { ReplayListSegment, replayListColumnLogic } from './replayListColumnLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { usePlayerMounted } from './usePlayerMounted'
+
+export interface ReplayListColumnProps {
+    logicKey: string
+    recordingsList: ReactNode
+    /** The What to watch list, when the picks experiment offers one. */
+    picksList?: ReactNode
+    picksMode: 'picks' | 'recordings' | null
+    unwatchedPicksCount?: number
+    onPicksSelected?: (selected: boolean) => void
+}
+
+export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
+    const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
+    // Keeps the chosen segment alive while the branches below mount and unmount around it.
+    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey }))
+    return activeSessionRecording ? (
+        <ReplayListColumnForRecording {...props} recording={activeSessionRecording} />
+    ) : (
+        <ReplayListColumnView {...props} recording={null} momentsAvailable={false} />
+    )
+}
+
+/** Moments shows once the recording has an observation or a summary on the way, so an empty pane never opens. */
+function ReplayListColumnForRecording({
+    recording,
+    ...props
+}: ReplayListColumnProps & { recording: SessionRecordingType }): JSX.Element {
+    const { observations, summarizePending } = useValues(observationsDockLogic({ sessionId: recording.id }))
+    return (
+        <ReplayListColumnView
+            {...props}
+            recording={recording}
+            momentsAvailable={observations.length > 0 || summarizePending}
+        />
+    )
+}
+
+function ReplayListColumnView({
+    logicKey,
+    recordingsList,
+    picksList,
+    picksMode,
+    unwatchedPicksCount = 0,
+    onPicksSelected,
+    recording,
+    momentsAvailable,
+}: ReplayListColumnProps & { recording: SessionRecordingType | null; momentsAvailable: boolean }): JSX.Element {
+    const logic = replayListColumnLogic({ logicKey })
+    const { effectiveSegmentFor } = useValues(logic)
+    const { setSegment } = useActions(logic)
+
+    const playerLogicProps: SessionRecordingPlayerLogicProps | null = recording
+        ? { playerKey: logicKey, sessionRecordingId: recording.id }
+        : null
+    const segment = effectiveSegmentFor(picksMode, momentsAvailable)
+
+    const options = [
+        ...(picksList
+            ? [
+                  {
+                      value: 'picks' as const,
+                      label: (
+                          <span className="flex items-center gap-1">
+                              <span>What to watch</span>
+                              {unwatchedPicksCount > 0 && (
+                                  <LemonBadge.Number count={unwatchedPicksCount} size="small" status="muted" />
+                              )}
+                          </span>
+                      ),
+                      'data-attr': 'list-segment-picks',
+                  },
+              ]
+            : []),
+        {
+            value: 'recordings' as const,
+            label: picksList && momentsAvailable ? 'All' : 'All recordings',
+            'data-attr': 'list-segment-recordings',
+        },
+        ...(momentsAvailable && playerLogicProps
+            ? [
+                  {
+                      value: 'moments' as const,
+                      label: (
+                          <span className="flex items-center gap-1">
+                              <IconSparkles />
+                              <span>Moments</span>
+                              <MomentsBadge sessionId={playerLogicProps.sessionRecordingId} />
+                          </span>
+                      ),
+                      'data-attr': 'list-segment-moments',
+                  },
+              ]
+            : []),
+    ]
+
+    return (
+        <>
+            {options.length > 1 && (
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    className="mb-2"
+                    value={segment}
+                    onChange={(next: ReplayListSegment) => {
+                        setSegment(next)
+                        if ((next === 'picks') !== (segment === 'picks')) {
+                            onPicksSelected?.(next === 'picks')
+                        }
+                    }}
+                    options={options}
+                />
+            )}
+            {segment === 'picks' ? (
+                picksList
+            ) : segment === 'moments' && playerLogicProps && recording ? (
+                <MomentsSegment
+                    key={recording.id}
+                    playerLogicProps={playerLogicProps}
+                    personDisplay={asDisplay(recording.person)}
+                    person={recording.person}
+                    durationSeconds={recording.recording_duration}
+                />
+            ) : (
+                recordingsList
+            )}
+        </>
+    )
+}
+
+function MomentsBadge({ sessionId }: { sessionId: string }): JSX.Element | null {
+    const { timeline } = useValues(observationsDockLogic({ sessionId }))
+    const count = momentCount(timeline)
+    return count > 0 ? <LemonBadge.Number count={count} size="small" status="muted" /> : null
+}
+
+function MomentsSegment({
+    playerLogicProps,
+    personDisplay,
+    person,
+    durationSeconds,
+}: {
+    playerLogicProps: SessionRecordingPlayerLogicProps
+    personDisplay: string
+    person: SessionRecordingType['person']
+    durationSeconds: number | undefined
+}): JSX.Element {
+    const playerState = usePlayerMounted(playerLogicProps)
+    if (playerState === 'waiting') {
+        return (
+            <div className="flex items-center gap-2 text-muted p-4">
+                <Spinner /> Loading…
+            </div>
+        )
+    }
+    if (playerState === 'missing') {
+        return <p className="text-muted text-sm p-4 m-0">Open a recording to see its moments.</p>
+    }
+    return (
+        <div className="flex flex-col flex-1 min-h-0 border rounded bg-surface-primary overflow-hidden">
+            <div className="flex items-center gap-2 px-2 py-1.5 border-b text-xs ph-no-capture">
+                <PersonIcon person={person} size="sm" className="mr-0" />
+                <span className="font-medium truncate flex-1">{personDisplay}</span>
+                {durationSeconds !== undefined && (
+                    <span className="text-secondary tabular-nums">{colonDelimitedDuration(durationSeconds)}</span>
+                )}
+            </div>
+            <RecordingMoments sessionId={playerLogicProps.sessionRecordingId} playerLogicProps={playerLogicProps} />
+        </div>
+    )
+}

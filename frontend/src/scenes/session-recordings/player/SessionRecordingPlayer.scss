@@ -35,6 +35,40 @@
         }
     }
 
+    // The watch layout stacks the player over a scrolling panel. The player keeps a fixed share of the viewport.
+    &--watch {
+        flex-direction: column;
+        overflow-y: auto;
+
+        .SessionRecordingPlayerWrapper__column {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        &-right-dock {
+            flex-direction: row;
+            overflow-y: hidden;
+
+            .SessionRecordingPlayerWrapper__column {
+                min-height: 0;
+                overflow-y: auto;
+            }
+        }
+
+        .SessionRecordingPlayerWrapper__player {
+            display: flex;
+            flex: none;
+            height: clamp(24rem, 60vh, 48rem);
+
+            &--fullscreen {
+                flex: 1;
+                height: auto;
+            }
+        }
+    }
+
     &--stacked-vertically {
         flex-direction: column;
 

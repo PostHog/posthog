@@ -240,6 +240,43 @@ export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): numb
     return current
 }
 
+/** A chapter start or a cited observation moment, the stops the ticker and the Moments badge count. */
+export interface TimelineMoment {
+    atMs: number
+    label: string
+}
+
+export function timelineMoments(timeline: RecordingTimeline): TimelineMoment[] {
+    return [
+        ...timeline.chapters.map((c) => ({ atMs: c.startMs, label: c.title })),
+        ...timeline.markers.map((m) => ({
+            atMs: m.timestampMs,
+            label: m.result ? `${m.scannerName}: ${m.result}` : m.scannerName,
+        })),
+    ].sort((a, b) => a.atMs - b.atMs)
+}
+
+export function momentCount(timeline: RecordingTimeline): number {
+    return timeline.chapters.length + timeline.markers.length
+}
+
+/** The moment the player is in and the one after it, for the now/next ticker. */
+export function surroundingMoments(
+    moments: TimelineMoment[],
+    playerTimeMs: number
+): { current: TimelineMoment | null; next: TimelineMoment | null } {
+    let current: TimelineMoment | null = null
+    let next: TimelineMoment | null = null
+    for (const moment of moments) {
+        if (moment.atMs <= playerTimeMs) {
+            current = moment
+        } else if (!next) {
+            next = moment
+        }
+    }
+    return { current, next }
+}
+
 /** The next chapter start after the player's position. */
 export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: number): number | null {
     const later = timeline.chapters.map((c) => c.startMs).filter((ms) => ms > playerTimeMs)
