@@ -14,6 +14,7 @@ import { FilterPanel } from './FilterPanel'
 import { FixedReplayHeatmapBrowser } from './FixedReplayHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { HeatmapsWarnings } from './HeatmapsWarnings'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function urlMatchSummary(
     url: string | undefined,
@@ -80,6 +81,7 @@ export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): 
     const logic = heatmapsBrowserLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
+    const { clickmapActive, clickmapBoxes } = useValues(recordingClickmapLogic({ iframeRef }))
 
     if (!hasValidReplayIframeData) {
         return (
@@ -98,7 +100,10 @@ export function HeatmapRecording({ embedded = false }: { embedded?: boolean }): 
             <div className="overflow-hidden w-full min-h-screen">
                 <UrlSearchHeader />
                 <LemonDivider className="my-4" />
-                <FilterPanel clickmapSettings={<ClickmapSettings iframeRef={iframeRef} />} />
+                <FilterPanel
+                    clickmapSettings={<ClickmapSettings iframeRef={iframeRef} />}
+                    clickmapHasClicks={clickmapActive && clickmapBoxes.length > 0}
+                />
                 <LemonDivider className="my-4" />
                 <div className="relative flex flex-1 overflow-hidden min-h-screen">
                     <FixedReplayHeatmapBrowser iframeRef={iframeRef} />

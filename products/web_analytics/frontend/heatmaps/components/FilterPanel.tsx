@@ -100,12 +100,14 @@ export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.
  */
 export function FilterPanel({
     clickmapSettings,
+    clickmapHasClicks = false,
     lockedWidth,
     previewUnavailable = false,
     dateControl,
 }: {
     previewUnavailable?: boolean
     clickmapSettings?: JSX.Element
+    clickmapHasClicks?: boolean
     lockedWidth?: number
     dateControl?: JSX.Element
 }): JSX.Element {
@@ -290,7 +292,7 @@ export function FilterPanel({
                 </div>
             </div>
             {heatmapEmpty && !rawHeatmapLoading && !previewUnavailable ? (
-                <HeatmapEmptyState lockedWidth={lockedWidth} />
+                <HeatmapEmptyState lockedWidth={lockedWidth} clickmapHasClicks={clickmapHasClicks} />
             ) : null}
         </div>
     )
