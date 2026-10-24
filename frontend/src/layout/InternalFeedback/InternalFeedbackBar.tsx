@@ -27,7 +27,6 @@ export function InternalFeedbackBar(): JSX.Element {
     return (
         <div
             ref={barRef}
-            data-quill
             {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }}
             // Above every other layer, including modals and tooltips, so the bar never ends up hidden.
             className={cn(
