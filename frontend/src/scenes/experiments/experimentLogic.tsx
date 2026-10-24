@@ -368,6 +368,7 @@ export interface experimentLogicValues {
     exposureCohortLoading: boolean
     exposureCriteria: ExperimentExposureCriteria | undefined
     exposures: any
+    exposuresAsOf: string | null
     exposuresLoading: boolean
     formMode: FormModes
     freezeExposureLoading: boolean
@@ -795,6 +796,9 @@ export interface experimentLogicActions {
     setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => {
         exposureCriteria: ExperimentExposureCriteria
     }
+    setExposuresAsOf: (asOf: string | null) => {
+        asOf: string | null
+    }
     setFreezeExposureLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -1166,6 +1170,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
+        setExposuresAsOf: (asOf: string | null) => ({ asOf }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
@@ -1242,6 +1247,13 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        /** The as_of of the last exposure query, so a new recalculation window can tell whether exposures need a reload. */
+        exposuresAsOf: [
+            null as string | null,
+            {
+                setExposuresAsOf: (_, { asOf }) => asOf,
             },
         ],
         // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
@@ -2700,6 +2712,12 @@ export const experimentLogic = kea<experimentLogicType>([
                         return values.exposures
                     }
 
+                    /**
+                     * End the exposures at the window of the metrics on screen. Without a recalculation run, the
+                     * backend evaluates the window at now.
+                     */
+                    const asOf = experimentMetricsLogic.findMounted({ experiment })?.values.resultsQueryTo ?? null
+                    actions.setExposuresAsOf(asOf)
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: values.experimentId,
@@ -2708,6 +2726,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         feature_flag: experiment.feature_flag,
                         start_date: experiment.start_date,
                         end_date: experiment.end_date,
+                        as_of: asOf,
                         holdout: experiment.holdout,
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
