@@ -295,6 +295,7 @@ from posthog.schema_enums import (
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
     SnapshotSource as SnapshotSource,
+    SortDirection as SortDirection,
     SourceType as SourceType,
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
@@ -338,6 +339,8 @@ from posthog.schema_enums import (
     WebAnalyticsOrderByFields as WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy as WebAnalyticsPreComputeStrategy,
     WebBotsBreakdown as WebBotsBreakdown,
+    WebPageDirectoryMetric as WebPageDirectoryMetric,
+    WebPageDirectorySortBy as WebPageDirectorySortBy,
     WebsiteBrowsingHistoryProdInterest as WebsiteBrowsingHistoryProdInterest,
     WebStatsBreakdown as WebStatsBreakdown,
     WebVitalsMetric as WebVitalsMetric,
@@ -3577,6 +3580,14 @@ class WebOverviewItem(BaseModel):
     kind: WebAnalyticsItemKind
     previous: float | None = None
     value: float | None = None
+
+
+class WebPageDirectoryValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    current: float
+    previous: float | None = None
 
 
 class WebVitalsPathBreakdownResultItem(BaseModel):
@@ -9827,6 +9838,53 @@ class WebOverviewQueryResponse(BaseModel):
             " access."
         ),
     )
+
+
+class WebPageDirectoryMetrics(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aiCrawlerNames: list[str] | None = None
+    aiCrawlers: int | None = None
+    aiCrawls: WebPageDirectoryValue | None = None
+    aiReferrals: WebPageDirectoryValue | None = None
+    bounceRate: float | None = None
+    conversions: WebPageDirectoryValue | None = None
+    googleSearch: WebPageDirectoryValue | None = None
+    timeOnPageP90: float | None = None
+    visitors: WebPageDirectoryValue | None = None
+
+
+class WebPageDirectoryRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aiCrawlerNames: list[str] | None = None
+    aiCrawlers: int | None = None
+    aiCrawls: WebPageDirectoryValue | None = None
+    aiReferrals: WebPageDirectoryValue | None = None
+    bounceRate: float | None = None
+    conversions: WebPageDirectoryValue | None = None
+    googleSearch: WebPageDirectoryValue | None = None
+    page: str
+    timeOnPageP90: float | None = None
+    visitors: WebPageDirectoryValue | None = None
+
+
+class WebPageDirectorySiteTotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aiCrawlerNames: list[str] | None = None
+    aiCrawlers: int | None = None
+    aiCrawls: WebPageDirectoryValue | None = None
+    aiReferrals: WebPageDirectoryValue | None = None
+    bounceRate: float | None = None
+    conversions: WebPageDirectoryValue | None = None
+    googleSearch: WebPageDirectoryValue | None = None
+    serverLogs: int
+    timeOnPageP90: float | None = None
+    visitors: WebPageDirectoryValue | None = None
 
 
 class WebPageURLSearchQueryResponse(BaseModel):
@@ -16624,6 +16682,72 @@ class CachedWebOverviewQueryResponse(BaseModel):
     )
     results: list[WebOverviewItem]
     samplingRate: SamplingRate | None = None
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedWebPageDirectoryQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebPageDirectoryRow]
+    siteTotals: WebPageDirectorySiteTotals | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -26408,6 +26532,57 @@ class WebOverviewQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class WebPageDirectoryQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[WebPageDirectoryRow]
+    siteTotals: WebPageDirectorySiteTotals | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class WebPageURLSearchQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30230,6 +30405,51 @@ class WebAgentAnalyticsQuery(BaseModel):
     response: WebAgentAnalyticsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    tags: QueryLogTags | None = None
+    useSessionsTable: bool | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class WebPageDirectoryQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(
+        default=None,
+        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
+    )
+    compareFilter: CompareFilter | None = None
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
+    dataColorTheme: float | None = Field(
+        default=None,
+        description=(
+            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
+        ),
+    )
+    dateRange: DateRange | None = None
+    doPathCleaning: bool | None = None
+    excludeStaticAssets: bool | None = None
+    filterTestAccounts: bool | None = None
+    includeRevenue: bool | None = None
+    includeSiteTotals: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
+    )
+    kind: Literal["WebPageDirectoryQuery"] = "WebPageDirectoryQuery"
+    limit: int | None = None
+    metrics: list[WebPageDirectoryMetric] | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
+    pageKeys: list[str] | None = None
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
+    response: WebPageDirectoryQueryResponse | None = None
+    sampling: WebAnalyticsSampling | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    search: str | None = None
+    sortBy: WebPageDirectorySortBy | None = None
+    sortDirection: SortDirection | None = None
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
