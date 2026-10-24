@@ -41,6 +41,7 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             ("as_of", {"as_of": datetime(2026, 1, 1, tzinfo=UTC)}),
             ("bypass_warehouse_access_control", {"bypass_warehouse_access_control": True}),
             ("max_execution_time", {"max_execution_time": 30}),
+            ("max_threads", {"max_threads": 16}),
         ]
     )
     def test_recalculation_does_not_pair_with_a_results_request(self, _name, recalculation_kwargs):

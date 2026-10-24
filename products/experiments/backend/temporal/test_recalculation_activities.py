@@ -38,6 +38,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
+    METRIC_CALC_MAX_THREADS,
     TIMEOUT_MAX_METRIC_ATTEMPTS,
     MetricOutOfTimeFailure,
     MetricRecalculationResult,
@@ -1077,6 +1078,7 @@ class TestCalculateActivity(BaseTest):
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+        assert kwargs["max_threads"] == METRIC_CALC_MAX_THREADS
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
