@@ -1371,6 +1371,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             ChartDisplayType.WORLD_MAP,
             ChartDisplayType.CALENDAR_HEATMAP,
             ChartDisplayType.ACTIONS_PROPORTION_BAR,
+            ChartDisplayType.BREAKDOWN_ICICLE,
         )
 
     def _format_breakdown_label(self, breakdown_value: Any):

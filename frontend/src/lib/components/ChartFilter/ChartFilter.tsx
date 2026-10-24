@@ -60,6 +60,7 @@ export function ChartFilter({
         breakdowns: breakdownFilter?.breakdowns,
         boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
         hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
+        hasBreakdownIcicle: !!featureFlags[FEATURE_FLAGS.TRENDS_BREAKDOWN_ICICLE],
         isComparing: !!compareFilter?.compare,
     }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 

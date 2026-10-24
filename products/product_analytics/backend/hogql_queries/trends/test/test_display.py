@@ -13,6 +13,7 @@ class TestTrendsDisplay(TestCase):
             (ChartDisplayType.ACTIONS_PIE, True),
             (ChartDisplayType.ACTIONS_DONUT, True),
             (ChartDisplayType.ACTIONS_PROPORTION_BAR, True),
+            (ChartDisplayType.BREAKDOWN_ICICLE, True),
             (ChartDisplayType.ACTIONS_BAR_VALUE, True),
             (ChartDisplayType.ACTIONS_LINE_GRAPH, False),
             (ChartDisplayType.ACTIONS_BAR, False),

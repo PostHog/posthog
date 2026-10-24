@@ -196,6 +196,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_DONUT
             | ChartDisplayType.ACTIONS_PROPORTION_BAR
             | ChartDisplayType.ACTIONS_TABLE
+            | ChartDisplayType.BREAKDOWN_ICICLE
         ):
             # total value
             return ChartDisplayType.ACTIONS_BAR_VALUE

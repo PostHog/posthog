@@ -1,0 +1,1341 @@
+{
+    "id": 9101,
+    "short_id": "icicle01",
+    "name": "Pageviews by country and browser",
+    "derived_name": "Pageview count by country and browser",
+    "filters": {},
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": "2024-06-10T09:00:00Z",
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United States::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 21574,
+            "breakdown_value": [
+                "United States",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United States::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 11478,
+            "breakdown_value": [
+                "United States",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United Kingdom::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 8282,
+            "breakdown_value": [
+                "United Kingdom",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Germany::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 7521,
+            "breakdown_value": [
+                "Germany",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "India::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 5214,
+            "breakdown_value": [
+                "India",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Brazil::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 3680,
+            "breakdown_value": [
+                "Brazil",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United States::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 3667,
+            "breakdown_value": [
+                "United States",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United States::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 3596,
+            "breakdown_value": [
+                "United States",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "France::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 3037,
+            "breakdown_value": [
+                "France",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United Kingdom::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 2879,
+            "breakdown_value": [
+                "United Kingdom",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "India::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 2721,
+            "breakdown_value": [
+                "India",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Germany::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 2683,
+            "breakdown_value": [
+                "Germany",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Japan::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 1981,
+            "breakdown_value": [
+                "Japan",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Canada::Chrome",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 1803,
+            "breakdown_value": [
+                "Canada",
+                "Chrome"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "France::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 1616,
+            "breakdown_value": [
+                "France",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United Kingdom::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 1388,
+            "breakdown_value": [
+                "United Kingdom",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Brazil::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 1297,
+            "breakdown_value": [
+                "Brazil",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United Kingdom::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 920,
+            "breakdown_value": [
+                "United Kingdom",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United States::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 886,
+            "breakdown_value": [
+                "United States",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "India::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 879,
+            "breakdown_value": [
+                "India",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Germany::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 845,
+            "breakdown_value": [
+                "Germany",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Germany::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 845,
+            "breakdown_value": [
+                "Germany",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Japan::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 688,
+            "breakdown_value": [
+                "Japan",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Canada::Safari",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 643,
+            "breakdown_value": [
+                "Canada",
+                "Safari"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Brazil::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 613,
+            "breakdown_value": [
+                "Brazil",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "India::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 575,
+            "breakdown_value": [
+                "India",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "France::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 516,
+            "breakdown_value": [
+                "France",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "France::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 506,
+            "breakdown_value": [
+                "France",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Brazil::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 411,
+            "breakdown_value": [
+                "Brazil",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Japan::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 332,
+            "breakdown_value": [
+                "Japan",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "United Kingdom::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 331,
+            "breakdown_value": [
+                "United Kingdom",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Japan::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 220,
+            "breakdown_value": [
+                "Japan",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "India::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 211,
+            "breakdown_value": [
+                "India",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Germany::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 206,
+            "breakdown_value": [
+                "Germany",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Canada::Firefox",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 203,
+            "breakdown_value": [
+                "Canada",
+                "Firefox"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Canada::Edge",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 203,
+            "breakdown_value": [
+                "Canada",
+                "Edge"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "France::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 125,
+            "breakdown_value": [
+                "France",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Brazil::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 99,
+            "breakdown_value": [
+                "Brazil",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Japan::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 79,
+            "breakdown_value": [
+                "Japan",
+                "Samsung Internet"
+            ],
+            "order": 0
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "Canada::Samsung Internet",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2024-06-03",
+                "2024-06-04",
+                "2024-06-05",
+                "2024-06-06",
+                "2024-06-07",
+                "2024-06-08",
+                "2024-06-09"
+            ],
+            "aggregated_value": 49,
+            "breakdown_value": [
+                "Canada",
+                "Samsung Internet"
+            ],
+            "order": 0
+        }
+    ],
+    "created_at": "2024-06-10T09:00:00Z",
+    "created_by": null,
+    "description": "",
+    "updated_at": "2024-06-10T09:00:00Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2024-06-10T09:00:00Z",
+    "last_modified_by": null,
+    "is_sample": false,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "$pageview",
+                    "name": "$pageview"
+                }
+            ],
+            "interval": "day",
+            "dateRange": {
+                "date_from": "2024-06-03",
+                "date_to": "2024-06-09"
+            },
+            "breakdownFilter": {
+                "breakdowns": [
+                    {
+                        "property": "$geoip_country_name",
+                        "type": "event"
+                    },
+                    {
+                        "property": "$browser",
+                        "type": "event"
+                    }
+                ]
+            },
+            "trendsFilter": {
+                "display": "BreakdownIcicle"
+            },
+            "version": 2
+        },
+        "full": true
+    }
+}

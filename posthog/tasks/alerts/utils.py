@@ -92,6 +92,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
+    ChartDisplayType.BREAKDOWN_ICICLE,
 }
 
 
