@@ -41,10 +41,14 @@ CAPACITY_MAX_METRIC_ATTEMPTS = 3
 # The timeout class also holds SOCKET_TIMEOUT, so one retry stays for network failures.
 TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 
-# Jittered delay after a capacity rejection (ClickHouseAtCapacity or ConcurrencyLimitExceeded), set via
-# next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
+# Jittered delay after a capacity rejection (ClickHouseAtCapacity, ConcurrencyLimitExceeded, or a per-user or
+# server-total memory limit), set via next_retry_delay. The per-org app limiter skips Temporal activities, so the
+# delay lets the cluster drain. A limit that other users share waits longer than a limit of our own ClickHouse
+# user, because only our own queries free our own limit.
 CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
 CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
+OWN_USER_LIMIT_RETRY_DELAY_MIN_SECONDS = 30
+OWN_USER_LIMIT_RETRY_DELAY_MAX_SECONDS = 90
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0

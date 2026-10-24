@@ -85,6 +85,8 @@ class DatabaseSchemaUnavailable(APIException):
 
 class ClickHouseAtCapacity(APIException):
     wait: int
+    # The user named by a per-user concurrency limit. None for the all-users or server limit, which other users share.
+    limit_user: Optional[str] = None
     status_code = 503
     default_code = "clickhouse_at_capacity"
     default_detail = (
@@ -156,6 +158,8 @@ class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
     default_detail = (
         "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
     )
+    # True for the limit of the user the query ran as. False for the server total, which other users share.
+    is_per_user_limit = False
 
 
 class FieldedValidationError(Protocol):

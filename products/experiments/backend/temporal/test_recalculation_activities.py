@@ -23,6 +23,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
@@ -617,6 +618,22 @@ class TestRecalculationActivities(BaseTest):
 
 _QUERY_TO = "2026-05-29T12:00:00+00:00"
 
+_OWN_USER_CONCURRENCY_MESSAGE = "Too many simultaneous queries for user experiments. Current: 50, maximum: 50."
+_SHARED_USER_CONCURRENCY_MESSAGE = "Too many simultaneous queries for user cache_warmup. Current: 20, maximum: 20."
+_ALL_USERS_CONCURRENCY_MESSAGE = "Too many simultaneous queries for all users. Current: 400, maximum: 400."
+_USER_MEMORY_MESSAGE = (
+    "Memory limit (for user) exceeded: would use 64.01 GiB (attempt to allocate chunk of 4.00 MiB bytes), "
+    "maximum: 64.00 GiB."
+)
+_TOTAL_MEMORY_MESSAGE = (
+    "Memory limit (total) exceeded: would use 120.03 GiB (attempt to allocate chunk of 2.00 MiB bytes), "
+    "current RSS: 119.90 GiB, maximum: 120.00 GiB."
+)
+
+
+def _clickhouse_error(code: int, message: str) -> Exception:
+    return wrap_clickhouse_query_error(ServerException(f"DB::Exception: {message}", code=code))
+
 
 def _mean_metric(uuid: str) -> dict:
     # ExperimentMeanMetric requires a `source`; a bare {uuid, metric_type} dict fails pydantic validation.
@@ -959,14 +976,23 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
-            ("cluster_at_capacity", ClickHouseAtCapacity()),
+            ("org_quota", ConcurrencyLimitExceeded("org quota saturated"), True, 300),
+            ("cluster_at_capacity", ClickHouseAtCapacity(), True, 300),
+            ("own_user_concurrency", _clickhouse_error(202, _OWN_USER_CONCURRENCY_MESSAGE), True, 90),
+            ("own_user_memory", _clickhouse_error(241, _USER_MEMORY_MESSAGE), True, 90),
+            ("all_users_concurrency", _clickhouse_error(202, _ALL_USERS_CONCURRENCY_MESSAGE), True, 300),
+            ("node_total_memory", _clickhouse_error(241, _TOTAL_MEMORY_MESSAGE), True, 300),
+            ("shared_user_concurrency", _clickhouse_error(202, _SHARED_USER_CONCURRENCY_MESSAGE), False, 300),
+            ("shared_user_memory", _clickhouse_error(241, _USER_MEMORY_MESSAGE), False, 300),
         ]
     )
-    def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
+    def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(
+        self, name: str, exc: Exception, dedicated_ch_user: bool, expected_max_delay_seconds: int
+    ):
         # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
         # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
-        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # (overriding the retry policy's 5s exponential schedule with the delay window of the limit that rejected
+        # the query: short for our own ClickHouse user, long for a shared limit), must never
         # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
         # persist nothing before the final attempt.
         exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
@@ -975,17 +1001,25 @@ class TestCalculateActivity(BaseTest):
         with (
             patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
-            patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.random.uniform",
+                side_effect=lambda low, high: high,
+            ),
+            patch(
+                "products.experiments.backend.recalculation.feature_enabled_or_false", return_value=dedicated_ch_user
+            ),
         ):
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
             assert exc_info.value.type == type(exc).__name__
-            assert exc_info.value.next_retry_delay == timedelta(seconds=47.5)
+            assert exc_info.value.non_retryable is False
+            assert exc_info.value.next_retry_delay == timedelta(seconds=expected_max_delay_seconds)
             mock_capture.assert_not_called()
             recalc.refresh_from_db()
             assert recalc.metric_errors == {}
+            assert recalc.metric_retries["m1"]["error_type"] == "rate_limited"
             assert not ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").exists()
 
             # Final attempt: the failure is persisted for the UI, still without exception capture.
@@ -1000,6 +1034,12 @@ class TestCalculateActivity(BaseTest):
     @parameterized.expand(
         [
             ("capacity", ClickHouseAtCapacity(), CAPACITY_MAX_METRIC_ATTEMPTS, "rate_limited"),
+            (
+                "node_total_memory",
+                _clickhouse_error(241, _TOTAL_MEMORY_MESSAGE),
+                CAPACITY_MAX_METRIC_ATTEMPTS,
+                "rate_limited",
+            ),
             ("timeout", ClickHouseQueryTimeOut(), TIMEOUT_MAX_METRIC_ATTEMPTS, "timeout"),
         ]
     )

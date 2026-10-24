@@ -23,6 +23,7 @@ from posthog.errors import (
 from posthog.event_usage import groups
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -53,6 +54,8 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
     ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
+    # Exact-type lookup wins over the parent entry above, so load is not reported as a query that is too big.
+    ClickHouseClusterMemoryLimitExceeded: str(ClickHouseClusterMemoryLimitExceeded.default_detail),
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
 }
 
@@ -102,10 +105,12 @@ def classify_experiment_query_error(error: Exception) -> str:
         return "validation_error"
     if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
         return "timeout"
+    # A per-user or server-total memory limit rejects a query of any size under load, so it is capacity.
+    # The check comes before its parent class, which holds the per-query limit.
+    if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
+        return "rate_limited"
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "out_of_memory"
-    if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
-        return "rate_limited"
     if isinstance(error, ServerException):
         meta = look_up_clickhouse_error_code_meta(error)
         if meta.name == "NOT_AN_AGGREGATE":
