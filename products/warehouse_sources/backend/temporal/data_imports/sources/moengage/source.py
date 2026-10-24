@@ -211,6 +211,8 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
             configured_start_date=config.start_date,
             last_synced_at=inputs.last_synced_at,
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            project_code=config.project_code,
+            flow_teams=config.flow_teams,
         )
 
     @property
@@ -264,6 +266,24 @@ The `daily_campaign_report` table backfills the last 90 days by default. Set a d
                         required=False,
                         placeholder="2025-01-01",
                         secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="project_code",
+                        label="Project ID (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="",
+                        secret=False,
+                        caption="Required for the `subscription_categories` table if your workspace uses Portfolio. Find it under **Settings** > **Account** > **Portfolio**.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="flow_teams",
+                        label="Flow team names (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="Marketing, Growth",
+                        secret=False,
+                        caption="Required for the `flows` table if your workspace has teams turned on for Flows. Enter team names separated by commas. Leave it empty otherwise.",
                     ),
                 ],
             ),

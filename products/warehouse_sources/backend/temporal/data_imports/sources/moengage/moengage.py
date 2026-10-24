@@ -237,6 +237,10 @@ def _stats_body(start_date: date, end_date: date) -> dict[str, Any]:
     }
 
 
+def parse_flow_teams(value: Optional[str]) -> list[str]:
+    return [team.strip() for team in (value or "").split(",") if team.strip()]
+
+
 def parse_iso_date(value: str) -> date:
     # Accept a bare date or a full timestamp; only the calendar day matters for the fan-out.
     return date.fromisoformat(value.strip()[:10])
@@ -374,6 +378,8 @@ def moengage_source(
     configured_start_date: Optional[str] = None,
     last_synced_at: Optional[datetime] = None,
     db_incremental_field_last_value_before_lookback: Optional[Any] = None,
+    project_code: Optional[str] = None,
+    flow_teams: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = MOENGAGE_ENDPOINTS.get(endpoint)
     if endpoint_config is None:
@@ -426,6 +432,12 @@ def moengage_source(
     elif endpoint == "flows":
         if data_center in FLOWS_UNSUPPORTED_DATA_CENTERS:
             raise ValueError(FLOWS_UNSUPPORTED_DATA_CENTER_ERROR)
+        flows_body: dict[str, Any] = {"include_archived": True, "limit": FLOWS_PAGE_SIZE}
+        teams = parse_flow_teams(flow_teams)
+        # Workspaces with the Flows-teams feature reject a search without team names, and the
+        # others reject a search with them, so the list is sent only when configured.
+        if teams:
+            flows_body["teams"] = teams
         flows_resource: EndpointResource = {
             "name": endpoint,
             "write_disposition": "replace",
@@ -433,7 +445,7 @@ def moengage_source(
             "endpoint": {
                 "path": endpoint_config.path,
                 "method": "POST",
-                "json": {"include_archived": True, "limit": FLOWS_PAGE_SIZE},
+                "json": flows_body,
                 "data_selector": "data.flows",
                 "paginator": JSONResponseCursorPaginator(
                     cursor_path="data.next_cursor",
@@ -465,6 +477,12 @@ def moengage_source(
         )
     elif endpoint in ("segments", "subscription_categories"):
         # Both endpoints return the whole catalog in one unpaginated response.
+        if endpoint == "subscription_categories" and project_code and project_code.strip():
+            # Required by subscription categories on workspaces with the Portfolio feature enabled.
+            client_config["headers"] = {
+                **(client_config.get("headers") or {}),
+                "MOE-PROJECT-CODE": project_code.strip(),
+            }
         catalog_resource: EndpointResource = {
             "name": endpoint,
             "write_disposition": "replace",

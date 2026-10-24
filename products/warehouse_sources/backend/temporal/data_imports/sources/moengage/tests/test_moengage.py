@@ -147,9 +147,18 @@ def _drive(
     return sent_bodies, sent_headers, rows, manager
 
 
-def _driver(start_date: str | None = None) -> SourceDriver:
+def _driver(
+    start_date: str | None = None, project_code: str | None = None, flow_teams: str | None = None
+) -> SourceDriver:
     return SourceDriver(
-        MoEngageSource(), MoEngageSourceConfig(workspace_id="ws-1", api_key="test-key", start_date=start_date)
+        MoEngageSource(),
+        MoEngageSourceConfig(
+            workspace_id="ws-1",
+            api_key="test-key",
+            start_date=start_date,
+            project_code=project_code,
+            flow_teams=flow_teams,
+        ),
     )
 
 
@@ -303,6 +312,18 @@ class TestMoEngageSourceFlows:
         assert result.raised is None
         assert [request.json().get("cursor") for request in result.requests] == ["cur-9"]
 
+    @pytest.mark.parametrize(
+        ("flow_teams", "expected_teams"),
+        [(None, None), (" , ", None), ("Marketing, Growth ,", ["Marketing", "Growth"])],
+    )
+    def test_sends_team_names_only_when_configured(
+        self, flow_teams: str | None, expected_teams: list[str] | None
+    ) -> None:
+        result = _driver(flow_teams=flow_teams).run("flows", [ScriptedResponse(json=_flows_page(["f1"], None))])
+
+        assert result.raised is None
+        assert result.requests[0].json().get("teams") == expected_teams
+
 
 class TestMoEngageSourceCatalogs:
     @pytest.mark.parametrize(
@@ -323,6 +344,17 @@ class TestMoEngageSourceCatalogs:
         assert [(request.method, request.path) for request in result.requests] == [("GET", path)]
         assert result.requests[0].headers["moe-appkey"] == "ws-1"
         assert result.rows == rows
+
+    @pytest.mark.parametrize(("project_code", "expected_header"), [(None, None), (" p-1 ", "p-1")])
+    def test_subscription_categories_forward_the_portfolio_project_code(
+        self, project_code: str | None, expected_header: str | None
+    ) -> None:
+        result = _driver(project_code=project_code).run(
+            "subscription_categories", [ScriptedResponse(json={"data": []})]
+        )
+
+        assert result.raised is None
+        assert result.requests[0].headers.get("moe-project-code") == expected_header
 
 
 class TestMoEngageSourceDailyReport:
