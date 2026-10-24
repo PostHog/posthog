@@ -23,7 +23,7 @@ export interface AEOPromptApi {
     latest_checks: AEOPromptEngineCheckApi[]
     /** Prompt id. */
     id: string
-    /** The question asked to the answer engines, as a user would phrase it. */
+    /** The question asked to the answer engines: the text of the current version. */
     prompt: string
     /** Theme the prompt belongs to. The runner alternates between topics on each run. */
     topic: string
@@ -50,6 +50,15 @@ export interface AEOPromptApi {
      * @nullable
      */
     updated_at: string | null
+    /**
+     * When the prompt was archived. Archived prompts never run. Null when it is not archived.
+     * @nullable
+     */
+    archived_at: string | null
+    /** Number of the version in use. Each text edit adds a version. */
+    current_version: number
+    /** How many versions the prompt has. */
+    version_count: number
 }
 
 export interface PaginatedAEOPromptListApi {
@@ -62,8 +71,37 @@ export interface PaginatedAEOPromptListApi {
 }
 
 export interface PatchedAEOPromptUpdateRequestApi {
-    /** Turn the prompt on or off for future runs. */
-    active?: boolean
+    /**
+     * Turn the prompt on or off for future runs.
+     * @nullable
+     */
+    active?: boolean | null
+    /**
+     * New topic for the prompt. An empty string removes the topic. Past checks keep the topic they ran with.
+     * @maxLength 200
+     */
+    topic?: string
+    /**
+     * New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.
+     * @maxLength 10000
+     */
+    prompt?: string
+    /**
+     * Optional note on what the text change does, stored on the new version. Send it with 'prompt'.
+     * @maxLength 400
+     */
+    version_description?: string
+    /**
+     * Make an existing version current again, for example to roll back a text change. Adds no version. Fails with 400 when the version does not exist, and with 409 when another prompt has its text.
+     * @minimum 1
+     * @nullable
+     */
+    current_version?: number | null
+    /**
+     * True archives the prompt: it is turned off, never runs again, and keeps its check history. Send it without other fields. False restores an archived prompt. A restored prompt stays off unless 'active' is true in the same request. An archived prompt accepts no other change until it is restored.
+     * @nullable
+     */
+    archived?: boolean | null
 }
 
 export interface AEOPromptCheckApi {
@@ -104,6 +142,11 @@ export interface AEOPromptCheckApi {
      * @nullable
      */
     answer_text: string | null
+    /**
+     * Version of the prompt that ran. Null for checks recorded before prompts had versions.
+     * @nullable
+     */
+    prompt_version: number | null
 }
 
 export interface PaginatedAEOPromptCheckListApi {
@@ -161,6 +204,28 @@ export interface AEOPromptStatsApi {
     daily_to: string
 }
 
+export interface AEOPromptAuthorApi {
+    /** Email of the person who made the change. */
+    email: string
+    /** First name of the person who made the change. Empty when they have none. */
+    name: string
+}
+
+export interface AEOPromptVersionApi {
+    /** Who wrote this version. Null for imported versions and when the person's account is gone. */
+    created_by: AEOPromptAuthorApi | null
+    /** Version number: 1 for the first wording, then one more per text edit. */
+    version: number
+    /** The question as worded in this version. */
+    text: string
+    /** Note on what changed in this version. Empty when none was given. */
+    version_description: string
+    /** When the version was created. */
+    created_at: string
+    /** Whether this is the version the prompt runs with. */
+    is_current: boolean
+}
+
 export interface AEOPromptImportApi {
     /**
      * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
@@ -195,7 +260,7 @@ export interface AEOPromptImportResultApi {
     created: number
     /** Existing prompts that were updated. They keep their active state. */
     updated: number
-    /** Prompts that were empty or too long for the answer engines. */
+    /** Prompts that were empty, too long for the answer engines, or matched an archived prompt. */
     skipped: number
 }
 
@@ -1847,6 +1912,10 @@ export type AeoPromptsListParams = {
      */
     active?: boolean | null
     /**
+     * Also list archived prompts. Archived prompts are left out by default.
+     */
+    include_archived?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1876,6 +1945,11 @@ export type AeoPromptsChecksParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only list checks that ran this version of the prompt.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

@@ -44,6 +44,14 @@ from .enums import (
 MAX_CLAUSES_PER_QUERY = 10
 MAX_SPARKLINE_BATCH_SIZE = 20
 
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
+
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
@@ -168,6 +176,9 @@ class MetricSeries:
     # from the ingested unit when the clause transforms the values: COUNT has no
     # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

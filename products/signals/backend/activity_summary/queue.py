@@ -41,7 +41,7 @@ from posthog.models import ActivityLog, FileSystemViewLog, Team
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, system_prompt
+from products.signals.backend.activity_summary.prompt import COMPUTED_MAX_CHARS, PROMPT_VERSION, system_prompt
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     MAX_LIMITS,
@@ -119,17 +119,22 @@ class DailyUsage:
     cost_usd: float
 
 
-def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
-    """The most one update can cost: every attempt with the largest input and output."""
+def max_input_chars(limits: RenderLimits = DEFAULT_LIMITS) -> int:
+    """The longest input of one attempt: the system prompt and the user turn."""
     # The previous summary is a profile, cut to `limits.profile_max_chars`, plus fields that `MAX_SUMMARY_CHARS` covers.
-    input_chars = (
+    return (
         limits.sections_max_chars
         + limits.profile_max_chars
         + MAX_SUMMARY_CHARS
+        + COMPUTED_MAX_CHARS
         + len(system_prompt(limits.profile_max_chars))
     )
+
+
+def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
+    """The most one update can cost: every attempt with the largest input and output."""
     bound = cost_usd(
-        MAX_ATTEMPTS * input_chars // _BOUND_CHARS_PER_TOKEN,
+        MAX_ATTEMPTS * max_input_chars(limits) // _BOUND_CHARS_PER_TOKEN,
         MAX_ATTEMPTS * limits.max_completion_tokens,
         MODEL_PRICES.get(model),
     )

@@ -2718,6 +2718,13 @@ class MetricsQuerySeries(BaseModel):
         default=None,
         description=("Clause alias that produced this series (`formula` for the formula result)"),
     )
+    histogramBounds: list[float] | None = Field(
+        default=None,
+        description=(
+            "Bucket upper edges a histogram quantile series was estimated from. The"
+            " true quantile can be anywhere between two edges."
+        ),
+    )
     labels: dict[str, str] = Field(
         ...,
         description=("Label values identifying this series; empty for an ungrouped query"),
