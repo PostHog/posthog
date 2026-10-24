@@ -174,14 +174,17 @@ def _deserialize_node(data: Any) -> Any:
 
         deserialized = _deserialize_node(value)
 
-        # Coerce enum strings to their StrEnum members.
+        # Coerce enum strings to their StrEnum members. The parsers emit the value (">="), so try it before the name.
         if enum_map is not None and isinstance(deserialized, str):
             enum_type = enum_map.get(key)
             if enum_type is not None:
                 try:
-                    deserialized = enum_type[deserialized]
-                except KeyError:
-                    pass
+                    deserialized = enum_type(deserialized)
+                except ValueError:
+                    try:
+                        deserialized = enum_type[deserialized]
+                    except KeyError:
+                        pass
 
         kwargs[key] = deserialized
 
