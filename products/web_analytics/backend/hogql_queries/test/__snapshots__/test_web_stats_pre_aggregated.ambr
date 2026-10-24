@@ -676,7 +676,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_viewport_breakdown
   '''
-  SELECT nullIf(nullIf(concat(ifNull(toString(web_pre_aggregated_stats.viewport_width), ''), 'x', ifNull(toString(web_pre_aggregated_stats.viewport_height), '')), ''), 'null') AS `context.columns.breakdown_value`,
+  SELECT tuple(if(or(isNull(web_pre_aggregated_stats.viewport_width), isNull(web_pre_aggregated_stats.viewport_height), ifNull(equals(web_pre_aggregated_stats.viewport_width, 0), 0), ifNull(equals(web_pre_aggregated_stats.viewport_height, 0), 0)), NULL, web_pre_aggregated_stats.viewport_width), if(or(isNull(web_pre_aggregated_stats.viewport_width), isNull(web_pre_aggregated_stats.viewport_height), ifNull(equals(web_pre_aggregated_stats.viewport_width, 0), 0), ifNull(equals(web_pre_aggregated_stats.viewport_height, 0), 0)), NULL, web_pre_aggregated_stats.viewport_height)) AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_pre_aggregated_stats.persons_uniq_state, and(greaterOrEquals(web_pre_aggregated_stats.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_pre_aggregated_stats.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_pre_aggregated_stats.pageviews_count_state, and(greaterOrEquals(web_pre_aggregated_stats.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_pre_aggregated_stats.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
          divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
