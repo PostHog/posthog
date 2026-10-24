@@ -38,8 +38,10 @@ from products.signals.backend.anomaly_scores.config import (
     ANOMALY_SCORING_FLAG_DISTINCT_ID,
     DEFAULT_LIMITS,
     ScoringLimits,
+    ScoringRun,
     read_config,
     read_payload,
+    resolve_profile,
 )
 from products.signals.backend.anomaly_scores.emission import emit, score_events
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
@@ -52,10 +54,12 @@ from products.signals.backend.anomaly_scores.queue import (
 )
 from products.signals.backend.anomaly_scores.scoring import (
     SCORING_QUERY_BUDGET_SECONDS,
+    SplitRun,
     UnsupportedInsightError,
     score_insight,
 )
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
+from products.signals.backend.anomaly_scores.state import load_state, save_state
 
 logger = structlog.get_logger(__name__)
 
@@ -116,6 +120,11 @@ class ScoreInsightResult:
     status: str
     events: int
     series: int = 0
+    # What the visit ran. A score pick with no matching state trains. None when the split is off.
+    run: ScoringRun | None = None
+    # Series of a score step with no stored window, and stored series missing from its result.
+    unmatched_series: int = 0
+    missing_series: int = 0
 
 
 @frozen
@@ -133,6 +142,9 @@ class AnomalyScoringTickResult:
     queries: int = 0
     skipped_for_budget: int = 0
     stopped_at_capacity: bool = False
+    # Started picks per kind of the train and score split.
+    run_train: int = 0
+    run_score: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -197,7 +209,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
             error=str(error)[:200],
             duration_ms=duration_ms,
         )
-        record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0)
+        record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
         if status is None:
             raise
         # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
@@ -214,8 +226,11 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         series=result.series,
         events=result.events,
         duration_ms=duration_ms,
+        run=result.run,
+        unmatched_series=result.unmatched_series,
+        missing_series=result.missing_series,
     )
-    record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events)
+    record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
     return result
 
 
@@ -234,6 +249,12 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
+    split = None
+    if pick.run is not None:
+        split = SplitRun(
+            refresh_buckets=pick.refresh_buckets,
+            state=load_state(team, insight) if pick.run == ScoringRun.SCORE else None,
+        )
     scores = score_insight(
         insight,
         team,
@@ -241,13 +262,23 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         # Every series is filtered again on its own newest bucket below. A new series gets up to the backfill cap.
         after=min(pick.scored_through.values()) if pick.scored_through else None,
         limits=input.limits,
+        split=split,
     )
     events = score_events(
         team_id=team.id, insight_id=insight.id, scores=scores, scored_through=pick.scored_through, scored_at=now
     )
     emit(team, events)
+    # After the emit: a lost state write only scores buckets again, and their events collapse by uuid.
+    # A state write before a failed emit would skip those buckets for good.
+    if scores.state is not None:
+        save_state(team, insight.id, resolve_profile(team, insight).name, scores.state)
     return ScoreInsightResult(
-        status=STATUS_SCORED if events else STATUS_UP_TO_DATE, events=len(events), series=len(scores.series)
+        status=STATUS_SCORED if events else STATUS_UP_TO_DATE,
+        events=len(events),
+        series=len(scores.series),
+        run=scores.run,
+        unmatched_series=scores.unmatched_series,
+        missing_series=scores.state.missing_series if scores.state else 0,
     )
 
 
@@ -264,6 +295,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         queries=result.queries,
         skipped_for_budget=result.skipped_for_budget,
         stopped_at_capacity=result.stopped_at_capacity,
+        run_train=result.run_train,
+        run_score=result.run_score,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -280,6 +313,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "queries": result.queries,
             "skipped_for_budget": result.skipped_for_budget,
             "stopped_at_capacity": result.stopped_at_capacity,
+            "run_train": result.run_train,
+            "run_score": result.run_score,
         },
     )
 
@@ -368,6 +403,8 @@ class AnomalyScoringTickWorkflow:
             queries=sum(pick.query_cost for pick in started_picks),
             skipped_for_budget=plan.skipped_for_budget,
             stopped_at_capacity=statuses[STATUS_AT_CAPACITY] > 0,
+            run_train=sum(pick.run == ScoringRun.TRAIN for pick in started_picks),
+            run_score=sum(pick.run == ScoringRun.SCORE for pick in started_picks),
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
