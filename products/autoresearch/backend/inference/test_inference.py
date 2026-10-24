@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.hogql.errors import QueryError
 
@@ -868,6 +869,13 @@ class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
         # Emitting every prediction person-less would leave the output property unset for the
         # whole population while the run reported success.
         with self.assertRaises(InferenceRunError):
+            _resolve_distinct_ids(team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[str(uuid4())])
+
+    @patch(
+        "products.autoresearch.backend.inference.scoring.get_persons_by_uuids", side_effect=CancelledError("cancelled")
+    )
+    def test_activity_cancellation_is_not_reported_as_identity_failure(self, _mock: MagicMock):
+        with self.assertRaises(CancelledError):
             _resolve_distinct_ids(team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[str(uuid4())])
 
 
