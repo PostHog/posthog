@@ -25,11 +25,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -308,6 +310,10 @@ def get_goals_for_team(
     return results
 
 
+# A team with events but no UUIDv7 session IDs makes the probe scan the full week, because LIMIT 1 never stops it early.
+SESSION_PROBE_MAX_EXECUTION_TIME_SECONDS = 10
+
+
 def _digest_date_range(team: Team, days: int) -> QueryDateRange:
     return QueryDateRange(
         date_range=DateRange(date_from=f"-{days}d"),
@@ -329,13 +335,21 @@ def _has_sessions_in_range(team: Team, date_from: datetime, date_to: datetime) -
             "date_to": ast.Constant(value=date_to),
         },
     )
-    response = execute_hogql_query(query_type="web_analytics_digest_session_probe", query=query, team=team)
+    response = execute_hogql_query(
+        query_type="web_analytics_digest_session_probe",
+        query=query,
+        team=team,
+        settings=HogQLGlobalSettings(max_execution_time=SESSION_PROBE_MAX_EXECUTION_TIME_SECONDS),
+    )
     return bool(response.results)
 
 
 def _zero_traffic_status(team: Team, date_from: datetime, date_to: datetime) -> DigestDataStatus:
     try:
         has_sessions = _has_sessions_in_range(team, date_from, date_to)
+    except ClickHouseQueryTimeOut:
+        logger.info("WA digest session check timed out", team_id=team.id)
+        return DigestDataStatus.UNKNOWN
     except Exception as e:
         # The status only explains a zero, so a failed check must not discard metrics that loaded.
         logger.warning("WA digest could not check for sessions", team_id=team.id, error=str(e))

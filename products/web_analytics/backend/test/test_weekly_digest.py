@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql.errors import TableAccessDeniedError
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
@@ -90,7 +91,8 @@ class TestDigestQueryFailures(SimpleTestCase):
             with self.assertRaises(TimeoutError):
                 build_team_digest(Team(pk=1))
 
-    def test_a_failed_session_check_keeps_the_digest(self) -> None:
+    @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), 0), ("other_error", TimeoutError(), 1)])
+    def test_a_failed_session_check_keeps_the_digest(self, _: str, error: Exception, captures: int) -> None:
         with (
             patch(
                 "products.web_analytics.backend.weekly_digest.get_overview_for_team", return_value=_default_overview()
@@ -98,14 +100,14 @@ class TestDigestQueryFailures(SimpleTestCase):
             patch("products.web_analytics.backend.weekly_digest.get_top_pages", return_value=[]),
             patch("products.web_analytics.backend.weekly_digest.get_top_sources", return_value=[]),
             patch("products.web_analytics.backend.weekly_digest.get_goals_for_team", return_value=[]),
-            patch("products.web_analytics.backend.weekly_digest.execute_hogql_query", side_effect=TimeoutError),
+            patch("products.web_analytics.backend.weekly_digest.execute_hogql_query", side_effect=error),
             patch("products.web_analytics.backend.weekly_digest.capture_exception") as capture,
         ):
             digest = build_team_digest(Team(pk=1))
 
         assert digest["sessions"] == {"current": 0, "previous": None, "change": None}
         assert digest["metadata"]["data_status"] == "unknown"
-        capture.assert_called_once()
+        assert capture.call_count == captures
 
 
 def _create_pageview(
