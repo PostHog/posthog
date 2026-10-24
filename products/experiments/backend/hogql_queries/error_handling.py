@@ -105,8 +105,7 @@ def classify_experiment_query_error(error: Exception) -> str:
         return "validation_error"
     if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
         return "timeout"
-    # A per-user or server-total memory limit rejects a query of any size under load, so it is capacity.
-    # The check comes before its parent class, which holds the per-query limit.
+    # Before its parent class: a per-user or server-total memory limit is load, not a query that is too big.
     if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
         return "rate_limited"
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
