@@ -23,12 +23,15 @@ pub trait IdentifyCache: Send + Sync + std::fmt::Debug {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), Error>;
+    /// Count one more distinct device for `user_id` and return the new total.
+    fn increment_user_device_count(&self, team_id: i32, user_id: &str) -> Result<u64, Error>;
 }
 
 /// Mock implementation of IdentifyCache for testing
 #[derive(Debug, Clone)]
 pub struct MockIdentifyCache {
     seen_combinations: Arc<Mutex<HashSet<String>>>,
+    device_counts: Arc<Mutex<HashMap<String, u64>>>,
 }
 
 impl Default for MockIdentifyCache {
@@ -41,6 +44,7 @@ impl MockIdentifyCache {
     pub fn new() -> Self {
         Self {
             seen_combinations: Arc::new(Mutex::new(HashSet::new())),
+            device_counts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -71,6 +75,13 @@ impl IdentifyCache for MockIdentifyCache {
         let mut seen = self.seen_combinations.lock().unwrap();
         seen.insert(key);
         Ok(())
+    }
+
+    fn increment_user_device_count(&self, team_id: i32, user_id: &str) -> Result<u64, Error> {
+        let mut counts = self.device_counts.lock().unwrap();
+        let count = counts.entry(format!("{team_id}:{user_id}")).or_insert(0);
+        *count += 1;
+        Ok(*count)
     }
 }
 

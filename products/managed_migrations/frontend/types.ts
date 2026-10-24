@@ -7,8 +7,16 @@ export interface TrialSummary {
     skipped_records: number
     event_name_counts: Record<string, number>
     error_counts: Record<string, number>
+    distinct_id_counts?: Record<string, number>
+    placeholder_distinct_id_events?: number
     first_timestamp?: string
     last_timestamp?: string
+}
+
+export interface TrialDistinctIdWarning {
+    topDistinctId: string | null
+    topDistinctIdShare: number
+    placeholderEvents: number
 }
 
 export interface TrialProgress {
