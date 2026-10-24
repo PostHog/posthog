@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
@@ -287,6 +288,10 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         },
         setSavedPlaylistsFilters: () => {
             actions.loadSavedFilters()
+        },
+        setAppliedSavedFilter: ({ appliedSavedFilter }) => {
+            // Today's home reads these views to find the saved filters a person uses most.
+            trackFileSystemLogView({ type: 'session_recording_playlist', ref: appliedSavedFilter?.short_id })
         },
         checkForSavedFilterRedirect: async () => {
             //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL

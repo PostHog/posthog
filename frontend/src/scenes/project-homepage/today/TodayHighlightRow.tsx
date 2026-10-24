@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import type { ComponentProps } from 'react'
 
 import { IconHide } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -14,10 +15,12 @@ export function TodayHighlightRow({
     item,
     position,
     done,
+    expansion,
 }: {
     item: HighlightItemApi
     position: number
     done: boolean
+    expansion?: ComponentProps<typeof TodayRow>['expansion']
 }): JSX.Element {
     const { highlightOpened, hideHighlight, unhideHighlight } = useActions(todayHighlightsLogic)
     return (
@@ -29,6 +32,7 @@ export function TodayHighlightRow({
             facts={item.detail.split(' · ')}
             to={item.url ?? undefined}
             onOpen={() => highlightOpened(item, position)}
+            expansion={expansion}
             actions={
                 <Tooltip>
                     <TooltipTrigger

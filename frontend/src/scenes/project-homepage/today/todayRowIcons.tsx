@@ -27,6 +27,8 @@ const ANALYTICS: TodayRowIcon = {
     glyph: <IconTrends />,
 }
 
+const REPLAY: TodayRowIcon = { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> }
+
 const WORKFLOWS: TodayRowIcon = { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> }
 
 const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
@@ -34,7 +36,8 @@ const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
     errors: { color: 'var(--color-product-error-tracking-light)', glyph: <IconWarning /> },
     experiments: { color: 'var(--color-product-experiments-light)', glyph: <IconFlask /> },
     flags: { color: 'var(--color-product-feature-flags-light)', glyph: <IconToggle /> },
-    rage: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
+    rage: REPLAY,
+    replay_saved_filters: REPLAY,
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
     ticket_sla: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
     warehouse_syncs: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },

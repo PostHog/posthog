@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-replay",
     "scripts": {
-        "backend:test": "echo 'No backend tests'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",
