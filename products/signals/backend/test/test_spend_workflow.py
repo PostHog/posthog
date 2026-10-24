@@ -11,6 +11,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.signals.backend.spend import (
     SignalMetadataChange,
     SignalSpendPublication,
@@ -19,7 +21,12 @@ from products.signals.backend.spend import (
     publish_signal_spend,
     submit_signal_metadata_updates,
 )
-from products.signals.backend.temporal.spend import UpdateSignalSpendWorkflow
+from products.signals.backend.temporal.spend import SIGNAL_SPEND_NOT_VISIBLE_ERROR_TYPE, UpdateSignalSpendWorkflow
+
+
+def test_spend_not_visible_probe_is_not_reported_to_error_tracking() -> None:
+    error = ApplicationError("not visible", type=SIGNAL_SPEND_NOT_VISIBLE_ERROR_TYPE)
+    assert is_expected_activity_failure(error)
 
 
 @pytest.mark.asyncio
