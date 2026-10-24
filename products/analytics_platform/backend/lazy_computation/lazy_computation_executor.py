@@ -660,7 +660,7 @@ def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
 
 
 def events_table_cache_key_context(
-    team: Team, modifiers: HogQLQueryModifiers, cache_key_context: dict[str, str] | None
+    team: Team, modifiers: HogQLQueryModifiers | None, cache_key_context: dict[str, str] | None
 ) -> dict[str, str] | None:
     """The job identity context with the events table the build reads, when it is not the legacy one.
 
@@ -1826,10 +1826,9 @@ def ensure_precomputed(
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
-    # The events table is resolved once here, so the INSERT prints against the same table the job identity names,
-    # whichever switch (a modifier, the person's cookie, the project or the instance) picked it.
-    modifiers = modifiers if modifiers is not None else create_default_modifiers_for_team(team)
-    modifiers = modifiers.model_copy(update={"useNewEventsSchema": use_new_events_schema(team.pk, modifiers)})
+    # The INSERT's printer asks the same switches for its table, so naming the table here keeps the job identity
+    # and the rows under it in step, whichever switch (a modifier, the person's cookie, the project or the
+    # instance) picked it.
     cache_key_context = events_table_cache_key_context(team, modifiers, cache_key_context)
 
     query_info = LazyComputationQuery(
