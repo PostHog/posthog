@@ -17,13 +17,14 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
-import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
+import { signAwsRequest } from '../utils/aws-sigv4'
 import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
+import { AwsSigV4CredentialsService } from './aws-sigv4-credentials.service'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
@@ -67,6 +68,7 @@ export interface HogExecutorAsyncDependencies {
     emailService: EmailService
     recipientTokensService: RecipientTokensService
     pushNotificationService: PushNotificationService
+    awsSigV4Credentials: AwsSigV4CredentialsService
 }
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
@@ -438,8 +440,8 @@ export class HogExecutorAsyncService {
         // backoff queue or whose first attempt timed out cannot reach AWS with a
         // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
         // regenerated here and never persisted back to queueParameters. Credential
-        // resolution + missing-input handling live in `aws-sigv4.ts` — see
-        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        // resolution + missing-input handling live in `AwsSigV4CredentialsService`, which
+        // reads an AWS connection when the payload names one and the key inputs otherwise.
         const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
             addLog('error', error)
             result.error = new Error(error)
@@ -460,8 +462,28 @@ export class HogExecutorAsyncService {
         }
 
         if (params.aws_sigv4) {
-            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            const resolved = await this.deps.awsSigV4Credentials.resolve(
+                params.aws_sigv4,
+                invocation.hogFunction,
+                params.url
+            )
             if (!resolved.ok) {
+                // A failure that can pass, such as STS throttling, uses the retries of the fetch instead of
+                // ending the invocation, and waits until the credentials service tries again.
+                result.invocation.state.attempts++
+                if (
+                    resolved.retryAfterMs !== undefined &&
+                    result.invocation.state.attempts < (options?.maxFetchRetries ?? this.config.fetchRetries)
+                ) {
+                    addLog('warn', `${resolved.error} Retrying.`)
+                    result.invocation.queueParameters = params
+                    result.invocation.queuePriority = invocation.queuePriority + 1
+                    result.invocation.queueScheduledAt = DateTime.utc().plus({
+                        milliseconds:
+                            resolved.retryAfterMs + Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                    })
+                    return result
+                }
                 return failSigning(resolved.error)
             }
             signedHeaders = signAwsRequest({

@@ -361,6 +361,26 @@ describe('Hog Inputs', () => {
             expect(inputs.connection).toBeNull()
         })
 
+        it('keeps the access keys of an AWS connection out of Hog', async () => {
+            const connectionId = team.id + 2
+            await insertIntegration(hub.postgres, team.id, {
+                id: connectionId,
+                kind: 'aws-kinesis',
+                config: { name: 'stream writer', aws_account_id: '123456789012' },
+                sensitive_config: { aws_access_key_id: 'AKIAEXAMPLE', aws_secret_access_key: 'secret-example' },
+            })
+            hogFunction.inputs = { aws_connection: { value: connectionId } }
+            hogFunction.inputs_schema = [{ key: 'aws_connection', type: 'integration', required: false }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.aws_connection).toEqual({
+                $integration_id: connectionId,
+                name: 'stream writer',
+                aws_account_id: '123456789012',
+            })
+        })
+
         it('should add unsubscribe url if email input is present', async () => {
             hogFunction.inputs = {
                 email: {

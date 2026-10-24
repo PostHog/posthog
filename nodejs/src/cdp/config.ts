@@ -117,6 +117,10 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    // The PostHog role that assumes customer IAM roles for AWS connections. Empty disables IAM role connections.
+    CDP_AWS_EXTERNAL_ROLE_ARN: string
+    // Region of the STS endpoint for IAM role connections. Empty lets the AWS SDK read the region from the environment.
+    CDP_AWS_STS_REGION: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
@@ -354,6 +358,8 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_AWS_EXTERNAL_ROLE_ARN: '',
+        CDP_AWS_STS_REGION: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
