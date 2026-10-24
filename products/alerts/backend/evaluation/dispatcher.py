@@ -11,7 +11,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
-from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownIdentifier, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -76,12 +76,17 @@ def owner_sql_errors(query: object) -> Iterator[None]:
     mismatch, and it fails the same way until they fix it. Other kinds keep the ordinary path,
     because PostHog builds their SQL and the error can be a bug. A transient ClickHouse error also
     keeps the ordinary path, because the query itself can be sound.
+
+    An unknown identifier is not an ``ExposedCHQueryError``, but in the owner's SQL it is their
+    column or alias, so it gets the same verdict and the same cleaned message.
     """
     try:
         yield
-    except (ExposedHogQLError, ExposedCHQueryError) as err:
+    except (ExposedHogQLError, ExposedCHQueryError, CHQueryErrorUnknownIdentifier) as err:
         if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
             raise
+        if isinstance(err, CHQueryErrorUnknownIdentifier):
+            raise AlertExtractionError(str(ExposedCHQueryError(err.message, code=err.code))) from err
         raise AlertExtractionError(str(err)) from err
 
 
