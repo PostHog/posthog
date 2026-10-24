@@ -1606,6 +1606,7 @@ impl TestContext {
             self.persons_writer.clone(),
             team_id,
             distinct_ids,
+            None,
         )
         .await
     }

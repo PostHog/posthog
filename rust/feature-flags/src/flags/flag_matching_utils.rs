@@ -10,7 +10,8 @@ use tokio_retry::{
 };
 
 use crate::database::{
-    get_connection_with_metrics, get_writer_connection_with_metrics, pool_names, PostgresRouter,
+    get_connection_with_metrics, get_writer_connection_with_metrics, pool_names,
+    run_persons_db_operation, PostgresRouter,
 };
 use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use common_database::{PostgresReader, PostgresWriter};
@@ -53,6 +54,8 @@ const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
 
 /// Bounds how long a detached check can occupy the writer pool. Covers connection acquisition as
 /// well as the query, so a saturated pool kills the task here rather than at its acquire timeout.
+/// With a persons DB task cap, this bounds only the wait for the answer, and the cap bounds the
+/// check itself.
 const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
@@ -201,65 +204,27 @@ struct PersonCohortResult {
     /// `Some(empty map)` when person found but no static cohorts to check.
     /// `Some(results)` when person found and cohorts checked.
     cohort_matches: Option<HashMap<CohortId, bool>>,
+    person_query_time: Duration,
+    /// `None` when the cohort query did not run.
+    cohort_query_time: Option<Duration>,
 }
 
 /// Result from the group properties query branch.
 struct GroupResult {
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
+    query_time: Duration,
 }
 
 /// Fetch person data and static cohort membership from the persons_reader pool.
 ///
-/// Acquires its own connection. The person query and cohort query run sequentially
-/// because cohort lookup depends on the person_id returned by the person query.
+/// The person query and cohort query run sequentially because cohort lookup depends on the
+/// person_id returned by the person query.
 async fn fetch_person_and_cohorts(
-    reader: &PostgresReader,
+    conn: &mut PgConnection,
     team_id: TeamId,
     distinct_id: &str,
     static_cohort_ids: &[CohortId],
 ) -> Result<PersonCohortResult, FlagError> {
-    let conn_acquisition_start = Instant::now();
-    let conn_result = get_connection_with_metrics(
-        reader,
-        pool_names::PERSONS_READER,
-        "fetch_person_properties",
-    )
-    .await;
-    let conn_acquisition_duration = conn_acquisition_start.elapsed();
-
-    let mut conn = match conn_result {
-        Ok(conn) => {
-            debug!(
-                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                "persons_reader connection acquired for person+cohort query"
-            );
-            conn
-        }
-        Err(e) => {
-            let (pool_size, pool_idle, pool_in_use) =
-                if let Some(stats) = reader.as_ref().get_pool_stats() {
-                    (
-                        stats.size,
-                        stats.num_idle as u32,
-                        stats.size.saturating_sub(stats.num_idle as u32),
-                    )
-                } else {
-                    (0, 0, 0)
-                };
-
-            warn!(
-                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                pool_size = pool_size,
-                pool_idle = pool_idle,
-                pool_in_use = pool_in_use,
-                error = ?e,
-                "Failed to acquire persons_reader connection for person+cohort query"
-            );
-
-            return Err(FlagError::from(e));
-        }
-    };
-
     let query_labels = [
         ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
@@ -275,13 +240,9 @@ async fn fetch_person_and_cohorts(
     // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
-    let person = Person::from_distinct_id(&mut conn, team_id, distinct_id).await?;
+    let person = Person::from_distinct_id(&mut *conn, team_id, distinct_id).await?;
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
-    with_canonical_log(|log| {
-        log.person_queries += 1;
-        log.person_query_time_ms += person_query_duration.as_millis() as u64;
-    });
 
     if person_query_duration.as_millis() > 500 {
         warn!(
@@ -301,6 +262,7 @@ async fn fetch_person_and_cohorts(
         );
     }
 
+    let mut cohort_query_time = None;
     let cohort_matches = if let Some(ref person) = person {
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
@@ -325,10 +287,7 @@ async fn fetch_person_and_cohorts(
                 .await?;
             cohort_timer.fin();
             let cohort_query_duration = cohort_query_start.elapsed();
-            with_canonical_log(|log| {
-                log.static_cohort_queries += 1;
-                log.cohort_query_time_ms += cohort_query_duration.as_millis() as u64;
-            });
+            cohort_query_time = Some(cohort_query_duration);
 
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
@@ -376,12 +335,13 @@ async fn fetch_person_and_cohorts(
     Ok(PersonCohortResult {
         person,
         cohort_matches,
+        person_query_time: person_query_duration,
+        cohort_query_time,
     })
 }
 
 /// Fetch group properties from the database.
 ///
-/// Acquires its own connection from the provided reader pool.
 /// Independent of person/cohort queries, so it can run concurrently.
 ///
 /// NOTE: `posthog_group` lives in the persons database (same as person/cohort
@@ -389,49 +349,10 @@ async fn fetch_person_and_cohorts(
 /// acquired in parallel (one for person+cohort, one for groups) both come from
 /// the same pool.
 async fn fetch_group_properties(
-    reader: &PostgresReader,
+    conn: &mut PgConnection,
     team_id: TeamId,
     group_type_to_key: &HashMap<GroupTypeIndex, String>,
 ) -> Result<GroupResult, FlagError> {
-    let conn_acquisition_start = Instant::now();
-    let conn_result =
-        get_connection_with_metrics(reader, pool_names::PERSONS_READER, "fetch_group_properties")
-            .await;
-    let conn_acquisition_duration = conn_acquisition_start.elapsed();
-
-    let mut conn = match conn_result {
-        Ok(conn) => {
-            debug!(
-                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                "persons_reader connection acquired for group query"
-            );
-            conn
-        }
-        Err(e) => {
-            let (pool_size, pool_idle, pool_in_use) =
-                if let Some(stats) = reader.as_ref().get_pool_stats() {
-                    (
-                        stats.size,
-                        stats.num_idle as u32,
-                        stats.size.saturating_sub(stats.num_idle as u32),
-                    )
-                } else {
-                    (0, 0, 0)
-                };
-
-            warn!(
-                conn_acquisition_ms = conn_acquisition_duration.as_millis(),
-                pool_size = pool_size,
-                pool_idle = pool_idle,
-                pool_in_use = pool_in_use,
-                error = ?e,
-                "Failed to acquire persons_reader connection for group query"
-            );
-
-            return Err(FlagError::from(e));
-        }
-    };
-
     let query_labels = [
         ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
@@ -463,10 +384,6 @@ async fn fetch_group_properties(
         .await?;
     group_query_timer.fin();
     let group_query_duration = group_query_start.elapsed();
-    with_canonical_log(|log| {
-        log.group_queries += 1;
-        log.group_query_time_ms += group_query_duration.as_millis() as u64;
-    });
 
     if group_query_duration.as_millis() > 300 {
         warn!(
@@ -503,7 +420,10 @@ async fn fetch_group_properties(
         .collect();
     group_processing_timer.fin();
 
-    Ok(GroupResult { group_properties })
+    Ok(GroupResult {
+        group_properties,
+        query_time: group_query_duration,
+    })
 }
 
 /// Apply person and cohort results to the flag evaluation state.
@@ -561,8 +481,9 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
 /// Fetch and locally cache all properties for a given distinct ID and team ID.
 ///
 /// This function fetches person, cohort, and group properties and applies them to the
-/// evaluation state. When groups are needed, person+cohort and group queries run in
-/// parallel via `tokio::try_join!`, each acquiring its own connection from the same pool.
+/// evaluation state. When groups are needed, the person+cohort and group operations run in
+/// parallel, each with its own connection from the same pool. With `task_cap`, each operation
+/// runs in its own task (see `run_persons_db_operation`).
 #[instrument(skip_all, fields(
     team_id = %team_id,
     distinct_id = %distinct_id,
@@ -576,6 +497,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     team_id: TeamId,
     group_type_to_key: &HashMap<GroupTypeIndex, String>,
     static_cohort_ids: Vec<CohortId>,
+    task_cap: Option<Duration>,
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
     #[cfg(test)]
@@ -594,19 +516,39 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         );
     }
 
-    if !group_type_to_key.is_empty() {
-        // SAFETY: tokio::try_join! polls both futures on the same task via cooperative
-        // scheduling. with_canonical_log borrows a task-local RefCell synchronously (no
-        // .await while borrowed), so double-borrow cannot occur. Do NOT refactor this
-        // to tokio::spawn: that would run the futures on separate tasks, which do not
-        // inherit the CANONICAL_LOG task-local scope (see handler/canonical_log.rs),
-        // causing with_canonical_log to silently no-op and drop canonical-log counters.
-        let (person_cohort, group) = tokio::try_join!(
-            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
-            fetch_group_properties(&reader, team_id, group_type_to_key),
-        )
-        .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
+    let person_cohort = run_persons_db_operation(
+        &reader,
+        pool_names::PERSONS_READER,
+        "fetch_person_properties",
+        task_cap,
+        move |conn| {
+            Box::pin(async move {
+                fetch_person_and_cohorts(conn, team_id, &distinct_id, &static_cohort_ids).await
+            })
+        },
+    );
 
+    if !group_type_to_key.is_empty() {
+        let group_type_to_key_owned = group_type_to_key.clone();
+        let group = run_persons_db_operation(
+            &reader,
+            pool_names::PERSONS_READER,
+            "fetch_group_properties",
+            task_cap,
+            move |conn| {
+                Box::pin(async move {
+                    fetch_group_properties(conn, team_id, &group_type_to_key_owned).await
+                })
+            },
+        );
+        let (person_cohort, group) = tokio::try_join!(person_cohort, group)
+            .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
+
+        log_person_cohort_queries(&person_cohort);
+        with_canonical_log(|log| {
+            log.group_queries += 1;
+            log.group_query_time_ms += group.query_time.as_millis() as u64;
+        });
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         // Mark every requested index as fetched, not just the ones the query returned a
         // row for. The group query is authoritative for all requested (index, key) pairs,
@@ -620,14 +562,27 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             flag_evaluation_state.set_group_properties(idx, props);
         }
     } else {
-        let person_cohort =
-            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids)
-                .await
-                .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
+        let person_cohort = person_cohort
+            .await
+            .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
+        log_person_cohort_queries(&person_cohort);
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
     Ok(())
+}
+
+/// The canonical log is task-local, and an operation that runs in its own task cannot reach it.
+/// The caller therefore writes it after the operation returns.
+fn log_person_cohort_queries(result: &PersonCohortResult) {
+    with_canonical_log(|log| {
+        log.person_queries += 1;
+        log.person_query_time_ms += result.person_query_time.as_millis() as u64;
+        if let Some(cohort_query_time) = result.cohort_query_time {
+            log.static_cohort_queries += 1;
+            log.cohort_query_time_ms += cohort_query_time.as_millis() as u64;
+        }
+    });
 }
 
 /// Return any locally computable property overrides (non-cohort properties).
@@ -948,6 +903,7 @@ pub async fn get_feature_flag_hash_key_overrides(
     persons_writer: PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
+    task_cap: Option<Duration>,
 ) -> Result<HashMap<String, String>, FlagError> {
     // Track hash key override lookups for testing
     #[cfg(test)]
@@ -970,6 +926,7 @@ pub async fn get_feature_flag_hash_key_overrides(
                 &persons_writer,
                 team_id,
                 &distinct_id_and_hash_key_override,
+                task_cap,
             )
         },
         |e| {
@@ -992,18 +949,26 @@ async fn try_get_feature_flag_hash_key_overrides(
     persons_writer: &PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
+    task_cap: Option<Duration>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn =
-        get_connection_with_metrics(reader, pool_name, "get_feature_flag_hash_key_overrides")
-            .await?;
-
-    let query_start = Instant::now();
-    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
-    let query_duration = query_start.elapsed();
-
-    // Nothing below needs the reader connection, and this function is on the hottest path.
-    drop(conn);
+    let owned_distinct_ids = distinct_id_and_hash_key_override.to_vec();
+    // The connection goes back to the pool when the operation returns. Nothing below needs it,
+    // and this function is on the hottest path.
+    let (rows, query_duration) = run_persons_db_operation(
+        reader,
+        pool_name,
+        "get_feature_flag_hash_key_overrides",
+        task_cap,
+        move |conn| {
+            Box::pin(async move {
+                let query_start = Instant::now();
+                let rows = fetch_override_rows(conn, team_id, &owned_distinct_ids).await?;
+                Ok((rows, query_start.elapsed()))
+            })
+        },
+    )
+    .await?;
 
     // The join keeps a person row even when it has no override, so no rows at all means this pool
     // could not see any of the requested distinct IDs. That is a different miss from seeing at
@@ -1087,8 +1052,9 @@ async fn try_get_feature_flag_hash_key_overrides(
             check_primary_for_stale_empty(
                 &persons_writer,
                 team_id,
-                &distinct_ids,
+                distinct_ids,
                 any_distinct_id_found,
+                task_cap,
             )
             .await;
         });
@@ -1104,13 +1070,27 @@ async fn try_get_feature_flag_hash_key_overrides(
 /// would then measure the fix.
 ///
 /// Diagnostic. Remove once the rate is known.
+///
+/// With `task_cap`, the check runs in its own task, and the wait below does not cancel it.
 async fn check_primary_for_stale_empty(
     persons_writer: &PostgresWriter,
     team_id: TeamId,
-    distinct_id_and_hash_key_override: &[String],
+    distinct_id_and_hash_key_override: Vec<String>,
     any_distinct_id_found_on_replica: bool,
+    task_cap: Option<Duration>,
 ) {
-    let check = primary_has_override(persons_writer, team_id, distinct_id_and_hash_key_override);
+    let check = run_persons_db_operation(
+        persons_writer,
+        pool_names::PERSONS_WRITER,
+        // Its own operation name, so these stay out of the served read's metrics.
+        "get_feature_flag_hash_key_overrides_replica_check",
+        task_cap,
+        move |conn| {
+            Box::pin(async move {
+                primary_has_override(conn, team_id, &distinct_id_and_hash_key_override).await
+            })
+        },
+    );
 
     // Both booleans test "any requested distinct ID", not one specific person, so with several
     // distinct IDs (the $anon_distinct_id case) the split between the two disagree buckets is
@@ -1193,19 +1173,11 @@ const PERSONS_WITH_EXISTING_OVERRIDES_QUERY: &str = r#"
 
 /// Asks the primary whether any override exists for these distinct IDs.
 async fn primary_has_override(
-    persons_writer: &PostgresWriter,
+    conn: &mut PgConnection,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<bool, FlagError> {
-    let mut conn = get_connection_with_metrics(
-        persons_writer,
-        pool_names::PERSONS_WRITER,
-        // Its own operation name, so these stay out of the served read's metrics.
-        "get_feature_flag_hash_key_overrides_replica_check",
-    )
-    .await?;
-
-    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
+    let rows = fetch_override_rows(conn, team_id, distinct_id_and_hash_key_override).await?;
 
     Ok(rows.iter().any(|row| row_override(row).is_some()))
 }
@@ -1520,6 +1492,7 @@ pub async fn should_write_hash_key_override(
     team_id: TeamId,
     distinct_id: String,
     hash_key_override: String,
+    task_cap: Option<Duration>,
 ) -> Result<bool, FlagError> {
     let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
@@ -1532,10 +1505,68 @@ pub async fn should_write_hash_key_override(
         team_id,
         db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
         retry_delays,
-        || try_should_write_hash_key_override(router, team_id, &distinct_ids),
+        || try_should_write_hash_key_override(router, team_id, &distinct_ids, task_cap),
         |_| {},
     )
     .await
+}
+
+/// Reads the persons that own these distinct IDs and their existing hash key overrides.
+async fn fetch_person_data_with_overrides(
+    persons_conn: &mut PgConnection,
+    team_id: TeamId,
+    distinct_ids: &[String],
+) -> Result<Vec<PgRow>, FlagError> {
+    let person_query_labels = [
+        (
+            "query".to_string(),
+            "person_data_with_overrides".to_string(),
+        ),
+        ("operation".to_string(), "should_write_check".to_string()),
+        ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
+        ("team_id".to_string(), team_id.to_string()),
+    ];
+    let person_query_timer =
+        common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
+    let person_data_rows = sqlx::query(PERSONS_WITH_EXISTING_OVERRIDES_QUERY)
+        .bind(team_id)
+        .bind(distinct_ids)
+        .bind(COOKIELESS_SENTINEL_VALUE)
+        .fetch_all(&mut *persons_conn)
+        .await
+        .map_err(|e| {
+            // Track timeout errors with detailed context
+            if common_database::is_timeout_error(&e) {
+                let timeout_type =
+                    common_database::extract_timeout_type(&e).unwrap_or("unknown_timeout");
+
+                common_metrics::inc(
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[
+                        ("error_type".to_string(), "timeout".to_string()),
+                        ("timeout_type".to_string(), timeout_type.to_string()),
+                        ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
+                        (
+                            "operation".to_string(),
+                            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
+                        ),
+                    ],
+                    1,
+                );
+
+                warn!(
+                    team_id = %team_id,
+                    pool = pool_names::PERSONS_READER,
+                    timeout_type = timeout_type,
+                    error = ?e,
+                    "Query timed out on persons_reader pool"
+                );
+            }
+            FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
+        })?;
+    person_query_timer.fin();
+
+    Ok(person_data_rows)
 }
 
 /// Internal function that performs the actual hash key override check.
@@ -1544,6 +1575,7 @@ async fn try_should_write_hash_key_override(
     router: &PostgresRouter,
     team_id: TeamId,
     distinct_ids: &[String],
+    task_cap: Option<Duration>,
 ) -> Result<bool, FlagError> {
     // Query 1: Get person_ids and existing overrides from person pool in one shot
 
@@ -1583,77 +1615,19 @@ async fn try_should_write_hash_key_override(
     }
 
     // Step 1: Get person data and existing overrides (scoped connection)
-    let person_data_rows = {
-        let persons_conn_start = Instant::now();
-        let mut persons_conn = get_connection_with_metrics(
-            router.get_persons_reader(),
-            pool_names::PERSONS_READER,
-            "should_write_check",
-        )
-        .await
-        .map_err(FlagError::from)?;
-        let persons_conn_acquisition_time = persons_conn_start.elapsed();
-
-        if persons_conn_acquisition_time > Duration::from_millis(100) {
-            warn!(
-                team_id = %team_id,
-                pool = pool_names::PERSONS_READER,
-                acquisition_ms = persons_conn_acquisition_time.as_millis(),
-                "Slow connection acquisition from persons_reader pool"
-            );
-        }
-
-        let person_query_labels = [
-            (
-                "query".to_string(),
-                "person_data_with_overrides".to_string(),
-            ),
-            ("operation".to_string(), "should_write_check".to_string()),
-            ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
-            ("team_id".to_string(), team_id.to_string()),
-        ];
-        let person_query_timer =
-            common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-        let person_data_rows = sqlx::query(PERSONS_WITH_EXISTING_OVERRIDES_QUERY)
-            .bind(team_id)
-            .bind(distinct_ids)
-            .bind(COOKIELESS_SENTINEL_VALUE)
-            .fetch_all(&mut *persons_conn)
-            .await
-            .map_err(|e| {
-                // Track timeout errors with detailed context
-                if common_database::is_timeout_error(&e) {
-                    let timeout_type =
-                        common_database::extract_timeout_type(&e).unwrap_or("unknown_timeout");
-
-                    common_metrics::inc(
-                        FLAG_DATABASE_ERROR_COUNTER,
-                        &[
-                            ("error_type".to_string(), "timeout".to_string()),
-                            ("timeout_type".to_string(), timeout_type.to_string()),
-                            ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
-                            (
-                                "operation".to_string(),
-                                db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
-                            ),
-                        ],
-                        1,
-                    );
-
-                    warn!(
-                        team_id = %team_id,
-                        pool = pool_names::PERSONS_READER,
-                        timeout_type = timeout_type,
-                        error = ?e,
-                        "Query timed out on persons_reader pool"
-                    );
-                }
-                FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
-            })?;
-        person_query_timer.fin();
-
-        person_data_rows
-    };
+    let owned_distinct_ids = distinct_ids.to_vec();
+    let person_data_rows = run_persons_db_operation(
+        router.get_persons_reader(),
+        pool_names::PERSONS_READER,
+        "should_write_check",
+        task_cap,
+        move |persons_conn| {
+            Box::pin(async move {
+                fetch_person_data_with_overrides(persons_conn, team_id, &owned_distinct_ids).await
+            })
+        },
+    )
+    .await?;
 
     // If no person_ids found, there's nothing to check
     if person_data_rows.is_empty() {
@@ -2325,6 +2299,7 @@ mod tests {
             team.id,
             "should_write_user".to_string(),
             "hash_key_1".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -2349,6 +2324,7 @@ mod tests {
             team.id,
             "should_write_user".to_string(),
             "hash_key_1".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -2365,6 +2341,7 @@ mod tests {
             team.id,
             "non_existent_user".to_string(),
             "hash_key_2".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -2481,7 +2458,8 @@ mod tests {
             .unwrap();
         }
 
-        let found = primary_has_override(&context.persons_writer, team.id, &[distinct_id])
+        let mut conn = context.persons_writer.get_connection().await.unwrap();
+        let found = primary_has_override(&mut conn, team.id, &[distinct_id])
             .await
             .unwrap();
 
@@ -2729,6 +2707,7 @@ mod tests {
             client.clone(),
             1,
             vec!["user".to_string()],
+            None,
         )
         .await;
         assert!(read.is_err());
@@ -2744,9 +2723,14 @@ mod tests {
         assert!(write.is_err());
         assert_eq!(calls(), write_attempts, "write attempts");
 
-        let check =
-            should_write_hash_key_override(&router, 1, "user".to_string(), "hash".to_string())
-                .await;
+        let check = should_write_hash_key_override(
+            &router,
+            1,
+            "user".to_string(),
+            "hash".to_string(),
+            None,
+        )
+        .await;
         assert!(check.is_err());
         assert_eq!(calls(), check_attempts, "check attempts");
 
@@ -2796,6 +2780,7 @@ mod tests {
             client.clone(),
             1,
             vec!["user".to_string()],
+            None,
         )
         .now_or_never();
 
@@ -3257,6 +3242,8 @@ mod tests {
         let result = PersonCohortResult {
             person: Some(person),
             cohort_matches: None,
+            person_query_time: Duration::ZERO,
+            cohort_query_time: None,
         };
 
         apply_person_cohort_to_state(&mut state, result);

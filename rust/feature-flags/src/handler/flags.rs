@@ -405,6 +405,7 @@ pub async fn evaluate_for_request(
             only_use_override_person_properties: only_use_override_person_properties
                 .unwrap_or(false),
             persons_db_deadline: persons_db_deadline.map(|deadline| deadline.at),
+            persons_db_task_cap: state.config.persons_db_task_cap(),
             fail_on_realtime_cohort_lookup_error: *state.config.persons_db_gate_enabled,
         };
 

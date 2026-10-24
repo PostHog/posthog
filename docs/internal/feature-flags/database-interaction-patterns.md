@@ -153,6 +153,22 @@ The same switch makes a failed realtime cohort lookup fail the flags that target
 The gate emits `db_gate_rejected_total` (`pool`, `reason`), `db_gate_breaker_state` (`pool`; 0 closed, 1 half-open, 2 open), and `db_gate_breaker_transitions_total` (`pool`, `to`).
 Keep the persons statement timeouts below the deadline so that Postgres cancels ordinary slow queries before the deadline drops them.
 
+### Persons DB tasks
+
+`PERSONS_DB_OWNED_TASKS_ENABLED` (default `false`) runs each persons DB read in its own task: the person and static cohort read, the group properties read, the hash key override check and read, and the sampled replica staleness check.
+`run_persons_db_operation` in `src/database/persons_db_task.rs` acquires the connection and runs the query in that task.
+The task owns the connection and the operation gate slot.
+
+- The request waits for the task until the persons DB deadline. At the deadline, the request stops waiting, but the task goes on. A late answer then returns the connection to the pool in a clean state.
+- A task stops after `PERSONS_DB_TASK_CAP_MS` (default 5000ms), counted from the start of the acquire. When the cap passes during the query, the task detaches the connection from the pool and closes its socket, with no release ping. The request sees `timeout:persons_db_task_cap` if it still waits.
+- The task reports its outcome to the operation gate: a failure for a cap that passes, a failed acquire, or a lost connection, and a success for any other result, query errors included.
+- With the switch on, the persons reader and writer pools keep at least one connection (`MIN_PERSONS_READER_CONNECTIONS`, `MIN_PERSONS_WRITER_CONNECTIONS` floor at 1). sqlx then opens a replacement for a closed connection in the background, not on the request path.
+- A spawned task does not inherit the request's canonical log scope. Each read returns its query times, and the caller writes them to the canonical log.
+- Hash key override writes and the group type mapping fetch do not use these tasks.
+- sqlx's release ping after a query that completes is outside the task and has no deadline. A stall that starts in that short window holds the connection until the database answers again.
+
+Capped tasks increment `flags_persons_db_task_capped_total` (`pool`, `operation`, `stage` = `acquire` or `query`).
+
 ### Total connection count
 
 ```text
@@ -456,6 +472,8 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
 | `PERSONS_DB_DEADLINE_RESERVE_MS`            | 500      | Time left for the rest of the request after that deadline        |
 | `PERSONS_DB_GATE_ENABLED`                   | false    | Operation gate and circuit breaker on the persons pools          |
+| `PERSONS_DB_OWNED_TASKS_ENABLED`            | false    | Run persons DB reads in tasks that the deadline does not cancel  |
+| `PERSONS_DB_TASK_CAP_MS`                    | 5000     | Cap on one persons DB task (acquire plus query)                  |
 
 ### Tuning guidance
 

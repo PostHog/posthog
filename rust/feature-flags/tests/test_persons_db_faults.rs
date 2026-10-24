@@ -202,6 +202,41 @@ async fn person_flags_fail_at_the_deadline_when_replies_arrive_late() -> Result<
 
 #[tokio::test]
 #[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+async fn owned_tasks_replace_a_held_connection_at_the_cap_while_the_fault_lasts() -> Result<()> {
+    let context = TestContext::new(None).await;
+    let (team, _) = insert_team_with_flags(&context).await?;
+    let proxy = PersonsDbProxy::start().await?;
+    let deadline = Duration::from_millis(500);
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.persons_read_database_url = proxy.url();
+    config.persons_db_deadline_ms = deadline.as_millis() as u64;
+    config.max_pg_connections = 1;
+    // Without the ping before each acquire, the fault holds a query that a task owns, and only
+    // the task cap can end it.
+    config.test_before_acquire = FlexBool(false);
+    config.persons_db_owned_tasks_enabled = FlexBool(true);
+    config.persons_db_task_cap_ms = 1000;
+    let server = start_server(config, &team).await;
+
+    let (body, _) = evaluate(&server, &team).await?;
+    assert!(is_healthy(&body), "{body}");
+    // sqlx pings a connection after the query, when it returns the connection to the pool. That
+    // ping is outside the task and has no deadline, so the fault must start after it ends.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    proxy.hold_replies_on_open_connections();
+    assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
+        .await?;
+
+    // The proxy still holds the old connection. At the cap, its task closes it without a release
+    // ping, and the pool opens a new connection that the fault does not affect.
+    let recovered = assert_recovers(&server, &team).await;
+    proxy.resume();
+    recovered
+}
+
+#[tokio::test]
+#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
 async fn person_flags_fail_at_the_deadline_when_a_lock_wait_outlasts_it() -> Result<()> {
     let context = TestContext::new(None).await;
     let (team, person_id) = insert_team_with_flags(&context).await?;

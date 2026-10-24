@@ -109,6 +109,7 @@ pub enum FlagError {
     /// - `"protocol_timeout"` - PostgreSQL protocol timeout
     /// - `"client_timeout"` - Client-side tokio::timeout wrapper
     /// - `"persons_db_deadline"` - Deadline shared by all persons DB work in one flag evaluation
+    /// - `"persons_db_task_cap"` - Cap on one persons DB task (connection acquire plus query)
     /// - `"redis_timeout"` - Redis operation timeout
     /// - `"cache_timeout"` - Cache operation timeout
     /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
@@ -145,6 +146,7 @@ pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
 
 const TIMEOUT_CLIENT: &str = "client_timeout";
 const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
+const TIMEOUT_PERSONS_DB_TASK_CAP: &str = "persons_db_task_cap";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -235,6 +237,17 @@ impl FlagError {
 
     pub fn persons_db_deadline() -> Self {
         FlagError::TimeoutError(Some(TIMEOUT_PERSONS_DB_DEADLINE.to_string()))
+    }
+
+    pub fn persons_db_task_cap() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_PERSONS_DB_TASK_CAP.to_string()))
+    }
+
+    pub fn persons_db_task_failed(cause: impl Into<anyhow::Error>) -> Self {
+        FlagError::InternalError {
+            code: "persons_db_task_failed",
+            cause: cause.into().context("Persons DB task did not finish"),
+        }
     }
 
     pub fn is_persons_db_deadline(&self) -> bool {

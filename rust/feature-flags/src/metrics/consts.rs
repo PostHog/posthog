@@ -347,6 +347,10 @@ pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
 pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
 pub const FLAG_HASH_KEY_REPLICA_CHECK: &str = "flags_hash_key_override_replica_check_total";
 
+// Persons DB tasks that passed their cap and closed their connection.
+// Labels: pool, operation, stage="acquire" | "query"
+pub const FLAG_PERSONS_DB_TASK_CAPPED_COUNTER: &str = "flags_persons_db_task_capped_total";
+
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =

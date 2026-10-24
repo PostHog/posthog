@@ -40,6 +40,7 @@ pub async fn evaluate_feature_flags(
     .with_only_use_override_person_properties(context.only_use_override_person_properties)
     .with_timezone(context.team_timezone)
     .with_persons_db_deadline(context.persons_db_deadline)
+    .with_persons_db_task_cap(context.persons_db_task_cap)
     .with_fail_on_realtime_cohort_lookup_error(context.fail_on_realtime_cohort_lookup_error);
 
     matcher

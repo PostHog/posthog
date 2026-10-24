@@ -15,12 +15,15 @@ use crate::metrics::consts::{
 /// A wrapper around `PoolConnection<Postgres>` that tracks how long the connection is held.
 /// When dropped, it records the hold time to `flags_connection_hold_time_ms`.
 pub struct TrackedConnection {
-    conn: PoolConnection<Postgres>,
+    /// `None` only after `close_without_release_ping` takes the connection.
+    conn: Option<PoolConnection<Postgres>>,
     start: Instant,
     labels: [(String, String); 2],
     /// Holds the pool's operation gate slot until the caller drops the connection.
-    _permit: Option<GatePermit>,
+    permit: Option<GatePermit>,
 }
+
+const DETACHED: &str = "TrackedConnection is used after close_without_release_ping";
 
 impl TrackedConnection {
     fn new(
@@ -29,17 +32,41 @@ impl TrackedConnection {
         permit: Option<GatePermit>,
     ) -> Self {
         Self {
-            conn,
+            conn: Some(conn),
             start: Instant::now(),
             labels,
-            _permit: permit,
+            permit,
         }
     }
 
     /// Close on drop instead of returning to the pool: sqlx's return-to-pool path pings
     /// with no deadline, so abandoning a stalled connection would hold the pool slot.
     pub fn close_on_drop(&mut self) {
-        self.conn.close_on_drop();
+        self.conn.as_mut().expect(DETACHED).close_on_drop();
+    }
+
+    /// Reports the operation outcome to the pool's operation gate, if it has one. Only the
+    /// first report counts.
+    pub fn record_gate_outcome(&mut self, success: bool) {
+        if let Some(permit) = self.permit.as_mut() {
+            if success {
+                permit.record_success();
+            } else {
+                permit.record_failure();
+            }
+        }
+    }
+
+    /// Closes the connection at once and counts a gate failure. The pool does not ping the
+    /// connection and does not send a graceful Terminate, so a frozen database cannot hold the
+    /// pool slot. The pool opens a replacement in the background when `min_connections` is
+    /// above zero.
+    pub fn close_without_release_ping(mut self) {
+        self.record_gate_outcome(false);
+        if let Some(conn) = self.conn.take() {
+            // Dropping the detached connection closes its socket without a protocol message.
+            drop(conn.detach());
+        }
     }
 }
 
@@ -47,13 +74,13 @@ impl Deref for TrackedConnection {
     type Target = PgConnection;
 
     fn deref(&self) -> &Self::Target {
-        &self.conn
+        self.conn.as_ref().expect(DETACHED)
     }
 }
 
 impl DerefMut for TrackedConnection {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.conn
+        self.conn.as_mut().expect(DETACHED)
     }
 }
 
@@ -105,6 +132,27 @@ pub async fn get_connection_with_metrics(
     pool_name: &str,
     operation: &str,
 ) -> Result<TrackedConnection, CustomDatabaseError> {
+    let mut conn = acquire_tracked(client, pool_name, operation).await?;
+    conn.record_gate_outcome(true);
+    Ok(conn)
+}
+
+/// Like `get_connection_with_metrics`, but a successful acquire reports no gate outcome. The
+/// caller reports the outcome of the whole operation with `TrackedConnection::record_gate_outcome`.
+/// A connection that drops with no report counts as a gate failure.
+pub async fn get_connection_for_operation(
+    client: &Arc<dyn Client + Send + Sync>,
+    pool_name: &str,
+    operation: &str,
+) -> Result<TrackedConnection, CustomDatabaseError> {
+    acquire_tracked(client, pool_name, operation).await
+}
+
+async fn acquire_tracked(
+    client: &Arc<dyn Client + Send + Sync>,
+    pool_name: &str,
+    operation: &str,
+) -> Result<TrackedConnection, CustomDatabaseError> {
     // Allocate labels once, reuse everywhere
     let labels: [(String, String); 2] = [
         ("pool".to_string(), pool_name.to_string()),
@@ -121,7 +169,7 @@ pub async fn get_connection_with_metrics(
         gauge(FLAG_POOL_UTILIZATION_GAUGE, &labels[..1], utilization);
     }
 
-    let mut permit = match client.operation_gate() {
+    let permit = match client.operation_gate() {
         Some(gate) => Some(gate.enter().await?),
         None => None,
     };
@@ -145,11 +193,7 @@ pub async fn get_connection_with_metrics(
     }
 
     // On error, the permit drops here and the gate counts a failure.
-    let conn = result?;
-    if let Some(permit) = permit.as_mut() {
-        permit.record_success();
-    }
-    Ok(TrackedConnection::new(conn, labels, permit))
+    Ok(TrackedConnection::new(result?, labels, permit))
 }
 
 /// Acquires a writer database connection while tracking metrics.

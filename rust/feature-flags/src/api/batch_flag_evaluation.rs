@@ -664,7 +664,8 @@ async fn handle_batch_flag_evaluation(
                     .config
                     .persons_db_deadline(tokio::time::Instant::now(), None)
                     .map(|deadline| deadline.at),
-            );
+            )
+            .with_persons_db_task_cap(state.config.persons_db_task_cap());
 
             let flag_list = flag_list.clone();
             let target_key = target_key.clone();

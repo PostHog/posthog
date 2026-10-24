@@ -207,11 +207,16 @@ impl DatabasePools {
         let min_non_persons_writer_connections = config
             .min_non_persons_writer_connections
             .min(max_pg_connections);
+        // A persons DB task that passes its cap detaches its connection. sqlx opens a replacement
+        // in the background only when min_connections is above zero.
+        let min_persons_connections_floor = u32::from(*config.persons_db_owned_tasks_enabled);
         let min_persons_reader_connections = config
             .min_persons_reader_connections
+            .max(min_persons_connections_floor)
             .min(max_pg_connections);
         let min_persons_writer_connections = config
             .min_persons_writer_connections
+            .max(min_persons_connections_floor)
             .min(max_pg_connections);
 
         // Log warnings if we had to clamp any values

@@ -55,6 +55,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
@@ -485,6 +486,10 @@ pub struct FeatureFlagMatcher {
     /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
     /// each call bounded only by the pool acquire timeout and statement_timeout.
     persons_db_deadline: Option<Instant>,
+    /// When set, each persons DB read (properties, hash key override checks and reads, and the
+    /// replica staleness check) runs in its own task that stops after this long. The persons DB deadline then ends only the wait, not the
+    /// task. `None` runs them inline, and the deadline cancels them.
+    persons_db_task_cap: Option<Duration>,
     /// When true, a failed realtime cohort lookup fails the flags that target those cohorts.
     /// When false, those cohorts read as non-membership.
     fail_on_realtime_cohort_lookup_error: bool,
@@ -610,6 +615,7 @@ impl FeatureFlagMatcher {
             timezone: Tz::UTC,
             now: Utc::now(),
             persons_db_deadline: None,
+            persons_db_task_cap: None,
             fail_on_realtime_cohort_lookup_error: false,
         }
     }
@@ -683,6 +689,11 @@ impl FeatureFlagMatcher {
     /// Gives all persons DB work in this evaluation one shared deadline.
     pub fn with_persons_db_deadline(mut self, deadline: Option<Instant>) -> Self {
         self.persons_db_deadline = deadline;
+        self
+    }
+
+    pub fn with_persons_db_task_cap(mut self, cap: Option<Duration>) -> Self {
+        self.persons_db_task_cap = cap;
         self
     }
 
@@ -870,6 +881,7 @@ impl FeatureFlagMatcher {
                 self.team_id,
                 self.distinct_id.clone(),
                 hash_key.clone(),
+                self.persons_db_task_cap,
             ),
         )
         .await
@@ -957,6 +969,7 @@ impl FeatureFlagMatcher {
                 self.router.get_persons_writer().clone(),
                 self.team_id,
                 target_distinct_ids,
+                self.persons_db_task_cap,
             ),
         )
         .await
@@ -2927,6 +2940,7 @@ impl FeatureFlagMatcher {
                 self.team_id,
                 &group_data,
                 static_cohort_ids,
+                self.persons_db_task_cap,
             ),
         )
         .await
@@ -3195,6 +3209,7 @@ impl FeatureFlagMatcher {
                                 self.router.get_persons_writer().clone(),
                                 self.team_id,
                                 vec![self.distinct_id.clone()],
+                                self.persons_db_task_cap,
                             ),
                         )
                         .await

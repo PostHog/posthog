@@ -500,6 +500,19 @@ pub struct Config {
     #[envconfig(from = "PERSONS_WRITER_GATE_MIN_CALLS", default = "20")]
     pub persons_writer_gate_min_calls: u32,
 
+    // Runs each persons DB read in its own task: person, cohort and group properties, the hash
+    // key override check and read, and the sampled replica staleness check. Hash key override
+    // writes still run inline. The task owns its connection and its operation gate slot. At the
+    // persons DB deadline, the request stops waiting, but the task goes on, so a late answer
+    // returns the connection to the pool cleanly. A task stops after PERSONS_DB_TASK_CAP_MS and
+    // closes its connection with no release ping. The persons pools then keep at least one
+    // connection open, so the pool opens a replacement in the background, not on the request path.
+    #[envconfig(from = "PERSONS_DB_OWNED_TASKS_ENABLED", default = "false")]
+    pub persons_db_owned_tasks_enabled: FlexBool,
+
+    #[envconfig(from = "PERSONS_DB_TASK_CAP_MS", default = "5000")]
+    pub persons_db_task_cap_ms: u64,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -1319,6 +1332,8 @@ impl Config {
             persons_reader_gate_min_calls: 50,
             persons_writer_gate_window_secs: 30,
             persons_writer_gate_min_calls: 20,
+            persons_db_owned_tasks_enabled: FlexBool(false),
+            persons_db_task_cap_ms: 5000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1491,6 +1506,13 @@ impl Config {
             ),
             jitter_override: None,
         }
+    }
+
+    /// The cap on one persons DB task, or `None` when persons DB operations run inline.
+    pub fn persons_db_task_cap(&self) -> Option<std::time::Duration> {
+        self.persons_db_owned_tasks_enabled
+            .0
+            .then(|| std::time::Duration::from_millis(self.persons_db_task_cap_ms.max(1)))
     }
 
     /// The instant when all persons DB work in one flag evaluation stops and the limit that set it,
