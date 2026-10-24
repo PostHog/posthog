@@ -82,6 +82,7 @@ from products.tasks.backend.constants import (
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    FINAL_MESSAGE_MAX_CHARS,
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -155,6 +156,7 @@ from products.tasks.backend.models import (
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
     TASK_RUN_TAGS_STATE_KEY,
     Channel,
@@ -3056,6 +3058,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "slack_actor_slack_user_id",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
+        # Set only when the agent's `finish` call saves its report. A forged marker would stop the
+        # relay from saving the run's final message and make readers trust a caller-written one.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     }
 )
 
@@ -3087,6 +3092,18 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
 # PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
 # go through `_merge_caller_output`, not merge caller output directly.
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _carries_final_message(validated_data: dict) -> bool:
+    output = validated_data.get("output")
+    return isinstance(output, dict) and isinstance(output.get("final_message"), str) and bool(output["final_message"])
+
+
+def is_finish_report_output(output: object) -> bool:
+    if not isinstance(output, dict) or set(output) != {"final_message"}:
+        return False
+    report = output["final_message"]
+    return isinstance(report, str) and 0 < len(report) <= FINAL_MESSAGE_MAX_CHARS
 
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
@@ -3659,6 +3676,16 @@ def update_task_run(
             run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
             update_fields.add("state")
         if (
+            caller_is_agent
+            and new_status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED}
+            and old_status != new_status
+            and _carries_final_message(validated_data)
+        ):
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": output["final_message"][:FINAL_MESSAGE_MAX_CHARS]}
+            run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
+            update_fields.update({"output", "state"})
+        elif (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
             and old_status != new_status

@@ -663,6 +663,7 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                finish_report=refreshed.finish_report,
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -688,6 +689,7 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            finish_report=refreshed.finish_report,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -870,6 +872,7 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    finish_report: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -885,12 +888,16 @@ async def _drain_final_log(
     it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
+
+    A report the agent passed to `finish` wins over the log, because the run ends before the turn
+    that carries it, so the log can hold only the commentary that came before it.
     """
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_state.last_message:
+    last_message = finish_report or final_state.last_message
+    if last_message:
         return TurnPollResult(
-            last_message=final_state.last_message,
+            last_message=last_message,
             full_log=final_state.full_log,
             total_lines=final_state.total_lines,
             printed_lines=printed_lines,
