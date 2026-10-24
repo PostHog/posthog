@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any, Literal
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Case, IntegerField, Max, Q, Value, When
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -415,19 +415,20 @@ class EntitySearchContext:
         ]
 
     async def list_feature_flags(
-        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None, search: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """
         List feature flags, newest first, surfacing each flag's status so stale flags can be
         identified without reading them one by one. `active_filter` ("STALE"/"true"/"false")
-        reuses the same backend filter as the feature_flags API.
+        reuses the same backend filter as the feature_flags API. `search` keeps flags whose key
+        or name contains it, with an exact key match first.
         """
         return await database_sync_to_async(self._list_feature_flags_sync, thread_sensitive=False)(
-            limit, offset, active_filter
+            limit, offset, active_filter, search
         )
 
     def _list_feature_flags_sync(
-        self, limit: int = 100, offset: int = 0, active_filter: str | None = None
+        self, limit: int = 100, offset: int = 0, active_filter: str | None = None, search: str | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         # Stricter than filter_queryset_by_access_level's fail-closed baseline: a caller without
         # feature flag access gets nothing, not even flags they created (also reachable via list_data).
@@ -439,7 +440,19 @@ class EntitySearchContext:
         )
         if active_filter is not None:
             queryset = filter_flags_by_active_param(queryset, active_filter)
-        queryset = queryset.order_by("-updated_at")
+        search = search.strip() if search else ""
+        if search:
+            queryset = (
+                queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+                .annotate(
+                    exact_key_match=Case(
+                        When(key__iexact=search, then=Value(0)), default=Value(1), output_field=IntegerField()
+                    )
+                )
+                .order_by("exact_key_match", "-updated_at")
+            )
+        else:
+            queryset = queryset.order_by("-updated_at")
 
         total_count = queryset.count()
         flags = list(queryset[offset : offset + limit])
