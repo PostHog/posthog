@@ -12,8 +12,9 @@ import { formatCredits } from 'products/replay_vision/frontend/utils/credits'
 
 import { flagAggregatesByGroup } from '../../replayVisionScanner'
 import { experimentWizardLogic } from '../experimentWizardLogic'
-import { ReplayVisionScannerCard, type ReplayVisionScannerOptionProps } from './ReplayVisionScannerCard'
+import { ReplayVisionScannerCard } from './ReplayVisionScannerCard'
 import { ReplayVisionScannerCheckbox } from './ReplayVisionScannerCheckbox'
+import type { ReplayVisionScannerOptionProps } from './types'
 
 /** Turning this on opts the experiment into a Replay Vision scanner, created at save. The scanner
  * endpoint refuses without org AI approval, so turning it on without consent opens the consent popover

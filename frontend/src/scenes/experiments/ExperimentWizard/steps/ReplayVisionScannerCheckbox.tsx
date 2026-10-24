@@ -1,7 +1,7 @@
 import { IconSparkles } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
-import type { ReplayVisionScannerOptionProps } from './ReplayVisionScannerCard'
+import type { ReplayVisionScannerOptionProps } from './types'
 
 export function ReplayVisionScannerCheckbox({
     checked,

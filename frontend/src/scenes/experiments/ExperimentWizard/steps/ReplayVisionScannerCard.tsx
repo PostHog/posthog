@@ -6,14 +6,9 @@ import { pngHoggie } from 'lib/brand/hoggies'
 
 import { VisionDocsLink } from 'products/replay_vision/frontend/components/DocsLink'
 
-const HedgehogXRay = pngHoggie(xRayPng)
+import type { ReplayVisionScannerOptionProps } from './types'
 
-export interface ReplayVisionScannerOptionProps {
-    checked: boolean
-    onChange: (checked: boolean) => void
-    disabledReason?: string
-    sessionPrice: string
-}
+const HedgehogXRay = pngHoggie(xRayPng)
 
 export function ReplayVisionScannerCard({
     checked,
