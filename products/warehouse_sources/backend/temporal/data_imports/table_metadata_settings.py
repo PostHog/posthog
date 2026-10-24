@@ -9,6 +9,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsWorkflow,
     compute_table_statistics_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
+    CrawlWarehouseMigrationWorkflow,
+    crawl_warehouse_migration_activity,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsWorkflow,
     enrich_table_semantics_activity,
@@ -17,9 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 WORKFLOWS = [
     EnrichTableSemanticsWorkflow,
     ComputeTableStatisticsWorkflow,
+    CrawlWarehouseMigrationWorkflow,
 ]
 
 ACTIVITIES = [
     enrich_table_semantics_activity,
     compute_table_statistics_activity,
+    crawl_warehouse_migration_activity,
 ]
