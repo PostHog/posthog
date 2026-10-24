@@ -69,3 +69,19 @@ export interface SetupHighlight {
     /** Route the highlight belongs to - the highlight drops when the user leaves it */
     pathname: string
 }
+
+/** Where the quick start trigger is rendered */
+export type QuickStartSurface = 'scene_title' | 'today_top_bar'
+
+/** How the user opened the quick start popover */
+export type QuickStartOpenSource = 'button' | 'shortcut'
+
+export interface QuickStartTrigger {
+    surface: QuickStartSurface
+    minimized: boolean
+    remainingCount: number
+}
+
+export interface QuickStartOpenTrigger extends QuickStartTrigger {
+    source: QuickStartOpenSource
+}

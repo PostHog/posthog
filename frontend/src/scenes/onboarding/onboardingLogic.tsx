@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
+import type { QuickStartOpenTrigger } from 'lib/components/ProductSetup/types'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils/guards'
@@ -114,8 +115,8 @@ export interface onboardingLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    openGlobalSetup: () => {
-        value: true
+    openGlobalSetup: (trigger?: QuickStartOpenTrigger | undefined) => {
+        trigger: QuickStartOpenTrigger | null
     } // globalSetupLogic
     openSidePanel: (
         tab: SidePanelTab,
