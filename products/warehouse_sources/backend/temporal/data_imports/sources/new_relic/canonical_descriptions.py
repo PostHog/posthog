@@ -92,7 +92,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "timestamp": "Wall clock time of the issue event.",
             "issueId": "Unique identifier of the issue.",
-            "event": "Issue lifecycle event, e.g. INCIDENT_ADDED, USER_ACTION, or INCIDENT_CLOSED.",
+            "event": "Issue lifecycle event, e.g. create, activate, acknowledge, or close.",
             "activateTime": "Time the issue was activated.",
             "acknowledgeTime": "Time the issue was acknowledged, if applicable.",
             "closeTime": "Time the issue closed, if applicable.",

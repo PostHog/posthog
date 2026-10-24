@@ -8353,7 +8353,7 @@ Note: Official OpenAPI 2.0 spec (open-api.netlify.com/swagger.json, ~700 KB). Ho
 
 ## NewRelic — gaps
 
-Today (8): `alert_conditions`, `alert_policies`, `entities`, `logs`, `page_views`, `spans`, `transaction_errors`, `transactions`
+Today (11): `alert_conditions`, `alert_incidents`, `alert_issues`, `alert_policies`, `entities`, `javascript_errors`, `logs`, `page_views`, `spans`, `transaction_errors`, `transactions`
 
 Diffed against: <https://docs.newrelic.com/attribute-dictionary/>
 
