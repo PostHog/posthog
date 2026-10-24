@@ -10,7 +10,7 @@ PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all lin
 A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
 
-Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
+Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished and runs no follow-up checks. This includes stored Monitoring reports whose effective status becomes Resolved when the flag is disabled or unavailable. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
 
 A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
 
@@ -66,9 +66,9 @@ Report reads, research selection, and snapshot refresh use the same filter check
 Snapshot refresh still requires access to both the live query and the shared measurement.
 A viewer with a property grant can read the live query while the team's default property restrictions keep the shared snapshot hidden.
 
-Research writes measurable outcome goals as `metric_threshold` report checks and investigative goals as `agent` checks. A metric check stores a bounded live query, baseline, comparison, and soak window; the query and display format are copied from its report metric when it names one. The check waits for the report to resolve, then the coordinator runs it and records a verdict. Metric checks keep the configured soak separate from their query window and wait until that full window contains only post-resolution data. Each run pins absolute query bounds to avoid reusing a pre-resolution cached result. Reopening clears the measurement start; the next resolution starts it again. Existing active metric checks without a recorded start begin their window at the first coordinator tick. New metric checks validate count, rate, duration, baseline, and threshold values using the same rules as report metrics; existing configurations remain readable. A later research pass reviews every open check, preserves unchanged checks and their approvals, replaces changed checks, and retires omitted checks. A failed verification turn leaves existing checks alone. Verification can revise only Expected impact; other summary sections and their chart links must remain intact. The full replacement schedule, including its soak and measurement window, must finish before the 90-day horizon. The Follow-up checks sidebar shows schedules and results for both kinds. The Expected impact section uses the same metric checks to show goals and charts, behind the person-level `signals-expected-impact` display flag. A person can mark those measurements "Looks good" as a quality signal; approval does not control scheduling or execution. The "Suggest different metrics" action starts a discussion that can atomically replace relevant open metric checks while preserving unrelated checks. A failed replacement leaves the original running, and a successful replacement starts unapproved. Report observation metrics remain separate from these forward-looking checks.
+Research writes measurable outcome goals as `metric_threshold` report checks and investigative goals as `agent` checks. A metric check stores a bounded live query, baseline, comparison, and soak window; the query and display format are copied from its report metric when it names one. Checks execute only during enabled Monitoring. The coordinator records interim metric observations within each check's soak window; final metric and authored agent verification remain separate work. Resolving a report stops execution, including recurrence checks. Historical results remain readable. New metric checks validate count, rate, duration, baseline, and threshold values using the same rules as report metrics; existing configurations remain readable. A later research pass reviews every open check, preserves unchanged checks and their approvals, replaces changed checks, and retires omitted checks. A failed verification turn leaves existing checks alone. Verification can revise only Expected impact; other summary sections and their chart links must remain intact. The full replacement schedule, including its soak and measurement window, must finish before the 90-day horizon. The Follow-up checks sidebar shows schedules and results for both kinds. The Expected impact section uses the same metric checks to show goals and charts, behind the person-level `signals-expected-impact` display flag. A person can mark those measurements "Looks good" as a quality signal; approval does not control scheduling or execution. The "Suggest different metrics" action starts a discussion that can atomically replace relevant open metric checks while preserving unrelated checks. A failed replacement leaves the original running, and a successful replacement starts unapproved. Report observation metrics remain separate from these forward-looking checks.
 
-Reports awaiting human input also retain their generated checks, pending resolution. Pending sidebar rows show the minimum wait after resolution. Metric replacements require access to the query they schedule and preserve the remaining recurring runs and soak duration, including zero minutes. Replacement cannot override the soak. Creation and replacement share full schedule validation against the 90-day horizon. A replacement rejects a check moved by a concurrent report merge; reload the report and retry on the survivor. Units cannot contain null characters or unpaired Unicode surrogates. The Expected impact section shows finished verdicts and refreshes after agent tasks change checks.
+Reports awaiting human input retain their generated checks for a later Monitoring period. Outside Monitoring, open checks display as paused in the Follow-up checks sidebar. Expected impact retains proposed or approved measurement labels before Monitoring, and shows paused checks on resolved or archived reports, including when the rollout is disabled. Stored schedules do not advertise future runs or active scouts. Historical verdicts and legacy schedule fields remain readable; remaining-run counts do not authorize post-resolution execution. Metric replacements require access to the query they schedule and preserve the remaining recurring runs and soak duration, including zero minutes. Replacement cannot override the soak. Creation and replacement share full schedule validation against the 90-day horizon. A replacement rejects a check moved by a concurrent report merge; reload the report and retry on the survivor. Units cannot contain null characters or unpaired Unicode surrogates. The Expected impact section shows finished verdicts and refreshes after agent tasks change checks.
 
 The `inbox-report-checks-replace` MCP tool requires `task:write` and `query:read`. Query-specific event, action, and cohort permissions still apply. The `signals-report-checks-replace` rollout flag hides the tool unless enabled. Keep it disabled until the replacement API is deployed in every region. This gate is separate from the Expected impact display flag.
 
@@ -94,15 +94,15 @@ Research should make every effort to complete `config.monitoring` for each metri
 
 The definition describes a measurement from Monitoring start through the observation time. A `linear` target scales by elapsed minutes divided by reference minutes and requires a single additive event count or property sum without a formula. Session-level sums are excluded because a session can contribute to more than one chart bucket. A `fixed` target keeps its bound as the observation period grows, including for percentages, averages, distinct counts, or explicitly fixed custom targets. Rolling weekly and monthly active-user queries are refused because their lookback overrides the Monitoring bounds; use a distinct user count instead. Display format alone never selects the policy. The baseline retains its own measured period and is not presented as an observation from Monitoring.
 
-Expected impact keeps the activity chart visible and collapses the target period, scaling policy, baseline, and check timing under measurement details. Dynamic chart boundaries refresh at minute intervals so repeated views can reuse cached results. Bucket granularity follows the full displayed range and stays within the 1,000-point budget. The chart preserves date-range filters and spans one reference period on each side of Monitoring start, or now before Monitoring starts, extending through now if necessary. Start and now markers separate the surrounding activity from future dates, whose values remain empty. Compatible charts show target reference lines: additive linear targets scale to a full chart bucket, and fixed rates or property averages/quantiles retain their level. Fixed totals, distinct counts, unknown aggregations, linear calendar intervals longer than a day, and linear day buckets with unequal daylight-saving durations receive no reference line. These references do not impose per-bucket pass/fail rules. This read-time chart does not evaluate the Monitoring target or save a check result. The stored bounded query and whole-window comparison retain their existing Resolved execution meaning. Final Monitoring outcomes remain separate work.
+Expected impact keeps the activity chart visible and collapses the target period, scaling policy, baseline, and check timing under measurement details. Dynamic chart boundaries refresh at minute intervals so repeated views can reuse cached results. Bucket granularity follows the full displayed range and stays within the 1,000-point budget. The chart preserves date-range filters and spans one reference period on each side of Monitoring start, or now before Monitoring starts, extending through now if necessary. Start and now markers separate the surrounding activity from future dates, whose values remain empty. Compatible charts show target reference lines: additive linear targets scale to a full chart bucket, and fixed rates or property averages/quantiles retain their level. Fixed totals, distinct counts, unknown aggregations, linear calendar intervals longer than a day, and linear day buckets with unequal daylight-saving durations receive no reference line. These references do not impose per-bucket pass/fail rules. This read-time chart does not evaluate the Monitoring target or save a check result. The stored bounded query and whole-window comparison remain available for later final verification. Final Monitoring outcomes remain separate work.
 
 During Monitoring, checks with an explicit Monitoring definition sample at their configured run interval, or every 24 hours when none is set. The first observation is due one interval after Monitoring starts. Interim observations run only before Monitoring start plus the check's `soak_minutes`. The full trailing query window does not delay them. Interim queries explicitly use the offline ClickHouse workload; interactive metric refreshes retain their default workload. The next due time is capped at that soak deadline, but this PR does not execute a final check or conclude a report there. A missing or zero soak, or a soak no longer than the sampling interval, produces no interim observations. Each query pins both bounds to Monitoring start and one captured observation cutoff, preserving the population filters. Pinned ranges include partial periods so their bounds match the scaled target. Linear comparisons scale both bounds by elapsed time divided by the reference period, without rounding; fixed comparisons stay unchanged.
 
 Each completed attempt appends a protected `check_observation` log entry with its exact bounds, soak deadline, display format, unit, effective comparison, value, and match result, or a sanitized query error. The log labels it as an interim measurement, shows whether the goal is on track, and displays time remaining when the measurement was taken. It does not assign a terminal outcome. Observations do not spend `runs_remaining`, change the report status, or emit recurrence signals. The next sample is due one interval after the cutoff; missed intervals do not create catch-up runs. Restoring Monitoring schedules from the latest attempt in that period, preserving a failed attempt's error streak and six-hour retry across suppression. Re-enabling the flag restores the measurement origin, the next attempt from the latest run, and the expiry from the original Monitoring start. This repair precedes the expiry sweep so a fallback expiry cannot shorten or extend the Monitoring horizon. A check that cannot fit its source queries into the remaining coordinator budget stays due without an observation or an error-budget change. Query failures retain the existing six-hour retry and consecutive-error limit, and the 90-day check horizon still applies. Writes reject a changed check, Monitoring period, report state, or flag, and duplicate workers cannot save the same attempt twice. Expiry sweeps and schedule repairs retain their check-row concurrency guards after database lock waits, so they cannot overwrite a concurrent cancellation, expiry extension, or saved observation.
 
-With Monitoring disabled, observations disappear from the artefact API and counts. The existing Resolved executor uses the stored full-window query, comparison, and minimum soak. Observation values require the same query permissions as terminal check results. The inbox follows all artefact pages within the current project before deriving task runs, reviewers, and activity so observations cannot displace older report state. Polling waits for an in-flight paginated load to finish. With the Monitoring flag enabled, scouts see metric checks with an explicit definition as scheduled or due inside their Monitoring window; agent checks and metric checks without a definition remain paused until resolution. The soak deadline bounds interim execution; no final verdict, reopening, or follow-up report is added here.
+With Monitoring disabled, observations disappear from the artefact API and counts. No Resolved executor runs. The coordinator also leaves disabled or unavailable Monitoring periods dormant. Observation values require the same query permissions as terminal check results. The inbox follows all artefact pages within the current project before deriving task runs, reviewers, and activity so observations cannot displace older report state. Polling waits for an in-flight paginated load to finish. With the Monitoring flag enabled, scouts see metric checks with an explicit definition as scheduled or due inside their Monitoring window; agent checks and metric checks without a definition remain paused pending final verification support. The soak deadline bounds interim execution; no final verdict, reopening, or follow-up report is added here.
 
-Disabling Monitoring restores the legacy expiry for armed Monitoring metric checks from their existing measurement start and remaining schedule. The check saves this fallback deadline so further flag changes cannot shorten it after runs have been consumed or extend it after retries. Repair batches remember checks whose legacy expiry is also 90 days, allowing later checks to progress. Re-enabling restores the original horizon for active checks and leaves terminal checks unchanged. Archive and restore preserve the saved fallback deadline; reopening implementation clears it for the next period.
+Disabling Monitoring stops execution without starting a post-resolution schedule or recalculating a recurring deadline. Re-enabling restores the original Monitoring horizon for active checks and leaves terminal checks unchanged. Pending checks arm only during enabled Monitoring, using the original implementation-complete timestamp. Queued legacy check-triggered scout activities skip before starting agent work, and already-running legacy scouts cannot record a result through the check-result tool. Scout check lists mark these checks paused and do not advertise them as waiting on a run.
 
 With `signals-report-metrics` enabled, research gathers short-window baselines before verification and prefers metric-based follow-up checks. It aims for practical 70-80% confidence in improvement, without claiming a calculated confidence score. Observed volume, recurrence, ingestion delay, and deployment timing justify the shortest useful query and wait. Frequent or high-volume checks can use 4-8 hours, allowing for several hours of deployment delay before the fix reaches users. Around 24 hours or several days require the corresponding activity or rollout evidence. Agent checks remain available when interpretation or unsupported measurements prevent a useful metric check. Missing activity is not success. These prompt preferences do not change execution, schema defaults, or final outcomes.
 
@@ -112,7 +112,7 @@ Enabled research can author `run_interval_minutes` for a metric check with a Mon
 
 ### Evidence qualification contract
 
-`report_check_evidence.qualify_metric_evidence` is a pure contract for future final Monitoring evaluators. It has no production callers and changes neither Resolved execution nor interim observations. Qualification is independent of the target comparison: sufficient evidence can demonstrate a failed expectation, while a matching value with insufficient evidence cannot establish success.
+`report_check_evidence.qualify_metric_evidence` is a pure contract for future final Monitoring evaluators. It has no production callers and changes neither scheduling nor interim observations. Qualification is independent of the target comparison: sufficient evidence can demonstrate a failed expectation, while a matching value with insufficient evidence cannot establish success.
 
 The input `MetricEvidence` carries explicit aggregation semantics, a measured value, and optional activity or denominator counts. Every measurement has an `EvidenceScope` naming the team, relevant population, and the check's existing fixed window. Supporting counts used for qualification must match all three. For property sums, relevant activity counts valid property contributions. A trusted source adapter establishes the population key and relevance; an arbitrary metric label does not. This module neither derives relevance from query text nor executes queries.
 
@@ -152,9 +152,7 @@ against the linked GitHub PRs. The flag does not enable this backfill itself.
 
 ## Follow-up measurement timing
 
-Reopening or archiving a resolved report immediately parks its active checks and clears their measurement starts and dispatches. It resets both error and inconclusive retry streaks. Delayed resolution callbacks only arm checks while the report is still resolved. Results from an earlier measurement window or dispatch cannot update the current check.
-
-Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick and recalculate expiry from the remaining schedule, capped at 90 days from that tick. Legacy rows do not distinguish supplied expiries from defaults, so both follow this re-arming policy. Checks with an existing anchor retain their expiry. A window that cannot finish before expiry records an inconclusive result instead of scheduling an unreachable run. Agent checks keep their soak-based schedule.
+Reopening implementation clears the measurement anchor so a later Monitoring period starts fresh. Archiving parks active checks; restoring the same enabled Monitoring period preserves its original start and retry history. Delayed arming callbacks validate the current Monitoring period and never arm a Resolved report. Interim queries recheck the current report and flag before measuring, and saved observations reject stale report states or periods.
 
 New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
 
@@ -173,7 +171,11 @@ They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
-The existing limit remains three reviewers.
+Research and scouts check each candidate against the affected behavior or entity.
+For code reports, they inspect specific ownership rules and substantive implementation or review work.
+Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility.
+Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
+Recipients are ordered by relevance, with at most three. Agents can return fewer recipients or none when evidence is insufficient.
 
 A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
 An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
@@ -224,8 +226,13 @@ There is no separate assignment table, operation ledger, or writer service.
 
 The product goal is for human feedback to improve the next relevant assignment, including when another research or scout producer makes it.
 The shared write rules protect corrections on the current report. Existing notes, activity, and reviewer memory provide evidence for later selections.
-Research already reads recent corrections, and eligible reviewer edits can send notes to relevant scouts.
-Forwarding is best effort; permissions, identity coverage, retrieval, and agent judgment can each limit its effect.
+Research reads recent corrections. Eligible reviewer edits also send notes to the scouts that touched the report or hold the affected routing memory.
+The notes include members without GitHub accounts, identified by their PostHog user UUID.
+Repeat delivery is suppressed only for the same report and the latest action for that identity.
+A correction on another report, or a reversal, remains separate evidence.
+Scouts search relevant notes across producers before selection, through `scout-notes-list` without a `skill_name` filter.
+Research uses the same searchable notes. Both can inspect the source report and use the shared `reviewer:` memory.
+Forwarding is best effort; permissions, retrieval, and agent judgment can each limit its effect.
 Saving feedback alone does not establish that the next selection uses it.
 
 The first milestone is to correct an assignment, explain the intended ownership, and run selection on a new, related report through another producer.
@@ -237,6 +244,13 @@ Selection guidance and scoped memory should remain inspectable and tunable; acce
 A current-report correction is binding. On another report, it is scoped evidence with its source, date, and reason where available.
 Self-removal alone does not establish an ownership change or a global exclusion.
 Agents must not turn their own repeated selections into ownership evidence.
+
+Compare selection before and after prompt changes with the same saved inputs and model.
+The invented cases in `products/signals/backend/report_generation/fixtures/reviewer_selection_cases.json` cover specific ownership, team members, weak evidence, multiple roles, and scoped corrections.
+The cases with and without feedback differ only in the available correction. An unrelated correction must not change the selection.
+Check both the selected people and the sources cited in their reasons. Do not expose expected results to the model.
+A comparison with supplied evidence tests selection judgment, not whether an agent can find that evidence through tools.
+Live report samples must check retrieval and recipient suitability separately.
 
 The complete-loop trial remains pending. Measure feedback availability before selection, retrieval, use, the applied result, and repeated assignment errors.
 Distinguish unavailable feedback from feedback the agent considered but did not apply. Recipient review supplies the suitability judgment.
@@ -280,6 +294,8 @@ Clients can send explicit `targets` with an add/remove action while retaining a 
 Protected reports reject full replacements without state; older Desktop/mobile clients must update before rollout.
 
 Automatic results distinguish `selected`, `no_suitable_owner`, and `lookup_failed`.
+Generated clients omit `reviewer_outcome` unless the caller supplies it; the backend treats an omitted outcome as `selected` only while processing reviewer state.
+This keeps unrelated report edits compatible while the MCP server and API deploy separately.
 A deliberate empty result clears automatic recipients but retains pins and confirmed lists.
 Failed lookup or wholly invalid selection retains valid current recipients.
 Accepted recipients must be active members with project access.
@@ -301,7 +317,7 @@ flowchart LR
     C --> D[(suggested_reviewers)]
     D --> E[Inbox report]
     D --> F[Check personal settings, accounts, and GitHub access]
-    F --> G[First eligible recipient becomes PR owner]
+    F --> G[Assign or replace one PR owner]
     E --> H[Human edit and reason]
     H --> I[(Existing corrections and notes)]
     I --> A
@@ -325,14 +341,17 @@ The report remains the source of the assignment. Logs record unavailable account
 
 The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
 Queued work and retries use the current personal setting.
-Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+Each successful automatic assignment records its owner and origin. A later reviewer edit, claim, or verified PR refresh can reassess that owner.
+The worker replaces owners only when GitHub's current assignees exactly match its latest record; extra assignees, manual removal, and unknown-origin assignments remain authoritative.
+It adds the replacement before removing the previous automatic owner and stops if GitHub reports a concurrent assignee change.
+If no report recipient qualifies, it clears only its recorded automatic assignment. A failed eligibility lookup leaves the assignment unchanged.
+Incomplete human-edit history blocks automatic assignment.
 The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
 Claimants and suggested reviewers must be active project members to receive assignments or review requests.
-This first version selects an owner only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
-That work must preserve human GitHub changes and use the same ordered report candidates.
+
 GitHub's final read and write are not atomic, so a small external race remains.
 
-There is no separate PR model call, evidence collector, decision cache, or assignment artefact.
+There is no separate PR model call, evidence collector, or decision cache. The internal `pr_owner_assignment` artefact stores delivery provenance and is not writable through the generic API.
 The existing task permission checks remain separate. Report assignment does not authorize an agent to run under that person's account.
 GitHub review requests still use the current report list, subject to the existing request policy.
 
@@ -348,9 +367,9 @@ The live trial remains pending; automated delivery tests do not establish resear
 exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
 some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
 
-The PR worker uses current personal GitHub integrations and OAuth links. It does not use the team installer identity as a personal link or discover new accounts.
-Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
-and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
+The PR worker uses current personal GitHub integrations and OAuth links. Before assigning a linked account, it verifies the stable GitHub user ID against the repository collaborator record.
+The provenance record stores the link source, verification time, and a 30-day expiry. An expired proof is refreshed on the next reassessment trigger.
+It does not use the team installer identity as a personal link or discover new accounts. Similar names alone do not prove an identity.
 
 Access loss removes an ineligible report recipient on the next protected reviewer write. A team move with access retained changes selection evidence;
 it does not cancel a human pin. No general process currently finds and reassesses all old reports after organization changes.

@@ -8,6 +8,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import structlog
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
@@ -35,8 +36,11 @@ from products.signals.backend.anomaly_scores.config import (
     IntervalScoring,
     ScoringLimits,
     ScoringProfile,
+    ScoringRun,
     resolve_profile,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
@@ -75,12 +79,64 @@ class ScoredSeries:
 
 
 @frozen
+class SeriesWindow:
+    """The newest completed values of one series, oldest first. A score step reads them as the history of its new buckets."""
+
+    # Aware bucket start of the first value. Trends zero-fills buckets, so each next value is one interval later.
+    first_bucket: datetime
+    values: list[float]
+
+
+@frozen
+class StateIdentity:
+    """What a stored state was built from. A score step needs the same identity, or the visit trains."""
+
+    interval: IntervalType
+    detector_version: str
+    query_hash: str
+
+
+@frozen
+class TrainedState:
+    identity: StateIdentity
+    trained_at: datetime
+    # The newest scored bucket start over all series, or None when no series had a completed bucket.
+    scored_through: datetime | None
+    windows: dict[str, SeriesWindow]
+    # Stored series that the last score step did not get back.
+    missing_series: int = 0
+
+
+@frozen
+class SplitRun:
+    """A visit of the train and score split. A score step needs ``state``; with no matching state, the visit trains."""
+
+    refresh_buckets: int
+    state: TrainedState | None = None
+
+
+@frozen
 class InsightScores:
     interval: IntervalType
     profile: str
     detector: str
     detector_version: str
     series: list[ScoredSeries]
+    # None when the split is off. Then no state is stored.
+    run: ScoringRun | None = None
+    # The state for the next visit to store.
+    state: TrainedState | None = None
+    # Series of a score step with no stored window. A later train step scores them.
+    unmatched_series: int = 0
+
+
+@frozen
+class _FetchedSeries:
+    series_key: str
+    label: str
+    breakdown_value: str | None
+    values: list[float]
+    buckets: list[datetime]
 
 
 def _short_hash(payload: Any) -> str:
@@ -91,6 +147,15 @@ def _short_hash(payload: Any) -> str:
 def detector_version(scoring: IntervalScoring) -> str:
     """Identifies the scoring behavior, so scores from different settings are never mixed in one series."""
     return _short_hash(dataclasses.asdict(scoring))
+
+
+def query_hash(query: TrendsQuery, timezone: ZoneInfo, limits: ScoringLimits = DEFAULT_LIMITS) -> str:
+    """Identifies what the scoring query counts, without its date range, so an edited insight retrains."""
+    dumped = build_scoring_query(query, buckets=1, limits=limits).model_dump(mode="json", exclude_none=True)
+    # The fetch size changes with every visit. `daysOfWeek` stays, because it changes the buckets.
+    (dumped.get("dateRange") or {}).pop("date_from", None)
+    # Stored bucket starts step in wall-clock time, so a timezone change needs new windows.
+    return _short_hash({"query": dumped, "timezone": timezone.key})
 
 
 def series_key(insight_id: int, series_definition: dict[str, Any], breakdown_value: str | None) -> str:
@@ -116,7 +181,7 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
         # The chart has its own runner and shows hours of the week, not a time series.
         raise UnsupportedInsightError("Calendar heatmaps are not scored")
-    interval_scoring(profile, _interval(trends))
+    interval_scoring(profile, scoring_interval(trends))
     return trends
 
 
@@ -167,12 +232,13 @@ def buckets_to_score(
     return max(count, 1)
 
 
-def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int) -> int:
+def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int, *, history: int | None = None) -> int:
     """Completed buckets the scoring query fetches: the history of the oldest bucket to score, then the rest.
 
     The count has one bucket more than the scores read, so a first bucket that the date range cuts short is never read.
+    ``history`` replaces the detector history, for a score step that reads its history from the stored state.
     """
-    count = history_buckets(scoring) + to_score
+    count = (history_buckets(scoring) if history is None else history) + to_score
     smoothing = query.trendsFilter.smoothingIntervals if query.trendsFilter else None
     if smoothing and smoothing > _MAX_SMOOTHING_BUCKETS:
         # The field has no upper bound, and the fetch grows with it.
@@ -181,7 +247,7 @@ def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int) -
         # Trends smooths over the fetched buckets only, so the oldest values need their own trailing window.
         count += smoothing - 1
     days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
-    if days_of_week and _interval(query) == IntervalType.DAY:
+    if days_of_week and scoring_interval(query) == IntervalType.DAY:
         # Trends drops the buckets of the days that the filter leaves out.
         count = math.ceil(count * 7 / len(set(days_of_week)))
     return count
@@ -194,9 +260,12 @@ def build_scoring_query(query: TrendsQuery, buckets: int, limits: ScoringLimits 
     """
     days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
     update: dict[str, Any] = {
-        "dateRange": DateRange(date_from=f"-{buckets}{_DATE_UNITS[_interval(query)]}", daysOfWeek=days_of_week),
+        "dateRange": DateRange(date_from=f"-{buckets}{_DATE_UNITS[scoring_interval(query)]}", daysOfWeek=days_of_week),
         "compareFilter": None,
     }
+    if query.trendsFilter and query.trendsFilter.display == ChartDisplayType.METRIC:
+        # The runner adds the previous period for a Metric display. A line display returns the same buckets.
+        update["trendsFilter"] = query.trendsFilter.model_copy(update={"display": ChartDisplayType.ACTIONS_LINE_GRAPH})
     if has_breakdown_filter(query.breakdownFilter):
         lines_per_value = len(_formulas(query)) or len(query.series)
         breakdown_filter = query.breakdownFilter or BreakdownFilter()
@@ -218,6 +287,20 @@ def scoring_query_settings(queries: int) -> HogQLGlobalSettings:
         max_threads=8,
         # A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
         timeout_overflow_mode="throw",
+    )
+
+
+def supports_score_step(query: TrendsQuery) -> bool:
+    """A score step steps over stored buckets one interval at a time, so the buckets must have no gaps."""
+    # Trends drops the buckets of the days that the filter leaves out.
+    return not (query.dateRange and query.dateRange.daysOfWeek)
+
+
+def state_identity(query: TrendsQuery, scoring: IntervalScoring, team: Team, limits: ScoringLimits) -> StateIdentity:
+    return StateIdentity(
+        interval=scoring_interval(query),
+        detector_version=detector_version(scoring),
+        query_hash=query_hash(query, team.timezone_info, limits),
     )
 
 
@@ -277,6 +360,67 @@ def score_series(
     return points
 
 
+def window_buckets(window: SeriesWindow, interval: IntervalType) -> list[datetime]:
+    buckets: list[datetime] = []
+    start = window.first_bucket
+    for _ in window.values:
+        buckets.append(start)
+        start = bucket_end(start, interval)
+    return buckets
+
+
+def train_window(
+    values: Sequence[float], buckets: Sequence[datetime], *, history: int, interval: IntervalType, now: datetime
+) -> SeriesWindow | None:
+    """The newest ``history`` completed values of a fetched series, or None when they do not step one interval apart."""
+    completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now][-history:]
+    if not completed:
+        return None
+    window = SeriesWindow(first_bucket=buckets[completed[0]], values=[float(values[i]) for i in completed])
+    # A repeated hour at a DST fall-back breaks the steps. The series waits for a train step after the change.
+    if window_buckets(window, interval) != [buckets[i] for i in completed]:
+        return None
+    return window
+
+
+def score_window(
+    window: SeriesWindow,
+    values: Sequence[float],
+    buckets: Sequence[datetime],
+    *,
+    refresh: int,
+    scoring: IntervalScoring,
+    interval: IntervalType,
+    now: datetime,
+    limits: ScoringLimits = DEFAULT_LIMITS,
+) -> tuple[list[ScoredPoint], SeriesWindow] | None:
+    """Merge freshly fetched buckets into a stored window, score the buckets after it, and trim it to its history.
+
+    A fresh value replaces the stored value of its bucket for the newest ``refresh`` stored buckets, so late events
+    reach the window. Older fresh buckets can be cut short or smoothed over too few buckets, so they are not read.
+    Returns None when the fresh buckets leave a gap after the window. The series then keeps its window.
+    """
+    stored = window_buckets(window, interval)
+    merged = dict(zip(stored, window.values))
+    refresh_from = [*stored, bucket_end(stored[-1], interval)][max(0, len(stored) - refresh)]
+    fresh = [(start, value) for start, value in zip(buckets, values) if bucket_end(start, interval) <= now]
+    for start, value in fresh:
+        if start >= refresh_from:
+            merged[start] = float(value)
+    starts = list(stored)
+    next_start = bucket_end(stored[-1], interval)
+    while next_start in merged:
+        starts.append(next_start)
+        next_start = bucket_end(next_start, interval)
+    if any(start >= next_start for start, _ in fresh):
+        return None
+
+    data = [merged[start] for start in starts]
+    points = score_series(data, starts, scoring=scoring, interval=interval, now=now, after=stored[-1], limits=limits)
+    keep = history_buckets(scoring)
+    return points, SeriesWindow(first_bucket=starts[-keep:][0], values=data[-keep:])
+
+
 def score_insight(
     insight: Insight,
     team: Team,
@@ -284,17 +428,166 @@ def score_insight(
     now: datetime,
     after: datetime | None = None,
     limits: ScoringLimits = DEFAULT_LIMITS,
+    split: SplitRun | None = None,
 ) -> InsightScores:
+    """Score the new buckets of an insight.
+
+    With ``split``, a stored state with the insight's identity makes this a score step, and anything else a
+    train step. Both return the state for the next visit.
+    """
     profile = resolve_profile(team, insight)
     query = trends_query_for(insight, profile)
-    interval = _interval(query)
+    interval = scoring_interval(query)
     scoring = interval_scoring(profile, interval)
     timezone = team.timezone_info
+    identity = state_identity(query, scoring, team, limits) if split is not None else None
+    state = split.state if split is not None else None
+    if state is not None and (state.identity != identity or not supports_score_step(query)):
+        state = None
+    scores = InsightScores(
+        interval=interval,
+        profile=profile.name,
+        detector=str(scoring.detector["type"]),
+        detector_version=detector_version(scoring),
+        series=[],
+    )
+
+    if split is not None and state is not None and identity is not None:
+        to_score = buckets_to_score(interval, now=now, after=state.scored_through, timezone=timezone, limits=limits)
+        # One bucket more than the score step reads, as in the full fetch.
+        buckets = fetch_buckets(query, scoring, to_score, history=split.refresh_buckets + 1)
+        fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.SCORE)
+        return _score_step(
+            scores,
+            fetched,
+            state,
+            refresh=split.refresh_buckets,
+            scoring=scoring,
+            interval=interval,
+            now=now,
+            limits=limits,
+        )
+
     to_score = buckets_to_score(interval, now=now, after=after, timezone=timezone, limits=limits)
-    scoring_query = build_scoring_query(query, fetch_buckets(query, scoring, to_score), limits)
+    run = ScoringRun.TRAIN if split is not None else None
+    fetched = _fetch(insight, team, query, fetch_buckets(query, scoring, to_score), limits, run)
+    series = [
+        ScoredSeries(
+            series_key=line.series_key,
+            label=line.label,
+            breakdown_value=line.breakdown_value,
+            points=score_series(
+                line.values,
+                line.buckets,
+                scoring=scoring,
+                interval=interval,
+                now=now,
+                after=after,
+                limits=limits,
+            ),
+        )
+        for line in fetched
+    ]
+    if identity is None:
+        return dataclasses.replace(scores, series=series)
+    windows = {
+        line.series_key: window
+        for line in fetched
+        if (
+            window := train_window(
+                line.values, line.buckets, history=history_buckets(scoring), interval=interval, now=now
+            )
+        )
+        is not None
+    }
+    return dataclasses.replace(
+        scores,
+        series=series,
+        run=ScoringRun.TRAIN,
+        state=TrainedState(
+            identity=identity, trained_at=now, scored_through=_scored_through(windows, interval), windows=windows
+        ),
+    )
+
+
+def _score_step(
+    scores: InsightScores,
+    fetched: list[_FetchedSeries],
+    state: TrainedState,
+    *,
+    refresh: int,
+    scoring: IntervalScoring,
+    interval: IntervalType,
+    now: datetime,
+    limits: ScoringLimits,
+) -> InsightScores:
+    series: list[ScoredSeries] = []
+    windows = dict(state.windows)
+    unmatched = 0
+    returned: set[str] = set()
+    for line in fetched:
+        returned.add(line.series_key)
+        window = state.windows.get(line.series_key)
+        # The short range can rank a different top N of breakdown values. A new value waits for a train step.
+        scored = (
+            None
+            if window is None
+            else score_window(
+                window,
+                line.values,
+                line.buckets,
+                refresh=refresh,
+                scoring=scoring,
+                interval=interval,
+                now=now,
+                limits=limits,
+            )
+        )
+        if scored is None:
+            unmatched += 1
+            continue
+        points, windows[line.series_key] = scored
+        series.append(
+            ScoredSeries(
+                series_key=line.series_key, label=line.label, breakdown_value=line.breakdown_value, points=points
+            )
+        )
+    return dataclasses.replace(
+        scores,
+        series=series,
+        run=ScoringRun.SCORE,
+        unmatched_series=unmatched,
+        # A stored series that is missing from the result keeps its window.
+        state=dataclasses.replace(
+            state,
+            scored_through=_scored_through(windows, interval),
+            windows=windows,
+            missing_series=len(set(state.windows) - returned),
+        ),
+    )
+
+
+def _scored_through(windows: dict[str, SeriesWindow], interval: IntervalType) -> datetime | None:
+    ends = [window_buckets(window, interval)[-1] for window in windows.values() if window.values]
+    return max(ends).astimezone(UTC) if ends else None
+
+
+def _fetch(
+    insight: Insight,
+    team: Team,
+    query: TrendsQuery,
+    buckets: int,
+    limits: ScoringLimits,
+    run: ScoringRun | None,
+) -> list[_FetchedSeries]:
+    timezone = team.timezone_info
+    scoring_query = build_scoring_query(query, buckets, limits)
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    if run is not None:
+        # Splits the scoring queries in `query_log`, so train and score cost can be compared.
+        tag_queries(name=f"anomaly_scoring_{run.value}")
     runner = TrendsQueryRunner(
         query=scoring_query,
         team=team,
@@ -316,38 +609,35 @@ def score_insight(
     if not isinstance(results, list):
         raise RuntimeError(f"No results for insight {insight.pk}")
 
-    series: list[ScoredSeries] = []
+    current_results = [
+        result for result in cast(list[dict[str, Any]], results) if result.get("compare_label") != "previous"
+    ]
+    if len(current_results) < len(results):
+        # A previous-period line has the key of its current line and old buckets, so it would write a false series.
+        logger.warning(
+            "anomaly_scores.previous_period_skipped",
+            insight_id=insight.pk,
+            skipped=len(results) - len(current_results),
+        )
+
+    series: list[_FetchedSeries] = []
     key_counts: dict[str, int] = {}
-    for result in cast(list[dict[str, Any]], results)[: limits.max_series]:
-        buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
+    for result in current_results[: limits.max_series]:
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
         key = series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value)
         repeats = key_counts.get(key, 0)
         key_counts[key] = repeats + 1
         series.append(
-            ScoredSeries(
+            _FetchedSeries(
                 # Lines that differ only by name share a key. Event uuids come from the key, so each repeat needs its own.
                 series_key=key if repeats == 0 else _short_hash({"key": key, "repeat": repeats}),
                 label=str(result.get("label") or ""),
                 breakdown_value=breakdown_value,
-                points=score_series(
-                    result.get("data") or [],
-                    buckets,
-                    scoring=scoring,
-                    interval=interval,
-                    now=now,
-                    after=after,
-                    limits=limits,
-                ),
+                values=list(result.get("data") or []),
+                buckets=[_parse_bucket(day, timezone) for day in result.get("days") or []],
             )
         )
-    return InsightScores(
-        interval=interval,
-        profile=profile.name,
-        detector=str(scoring.detector["type"]),
-        detector_version=detector_version(scoring),
-        series=series,
-    )
+    return series
 
 
 def _formulas(query: TrendsQuery) -> list[str]:
@@ -381,7 +671,7 @@ def _series_definition(query: TrendsQuery, result: dict[str, Any]) -> dict[str, 
     return _series_node_definition(query.series[order])
 
 
-def _interval(query: TrendsQuery) -> IntervalType:
+def scoring_interval(query: TrendsQuery) -> IntervalType:
     return query.interval or IntervalType.DAY
 
 

@@ -424,6 +424,44 @@ class TestChdbEngineChoiceByFormat:
         assert mock_run_chdb.called is uses_chdb
         assert mock_sync_execute.called is not uses_chdb
 
+    @pytest.mark.parametrize(
+        "table_format,file_pattern,chdb_codec",
+        [
+            (DataWarehouseTable.TableFormat.Parquet, "*.parquet", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*.csv.gz", "gzip"),
+            (DataWarehouseTable.TableFormat.Parquet, "*", "none"),
+            (DataWarehouseTable.TableFormat.CSVWithNames, "*", None),
+            (DataWarehouseTable.TableFormat.JSON, "**", None),
+        ],
+    )
+    def test_chdb_reads_with_the_codec_the_url_pattern_names(
+        self, table_format: str, file_pattern: str, chdb_codec: str | None
+    ) -> None:
+        table = self._table(table_format, has_credential=True)
+        table.url_pattern = f"https://bucket.example.com/t/{file_pattern}"
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch(
+                "products.warehouse_sources.backend.models.table.run_chdb_query",
+                side_effect=lambda query: "7\n" if "count()" in query else "id,String\n",
+            ) as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=lambda query, **_: [(7,)] if "count()" in query else [("id", "String")],
+            ) as mock_sync_execute,
+        ):
+            assert table.get_columns()["id"]["clickhouse"] == "String"
+            assert table.get_count() == 7
+
+        if chdb_codec is None:
+            assert not mock_run_chdb.called
+            assert mock_sync_execute.call_count == 2
+        else:
+            chdb_queries = [call.args[0] for call in mock_run_chdb.call_args_list]
+            assert len(chdb_queries) == 2
+            assert all(query.endswith(f"'auto', '{chdb_codec}')") for query in chdb_queries), chdb_queries
+            assert not mock_sync_execute.called
+
 
 def _test_certificate(
     name: str,

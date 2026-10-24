@@ -3,7 +3,7 @@
 With research selection and the assignment writer enabled, the first eligible saved report
 reviewer becomes the PR's single owner. Personal preferences and GitHub access checks can
 reject a person but never select someone outside the report.
-Existing GitHub assignments and manual unassignment remain authoritative.
+Manual GitHub assignments and removals remain authoritative.
 
 Other projects retain the legacy DRI and opt-in policies. Task execution permission is
 separate from report and PR assignment. GitHub failures must not break report writes.
@@ -17,18 +17,23 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_IMPLEMENTATION,
+    PROwnerAssignment,
+    PROwnerIdentityProof,
     SuggestedReviewerEntry,
     TaskRunArtefact,
 )
@@ -44,6 +49,7 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.pr_owner_assignments import PROwnerAssignmentService, PROwnerOrigin
 from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_content_gates import team_research_reviewer_selection_enabled
@@ -404,17 +410,37 @@ def _request_reviews(
     return requested
 
 
-def _first_assignable_login(
-    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, candidates: list[str]
-) -> str | None:
-    """The first candidate GitHub can assign in the repository, or None.
+@frozen
+class AssignableOwner:
+    login: str
+    identity: PROwnerIdentityProof | None
 
-    The add-assignees call drops a login without push access instead of failing, so each candidate
-    is checked with a read before the one write. A failed check stops the walk, because a GitHub
-    error says nothing about whether the next candidate is a better owner.
-    """
+
+@frozen
+class OwnerApplicationState:
+    allowed: bool
+    previous: PROwnerAssignment | None
+    reason: str
+
+
+def _assignable_owners(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    candidates: list[str],
+    assignments: PROwnerAssignmentService,
+    limit: int | None = None,
+    first_only: bool = False,
+) -> list[AssignableOwner] | None:
+    """Candidates whose repository access and linked identity GitHub verifies."""
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
-    for login in candidates[:MAX_DRI_CHECKS]:
+    bounded_candidates = candidates[:limit] if limit is not None else candidates
+    identities = assignments.identities_for(bounded_candidates)
+    owners: list[AssignableOwner] = []
+    for login in bounded_candidates:
+        identity = identities[login]
         try:
             result = github.is_assignable(parsed.repository, login)
         except Exception:
@@ -423,10 +449,197 @@ def _first_assignable_login(
         if not result.get("success"):
             log.warning("signals.reviewer_pr_assignment.assignable_check_failed", error=result.get("error"))
             return None
-        if result.get("assignable"):
-            return login
-    log.info("signals.reviewer_pr_assignment.no_assignable_dri", candidates=len(candidates))
-    return None
+        if not result.get("assignable"):
+            continue
+        if not identity.linked_user:
+            owners.append(AssignableOwner(login=login, identity=None))
+            if first_only:
+                return owners
+            continue
+        if identity.proof is None:
+            log.info("signals.pr_owner.identity_unverified")
+            continue
+        try:
+            permission = github.get_collaborator_permission(
+                parsed.repository,
+                login,
+                expected_user_id=identity.proof.github_user_id,
+            )
+        except Exception:
+            log.exception("signals.pr_owner.identity_check_failed")
+            return None
+        if permission in {"admin", "write"}:
+            owners.append(AssignableOwner(login=login, identity=identity.proof))
+            if first_only:
+                return owners
+    return owners
+
+
+def _owner_application_state(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    pr: dict[str, Any],
+    assignments: PROwnerAssignmentService,
+) -> OwnerApplicationState:
+    current = {str(login).lower() for login in pr.get("assignees") or []}
+    previous = assignments.latest()
+    if previous is not None:
+        automatic = {owner.login for owner in previous.owners}
+        if current == automatic:
+            return OwnerApplicationState(allowed=True, previous=previous, reason="automatic_owners")
+        reason = "manually_unassigned" if not current else "assignees_changed"
+        return OwnerApplicationState(allowed=False, previous=previous, reason=reason)
+    if current:
+        return OwnerApplicationState(allowed=False, previous=None, reason="unknown_assignment_origin")
+    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        return OwnerApplicationState(allowed=False, previous=None, reason="manually_unassigned")
+    return OwnerApplicationState(allowed=True, previous=None, reason="unassigned")
+
+
+def _capture_owner_reassessment(
+    *,
+    team_id: int,
+    report_id: str,
+    previous: PROwnerAssignment,
+    outcome: str,
+    reason: str,
+    origin: PROwnerOrigin | None = None,
+    verified_count: int = 0,
+) -> None:
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.organization_id),
+                event="signals_pr_owner_reassessed",
+                properties={
+                    "team_id": team_id,
+                    "report_id": report_id,
+                    "outcome": outcome,
+                    "reason": reason,
+                    "previous_origin": previous.origin,
+                    "previous_owner_count": len(previous.owners),
+                    **({"origin": origin} if origin else {}),
+                    "identity_verified_count": verified_count,
+                },
+                groups=groups(organization=team.organization, team=team),
+            )
+    except Exception:
+        logger.exception("signals.pr_owner.reassessment_capture_failed", team_id=team_id, report_id=report_id)
+
+
+def _remove_assignees(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    logins: list[str],
+) -> list[str] | None:
+    try:
+        result = github.remove_pull_request_assignees(parsed.repository, parsed.number, logins)
+    except Exception:
+        logger.exception("signals.pr_owner.unassign_failed", team_id=team_id, report_id=report_id)
+        return None
+    if not result.get("success"):
+        logger.warning(
+            "signals.pr_owner.unassign_failed",
+            team_id=team_id,
+            report_id=report_id,
+            error=result.get("error"),
+        )
+        return [] if result.get("status_code") is not None else None
+    return [str(login).lower() for login in result.get("assignees") or []]
+
+
+def _apply_automatic_owners(
+    github: GitHubIntegration,
+    *,
+    team_id: int,
+    report_id: str,
+    parsed: PullRequestRef,
+    assignments: PROwnerAssignmentService,
+    application: OwnerApplicationState,
+    owners: list[AssignableOwner],
+    origin: PROwnerOrigin,
+) -> list[str]:
+    previous = application.previous
+    previous_logins = [owner.login for owner in previous.owners] if previous else []
+    wanted = [owner.login for owner in owners]
+    previous_set = set(previous_logins)
+    wanted_set = set(wanted)
+    identities = {owner.login: owner.identity for owner in owners}
+    verified_count = sum(identity is not None for identity in identities.values())
+
+    if previous_set == wanted_set:
+        if previous is not None and any(
+            owner.proof is not None and owner.proof.expires_at <= timezone.now() for owner in previous.owners
+        ):
+            assignments.record(identities=identities, origin=origin)
+        if previous is not None:
+            _capture_owner_reassessment(
+                team_id=team_id,
+                report_id=report_id,
+                previous=previous,
+                outcome="unchanged",
+                reason="same_candidates",
+                origin=origin,
+                verified_count=verified_count,
+            )
+        return []
+
+    added = [login for login in wanted if login not in previous_set]
+    if added:
+        assigned = _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=added)
+        expected = previous_set | set(added)
+        if assigned is None or {login.lower() for login in assigned} != expected:
+            if assigned is not None:
+                _remove_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=added)
+            if previous is not None:
+                _capture_owner_reassessment(
+                    team_id=team_id,
+                    report_id=report_id,
+                    previous=previous,
+                    outcome="protected",
+                    reason="assignees_changed_during_reassessment",
+                    origin=origin,
+                    verified_count=verified_count,
+                )
+            return []
+
+    removed = [login for login in previous_logins if login not in wanted_set]
+    if removed:
+        remaining = _remove_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=removed)
+        if remaining is None or set(remaining) != wanted_set:
+            if added:
+                _remove_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=added)
+            if previous is not None:
+                _capture_owner_reassessment(
+                    team_id=team_id,
+                    report_id=report_id,
+                    previous=previous,
+                    outcome="protected",
+                    reason="assignees_changed_during_reassessment",
+                    origin=origin,
+                    verified_count=verified_count,
+                )
+            return []
+
+    assignments.record(identities=identities, origin=origin, replaced_logins=previous_logins)
+    if previous is not None:
+        _capture_owner_reassessment(
+            team_id=team_id,
+            report_id=report_id,
+            previous=previous,
+            outcome="reassigned",
+            reason="candidates_changed",
+            origin=origin,
+            verified_count=verified_count,
+        )
+    return added
 
 
 def _owning_team(
@@ -528,7 +741,29 @@ def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot, *, require_o
 def _assign_report_reviewers(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, pr: dict[str, Any]
 ) -> list[str]:
-    if pr.get("assignees") or _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+    assignments = PROwnerAssignmentService(
+        team_id=team_id,
+        report_id=report_id,
+        repository=parsed.repository,
+        pr_number=parsed.number,
+    )
+    application = _owner_application_state(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        pr=pr,
+        assignments=assignments,
+    )
+    if not application.allowed:
+        if application.previous is not None:
+            _capture_owner_reassessment(
+                team_id=team_id,
+                report_id=report_id,
+                previous=application.previous,
+                outcome="protected",
+                reason=application.reason,
+            )
         return []
 
     log = logger.bind(team_id=team_id, report_id=report_id)
@@ -544,22 +779,31 @@ def _assign_report_reviewers(
                 selected=len(snapshot.reviewers),
                 linked=len(candidates),
             )
-        assignable: list[str] = []
-        for login in candidates[:MAX_REPORT_ASSIGNEE_CHECKS]:
-            result = github.is_assignable(parsed.repository, login)
-            if not result.get("success"):
-                log.warning("signals.reviewer_pr_assignment.assignable_check_failed")
-                return []
-            if result.get("assignable"):
-                assignable.append(login)
-                break
-        if not assignable:
+        owners = _assignable_owners(
+            github,
+            team_id=team_id,
+            report_id=report_id,
+            parsed=parsed,
+            candidates=candidates,
+            assignments=assignments,
+            limit=MAX_REPORT_ASSIGNEE_CHECKS,
+            first_only=True,
+        )
+        if owners is None:
             return []
 
         current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-        if current_pr is None or current_pr.get("assignees"):
+        if current_pr is None:
             return []
-        if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        current_application = _owner_application_state(
+            github,
+            team_id=team_id,
+            report_id=report_id,
+            parsed=parsed,
+            pr=current_pr,
+            assignments=assignments,
+        )
+        if not current_application.allowed or current_application.previous != application.previous:
             return []
         current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
         if current.state != snapshot.state or _report_assignee_logins(team, current) != candidates:
@@ -570,7 +814,16 @@ def _assign_report_reviewers(
             and assignment_side_effects_enabled(team_id)
         ):
             return []
-        return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=assignable) or []
+        return _apply_automatic_owners(
+            github,
+            team_id=team_id,
+            report_id=report_id,
+            parsed=parsed,
+            assignments=assignments,
+            application=current_application,
+            owners=owners,
+            origin="report",
+        )
     except Exception:
         log.exception("signals.reviewer_pr_assignment.report_assignment_failed")
         return []
@@ -579,9 +832,8 @@ def _assign_report_reviewers(
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
     """Apply the shared report assignment, or the legacy DRI/opt-in policy, and request reviews.
 
-    Returns the assignees GitHub accepted. Never unassigns: the add-assignees endpoint is additive,
-    so a person somebody assigned by hand stays on the pull request. Returns an empty list when
-    there is nothing to do or the call failed, and raises nothing.
+    Returns newly added assignees. An empty result can also mean a recorded automatic owner
+    was cleared. Manual assignments remain authoritative.
     """
     if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
         return []
@@ -595,7 +847,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
     logins = [] if shared_assignment else opted_in_assignee_logins(team_id=team_id, report_id=report_id)
     reviewers = ranked_reviewer_logins(team_id=team_id, report_id=report_id)
     dri_enabled = _pr_dri_enabled(team_id)
-    if not reviewers and not logins and not dri_enabled:
+    if not reviewers and not logins and not dri_enabled and not shared_assignment:
         return []
 
     parsed = GitHubIntegration.parse_pull_request_url(pr_url)
@@ -671,14 +923,30 @@ def _assign_one_dri(
     opted_in: set[str],
     reviewers: list[str],
 ) -> list[str]:
-    """Put exactly one directly responsible individual on a pull request that has none.
-
-    A pull request somebody already assigned has an owner, and a pull request somebody unassigned by
-    hand was a decision a later report event must not undo. Both are left alone.
-    """
-    if pr.get("assignees"):
-        return []
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+    """Assign one DRI, replacing only a prior owner this worker recorded."""
+    assignments = PROwnerAssignmentService(
+        team_id=team_id,
+        report_id=report_id,
+        repository=parsed.repository,
+        pr_number=parsed.number,
+    )
+    application = _owner_application_state(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        pr=pr,
+        assignments=assignments,
+    )
+    if not application.allowed:
+        if application.previous is not None:
+            _capture_owner_reassessment(
+                team_id=team_id,
+                report_id=report_id,
+                previous=application.previous,
+                outcome="protected",
+                reason=application.reason,
+            )
         return []
 
     snapshot = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
@@ -702,13 +970,31 @@ def _assign_one_dri(
             ),
         )
     ]
-    dri = _first_assignable_login(github, team_id=team_id, report_id=report_id, parsed=parsed, candidates=candidates)
-    if dri is None:
+    owners = _assignable_owners(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        candidates=candidates,
+        assignments=assignments,
+        limit=MAX_DRI_CHECKS,
+        first_only=True,
+    )
+    if not owners:
         return []
+    owner = owners[0]
     current_pr = _assignable_pull_request(github, team_id=team_id, report_id=report_id, parsed=parsed)
-    if current_pr is None or current_pr.get("assignees"):
+    if current_pr is None:
         return []
-    if _was_unassigned_by_hand(github, team_id=team_id, report_id=report_id, parsed=parsed):
+    current_application = _owner_application_state(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        pr=current_pr,
+        assignments=assignments,
+    )
+    if not current_application.allowed or current_application.previous != application.previous:
         return []
     current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
     if (
@@ -717,4 +1003,13 @@ def _assign_one_dri(
         or ranked_reviewer_logins(team_id=team_id, report_id=report_id) != reviewers
     ):
         return []
-    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=[dri]) or []
+    return _apply_automatic_owners(
+        github,
+        team_id=team_id,
+        report_id=report_id,
+        parsed=parsed,
+        assignments=assignments,
+        application=current_application,
+        owners=[owner],
+        origin="claim" if claimant == owner.login else "legacy",
+    )

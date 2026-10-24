@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useMemo, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { dayjs } from 'lib/dayjs'
 import {
     Button,
     Card,
@@ -11,6 +14,13 @@ import {
     CardDescription,
     CardHeader,
     CardTitle,
+    Combobox,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxTrigger,
     Heading,
     Select,
     SelectContent,
@@ -23,15 +33,22 @@ import {
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
+import type { DateMappingOption } from '~/types'
+
+import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
-import { modelsUsageLogic } from './modelsUsageLogic'
+import { MATERIALIZATION_ENGINE_LABELS, MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
 
-const DATE_RANGE_LABELS: Record<string, string> = {
-    '7': 'Last 7 complete days',
-    '30': 'Last 30 complete days',
-    '90': 'Last 90 complete days',
-}
+const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
+    key: `Last ${days} complete days`,
+    values: [`-${days}d`],
+    getFormattedDate: (date: dayjs.Dayjs): string =>
+        `${date.subtract(days, 'day').format('MMM D, YYYY')} – ${date.subtract(1, 'day').format('MMM D, YYYY')}`,
+    defaultInterval: 'day',
+}))
+
+const ALL_VIEWS: MaterializedViewOption = { id: 'all', name: 'All materialized views' }
 
 function MetricTile({ title, value }: { title: string; value: string }): JSX.Element {
     return (
@@ -46,17 +63,40 @@ function MetricTile({ title, value }: { title: string; value: string }): JSX.Ele
     )
 }
 
-export function ModelsUsageTab(): JSX.Element {
-    const { usage, usageLoading, failed, days, chartLabels, chartSeries, jobsLoading } = useValues(modelsUsageLogic)
-    const { refresh, setDays, loadUsage } = useActions(modelsUsageLogic)
+export function ModelsUsageTab({
+    savedQueryIdToNodeId,
+}: {
+    savedQueryIdToNodeId: Record<string, string>
+}): JSX.Element {
+    const {
+        usage,
+        usageLoading,
+        failed,
+        dateFrom,
+        dateTo,
+        chartLabels,
+        chartSeries,
+        jobsLoading,
+        managedWarehouseEnabled,
+        materializedViewOptions,
+        selectedEngine,
+        selectedSavedQueryId,
+    } = useValues(modelsUsageLogic)
+    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryId } =
+        useActions(modelsUsageLogic)
+    const viewFilterRef = useRef<HTMLButtonElement>(null)
+    const viewOptions = useMemo(() => [ALL_VIEWS, ...materializedViewOptions], [materializedViewOptions])
+    const selectedView = viewOptions.find((option) => option.id === (selectedSavedQueryId ?? ALL_VIEWS.id)) ?? ALL_VIEWS
     const theme = useChartTheme()
     const chartConfig = useChartConfig(
         () => ({
             yAxis: { showGrid: true, tickFormatter: (value: number) => humanizeBytes(value) },
             xAxis: { timezone: 'UTC', interval: 'day' as const },
             tooltip: { valueFormatter: (value: number) => humanizeBytes(value) },
+            barLayout: 'stacked' as const,
+            legend: { show: chartSeries.length > 1, position: 'top' as const, interactive: true },
         }),
-        []
+        [chartSeries.length]
     )
 
     return (
@@ -69,16 +109,70 @@ export function ModelsUsageTab(): JSX.Element {
                     <Text variant="muted">Find the models and jobs that read the most data when they refresh.</Text>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <Select value={String(days)} onValueChange={(value) => value && setDays(Number(value))}>
-                        <SelectTrigger data-attr="models-usage-date-range" disabled={usageLoading}>
-                            <SelectValue>{(value: string) => DATE_RANGE_LABELS[value] ?? value}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent align="end" alignItemWithTrigger={false}>
-                            <SelectItem value="7">Last 7 complete days</SelectItem>
-                            <SelectItem value="30">Last 30 complete days</SelectItem>
-                            <SelectItem value="90">Last 90 complete days</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <Combobox
+                        items={viewOptions}
+                        value={selectedView}
+                        itemToStringValue={(option: MaterializedViewOption) => option.name}
+                        isItemEqualToValue={(option, value) => option.id === value.id}
+                        onValueChange={(option: MaterializedViewOption | null) =>
+                            setSelectedSavedQueryId(!option || option.id === ALL_VIEWS.id ? null : option.id)
+                        }
+                    >
+                        <ComboboxTrigger
+                            ref={viewFilterRef}
+                            render={<Button variant="outline" className="max-w-72 justify-between" />}
+                            data-attr="models-usage-view-filter"
+                            disabled={usageLoading || jobsLoading}
+                        >
+                            <span className="truncate">{selectedView.name}</span>
+                        </ComboboxTrigger>
+                        <ComboboxContent anchor={viewFilterRef} align="end" className="w-80 max-w-[calc(100vw-2rem)]">
+                            <ComboboxInput placeholder="Search materialized views" showTrigger={false} />
+                            <ComboboxEmpty>No materialized views found.</ComboboxEmpty>
+                            <ComboboxList>
+                                {(option: MaterializedViewOption) => (
+                                    <ComboboxItem key={option.id} value={option} title={option.name}>
+                                        <span className="truncate">{option.name}</span>
+                                    </ComboboxItem>
+                                )}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
+                    {managedWarehouseEnabled ? (
+                        <Select
+                            value={selectedEngine}
+                            onValueChange={(value) => value && setSelectedEngine(value as DataModelingUsageListEngine)}
+                        >
+                            <SelectTrigger
+                                data-attr="models-usage-engine-filter"
+                                disabled={usageLoading || jobsLoading}
+                            >
+                                <SelectValue>
+                                    {(value: DataModelingUsageListEngine) =>
+                                        MATERIALIZATION_ENGINE_LABELS[value] ?? value
+                                    }
+                                </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent align="end" alignItemWithTrigger={false}>
+                                <SelectItem value={DataModelingUsageListEngine.All}>All engines</SelectItem>
+                                <SelectItem value={DataModelingUsageListEngine.Clickhouse}>ClickHouse</SelectItem>
+                                <SelectItem value={DataModelingUsageListEngine.ManagedWarehouse}>
+                                    Managed warehouse
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                    ) : null}
+                    <div data-attr="models-usage-date-range">
+                        <DateFilter
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDateRange}
+                            dateOptions={DATE_OPTIONS}
+                            showRollingRangePicker={false}
+                            forceGranularity="day"
+                            disabled={usageLoading || jobsLoading}
+                        />
+                    </div>
                     <Button
                         variant="outline"
                         onClick={refresh}
@@ -91,8 +185,8 @@ export function ModelsUsageTab(): JSX.Element {
                 </div>
             </div>
             <Text size="sm" variant="muted">
-                Usage updates daily and excludes today. All dates are UTC. Includes failed runs, canceled runs, schema
-                checks, and retries.
+                Usage updates daily and excludes today. Job history starts on the selected start date and includes
+                current jobs. All dates are UTC. Usage includes failed runs, canceled runs, schema checks, and retries.
             </Text>
 
             {failed ? (
@@ -112,8 +206,7 @@ export function ModelsUsageTab(): JSX.Element {
                 <Card size="sm">
                     <CardContent>
                         <Text variant="muted">
-                            No ClickHouse materialization runs finished in this period. Choose a longer date range or
-                            materialize a model to see its usage.
+                            No materialization runs match these filters. Choose a longer date range or change a filter.
                         </Text>
                     </CardContent>
                 </Card>
@@ -158,6 +251,7 @@ export function ModelsUsageTab(): JSX.Element {
                                 </CardTitle>
                                 <CardDescription>
                                     Usage is attributed to the day each run finished. Gaps have no measured usage.
+                                    {chartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
@@ -172,11 +266,11 @@ export function ModelsUsageTab(): JSX.Element {
                             </CardContent>
                         </Card>
                     ) : null}
-                    <ModelsUsageByModelTable />
+                    <ModelsUsageByModelTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
                 </>
             )}
 
-            <MaterializationJobsTable />
+            <MaterializationJobsTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
         </div>
     )
 }
