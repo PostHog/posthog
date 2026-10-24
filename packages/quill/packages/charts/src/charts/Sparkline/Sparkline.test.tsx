@@ -89,22 +89,26 @@ describe('Sparkline', () => {
         expect(tooltip.label()).toBe('Mar')
     })
 
-    it('reports an error from its inner chart through onError', () => {
-        // Only the base `Chart` reads `axisColor`, so the error starts inside the inner chart's own boundary.
-        const theme = {
-            ...THEME,
-            get axisColor(): string {
-                throw new Error('boom')
-            },
-        } as ChartTheme
-        const onError = jest.fn()
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-        try {
+    describe('errors', () => {
+        beforeEach(() => {
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+        })
+        afterEach(() => {
+            jest.mocked(console.error).mockRestore()
+        })
+
+        it('reports an error from its inner chart through onError', () => {
+            // Only the base `Chart` reads `axisColor`, so the error starts inside the inner chart's own boundary.
+            const theme = {
+                ...THEME,
+                get axisColor(): string {
+                    throw new Error('boom')
+                },
+            } as ChartTheme
+            const onError = jest.fn()
             ensureJsdom()
             render(<Sparkline data={[1, 2, 3]} theme={theme} onError={onError} />)
             expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }), expect.anything())
-        } finally {
-            consoleErrorSpy.mockRestore()
-        }
+        })
     })
 })
