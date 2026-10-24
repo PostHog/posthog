@@ -514,6 +514,24 @@ describe('LineChart', () => {
             expect(lines[0].label).toBe('Target')
             expect(lines[0].orientation).toBe('horizontal')
         })
+
+        it('reports render errors through onError', () => {
+            const onError = jest.fn()
+            const tooltip = (): React.ReactNode => {
+                throw new Error('boom')
+            }
+            // ChartErrorBoundary surfaces the error to onError; React still logs it.
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                const { chart } = renderHogChart(
+                    <LineChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
+                )
+                chart.hoverAtIndex(1)
+                expect(onError).toHaveBeenCalled()
+            } finally {
+                consoleErrorSpy.mockRestore()
+            }
+        })
     })
 
     describe('interactive legend', () => {
