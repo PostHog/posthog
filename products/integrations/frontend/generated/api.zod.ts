@@ -246,6 +246,31 @@ export const IntegrationsEmailVerifyCreateBody = /* @__PURE__ */ zod
     .describe('Standard Integration serializer.')
 
 /**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * @summary Import push device tokens
+ */
+export const integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax = 200
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax = 4096
+
+export const IntegrationsPushTokensCreateBody = /* @__PURE__ */ zod.object({
+    subscriptions: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax)
+                    .describe("The person's distinct ID in this project."),
+                device_token: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax)
+                    .describe('The APNs device token or FCM registration token of one device.'),
+            })
+        )
+        .describe('Up to 1000 devices to register on this push channel. List a person once per device.'),
+})
+
+/**
  * Unified endpoint for generating Domain Connect apply URLs.
  *
  * Accepts a context ("email" or "proxy") and the relevant resource ID.

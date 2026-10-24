@@ -460,6 +460,31 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface PushTokenSubscriptionApi {
+    /**
+     * The person's distinct ID in this project.
+     * @maxLength 200
+     */
+    distinct_id: string
+    /**
+     * The APNs device token or FCM registration token of one device.
+     * @maxLength 4096
+     */
+    device_token: string
+}
+
+export interface PushTokenImportRequestApi {
+    /** Up to 1000 devices to register on this push channel. List a person once per device. */
+    subscriptions: PushTokenSubscriptionApi[]
+}
+
+export interface PushTokenImportResponseApi {
+    /** Number of devices stored on their person. */
+    imported: number
+    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    failed_distinct_ids: string[]
+}
+
 export interface SlackUserApi {
     /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
     id: string
