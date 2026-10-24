@@ -525,9 +525,9 @@ describe('LazyLoader', () => {
             loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
-            // Reloading an expired key replaces its entry rather than adding one, so the cache is
-            // still at maxSize and nothing live gets evicted.
-            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            // Reloading a key replaces its entry rather than adding one, so the cache is still at
+            // maxSize and nothing live gets evicted.
+            customLoader.markForRefresh('key1')
             loader.mockResolvedValueOnce({ key1: 'value1-refreshed' })
             await customLoader.get('key1')
 
@@ -576,6 +576,80 @@ describe('LazyLoader', () => {
             await customLoader.getMany(['key1', 'key2', 'key3'])
 
             expect(Object.keys(customLoader.getCache()).length).toBe(2)
+        })
+    })
+
+    describe('expired entries', () => {
+        it('evicts entries past their refresh age once per refresh age, keeping live ones', async () => {
+            const customLoader = new LazyLoader({ name: 'test', loader, refreshJitterMs: 0 })
+
+            loader.mockResolvedValueOnce({ key1: 'value1' })
+            await customLoader.get('key1')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 3)
+            loader.mockResolvedValueOnce({ key2: 'value2' })
+            await customLoader.get('key2')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 6)
+            loader.mockResolvedValueOnce({ key3: 'value3' })
+            await customLoader.get('key3')
+            expect(customLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3' })
+
+            // key2 expired at minute 8, but the next sweep is not due until minute 11.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 9)
+            loader.mockResolvedValueOnce({ key4: 'value4' })
+            await customLoader.get('key4')
+            expect(customLoader.getCache()).toEqual({ key2: 'value2', key3: 'value3', key4: 'value4' })
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 12)
+            loader.mockResolvedValueOnce({ key5: 'value5' })
+            await customLoader.get('key5')
+            expect(customLoader.getCache()).toEqual({ key4: 'value4', key5: 'value5' })
+        })
+    })
+
+    describe('lookups that span an expiry sweep', () => {
+        const slowLoader = () => {
+            const releases: ((map: Record<string, string>) => void)[] = []
+            const loader = jest.fn(() => new Promise<Record<string, string>>((resolve) => releases.push(resolve)))
+            const lazy = new LazyLoader<string>({
+                name: 'test',
+                loader,
+                refreshAgeMs: 30_000,
+                refreshJitterMs: 0,
+                bufferMs: 0,
+            })
+            const release = async (index: number, map: Record<string, string>) => {
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                releases[index](map)
+            }
+            return { lazy, release }
+        }
+
+        it('keeps a hit whose entry expires while another key loads', async () => {
+            const { lazy, release } = slowLoader()
+            const first = lazy.get('a')
+            await release(0, { a: 'A' })
+            await first
+
+            jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
+            const both = lazy.getMany(['a', 'b'])
+            jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+            await release(1, { b: 'B' })
+
+            expect(await both).toEqual({ a: 'A', b: 'B' })
+        })
+
+        it('keeps a value loaded for an earlier caller while a later load outlives the refresh age', async () => {
+            const { lazy, release } = slowLoader()
+            const first = lazy.get('a')
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            const both = lazy.getMany(['a', 'b'])
+
+            await release(0, { a: 'A' })
+            await first
+            jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+            await release(1, { b: 'B' })
+
+            expect(await both).toEqual({ a: 'A', b: 'B' })
         })
     })
 

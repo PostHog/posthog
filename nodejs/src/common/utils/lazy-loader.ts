@@ -43,7 +43,7 @@ const lazyLoaderCacheSize = new Gauge({
  * - Minimize queries to the DB for multiple values (e.g. teams for events)
  * - Keep that value cached ensuring any caller to retrieve it will get the value
  * - "Refresh" the value after a certain age
- * - "Drop" the value after a much longer age
+ * - "Drop" the value once it expires unused
  *
  * Follow up improvements:
  * - Soft and hard refresh times - if soft it can be refreshed in the background, non blocking
@@ -127,7 +127,7 @@ type CacheEntry<T> = {
 
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
-    private pendingLoads: Record<string, Promise<void> | undefined>
+    private pendingLoads: Record<string, Promise<Record<string, T | null>> | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -135,11 +135,12 @@ export class LazyLoader<T> {
     private refreshJitterMs: number
     private maxSize: number
     private cacheSize: number = 0
+    private nextExpirySweepAt: number
 
     private buffer:
         | {
               keys: Set<string>
-              promise: Promise<void>
+              promise: Promise<Record<string, T | null>>
               /** Fires the buffered load now; a no-op once the buffer timer has fired. */
               flush: () => void
           }
@@ -157,6 +158,7 @@ export class LazyLoader<T> {
         this.refreshBackgroundAgeMs = this.options.refreshBackgroundAgeMs
         this.refreshJitterMs = this.options.refreshJitterMs ?? this.refreshAgeMs / 5
         this.maxSize = this.options.maxSize ?? defaultConfig.LAZY_LOADER_MAX_SIZE
+        this.nextExpirySweepAt = Date.now() + this.refreshAgeMs
 
         if (this.refreshBackgroundAgeMs && this.refreshBackgroundAgeMs > this.refreshAgeMs) {
             throw new Error('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
@@ -221,6 +223,7 @@ export class LazyLoader<T> {
             }
             this.cache[key] = { value, lastUsed: now, cacheUntil, backgroundRefreshAfter }
         }
+        this.evictExpired(now)
         this.evictLRU()
         this.updateCacheSizeMetric()
     }
@@ -292,10 +295,11 @@ export class LazyLoader<T> {
                     const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
                     setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
-                    await this.load(Array.from(keysToLoad), options)
-
-                    for (const key of keys) {
-                        results[key] = this.cache[key]?.value ?? null
+                    // Loaded values come from the load itself: an eviction between the load and a
+                    // read-back of the cache would turn a key that exists into null.
+                    const loaded = await this.load(Array.from(keysToLoad), options)
+                    for (const key of keysToLoad) {
+                        results[key] = loaded[key]
                     }
 
                     return results
@@ -317,11 +321,11 @@ export class LazyLoader<T> {
      * Schedules the keys to be loaded with a buffer to allow batching multiple keys
      * This is somewhat complex but simplifies the usage around the codebase as you can safely do multiple gets without worrying about firing off duplicate DB requests
      *
-     * Loaded values land in `this.cache` via `setValues`; callers read them back from there.
+     * Resolves to each key's loaded value; the same values land in `this.cache` via `setValues`.
      */
-    private async load(keys: string[], options?: LoadOptions): Promise<void> {
+    private async load(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
         const bufferMs = this.options.bufferMs ?? defaultConfig.LAZY_LOADER_DEFAULT_BUFFER_MS
-        const keyPromises: Promise<void>[] = []
+        const keyPromises: Promise<Record<string, T | null>>[] = []
 
         for (const key of keys) {
             let pendingLoad = this.pendingLoads[key]
@@ -339,7 +343,6 @@ export class LazyLoader<T> {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise.finally(() => {
                 delete this.pendingLoads[key]
@@ -353,7 +356,12 @@ export class LazyLoader<T> {
             this.buffer?.flush()
         }
 
-        await Promise.all(keyPromises)
+        const maps = await Promise.all(keyPromises)
+        const loaded: Record<string, T | null> = Object.create(null)
+        keys.forEach((key, index) => {
+            loaded[key] = maps[index][key] ?? null
+        })
+        return loaded
     }
 
     /**
@@ -378,7 +386,9 @@ export class LazyLoader<T> {
             }
         }).then(async (bufferedKeys) => {
             logger.debug('[LazyLoader]', this.options.name, 'Loading: ', bufferedKeys)
-            this.setValues(await this.invokeLoader(bufferedKeys))
+            const loaded = await this.invokeLoader(bufferedKeys)
+            this.setValues(loaded)
+            return loaded
         })
 
         return { keys, promise, flush: () => fire() }
@@ -444,6 +454,21 @@ export class LazyLoader<T> {
                     error: String(error),
                 })
                 await sleep(retry.retryIntervalMs + jitter)
+            }
+        }
+    }
+
+    /** An expired entry reloads before its next lookup returns, so keeping it only costs memory. */
+    private evictExpired(now: number): void {
+        if (now < this.nextExpirySweepAt) {
+            return
+        }
+        this.nextExpirySweepAt = now + this.refreshAgeMs
+        for (const key in this.cache) {
+            const entry = this.cache[key]
+            if (entry && now > entry.cacheUntil) {
+                delete this.cache[key]
+                this.cacheSize--
             }
         }
     }
