@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit, urlunsplit
 
 import modal
 from google.protobuf.descriptor import EnumDescriptor
@@ -434,6 +435,14 @@ UNDEPLOYED_APP_STATES = frozenset(
 )
 
 
+def strip_url_credentials(url: str) -> str:
+    # The SDK copies the Git origin verbatim, so an HTTPS origin can carry an access token.
+    parts = urlsplit(url)
+    if not parts.scheme or "@" not in parts.netloc:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
 def deployment_row(
     deployment: api_pb2.AppDeploymentHistory,
     app: api_pb2.AppListResponse.AppListItem,
@@ -459,7 +468,7 @@ def deployment_row(
         "rollback_allowed": deployment.rollback_allowed,
         "commit_hash": commit.commit_hash or None,
         "commit_branch": commit.branch or None,
-        "commit_repo_url": commit.repo_url or None,
+        "commit_repo_url": strip_url_credentials(commit.repo_url) or None,
         "commit_dirty": commit.dirty if has_commit else None,
         "commit_author_name": commit.author_name or None,
         "committed_at": from_epoch(commit.commit_timestamp),

@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.moda
     ModalPermissionError,
     ModalResumeConfig,
     modal_source,
+    strip_url_credentials,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.source import ModalSource
@@ -656,6 +657,20 @@ def test_app_deployments_skip_undeployed_and_deleted_apps(
         ]
     ]
     assert manager.safe_point.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://x-access-token:fake-token@github.com/example/repo.git", "https://github.com/example/repo.git"),
+        ("https://fake-token@gitlab.example.com:8443/example/repo", "https://gitlab.example.com:8443/example/repo"),
+        ("https://github.com/example/repo.git", "https://github.com/example/repo.git"),
+        ("git@github.com:example/repo.git", "git@github.com:example/repo.git"),
+        ("", ""),
+    ],
+)
+def test_strip_url_credentials(url: str, expected: str) -> None:
+    assert strip_url_credentials(url) == expected
 
 
 def test_workspace_members(
