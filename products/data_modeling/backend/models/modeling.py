@@ -11,13 +11,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.incremental_filter import parse_model_query
 
 LabelPath = list[str]
 
@@ -493,7 +493,7 @@ def get_parents_from_model_query(
         model_query: The HogQL query string to parse.
         database: An optional prebuilt database to reuse for dependency resolution.
     """
-    hogql_query = parse_select(model_query)
+    hogql_query = parse_model_query(model_query)
     context = HogQLContext(
         team_id=team.pk,
         team=team,
