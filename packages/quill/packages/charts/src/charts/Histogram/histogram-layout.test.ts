@@ -1,3 +1,4 @@
+import type { ChartDimensions } from '../../core/types'
 import {
     computeHistogramLayout,
     estimateHistogramPercentile,
@@ -7,7 +8,6 @@ import {
     snapPixelRangeToBins,
 } from './histogram-layout'
 import type { HistogramEdges, HistogramScaleType } from './histogram-layout'
-import type { ChartDimensions } from './types'
 
 const DIMENSIONS: ChartDimensions = {
     width: 800,

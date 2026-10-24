@@ -2,9 +2,9 @@ import { color as d3Color } from 'd3-color'
 
 import { BAR_HIGHLIGHT_DARKEN } from '../../core/canvas-renderer'
 import { resolveCssColor } from '../../core/color-utils'
-import { computeHistogramLayout } from '../../core/histogram-layout'
-import type { HistogramEdges, HistogramLayout, HistogramScaleType } from '../../core/histogram-layout'
 import type { ChartDimensions, ChartScales, ResolvedSeries } from '../../core/types'
+import { computeHistogramLayout } from './histogram-layout'
+import type { HistogramEdges, HistogramLayout, HistogramScaleType } from './histogram-layout'
 
 interface HistogramChartPrivate {
     __histogram: HistogramLayout
