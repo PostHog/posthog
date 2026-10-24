@@ -29,6 +29,8 @@ import { SendCalendar } from './SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
+import { customerioImportLogic } from './Workflows/import/customerioImportLogic'
+import { CustomerioImportModal } from './Workflows/import/CustomerioImportModal'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -191,6 +193,8 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { filters } = useValues(workflowsLogic)
     const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
+    const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
         label: 'Workflows',
@@ -228,6 +232,21 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
+                        {showsNewWorkflowButton && customerioImportEnabled && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    data-attr="workflows-import-customerio"
+                                    onClick={openImportModal}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    Import from Customer.io
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
                         {showsNewWorkflowButton && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
@@ -255,6 +274,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     </>
                 }
             />
+            {customerioImportEnabled && <CustomerioImportModal />}
             <EmailSuspensionBanner />
             <LemonTabs<WorkflowsTopTab>
                 activeKey={currentTab === 'calendar' && !showCalendar ? 'workflows' : topTabFor(currentTab)}

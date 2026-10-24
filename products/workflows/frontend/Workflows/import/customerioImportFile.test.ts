@@ -1,0 +1,25 @@
+import { parseCustomerioFiles } from './customerioImportFile'
+
+const automation = { campaign: { id: 1, type: 'transactional' }, actions: [{ id: '1', type: 'email_action' }] }
+
+describe('parseCustomerioFiles', () => {
+    test.each([
+        ['one automation per file', [JSON.stringify(automation), JSON.stringify(automation)], 2],
+        ['a list of automations', [JSON.stringify([automation, automation])], 2],
+        ['the import request shape', [JSON.stringify({ campaigns: [automation], snippets: { footer: 'x' } })], 1],
+        ['a file with no automation', [JSON.stringify({ campaigns: 'nope' })], 0],
+    ])('reads %s', (_name, files, count) => {
+        expect(parseCustomerioFiles(files).campaigns).toHaveLength(count)
+    })
+
+    it('attaches loose template files to every automation', () => {
+        const template = { template: { id: 11, subject: 'Hi', body: '<p>Hi</p>' } }
+        const parsed = parseCustomerioFiles([JSON.stringify(automation), JSON.stringify(template)])
+
+        expect(parsed.campaigns[0].templates).toEqual([template.template])
+    })
+
+    it('rejects a file that is not JSON', () => {
+        expect(() => parseCustomerioFiles(['{nope'])).toThrow('One of the files is not valid JSON.')
+    })
+})
