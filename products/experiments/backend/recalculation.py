@@ -48,11 +48,11 @@ from products.experiments.backend.temporal.models import (
 )
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
-# stale and a fresh recalc is allowed. An IN_PROGRESS row counts from started_at, so it must outlast the phase
-# after the start activity: the calc budget (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure
-# backstop and the finish step. test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this
-# value, so a legitimately-slow run of up to MAX_CONCURRENT_METRICS_PER_RUN metrics can finish without being
-# clobbered. A wider run of slow metrics can pass it, because its later metrics wait for a slot. It is also tight enough that an operator
+# stale and a fresh recalc is allowed. An IN_PROGRESS row counts from its last progress (last_progress_at), so
+# the threshold must outlast the longest gap between two progress stamps: the calc budget
+# (METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS), the failure backstop and the finish step.
+# test_in_progress_phase_ends_before_the_staleness_ttl keeps that sum below this value, so a legitimately-slow
+# run of any width can finish without being clobbered. It is also tight enough that an operator
 # can recover within an hour if the workflow never started (Temporal connect failure, transient infra issue,
 # etc.). See the rollback in start_metrics_recalculation_workflow for the happy-path failure handling; this TTL
 # is the defense-in-depth backstop if that rollback itself fails.
@@ -477,18 +477,12 @@ def _request_recalculation(
         # then sees the freshly-created row in its lookup and returns is_existing=True cleanly.
         Experiment.objects.select_for_update().filter(id=experiment.id).first()
 
-        # Activity-aware staleness: PENDING rows anchor on created_at (workflow never reached its start
-        # activity); IN_PROGRESS rows anchor on started_at (workflow began executing then stalled). A row past
-        # the threshold is treated as dead and skipped, so a fresh recalc can start. Without this, a PENDING
-        # row left orphaned by a Temporal-connect failure that also lost its rollback UPDATE would permanently
-        # lock the experiment out of recalculations.
-        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        # A row past the staleness threshold is treated as dead and skipped, so a fresh recalc can start.
+        # Without this, a PENDING row left orphaned by a Temporal-connect failure that also lost its rollback
+        # UPDATE would permanently lock the experiment out of recalculations.
         existing = (
             ExperimentMetricsRecalculation.objects.filter(experiment=experiment)
-            .filter(
-                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
-                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
-            )
+            .filter(active_recalculation_filter())
             .first()
         )
         if existing:
@@ -565,12 +559,17 @@ def _request_recalculation(
 def active_recalculation_filter() -> Q:
     """The rows that block a new recalculation: PENDING or IN_PROGRESS, inside the staleness bound.
 
-    The scheduled discovery applies the same filter to many experiments in one query, so the two
-    readers cannot disagree on which run is active.
+    A PENDING row counts from created_at, because its workflow never reached the start activity. An
+    IN_PROGRESS row counts from its last progress, so a wide run whose metrics keep finishing stays active.
+    Rows started before last_progress_at existed fall back to started_at. request_recalculation and the
+    scheduled discovery both apply this filter, so they cannot disagree on which run is active.
     """
     threshold = timezone.now() - _STALE_RECALC_THRESHOLD
-    return Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold) | Q(
-        status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold
+    in_progress = ExperimentMetricsRecalculation.Status.IN_PROGRESS
+    return (
+        Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
+        | Q(status=in_progress, last_progress_at__gte=threshold)
+        | Q(status=in_progress, last_progress_at__isnull=True, started_at__gte=threshold)
     )
 
 

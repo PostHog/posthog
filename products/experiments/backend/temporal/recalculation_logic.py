@@ -7,7 +7,9 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 import time
 import random
 import dataclasses
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -214,6 +216,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         if update.mark_started:
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = _resolve_query_to(experiment, state.trigger)
+            started_at = timezone.now()
 
             won = (
                 ExperimentMetricsRecalculation.objects.filter(
@@ -225,7 +228,8 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
                     ],
                 ).update(
                     query_to=proposed_query_to,
-                    started_at=timezone.now(),
+                    started_at=started_at,
+                    last_progress_at=started_at,
                     status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
                     total_metrics=update.total_metrics if update.total_metrics is not None else 0,
                     metric_uuids=update.metric_uuids if update.metric_uuids is not None else [],
@@ -392,6 +396,29 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
 # ---------------------------------------------------------------------------
 # Calculation helpers
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _records_run_progress(recalculation_id: str) -> Iterator[None]:
+    """Stamp last_progress_at when a metric attempt or the failure backstop ends, whatever the outcome.
+
+    The staleness TTL counts an IN_PROGRESS run from this stamp, so a wide run whose metrics keep finishing
+    stays active. A healthy metric writes nothing else to the run row, so the stamp runs on every exit path.
+    A failed stamp only makes the run look stale sooner, so it must not replace the attempt's own outcome.
+    """
+    try:
+        yield
+    finally:
+        try:
+            ExperimentMetricsRecalculation.objects.filter(
+                id=recalculation_id, status=ExperimentMetricsRecalculation.Status.IN_PROGRESS
+            ).update(last_progress_at=timezone.now())
+        except Exception:
+            logger.warning(
+                "experiment_metric_recalculation_progress_stamp_failed",
+                recalculation_id=recalculation_id,
+                exc_info=True,
+            )
 
 
 def _record_failure(
@@ -651,7 +678,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             non_retryable=True,
         )
 
-    with team_scope(state.team_id, canonical=True):
+    with team_scope(state.team_id, canonical=True), _records_run_progress(recalculation_id):
         try:
             experiment = Experiment.objects.get(id=experiment_id, deleted=False)
         except Experiment.DoesNotExist:
@@ -942,7 +969,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
     close_old_connections()
     state = _get_recalc_state(failure.recalculation_id)
 
-    with team_scope(state.team_id, canonical=True):
+    with team_scope(state.team_id, canonical=True), _records_run_progress(failure.recalculation_id):
         # A final attempt that ran to the end already persisted its own failure, with the real error type.
         if ExperimentMetricsRecalculation.objects.filter(
             id=failure.recalculation_id, metric_errors__has_key=failure.metric_uuid

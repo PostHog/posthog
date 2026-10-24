@@ -70,10 +70,10 @@ NON_RETRYABLE_ERROR_TYPES = frozenset(
 METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 
 # Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
-# activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
-# the finish step) below the staleness TTL in recalculation.py for a run of up to MAX_CONCURRENT_METRICS_PER_RUN
-# metrics. A wider run schedules its other metrics only when a slot frees, so it can pass the TTL. The budget
-# ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# activity's schedule_to_close_timeout). It keeps the longest gap between two progress stamps on the run row
+# (this budget, the failure backstop and the finish step) below the staleness TTL in recalculation.py, so a slow
+# but healthy run is never treated as stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its
+# attempts are slow.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
