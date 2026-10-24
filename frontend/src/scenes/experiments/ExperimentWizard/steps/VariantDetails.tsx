@@ -14,7 +14,7 @@ import { experimentWizardLogic } from '../experimentWizardLogic'
  */
 export function useVariantDetailsColumns(): VariantColumn[] {
     const { experiment } = useValues(experimentWizardLogic)
-    const { setVariantNote, setVariantScreenshots } = useActions(experimentWizardLogic)
+    const { setVariantNote, setVariantScreenshots, setVariantUploadPending } = useActions(experimentWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS] !== 'test') {
@@ -44,6 +44,8 @@ export function useVariantDetailsColumns(): VariantColumn[] {
                         onChange={(mediaIds) => setVariantScreenshots(key, mediaIds)}
                         viewerTitle={<span className="font-semibold">{key}</span>}
                         size="small"
+                        uploadTarget={key}
+                        onUploadingChange={(uploading) => setVariantUploadPending(key, uploading)}
                     />
                 ) : null,
         },

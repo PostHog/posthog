@@ -72,12 +72,18 @@ export function VariantScreenshotEditor({
     onUploaded,
     viewerTitle,
     size = 'medium',
+    uploadTarget,
+    onUploadingChange,
 }: {
     mediaIds: string[]
     onChange: (mediaIds: string[]) => void
     onUploaded?: () => void
     viewerTitle?: ReactNode
     size?: 'small' | 'medium'
+    /** What the screenshots belong to. An upload that finishes after it changes is dropped, so it can't land on another item */
+    uploadTarget?: string
+    /** Called with true when an upload starts and false when it ends, through the callback current at the start */
+    onUploadingChange?: (uploading: boolean) => void
 }): JSX.Element {
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
@@ -86,8 +92,11 @@ export function VariantScreenshotEditor({
     const containerRef = useRef<HTMLDivElement>(null)
 
     // `onUpload` comes from the render that started the upload, so read current props or a removed screenshot returns
-    const latestPropsRef = useRef({ mediaIds, onChange, onUploaded })
-    latestPropsRef.current = { mediaIds, onChange, onUploaded }
+    const latestPropsRef = useRef({ mediaIds, onChange, onUploaded, uploadTarget, onUploadingChange })
+    latestPropsRef.current = { mediaIds, onChange, onUploaded, uploadTarget, onUploadingChange }
+    // The editor can be reused for another item mid-upload, for example when a row above it is removed
+    const startedUploadTargetRef = useRef(uploadTarget)
+    const endUploadingRef = useRef<((uploading: boolean) => void) | undefined>(undefined)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
@@ -95,6 +104,9 @@ export function VariantScreenshotEditor({
                 return
             }
             const latest = latestPropsRef.current
+            if (latest.uploadTarget !== startedUploadTargetRef.current) {
+                return
+            }
             if (latest.mediaIds.length >= 5) {
                 lemonToast.error('Maximum of 5 images allowed')
                 return
@@ -107,6 +119,27 @@ export function VariantScreenshotEditor({
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    const startUpload = useCallback(
+        (files: File[]): void => {
+            startedUploadTargetRef.current = latestPropsRef.current.uploadTarget
+            setFilesToUpload(files)
+        },
+        [setFilesToUpload]
+    )
+
+    useEffect(() => {
+        if (uploading) {
+            endUploadingRef.current = latestPropsRef.current.onUploadingChange
+            endUploadingRef.current?.(true)
+        } else if (endUploadingRef.current) {
+            endUploadingRef.current(false)
+            endUploadingRef.current = undefined
+        }
+    }, [uploading])
+
+    // An upload cut off by unmounting never reports its end
+    useEffect(() => () => endUploadingRef.current?.(false), [])
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent): void => {
@@ -129,7 +162,7 @@ export function VariantScreenshotEditor({
                             lemonToast.error('Maximum of 5 images allowed')
                             return
                         }
-                        setFilesToUpload([file])
+                        startUpload([file])
                     } else {
                         lemonToast.error('Could not read image from clipboard')
                     }
@@ -137,7 +170,7 @@ export function VariantScreenshotEditor({
                 }
             }
         },
-        [mediaIds.length, setFilesToUpload, uploading]
+        [mediaIds.length, startUpload, uploading]
     )
 
     const handleImageLoad = (mediaId: string): void => {
@@ -265,7 +298,7 @@ export function VariantScreenshotEditor({
                         <LemonFileInput
                             accept="image/*"
                             multiple={false}
-                            onChange={setFilesToUpload}
+                            onChange={startUpload}
                             loading={uploading}
                             value={filesToUpload}
                             showUploadedFiles={false}

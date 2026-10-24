@@ -307,6 +307,22 @@ describe('experimentWizardLogic', () => {
             }
         )
 
+        it.each([
+            { move: 'continue', act: () => logic.actions.nextStep() },
+            { move: 'back', act: () => logic.actions.prevStep() },
+            { move: 'stepper', act: () => logic.actions.setStep('analytics') },
+        ])('stays on the step while a screenshot uploads ($move)', async ({ act }) => {
+            logic.actions.setStep('variants')
+            logic.actions.setVariantUploadPending('test', true)
+
+            act()
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.actions.setVariantUploadPending('test', false)
+            act()
+            expect(logic.values.currentStep).not.toEqual('variants')
+        })
+
         it('nextStep advances and prevStep goes back', async () => {
             expect(logic.values.currentStep).toBe('about')
 
