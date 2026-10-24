@@ -2845,7 +2845,7 @@ class SignalReportViewSet(
         self,
         endpoint: Literal["list", "ranking_outcomes"],
         *,
-        ordering_outcomes: list[str] | None = None,
+        ordering_outcomes: Sequence[str] | None = None,
         min_lift: dict[str, float] | None = None,
         min_probability: dict[str, float] | None = None,
         ranking_status: str | None = None,
