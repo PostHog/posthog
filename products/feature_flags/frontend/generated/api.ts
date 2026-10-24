@@ -26,6 +26,8 @@ import type {
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagHistoricalBatchRequestApi,
+    FeatureFlagHistoricalBatchResponseApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
     FeatureFlagRollOutToEveryoneRequestApi,
@@ -1000,6 +1002,32 @@ export const featureFlagsTestEvaluationCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureFlagTestEvaluationRequestApi),
     })
+}
+
+export const getFeatureFlagsTestEvaluationBatchCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/test_evaluation_batch/`
+}
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const featureFlagsTestEvaluationBatchCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagHistoricalBatchRequestApi: FeatureFlagHistoricalBatchRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagHistoricalBatchResponseApi> => {
+    return apiMutator<FeatureFlagHistoricalBatchResponseApi>(
+        getFeatureFlagsTestEvaluationBatchCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(featureFlagHistoricalBatchRequestApi),
+        }
+    )
 }
 
 export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number) => {
