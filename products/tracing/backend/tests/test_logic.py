@@ -10,7 +10,7 @@ from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFil
 
 from products.tracing.backend.logic import translate_span_filter
 
-PROMPTS_DIR = Path(__file__).parents[2] / "mcp" / "prompts"
+PRODUCT_DIR = Path(__file__).parents[2]
 
 
 def _span_filter(key: str, value: object) -> SpanPropertyFilter:
@@ -65,14 +65,15 @@ class TestTranslateSpanFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # The MCP prompts tell agents what unit to send. These examples must mean the
+            # The MCP prompts and skills tell agents what unit to send. These examples must mean the
             # threshold their prose states once the backend translates them.
-            ("query-apm-spans.md", 1_000_000_000),
-            ("apm-spans-count.md", 30_000_000_000),
+            ("mcp/prompts/query-apm-spans.md", 1_000_000_000),
+            ("mcp/prompts/apm-spans-count.md", 30_000_000_000),
+            ("skills/exploring-apm-traces/SKILL.md", 1_000_000_000),
         ]
     )
-    def test_documented_mcp_duration_example_matches_stated_threshold(self, prompt, expected_nano):
-        match = re.search(r'\{ "key": "duration", [^}]*\}', (PROMPTS_DIR / prompt).read_text())
+    def test_documented_duration_example_matches_stated_threshold(self, doc, expected_nano):
+        match = re.search(r'\{ "key": "duration", [^}]*\}', (PRODUCT_DIR / doc).read_text())
         assert match is not None
         span_filter = SpanPropertyFilter(**json.loads(match.group(0)))
         translate_span_filter(span_filter)

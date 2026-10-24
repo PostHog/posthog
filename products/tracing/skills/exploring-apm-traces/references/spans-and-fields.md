@@ -57,6 +57,6 @@ UI filter chips for `status_code = OK` match `{0, 1}`, but the underlying intege
 | `span_attribute`          | Span-level attributes (e.g. `http.method`, `db.statement`)                                             |
 | `span_resource_attribute` | Resource-level attributes (e.g. `k8s.pod.name`, `service.version`)                                     |
 
-`duration` filters take values in **nanoseconds** (the column is `duration_nano`). The frontend translates `1000ms` → `1_000_000_000` before sending.
+`duration` filters take values in **milliseconds** (1 second = `1000`). The backend converts the value to nanoseconds for the `duration_nano` column. Do not send nanoseconds: the filter then matches no spans.
 
 `is_root_span` filters take `true`/`false` — filter `true` to isolate entry/request spans (e.g. request counts for RED metrics).
