@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 
 import pytest
@@ -7,7 +8,12 @@ from django.db import OperationalError
 
 import requests
 from google.auth.exceptions import RefreshError, TransportError
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
@@ -34,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     google_search_console_source,
     normalize_site_url,
     suggest_registered_site,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source import (
+    GoogleSearchConsoleSource,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -124,6 +133,35 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
     assert get.call_count == 4
     assert sleeps == [2, 4, 6]
+
+
+@pytest.mark.parametrize("page_size", [5000, 25000])
+def test_source_reads_until_empty_page(monkeypatch: pytest.MonkeyPatch, page_size: int) -> None:
+    config = GoogleSearchConsoleSourceConfig(site_url="https://example.com/", google_search_console_integration_id=1)
+    rows = [
+        {"keys": ["2026-04-27", f"keyword-{index}"], "clicks": 1, "impressions": 2} for index in range(page_size + 1)
+    ]
+    monkeypatch.setattr(gsc, "_today", lambda: TODAY)
+    monkeypatch.setattr(gsc, "_credentials", lambda *args: OAuthCredentials(token="fake-token"))
+
+    result = SourceDriver(GoogleSearchConsoleSource(), config).run(
+        "search_analytics_by_query",
+        [
+            ScriptedResponse(json={"rows": rows[:page_size]}),
+            ScriptedResponse(json={"rows": rows[page_size:]}),
+            ScriptedResponse(json={"rows": []}),
+        ],
+        incremental_field="date",
+        db_incremental_field_last_value=dt.date(2026, 4, 27),
+    )
+
+    assert result.raised is None
+    assert [row["query"] for row in result.rows] == [f"keyword-{index}" for index in range(page_size + 1)]
+    assert [json.loads(request.body or b"{}")["startRow"] for request in result.requests] == [
+        0,
+        page_size,
+        page_size + 1,
+    ]
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):

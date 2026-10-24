@@ -780,20 +780,16 @@ def google_search_console_source(
                     search_type=search_type,
                 )
                 if not rows:
-                    break
-
-                yield [_row_to_dict(row, dimensions, iter_date=current, search_type=search_type) for row in rows]
-
-                next_start_row = start_row + len(rows)
-                if len(rows) < ROW_LIMIT:
-                    # Advance to the next date; persist its starting state so a restart
-                    # picks up at the next date with start_row=0.
                     next_iso = (current + dt.timedelta(days=1)).isoformat()
                     resumable_source_manager.save_state(
                         GoogleSearchConsoleResumeConfig(current_date=next_iso, start_row=0)
                     )
                     break
 
+                yield [_row_to_dict(row, dimensions, iter_date=current, search_type=search_type) for row in rows]
+
+                next_start_row = start_row + len(rows)
+                # Only an empty page proves exhaustion; a short response can leave more rows to fetch.
                 resumable_source_manager.save_state(
                     GoogleSearchConsoleResumeConfig(current_date=iso, start_row=next_start_row)
                 )
