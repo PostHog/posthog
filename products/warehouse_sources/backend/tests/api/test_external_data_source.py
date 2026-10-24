@@ -13024,10 +13024,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
-        # AmazonCloudWatch doesn't implement get_schemas, so the base raises NotImplementedError.
+        # AmazonEventBridge doesn't implement get_schemas, so the base raises NotImplementedError.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "AmazonCloudWatch", "prefix": "scaffold_setup_test", "payload": {}},
+            data={"source_type": "AmazonEventBridge", "prefix": "scaffold_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "isn't available to connect yet" in response.json()["message"]

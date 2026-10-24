@@ -5,10 +5,9 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const GIB = 1024 ** 3
+import { tsgoPlan } from './typescriptCheckPlan.mjs'
+
 const WATCHDOG_RATIO = 0.85
-const UNTUNED_MIN_HEADROOM_GIB = 24
-const MIN_GOMEMLIMIT_GIB = 6
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function readNumber(file, key) {
@@ -17,8 +16,8 @@ function readNumber(file, key) {
         const value = key
             ? text
                   .split('\n')
-                  .find((line) => line.startsWith(`${key} `))
-                  ?.split(' ')[1]
+                  .map((line) => line.split(/\s+/))
+                  .find(([name]) => name === key)?.[1]
             : text
         return value === undefined ? null : Number(value.trim())
     } catch {
@@ -35,6 +34,15 @@ function cgroupHeadroomBytes(dir, limitFile, currentFile, inactiveKey) {
     return WATCHDOG_RATIO * limit - current + (readNumber(`${dir}/memory.stat`, inactiveKey) ?? 0)
 }
 
+function meminfoHeadroomBytes() {
+    const total = readNumber('/proc/meminfo', 'MemTotal:')
+    const available = readNumber('/proc/meminfo', 'MemAvailable:')
+    if (!total || available === null || Number.isNaN(available)) {
+        return null
+    }
+    return (WATCHDOG_RATIO * total - (total - available)) * 1024
+}
+
 function headroomBytes() {
     if (process.platform !== 'linux') {
         return null
@@ -47,19 +55,23 @@ function headroomBytes() {
             'memory.usage_in_bytes',
             'total_inactive_file'
         ) ??
+        meminfoHeadroomBytes() ??
         os.freemem() - (1 - WATCHDOG_RATIO) * os.totalmem()
     )
 }
 
-const headroom = headroomBytes()
-const constrained = headroom !== null && headroom < UNTUNED_MIN_HEADROOM_GIB * GIB
+const plan = tsgoPlan(headroomBytes())
+if (plan.mode === 'refuse') {
+    console.error(plan.message)
+    process.exit(75)
+}
+const constrained = plan.mode === 'constrained'
 const args = ['--noEmit', ...(constrained ? ['--checkers', '1'] : []), ...process.argv.slice(2)]
 let env = process.env
 if (constrained) {
-    const memoryLimit = `${Math.max(MIN_GOMEMLIMIT_GIB, Math.floor(headroom / GIB / 2))}GiB`
-    env = { GOMEMLIMIT: memoryLimit, ...process.env }
+    env = { GOMEMLIMIT: plan.goMemLimit, ...process.env }
     console.info(
-        `${(headroom / GIB).toFixed(1)} GiB of memory headroom: running tsgo with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
+        `${plan.headroomGib} GiB of memory headroom: running tsgo with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
     )
 }
 

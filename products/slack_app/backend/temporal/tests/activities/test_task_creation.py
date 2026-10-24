@@ -652,11 +652,23 @@ class TestDeriveMentionWorkflowId:
         }
         return PostHogCodeSlackMentionWorkflowInputs(**fields)
 
-    def test_confirmed_redispatch_gets_its_own_id(self):
-        original = derive_mention_workflow_id(self._inputs(untagged_followup=True))
-        confirmed = derive_mention_workflow_id(self._inputs(untagged_followup=True, untagged_followup_confirmed=True))
-        assert original != confirmed
-        assert confirmed.startswith(original)
+    @pytest.mark.parametrize(
+        "earlier, redispatch",
+        [
+            ({"untagged_followup": True}, {"untagged_followup_confirmed": True}),
+            # A confirmed reply that then needed the creator's approval is sent a third time.
+            (
+                {"untagged_followup": True, "untagged_followup_confirmed": True, "slack_event_id": None},
+                {"thread_join_approved": True},
+            ),
+        ],
+        ids=["confirmed", "join_approved"],
+    )
+    def test_redispatch_gets_its_own_id(self, earlier, redispatch):
+        original = derive_mention_workflow_id(self._inputs(**earlier))
+        again = derive_mention_workflow_id(self._inputs(**earlier, **redispatch))
+        assert original != again
+        assert again.startswith(original)
 
     def test_id_is_stable_without_a_slack_event_id(self):
         inputs = self._inputs(slack_event_id=None)

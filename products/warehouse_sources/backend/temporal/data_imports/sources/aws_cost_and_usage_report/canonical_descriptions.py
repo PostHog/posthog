@@ -1,0 +1,42 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "cost_and_usage": {
+        "description": "One row per line item of the AWS Data Exports export, from the latest delivery of each billing period. Columns follow the export's query, so a CUR 2.0 export and a FOCUS export carry different columns.",
+        "docs_url": "https://docs.aws.amazon.com/cur/latest/userguide/table-dictionary-cur2.html",
+        "columns": {
+            "billing_period": "First day of the billing period the row belongs to, taken from the export's BILLING_PERIOD partition.",
+            "bill_billing_period_start_date": "Start of the billing period the line item is billed in.",
+            "bill_billing_period_end_date": "End of the billing period the line item is billed in.",
+            "bill_payer_account_id": "Account ID of the management (payer) account that pays the bill.",
+            "bill_invoice_id": "ID of the invoice the line item appears on. Empty until the bill finalizes.",
+            "line_item_usage_account_id": "Account ID of the member account that used the resource.",
+            "line_item_line_item_type": "Kind of charge, for example Usage, Tax, Credit, Refund, SavingsPlanCoveredUsage or DiscountedUsage.",
+            "line_item_usage_start_date": "Start of the period the usage covers.",
+            "line_item_usage_end_date": "End of the period the usage covers.",
+            "line_item_product_code": "Code of the AWS service the line item belongs to, for example AmazonEC2.",
+            "line_item_usage_type": "Usage details, such as the instance type and region the usage ran in.",
+            "line_item_operation": "Operation that produced the usage, for example RunInstances.",
+            "line_item_resource_id": "ID of the resource, when resource IDs are included in the export.",
+            "line_item_usage_amount": "Amount of usage in the period, in the unit of the pricing dimension.",
+            "line_item_unblended_rate": "Rate the usage was charged at, before blending across the organization.",
+            "line_item_unblended_cost": "Usage amount multiplied by the unblended rate. The cost before amortization, as on the bill.",
+            "line_item_blended_cost": "Usage amount multiplied by the blended rate, the average rate across the organization.",
+            "line_item_net_unblended_cost": "Unblended cost after discounts. Present when the account has discounts.",
+            "line_item_currency_code": "Currency of the cost columns.",
+            "line_item_line_item_description": "Human-readable description of the line item.",
+            "identity_line_item_id": "ID of the line item. Unique within one delivery only: AWS assigns new IDs in later deliveries.",
+            "identity_time_interval": "Time interval the line item covers, in ISO 8601 form.",
+            "pricing_term": "Whether the usage was OnDemand, Reserved or Spot.",
+            "pricing_public_on_demand_cost": "Cost of the usage at public On-Demand rates.",
+            "savings_plan_savings_plan_effective_cost": "Share of the Savings Plans commitment allocated to the line item.",
+            "reservation_effective_cost": "Amortized upfront and recurring reservation fee for the line item.",
+            "product": "JSON object of the product attributes, such as region, instance type and operating system.",
+            "resource_tags": "JSON object of the user and AWS cost allocation tags on the resource.",
+            "cost_category": "JSON object of the cost category values assigned to the line item.",
+            "discount": "JSON object of the discount amounts applied to the line item.",
+        },
+    },
+}

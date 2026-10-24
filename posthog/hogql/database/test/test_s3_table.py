@@ -4,13 +4,15 @@ from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import TableNode
-from posthog.hogql.database.s3_table import build_function_call
+from posthog.hogql.database.s3_table import build_function_call, compression_for_url_pattern
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -20,6 +22,82 @@ from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+class TestS3Compression(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain_file", "https://b.example.com/t/data.csv", "none"),
+            ("no_extension", "https://b.example.com/t/data", "none"),
+            ("folder", "https://b.example.com/t/", "none"),
+            ("pinned_glob", "https://b.example.com/t/*.parquet", "none"),
+            ("pinned_compressed_glob", "https://b.example.com/t/*.CSV.GZ", "gzip"),
+            ("braces_before_the_extension", "https://b.example.com/t/{a,b}.json.zst", "zstd"),
+            ("dotted_folder", "https://b.example.com/t.gz/data", "none"),
+            ("open_glob", "https://b.example.com/t/*", None),
+            ("recursive_glob", "https://b.example.com/t/**", None),
+            ("glob_after_the_stem", "https://b.example.com/t/data_*", None),
+            ("braces_in_the_extension", "https://b.example.com/t/*.{csv,csv.gz}", None),
+            ("question_mark_in_the_extension", "https://b.example.com/t/data.cs?", None),
+        ]
+    )
+    def test_compression_for_url_pattern(self, _name: str, url: str, expected: str | None) -> None:
+        assert compression_for_url_pattern(url) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "s3_without_structure",
+                "https://b.example.com/t/*.csv.gz",
+                None,
+                "s3('https://b.example.com/t/*.csv.gz', 'key', 'secret', 'CSVWithNames', 'auto', 'gzip')",
+            ),
+            (
+                "s3_with_structure",
+                "https://b.example.com/t/*.csv.gz",
+                "id String",
+                "s3('https://b.example.com/t/*.csv.gz', 'key', 'secret', 'CSVWithNames', 'id String', 'gzip')",
+            ),
+            (
+                "azure",
+                "https://acct.blob.core.windows.net/c/t/*.csv.gz",
+                "id String",
+                "azureBlobStorage('https://acct.blob.core.windows.net', 'c', 't/*.csv.gz', 'key', 'secret', 'CSVWithNames', 'gzip', 'id String')",
+            ),
+        ]
+    )
+    def test_build_function_call_passes_an_explicit_codec(
+        self, _name: str, url: str, structure: str | None, expected: str
+    ) -> None:
+        res = build_function_call(
+            url, DataWarehouseTable.TableFormat.CSVWithNames, None, "key", "secret", structure, compression="gzip"
+        )
+        assert res == expected
+
+    @parameterized.expand(
+        [
+            ("pinned", "https://b.example.com/t/export.csv.br", True),
+            ("long_extension", "https://b.example.com/t/export.CSV.BROTLI", True),
+            ("brace_alternative", "https://b.example.com/t/*.{csv,csv.br}", True),
+            ("glob_after_the_extension", "https://b.example.com/t/*.br*", True),
+            ("brace_alternative_across_folders", "https://b.example.com/{a/x.csv,b/y.br}", True),
+            ("br_inside_a_brace_alternative", "https://b.example.com/t/{data.br,data.us}.csv", False),
+            ("too_many_brace_expansions", "https://b.example.com/t/" + "{a,b}" * 40 + ".csv.br", True),
+            ("lookalike_extension", "https://b.example.com/t/x.brand.csv", False),
+            ("br_inside_the_name", "https://b.example.com/t/x.br.csv", False),
+            ("br_host", "https://files.example.com.br/t/x.csv", False),
+        ]
+    )
+    def test_build_function_call_rejects_brotli_files(self, _name: str, url: str, rejected: bool) -> None:
+        if rejected:
+            with self.assertRaisesMessage(ExposedHogQLError, "Brotli"):
+                build_function_call(url, DataWarehouseTable.TableFormat.CSVWithNames, None, "key", "secret")
+        else:
+            build_function_call(url, DataWarehouseTable.TableFormat.CSVWithNames, None, "key", "secret")
+
+    @parameterized.expand([(DataWarehouseTable.TableFormat.Delta,), (DataWarehouseTable.TableFormat.DeltaS3Wrapper,)])
+    def test_build_function_call_reads_a_delta_table_in_a_br_folder(self, table_format: str) -> None:
+        build_function_call("https://b.example.com/lake/table.br", table_format, None, "key", "secret")
 
 
 class TestS3Table(BaseTest):

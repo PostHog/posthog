@@ -1,10 +1,6 @@
 import json
 import datetime
-from datetime import timedelta
-from typing import Any, TypedDict, Union, cast
-from zoneinfo import ZoneInfo
-
-from dateutil.relativedelta import relativedelta
+from typing import Any, TypedDict, Union
 
 from posthog.schema import (
     ActionsNode,
@@ -26,44 +22,21 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TREND_FILTER_TYPE_ACTIONS
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.properties_timeline.query_date_range import QueryDateRange
-from posthog.models.entity import Entity
-from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
-from posthog.models.property.util import count_hogql_properties, extract_tables_and_properties
+from posthog.models.property.util import count_hogql_properties
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.facade import queries as product_analytics_queries
 
 
-def offset_time_series_date_by_interval(
-    date: datetime.datetime, *, filter: PropertiesTimelineFilter, team: Team
-) -> datetime.datetime:
-    """If the insight is time-series, offset date according to the interval of the filter."""
-    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-        return date
-    if filter.interval == "month":
-        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif filter.interval == "week":
-        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif filter.interval == "hour":
-        date = date + timedelta(hours=1)
-    else:  # "day" is the default interval
-        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    if date.tzinfo is None:
-        date = date.replace(tzinfo=ZoneInfo(team.timezone))
-    return date
-
-
 @frozen
 class _TimelineScope:
     """The actor's events that the timeline reads, and the properties whose changes it tracks."""
 
-    entity_exprs: tuple[ast.Expr, ...]
+    series_expr: ast.Expr | None
     crucial_property_keys: tuple[str, ...]
     aggregation_group_type_index: int | None
     date_from: datetime.datetime
@@ -196,32 +169,6 @@ ORDER BY timestamp ASC
 
 
 class PropertiesTimeline:
-    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter, team_id: int) -> set[str]:
-        is_filter_relevant = lambda property_type, property_group_type_index: (
-            (property_type == "person")
-            if filter.aggregation_group_type_index is None
-            else (property_type == "group" and property_group_type_index == filter.aggregation_group_type_index)
-        )
-
-        property_filters = list(filter.property_groups.flat)
-        for event in filter.entities:
-            property_filters.extend(event.property_groups.flat)
-        all_property_identifiers = extract_tables_and_properties(property_filters, team_id=team_id)
-
-        crucial_property_keys = {
-            property_key
-            for property_key, property_type, property_group_type_index in all_property_identifiers
-            if is_filter_relevant(property_type, property_group_type_index)
-        }
-
-        if filter.breakdown and filter.breakdown_type == "person":
-            if isinstance(filter.breakdown, list):
-                crucial_property_keys.update(cast(list[str], filter.breakdown))
-            else:
-                crucial_property_keys.add(filter.breakdown)
-
-        return crucial_property_keys
-
     def _actor_properties_chain(self, aggregation_group_type_index: int | None) -> list[Union[str, int]]:
         # Read the actor's properties as frozen on the event (persons-on-events columns), so the
         # timeline reflects the values at the time of each event rather than current values.
@@ -229,22 +176,9 @@ class PropertiesTimeline:
             return ["poe", "properties"]
         return [f"goe_{aggregation_group_type_index}", "properties"]
 
-    def _entity_expr(self, entity: Entity, team: Team) -> ast.Expr:
-        # Only the entity's event/action identity filters the timeline events — the entity's ad-hoc
-        # property filters are not applied here (they only feed crucial-property-key extraction), matching
-        # the legacy behavior.
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=cast(Union[int, str], entity.id), team=team)
-            return action_to_expr(action)
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=entity.id),
-        )
-
     def _series_expr(self, series: EventsNode | ActionsNode, team: Team) -> ast.Expr | None:
-        # Like `_entity_expr`, only the series' event or action selects events. Its property filters
-        # name key properties, and filtering on them would hide the changes the timeline shows.
+        # Only the series' event or action selects events. Its property filters name key properties,
+        # and filtering on them would hide the changes the timeline shows.
         if isinstance(series, ActionsNode):
             action = Action.objects.filter(pk=series.id, team__project_id=team.project_id).first()
             return action_to_expr(action) if action is not None else ast.Constant(value=False)
@@ -254,29 +188,6 @@ class PropertiesTimeline:
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=["event"]),
             right=ast.Constant(value=series.event),
-        )
-
-    def _scope_from_filter(self, filter: PropertiesTimelineFilter, team: Team) -> _TimelineScope:
-        if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
-            # A single-point range is widened by one interval so the window actually spans some events.
-            filter = filter.shallow_clone(
-                {
-                    "date_to": offset_time_series_date_by_interval(
-                        cast(datetime.datetime, filter.date_from),
-                        filter=filter,
-                        team=team,
-                    )
-                }
-            )
-
-        query_date_range = QueryDateRange(filter, team)
-        return _TimelineScope(
-            entity_exprs=tuple(self._entity_expr(entity, team) for entity in filter.entities),
-            crucial_property_keys=tuple(sorted(self.extract_crucial_property_keys(filter, team_id=team.pk))),
-            aggregation_group_type_index=filter.aggregation_group_type_index,
-            date_from=query_date_range.date_from_param.replace(tzinfo=team.timezone_info),
-            date_to=query_date_range.date_to_param.replace(tzinfo=team.timezone_info),
-            date_to_inclusive=True,
         )
 
     def _scope_from_query(self, query: InsightActorsQuery, team: Team) -> _TimelineScope:
@@ -295,9 +206,8 @@ class PropertiesTimeline:
         )
         # The facade imports the trends runner on first attribute access, which keeps it off the startup import path.
         window = product_analytics_queries.trends_actors_date_window(team=team, query=query)
-        series_expr = self._series_expr(series, team)
         return _TimelineScope(
-            entity_exprs=(series_expr,) if series_expr is not None else (),
+            series_expr=self._series_expr(series, team),
             crucial_property_keys=tuple(sorted(crucial_property_keys)),
             aggregation_group_type_index=aggregation_group_type_index,
             date_from=window.date_from.astimezone(team.timezone_info),
@@ -308,11 +218,6 @@ class PropertiesTimeline:
     def run(self, query: InsightActorsQuery, team: Team, actor: Union[Person, Group]) -> PropertiesTimelineResult:
         """The actor's key property values over the window of the Trends data point that `query` selects."""
         return self._run(self._scope_from_query(query, team), team, actor)
-
-    def run_for_filter(
-        self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
-    ) -> PropertiesTimelineResult:
-        return self._run(self._scope_from_filter(filter, team), team, actor)
 
     def _run(self, scope: _TimelineScope, team: Team, actor: Union[Person, Group]) -> PropertiesTimelineResult:
         actor_properties_chain = self._actor_properties_chain(scope.aggregation_group_type_index)
@@ -349,10 +254,8 @@ class PropertiesTimeline:
                 right=ast.Constant(value=scope.date_to),
             ),
         ]
-        if scope.entity_exprs:
-            where_exprs.append(
-                ast.Or(exprs=list(scope.entity_exprs)) if len(scope.entity_exprs) > 1 else scope.entity_exprs[0]
-            )
+        if scope.series_expr is not None:
+            where_exprs.append(scope.series_expr)
 
         query = parse_select(
             PROPERTIES_TIMELINE_HOGQL,

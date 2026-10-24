@@ -17,10 +17,15 @@ from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH,
     DEFAULT_WIDGET_LIST_LIMIT,
     LOGS_LIST_DEFAULT_LIMIT,
+    METRICS_TABLE_DEFAULT_LIMIT,
+    METRICS_TABLE_MAX_COLUMNS,
+    METRICS_TABLE_MAX_FILTERS,
+    METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES,
 )
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
     LogsWidgetLimit,
+    MetricsTableWidgetLimit,
     WidgetDateRange,
     WidgetDateRangeConfigBase,
     WidgetLimit,
@@ -38,6 +43,7 @@ LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 NOTEBOOK_WIDGET_TYPE = "notebook_widget"
 CANVAS_APP_WIDGET_TYPE = "canvas_app"
+METRICS_TABLE_WIDGET_TYPE = "metrics_table"
 
 
 class CanvasAppWidgetConfig(BaseModel):
@@ -368,3 +374,81 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
         if not isinstance(value, str):
             raise ValueError("savedViewId must be a string.")
         return value
+
+
+# `rate` and `increase` sum the per-series change of a counter, so a row shows the total for its label value.
+MetricsTableAggregation = Literal["rate", "increase", "sum", "avg", "min", "max", "histogram_quantile"]
+MetricsTableFilterOp = Literal["eq", "neq", "regex", "not_regex"]
+MetricsTableInterval = Literal["minute", "minute_5", "minute_15", "hour", "day"]
+
+
+class MetricsTableFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(
+        min_length=1, max_length=200, description="Label key to filter on, e.g. `http.response.status_code`."
+    )
+    op: MetricsTableFilterOp = Field(default="eq", description="How the label value is compared.")
+    value: str = Field(max_length=400, description="Label value, or a regular expression for `regex` and `not_regex`.")
+
+
+class MetricsTableColumn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=40, description="Column header, e.g. `Requests/s`.")
+    metricName: str = Field(min_length=1, max_length=200, description="Name of the metric this column reads.")
+    aggregation: MetricsTableAggregation = Field(
+        description="How each time bucket of a row is computed. `rate` and `increase` read counters."
+    )
+    quantile: float | None = Field(
+        default=None, gt=0, lt=1, description="Required for `histogram_quantile`, e.g. 0.95 for p95."
+    )
+    filters: list[MetricsTableFilter] = Field(
+        default_factory=list,
+        max_length=METRICS_TABLE_MAX_FILTERS,
+        description="Label filters for this column only, e.g. 5xx status codes for an errors column.",
+    )
+
+    @model_validator(mode="after")
+    def validate_quantile(self) -> Self:
+        if (self.aggregation == "histogram_quantile") != (self.quantile is not None):
+            raise ValueError("Set quantile only, and always, for the histogram_quantile aggregation.")
+        return self
+
+
+class MetricsTableWidgetConfig(WidgetDateRangeConfigBase):
+    groupBy: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="Label that makes one row per value, e.g. `http.route`. Null until the user sets it.",
+    )
+    columns: list[MetricsTableColumn] = Field(
+        default_factory=list,
+        max_length=METRICS_TABLE_MAX_COLUMNS,
+        description="One metric per column. Each row shows the column's average over the date range and a sparkline.",
+    )
+    interval: MetricsTableInterval | None = Field(
+        default=None,
+        description=(
+            "Time between the points of the full charts that open from a row. Null picks one from the date range. "
+            "The table sparklines always use at most 30 points."
+        ),
+    )
+    orderByColumn: int = Field(default=0, ge=0, description="Index of the column that sorts the rows.")
+    orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderByColumn.")
+    limit: MetricsTableWidgetLimit = Field(
+        default=METRICS_TABLE_DEFAULT_LIMIT, description="Maximum number of rows to show."
+    )
+
+    @model_validator(mode="after")
+    def validate_order_by_column(self) -> Self:
+        if self.columns and self.orderByColumn >= len(self.columns):
+            raise ValueError("orderByColumn must point to a column.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_metrics_query_span(self) -> Self:
+        if self.dateRange is not None and self.dateRange.date_from in METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES:
+            raise ValueError("Metrics queries cover at most 30 days. Pick a shorter date range.")
+        return self

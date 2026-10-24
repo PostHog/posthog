@@ -317,3 +317,11 @@ Advertising metrics appear first, followed by attributed conversion goals and th
 The goal cards use a separate grid so cards without sparklines keep a compact height.
 
 The overview loads on demand so other query surfaces do not load marketing-specific validation eagerly.
+
+The Ad performance summary groups metrics by source: Ad platforms contains platform-reported metrics, and PostHog contains configured conversion goals and their costs.
+Configure metrics uses the same apply-and-cancel interaction as Configure columns.
+It lets users show or hide individual metrics, show or hide an entire group, and reorder metrics within each group with the move buttons.
+Each group can also collapse without changing which metrics are selected.
+The summary saves visibility, order, and collapsed groups in browser storage per project and view, matching table column preferences.
+These preferences survive reloads in the same browser; they do not change table columns or the underlying queries.
+New metrics appear by default, and removed goals do not leave empty cards.

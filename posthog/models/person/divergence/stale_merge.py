@@ -42,21 +42,38 @@ def _queue_stale_merge(
 ) -> datatypes.RepairOutcome | None:
     """Send the ClickHouse-only properties to ingestion as $set_once, or return why they were not sent."""
     assert plan.person is not None
+    return send_set_once(
+        plan.team_id, distinct_id, missing, plan.person.properties or {}, event_source="person_divergence_reset"
+    )
+
+
+def send_set_once(
+    team_id: int,
+    distinct_id: str,
+    missing: dict[str, Any],
+    existing: dict[str, Any],
+    *,
+    event_source: str,
+    event_name: str = "$set",
+    extra_properties: dict[str, Any] | None = None,
+) -> datatypes.RepairOutcome | None:
+    """Send `missing` to ingestion as $set_once on the person that owns `distinct_id`, or return why it was not
+    sent. `existing` is that person's Postgres properties, which bound the size of the merged result."""
     # Every member can read the $set event, and event reads apply event property restrictions only, so a team with
     # any property rule could expose a person property that some member is denied.
-    if team_has_property_access_rules(team_id=plan.team_id):
+    if team_has_property_access_rules(team_id=team_id):
         return "skipped_stale_merge_restricted"
-    if len(json.dumps({**missing, **(plan.person.properties or {})})) > _STALE_MERGE_MAX_BYTES:
+    if len(json.dumps({**missing, **existing})) > _STALE_MERGE_MAX_BYTES:
         return "skipped_stale_merge_too_large"
     try:
-        token = Team.objects.only("api_token").get(id=plan.team_id).api_token
+        token = Team.objects.only("api_token").get(id=team_id).api_token
         capture_internal(
             token=token,
-            event_name="$set",
-            event_source="person_divergence_reset",
+            event_name=event_name,
+            event_source=event_source,
             distinct_id=distinct_id,
             timestamp=datetime.now(UTC),
-            properties={"$set_once": missing},
+            properties={**(extra_properties or {}), "$set_once": missing},
             process_person_profile=True,
         ).raise_for_status()
     except Exception:
