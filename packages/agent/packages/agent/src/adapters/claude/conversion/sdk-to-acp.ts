@@ -655,6 +655,7 @@ function streamEventToAcpNotifications(
           event.delta.partial_json,
           sessionId,
           toolUseStreamCache,
+          parentToolCallId,
         );
       }
       return toAcpNotifications(
@@ -699,6 +700,7 @@ function inputJsonDeltaToAcpNotifications(
   partialJson: string,
   sessionId: string,
   toolUseStreamCache: ToolUseStreamCache,
+  parentToolCallId?: string,
 ): SessionNotification[] {
   const entry = toolUseStreamCache.get(index);
   if (!entry) return [];
@@ -714,6 +716,9 @@ function inputJsonDeltaToAcpNotifications(
         sessionUpdate: "tool_call_update" as const,
         toolCallId: entry.toolUseId,
         rawInput: parsed as Record<string, unknown>,
+        ...(parentToolCallId
+          ? { _meta: { claudeCode: { parentToolCallId } } }
+          : {}),
       },
     },
   ];

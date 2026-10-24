@@ -51,6 +51,7 @@ A connection failure does not mark the run as failed: only the run's authoritati
 Recovery opens the stream before reading history and buffers incoming frames until reconciliation finishes.
 Shared `event_id` and `first_event_id` values reconcile live events with saved, coalesced messages.
 Coalesced text replaces only text events in its range, preserving interleaved task notifications.
+Sub-agent activity stays visible, while its text stays out of the parent answer and Slack reply.
 Saved user messages replace their optimistic copies, and a retained follow-up keeps its turn active when saved history lags.
 Older logs without these IDs use the existing content multiset comparison, which cannot identify every overlap.
 Late Django backlog frames also match their saved log position and payload, without suppressing repeated live output.

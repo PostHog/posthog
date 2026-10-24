@@ -126,12 +126,15 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
-        """A tool call or a new agent todo list. Either ends the prose burst before it."""
+        """A tool call or a new agent todo list. Either ends the prose burst before it, unless a
+        sub-agent made the call: a background sub-agent can call tools while the agent writes its answer."""
         self._last_signal_at = workflow.now()
         self._turn_has_activity = True
-        narrative, self._narrative = self._narrative, ""
-        if narrative.strip():
-            self._last_burst = narrative
+        narrative = ""
+        if not (isinstance(payload, dict) and payload.get("nested")):
+            narrative, self._narrative = self._narrative, ""
+            if narrative.strip():
+                self._last_burst = narrative
 
         if not isinstance(payload, dict):
             return

@@ -7,6 +7,7 @@ import type {
   InitializeRequest,
   NewSessionRequest,
   PromptRequest,
+  SessionNotification,
 } from "@agentclientprotocol/sdk";
 import { RequestError } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -468,6 +469,13 @@ describe("CodexAppServerAgent", () => {
       "subagent:subagent_1:shared_command_id",
     );
     expect(serializedUpdates).toContain('"parentToolCallId":"spawn_1"');
+    expect(
+      (sessionUpdates as SessionNotification[]).find(
+        ({ update }) =>
+          update.sessionUpdate === "tool_call_update" &&
+          update.toolCallId === "subagent:subagent_1:shared_command_id",
+      )?.update._meta,
+    ).toMatchObject({ posthog: { parentToolCallId: "spawn_1" } });
     expect(serializedUpdates).toContain("parent response");
     expect(structuredOutputs).toEqual([{ source: "parent" }]);
     expect(

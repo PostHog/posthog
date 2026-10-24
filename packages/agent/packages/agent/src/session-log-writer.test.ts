@@ -438,6 +438,62 @@ describe("SessionLogWriter", () => {
         label: "an unrecognized server diagnostic",
         wireMessages: [{ method: "_posthog/some_new_diagnostic", params: {} }],
       },
+      {
+        // A background sub-agent keeps working while the agent writes.
+        label: "sub-agent tool call",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tc-sub",
+                _meta: {
+                  claudeCode: {
+                    toolName: "Bash",
+                    parentToolCallId: "tc-agent",
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        label: "sub-agent tool call update on the neutral meta channel",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tc-sub",
+                status: "completed",
+                _meta: {
+                  posthog: { toolName: "Bash", parentToolCallId: "tc-agent" },
+                },
+              },
+            },
+          },
+        ],
+      },
+      ...["posthog", "claudeCode"].flatMap((channel) =>
+        ["agent_message_chunk", "agent_message"].map((sessionUpdate) => ({
+          label: `sub-agent ${sessionUpdate} on ${channel}`,
+          wireMessages: [
+            {
+              method: "session/update",
+              params: {
+                update: {
+                  sessionUpdate,
+                  content: { type: "text", text: "child answer" },
+                  _meta: { [channel]: { parentToolCallId: "tc-agent" } },
+                },
+              },
+            },
+          ],
+        })),
+      ),
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {

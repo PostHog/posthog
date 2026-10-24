@@ -281,6 +281,44 @@ describe("assembled assistant text fallback", () => {
     expect(context.session.notificationHistory).toEqual(updates);
   });
 
+  it("marks streamed child tool input as nested", async () => {
+    const { context, updates } = createHandlerContext();
+    await handleStreamEvent(
+      streamEvent(
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "child-tool",
+            name: "Bash",
+            input: {},
+          },
+        },
+        "parent-tool",
+      ),
+      context,
+    );
+    await handleStreamEvent(
+      streamEvent(
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: {
+            type: "input_json_delta",
+            partial_json: '{"command":"echo hello"}',
+          },
+        },
+        "parent-tool",
+      ),
+      context,
+    );
+
+    expect(updates.at(-1)?.update._meta).toMatchObject({
+      claudeCode: { parentToolCallId: "parent-tool" },
+    });
+  });
+
   it.each([false, true])(
     "preserves the MCP result metadata in ACP and stored notifications (isError=%s)",
     async (isError) => {

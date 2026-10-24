@@ -248,8 +248,14 @@ export class SessionLogWriter {
         return;
       }
 
+      const isNeutral = session.transcriptBoundaries.isNeutral(message);
+      const isSubagentMessage =
+        isNeutral &&
+        (this.isAgentMessageChunk(message) ||
+          this.isDirectAgentMessage(message));
+
       // Check if this is an agent_message_chunk event
-      if (this.isAgentMessageChunk(message)) {
+      if (this.isAgentMessageChunk(message) && !isSubagentMessage) {
         const text = this.extractChunkText(message);
         if (text) {
           if (!session.chunkBuffer) {
@@ -276,16 +282,20 @@ export class SessionLogWriter {
       // If this is a direct agent_message AND there are buffered chunks,
       // the direct message supersedes the partial chunks
       let supersededChunks: ChunkBuffer | undefined;
-      if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
+      if (
+        this.isDirectAgentMessage(message) &&
+        !isSubagentMessage &&
+        session.chunkBuffer
+      ) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
-      } else if (!session.transcriptBoundaries.isNeutral(message)) {
+      } else if (!isNeutral) {
         this.emitCoalescedMessage(sessionId, session);
       }
 
       message = redactSecrets(message) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
-      if (nonChunkAgentText) {
+      if (nonChunkAgentText && !isSubagentMessage) {
         session.lastAgentMessage = nonChunkAgentText;
         session.currentTurnMessages.push(nonChunkAgentText);
       }
