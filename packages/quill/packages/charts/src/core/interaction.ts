@@ -67,7 +67,7 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
 // Horizontal extent (px) a same-label drag must span to count as a deliberate single-bucket
 // zoom. On sparse charts both drag edges snap to one label, so without this a vertical-ish
 // gesture (whose x drift is a few px) would zoom into the hovered bucket.
-const SINGLE_LABEL_MIN_DRAG_PX = 8
+export const SINGLE_LABEL_MIN_DRAG_PX = 8
 
 /** Maps a drag selection to the spanned label range. A drag whose edges both snap to the same
  *  label selects that single bucket, provided it spans enough horizontal distance to read as

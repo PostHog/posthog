@@ -131,6 +131,11 @@ export interface ChartAccessor<Meta = unknown> {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
     }
+    histogram: {
+        /** Marker labels (`p50 34.5ms`), left to right. A label crowded out by its neighbors is
+         *  absent, though its line still draws. */
+        markerLabels(): string[]
+    }
     gauge: {
         /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
          *  hidden, for example when the min and max labels would overlap. */
@@ -334,6 +339,9 @@ export function getChart<Meta = unknown>(
                         lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
                     })
                 ),
+        },
+        histogram: {
+            markerLabels: () => textsOf(wrapper, 'hog-chart-histogram-marker-label'),
         },
         gauge: {
             text: () => {

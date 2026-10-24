@@ -17,6 +17,7 @@ import type {
     ChartScales,
     DateRangeZoomData,
     DragRect,
+    PixelRangeSelectData,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -54,6 +55,8 @@ interface UseChartInteractionOptions<Meta> {
     /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
      *  adapters can map the y pixel range onto their own bands. */
     onAreaSelect?: (data: AreaSelectData, scales: ChartScales) => void
+    /** x-only continuous-axis drag — see `ChartProps.onPixelRangeSelect`. */
+    onPixelRangeSelect?: (data: PixelRangeSelectData, scales: ChartScales) => void
     resolveValue?: ResolveValueFn
     /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
@@ -134,6 +137,7 @@ export function useChartInteraction<Meta = unknown>({
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
+    onPixelRangeSelect,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
     resolveBottomValue,
@@ -219,6 +223,14 @@ export function useChartInteraction<Meta = unknown>({
         [onAreaSelect, scales]
     )
 
+    const onPixelRangeSelectWithScales = useMemo(
+        () =>
+            onPixelRangeSelect && scales
+                ? (data: PixelRangeSelectData): void => onPixelRangeSelect(data, scales)
+                : undefined,
+        [onPixelRangeSelect, scales]
+    )
+
     const {
         dragRect,
         onMouseDown,
@@ -227,6 +239,7 @@ export function useChartInteraction<Meta = unknown>({
     } = useDragToZoom({
         onDateRangeZoom,
         onAreaSelect: onAreaSelectWithScales,
+        onPixelRangeSelect: onPixelRangeSelectWithScales,
         scales,
         dimensions,
         labels,
