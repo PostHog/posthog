@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -85,7 +85,7 @@ function PreferenceEditor({
     return (
         <div className="flex flex-wrap items-end gap-2">
             <LemonField.Pure label="Model" className="min-w-60">
-                <LemonSelect
+                <LemonSearchableSelect
                     fullWidth
                     value={draft.model}
                     onChange={(model) =>
@@ -101,6 +101,9 @@ function PreferenceEditor({
                     }
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}
                     placeholder={inheritLabel}
+                    searchPlaceholder="Search models"
+                    noResultsMessage="No models match. Try a different name."
+                    searchInputDataAttr="task-agent-default-model-search"
                     disabledReason={editingDisabled}
                     data-attr="task-agent-default-model"
                 />
