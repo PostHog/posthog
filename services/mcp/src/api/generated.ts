@@ -29216,6 +29216,8 @@ export namespace Schemas {
       tags?: string[] | null;
       tiles?: unknown;
       variables?: unknown;
+      /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+      customization?: DashboardCustomization | null;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */
@@ -83910,6 +83912,8 @@ export namespace Schemas {
       tags?: string[] | null;
       tiles?: unknown;
       variables?: unknown;
+      /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+      customization?: DashboardCustomization | null;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */

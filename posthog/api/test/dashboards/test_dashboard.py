@@ -55,6 +55,7 @@ from products.dashboards.backend.api.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -3724,17 +3725,100 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
-    def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
+    @parameterized.expand([("template_json",), ("saved_template",)])
+    def test_dashboard_from_template_keeps_tile_groups_and_customization(self, source: str) -> None:
         template: dict = {
             **valid_template,
             "tiles": [
-                {
-                    "type": "TEXT",
-                    "body": "hello world",
-                    "agent_context": "x" * 10_001,
-                    "layouts": {},
-                }
+                {"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"},
+                {"type": "TEXT", "body": "loose", "layouts": {}},
             ],
+            "customization": {
+                "tile_spacing": "tight",
+                "groups": {"plans": {"title": "Plans", "color": "green"}},
+            },
+        }
+
+        if source == "template_json":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+                {"template": template},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            dashboard_id = response.json()["id"]
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboard_templates",
+                {**template, "scope": "team"},
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+            dashboard_id, _ = self.dashboard_api.create_dashboard(
+                {"name": "from saved template", "use_template": template["template_name"]}
+            )
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard["customization"] == {
+            "tile_spacing": "tight",
+            "groups": {"plans": {"title": "Plans", "color": "green", "collapsed": False}},
+            "group_titles": {"plans": "Plans"},
+        }
+        assert {tile["text"]["body"]: tile["group_key"] for tile in dashboard["tiles"]} == {
+            "grouped": "plans",
+            "loose": None,
+        }
+
+    @parameterized.expand(
+        [
+            ("groups_empty", {"groups": {}}, {"tile_spacing": "tight"}),
+            ("groups_null", {"groups": None}, {"tile_spacing": "tight"}),
+            (
+                "group_titles_keep_template_settings",
+                {"group_titles": {"plans": "Renamed"}},
+                {
+                    "tile_spacing": "tight",
+                    "groups": {"plans": {"title": "Renamed", "color": "green", "collapsed": False}},
+                    "group_titles": {"plans": "Renamed"},
+                },
+            ),
+        ]
+    )
+    def test_dashboard_from_template_applies_requested_groups(
+        self, _name: str, request_groups: dict, expected_customization: dict
+    ) -> None:
+        template = {
+            **valid_template,
+            "tiles": [{"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"}],
+            "customization": {"tile_spacing": "tight", "groups": {"plans": {"title": "Plans", "color": "green"}}},
+            "scope": "team",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboard_templates", template, format="json")
+        assert response.status_code == 201, response.content
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "from saved template", "use_template": template["template_name"], **request_groups}
+        )
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard["customization"] == expected_customization
+
+    @parameterized.expand(
+        [
+            ("oversized_agent_context", {"agent_context": "x" * 10_001}, None),
+            ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None),
+            ("too_many_groups", {}, {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}),
+            ("long_group_key", {}, {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}),
+            ("long_legacy_group_title", {}, {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}),
+        ]
+    )
+    def test_create_from_template_json_rejects_invalid_template(
+        self, _name: str, tile_fields: dict, customization: dict | None
+    ) -> None:
+        template: dict = {
+            **valid_template,
+            "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}, **tile_fields}],
+            "customization": customization,
         }
         dashboard_count = Dashboard.objects.count()
         text_count = Text.objects.count()
