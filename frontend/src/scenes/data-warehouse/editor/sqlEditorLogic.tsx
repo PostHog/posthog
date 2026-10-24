@@ -1543,6 +1543,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     })),
     propsChanged(({ actions, props, cache }, oldProps) => {
         if (oldProps.editor && oldProps.editor !== props.editor) {
+            cache.cursorDisposable?.dispose()
+            cache.cursorDisposable = null
             clearQueryOutlineOverlay(cache, oldProps.editor)
         }
 
