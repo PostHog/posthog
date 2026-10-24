@@ -670,8 +670,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     },
     {
         # Staff-only email sending controls: the acting staff user must not leak into the org
-        # activity log. Suspensions reach the customer through email and in-app notification. Tier
-        # changes stay internal because the tier has no customer-visible effect until it is enforced.
+        # activity log. Suspensions and automatic tier moves reach the customer through email and
+        # in-app notification, and the Reputation tab shows the current tier.
         "scope": "Team",
         "activities": ["email_sending_suspended", "email_sending_unsuspended", "email_sending_tier_changed"],
         "exclude_when": {},
@@ -1714,6 +1714,7 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
+    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1723,6 +1724,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if user is not None:
+        activity_query = apply_activity_visibility_restrictions(activity_query, user)
 
     return get_activity_page(activity_query, limit, page)
 
