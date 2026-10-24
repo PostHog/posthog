@@ -433,6 +433,106 @@ def _period_summary_dict(
     return summary
 
 
+@frozen
+class JudgeModelSummary:
+    period: Literal["current_period", "previous_period"]
+    model: str
+    first_seen: str
+    last_seen: str
+    result_counts: dict[str, int]
+    total_runs: int
+
+
+def _fetch_judge_model_summary(
+    team_id: int,
+    evaluation_id: str,
+    ts_prev_start: datetime,
+    ts_start: datetime,
+    ts_end: datetime,
+    definition: EvaluationReportOutcomeDefinition,
+    evaluation_target: str,
+) -> list[JudgeModelSummary]:
+    """Group outcome counts by judge model for the previous and current periods.
+
+    A judge model switch moves the outcome rates on its own, so the agent needs the
+    split to tell a model change apart from a change in traffic. Results without a
+    model (Hog evaluations, skips that never reached a provider) are left out.
+    """
+    rows = _execute_hogql(
+        team_id,
+        f"""
+        SELECT
+            if(timestamp >= {{ts_start}}, 'current_period', 'previous_period') as period,
+            coalesce(properties.$ai_model, '') as model,
+            min(timestamp) as first_seen,
+            max(timestamp) as last_seen,
+            {_summary_select_sql(definition)}
+        FROM events
+        WHERE event = '$ai_evaluation'
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {definition.event_predicate}
+            AND {target_event_predicate(evaluation_target)}
+            AND timestamp >= {{ts_prev_start}}
+            AND timestamp < {{ts_end}}
+        GROUP BY period, model
+        ORDER BY period, first_seen
+        """,
+        placeholders={
+            "evaluation_id": ast.Constant(value=evaluation_id),
+            "ts_prev_start": ast.Constant(value=ts_prev_start),
+            "ts_start": ast.Constant(value=ts_start),
+            "ts_end": ast.Constant(value=ts_end),
+        },
+    )
+    summaries = []
+    for row in rows:
+        period, model, first_seen, last_seen = row[:4]
+        if not model or period not in ("current_period", "previous_period"):
+            continue
+        result_counts, total = _parse_summary_row(definition, row[4:])
+        summaries.append(
+            JudgeModelSummary(
+                period=period,
+                model=str(model),
+                first_seen=str(first_seen),
+                last_seen=str(last_seen),
+                result_counts=result_counts,
+                total_runs=total,
+            )
+        )
+    return summaries
+
+
+_MAX_REPORTED_BACKFILLS = 5
+
+
+def _fetch_overlapping_backfills(
+    team_id: int, evaluation_id: str, ts_prev_start: datetime, ts_end: datetime
+) -> list[dict[str, str | None]]:
+    """Return backfills whose window overlaps the previous or current period.
+
+    A backfill writes results into past windows after the fact, so a report written
+    while one ran saw partial counts for that window.
+    """
+    from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
+
+    backfills = (
+        EvaluationBackfill.objects.for_team(team_id)
+        .filter(evaluation_id=evaluation_id, window_start__lt=ts_end, window_end__gt=ts_prev_start)
+        .order_by("-created_at")[:_MAX_REPORTED_BACKFILLS]
+    )
+    return [
+        {
+            "status": backfill.status,
+            "window_start": backfill.window_start.isoformat(),
+            "window_end": backfill.window_end.isoformat(),
+            "created_at": backfill.created_at.isoformat(),
+            "finished_at": backfill.finished_at.isoformat() if backfill.finished_at else None,
+        }
+        for backfill in backfills
+    ]
+
+
 @tool
 def get_summary_metrics(
     state: Annotated[dict, InjectedState],
@@ -440,7 +540,9 @@ def get_summary_metrics(
     """Get outcome counts and rates for the current and previous periods.
 
     Returns current and previous period statistics for comparison. Call this first
-    to understand the baseline. Note: these numbers are also computed mechanically
+    to understand the baseline. Each period lists `judge_models` with per-model
+    counts, rates, and first/last seen times when the evaluation records a judge
+    model. `backfills` lists backfills whose window overlaps either period. Note: these numbers are also computed mechanically
     after you finish and attached to the report as `metrics` — you don't need to
     restate them in your sections, just reference them analytically.
     """
@@ -459,13 +561,28 @@ def get_summary_metrics(
         team_id, evaluation_id, ts_prev_start, ts_start, definition, evaluation_target
     )
 
-    result = {
+    result: dict = {
         "output_type": output_type,
         "current_period": _period_summary_dict(output_type, result_counts, total),
         "previous_period": _period_summary_dict(
             output_type, previous_result_counts, previous_total, empty_rates_as_none=True
         ),
     }
+    judge_models = _fetch_judge_model_summary(
+        team_id, evaluation_id, ts_prev_start, ts_start, ts_end, definition, evaluation_target
+    )
+    for model in judge_models:
+        result[model.period].setdefault("judge_models", []).append(
+            {
+                "model": model.model,
+                "first_seen": model.first_seen,
+                "last_seen": model.last_seen,
+                **_period_summary_dict(output_type, model.result_counts, model.total_runs),
+            }
+        )
+    backfills = _fetch_overlapping_backfills(team_id, evaluation_id, ts_prev_start, ts_end)
+    if backfills:
+        result["backfills"] = backfills
     return json.dumps(result, indent=2)
 
 
@@ -477,6 +594,8 @@ def get_result_distribution_over_time(
     """Get time-series outcome counts and rates bucketed by hour or day.
 
     Use this to spot trends, anomalies, or degradations over the report period.
+    Each bucket includes `judge_model_runs` (runs per judge model) when the
+    evaluation records a judge model, so a model switch shows up in the series.
 
     Args:
         bucket: Time bucket size - "hour" or "day" (default "hour")
@@ -497,6 +616,7 @@ def get_result_distribution_over_time(
         f"""
         SELECT
             {trunc_fn}(timestamp) as bucket,
+            coalesce(properties.$ai_model, '') as model,
             {_summary_select_sql(definition)}
         FROM events
         WHERE event = '$ai_evaluation'
@@ -505,8 +625,8 @@ def get_result_distribution_over_time(
             AND {target_event_predicate(evaluation_target)}
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
-        GROUP BY bucket
-        ORDER BY bucket
+        GROUP BY bucket, model
+        ORDER BY bucket, model
         """,
         placeholders={
             "evaluation_id": ast.Constant(value=evaluation_id),
@@ -515,10 +635,25 @@ def get_result_distribution_over_time(
         },
     )
 
-    result = []
+    buckets: dict[str, tuple[dict[str, int], int, dict[str, int]]] = {}
     for row in rows:
-        result_counts, total = _parse_summary_row(definition, row[1:])
-        result.append({"bucket": str(row[0]), **_period_summary_dict(output_type, result_counts, total)})
+        bucket_key, model = str(row[0]), row[1]
+        result_counts, total = _parse_summary_row(definition, row[2:])
+        bucket_counts, bucket_total, model_runs = buckets.setdefault(
+            bucket_key, (dict.fromkeys(definition.outcomes, 0), 0, {})
+        )
+        for outcome, count in result_counts.items():
+            bucket_counts[outcome] += count
+        if model:
+            model_runs[str(model)] = total
+        buckets[bucket_key] = (bucket_counts, bucket_total + total, model_runs)
+
+    result = []
+    for bucket_key, (result_counts, total, model_runs) in buckets.items():
+        entry = {"bucket": bucket_key, **_period_summary_dict(output_type, result_counts, total)}
+        if model_runs:
+            entry["judge_model_runs"] = model_runs
+        result.append(entry)
 
     return json.dumps(result, indent=2)
 
