@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _runs_today_by_team,
     _team_configs,
 )
+from products.signals.backend.scout_harness.trial_access_policy import local_scout_trial_team
 from products.tasks.backend.facade import api as tasks_facade
 
 # Metadata key the runner stamps the trigger source under, read here for the workflow cooldown.
@@ -79,8 +80,9 @@ def check_fleet_gates(
     `team_id` is the canonical (parent) project id, matching how the coordinator plans; team config
     keys are canonicalized the same way so a child-env override still lines up.
     """
-    payload = _read_flag_payload()
-    if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
+    local_trial = local_scout_trial_team(team_id)
+    payload = {} if local_trial else _read_flag_payload()
+    if not local_trial and not _resolve_enrolled(team_id, _parse_enrollment(payload)):
         return ScoutRunRejection(
             kind=ScoutRunRejectionKind.FORBIDDEN,
             reason="not_enrolled",

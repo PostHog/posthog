@@ -932,6 +932,8 @@ depends_on = [
     "products.notifications",
     "products.notebooks",
     "products.product_analytics",
+    # Scout evaluation environments reuse the shared Parquet reconstruction and restore tooling.
+    "products.posthog_ai",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
     # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
     "products.replay_vision",

@@ -14,7 +14,7 @@ rather than dropping data a skill might depend on).
 Nullability mirrors the underlying Django fields: every serialized timestamp is optional,
 and columns that are `null=True` at the DB layer (`HogFunction.type`/`kind`,
 `AlertConfiguration.calculation_interval`, `Cohort.count`) are optional here too. Bump
-`INVENTORY_SOURCE_VERSION` in `builders.py` when the shape changes meaningfully so
+`INVENTORY_SOURCE_VERSION` in `../profile_version.py` when the shape changes meaningfully so
 `get_project_profile` invalidates cached rows built on the old shape.
 """
 

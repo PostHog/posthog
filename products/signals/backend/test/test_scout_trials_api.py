@@ -133,6 +133,9 @@ class TestScoutTrialAPI(APIBaseTest):
 
     def test_ordinary_scout_cannot_read_trial_runs_and_own_detail_hides_labels(self) -> None:
         ScoutTrialStore(self.trial_run, initial_memory=[]).remember(key="private", content="Trial-only memory")
+        prompt_sha256 = "a" * 64
+        self.trial_run.metadata = {**(self.trial_run.metadata or {}), "eval_prompt_sha256": prompt_sha256}
+        self.trial_run.save(update_fields=["metadata"])
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=self.trial_run.skill_name)
         config.emit = False
         config.save(update_fields=["emit"])
@@ -146,7 +149,10 @@ class TestScoutTrialAPI(APIBaseTest):
         response = self.client.get(f"{self.trial_runs_url}{self.trial_run.id}/")
         assert response.status_code == 200, response.data
         assert "scout_trial" not in response.json()["metadata"]
+        assert "eval_prompt_sha256" not in response.json()["metadata"]
         assert "trial_state" not in response.json()
+        self.trial_run.refresh_from_db()
+        assert (self.trial_run.metadata or {})["eval_prompt_sha256"] == prompt_sha256
         assert self.client.get(f"{self.trial_runs_url}{self.other.id}/").status_code == 404
         configs = self.client.get(f"/api/projects/{self.team.id}/signals/scout/configs/")
         assert configs.status_code == 200, configs.data
@@ -1537,6 +1543,23 @@ class TestScoutTrialLaunch(APIBaseTest):
 
 
 class TestScoutTrialsGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (True, "7", 7, True),
+            (True, "7", 2, False),
+            (False, "7", 7, False),
+            (False, "7", 2, True),
+            (True, "invalid", 2, False),
+        ]
+    )
+    def test_local_project_override_is_explicit_and_debug_only(
+        self, debug: bool, local_team: str, team_id: int, expected: bool
+    ) -> None:
+        from products.signals.backend.scout_harness.trial_access_policy import scout_trial_team_allowed
+
+        with self.settings(DEBUG=debug, SCOUT_TRIALS_LOCAL_TEAM_ID=local_team):
+            assert scout_trial_team_allowed(team_id) is expected
+
     @parameterized.expand([(2, True, True), (2, False, False), (2, None, False), (2, "true", False), (3, True, False)])
     def test_trials_flag_requires_exact_project_and_boolean_enablement(
         self, team_id: int, flag: object, expected: bool

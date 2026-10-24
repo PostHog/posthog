@@ -49,6 +49,14 @@ class EnvironmentDataset:
     def metrics(self) -> list[EnvironmentMetric]:
         return list(self._metrics)
 
+    @staticmethod
+    def _validate_scout(path: Path, manifest: EnvironmentManifest) -> None:
+        from products.signals.backend.facade.eval_environment import (  # noqa: PLC0415 — Scout schemas are optional for event-only bundles
+            validate_scout_bundle,
+        )
+
+        validate_scout_bundle(path, manifest)
+
     def validate_files(self) -> None:
         content = self.path.read_bytes()
         if (
@@ -60,6 +68,8 @@ class EnvironmentDataset:
             reference.resolve(self.path.parent)
         if self.manifest.metrics:
             self.manifest.metrics.resolve(self.path.parent)
+        if self.manifest.scout:
+            self._validate_scout(self.manifest.scout.resolve(self.path.parent), self.manifest)
 
     def events(self) -> Iterator[EnvironmentEvent]:
         for reference in self.manifest.events:
@@ -101,6 +111,7 @@ class EnvironmentDataset:
             record_ids=[metric.id for metric in metrics],
             time_strings=manifest.time_strings,
             string_replacements=manifest.string_replacements,
+            source_project_url=manifest.source_project_url,
         )
 
     @classmethod
@@ -108,6 +119,8 @@ class EnvironmentDataset:
         path = path.resolve(strict=True)
         content = path.read_bytes()
         manifest = EnvironmentManifest.model_validate_json(content)
+        if manifest.scout:
+            cls._validate_scout(manifest.scout.resolve(path.parent), manifest)
         metrics = list(METRIC_TABLE.read(manifest.metrics.resolve(path.parent))) if manifest.metrics else []
         if len(metrics) != manifest.metric_count:
             raise ValueError("The environment metric count does not match its manifest.")
@@ -141,10 +154,12 @@ class EnvironmentDataset:
         environment_id: str,
         event_paths: Sequence[Path],
         metrics_path: Path | None = None,
+        scout_case_path: Path | None = None,
         source_cutoff: datetime,
         timezone: str = "UTC",
         time_strings: Sequence[str] = (),
         string_replacements: Mapping[str, str] | None = None,
+        source_project_url: str | None = None,
     ) -> EnvironmentDataset:
         manifest = EnvironmentManifest(
             environment_id=environment_id,
@@ -153,12 +168,15 @@ class EnvironmentDataset:
             timezone=timezone,
             time_strings=list(time_strings),
             string_replacements=dict(string_replacements or {}),
+            source_project_url=source_project_url,
             event_count=0,
             metric_count=0,
         )
         metrics = list(METRIC_TABLE.read(metrics_path)) if metrics_path else []
         cls._validate_metrics(metrics, source_cutoff)
         cls._validate_policy(manifest, metrics)
+        if scout_case_path is not None:
+            cls._validate_scout(scout_case_path, manifest)
         if output.is_symlink() or (output.exists() and (not output.is_dir() or any(output.iterdir()))):
             raise ValueError("Build requires a new or empty environment directory.")
         output.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -189,16 +207,28 @@ class EnvironmentDataset:
             metric_path.touch(mode=0o600, exist_ok=False)
             METRIC_TABLE.write(metric_path, metrics)
             metric_file = cls._reference(metric_path, output)
+        scout_file = None
+        if scout_case_path is not None:
+            scout_path = output / "scout.json"
+            descriptor = os.open(scout_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as document:
+                document.write(scout_case_path.read_bytes())
+            cls._validate_scout(scout_path, manifest)
+            scout_file = cls._reference(scout_path, output)
         manifest = manifest.model_copy(
             update={
+                "schema_version": 2 if scout_file else 1,
                 "events": [cls._reference(event_path, output)],
                 "metrics": metric_file,
+                "scout": scout_file,
                 "event_count": len(seen),
                 "metric_count": len(metrics),
             }
         )
         path = output / "environment.json"
-        content = (manifest.model_dump_json(indent=2) + "\n").encode()
+        content = (
+            manifest.model_dump_json(indent=2, exclude={"scout"} if scout_file is None else set()) + "\n"
+        ).encode()
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as document:
             document.write(content)

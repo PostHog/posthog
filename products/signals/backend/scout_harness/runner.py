@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Func, JSONField, Q, Value
 from django.db.models.functions import Coalesce
@@ -1063,6 +1064,28 @@ async def _spawn_and_run(
         precheck_rows=precheck_rows,
         report_tags_in_use=report_tags_in_use,
     )
+    recorded_override = None
+    if settings.SCOUT_EVAL_ENVIRONMENT_FILE:
+        from products.signals.backend.scout_harness.eval_environment.prompt import (  # noqa: PLC0415 -- local evaluation is opt-in
+            recorded_prompt_override,
+        )
+
+        recorded_override = await asyncio.to_thread(
+            recorded_prompt_override,
+            path=settings.SCOUT_EVAL_ENVIRONMENT_FILE,
+            debug=settings.DEBUG,
+            team_id=team.id,
+            config_id=config.id,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            allowed_tools=skill.allowed_tools or [],
+            run_id=str(run_id),
+            started_at=started_at,
+            run_note=run_note or "",
+            is_private_trial=trial is not None,
+        )
+        if recorded_override is not None:
+            prompt = recorded_override.text
     logger.info(
         "signals_scout: spawning sandbox",
         extra={
@@ -1075,7 +1098,7 @@ async def _spawn_and_run(
     )
 
     def _create_bridge_row(task_run_id: UUID) -> None:
-        _create_run_row(
+        run = _create_run_row(
             run_id=run_id,
             task_run_id=task_run_id,
             team=team,
@@ -1096,6 +1119,13 @@ async def _spawn_and_run(
             precheck_query_source=precheck_query_source,
             mcp_tool_allowlist=mcp_tool_allowlist,
         )
+        if recorded_override is not None:
+            run.metadata = {
+                **(run.metadata or {}),
+                "harness_prompt_version": recorded_override.harness_prompt_version,
+                "eval_prompt_sha256": recorded_override.sha256,
+            }
+            run.save(update_fields=["metadata"])
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
         # a skipped dispatch emits nothing. Pairs with `signals_scout_run_finished` for

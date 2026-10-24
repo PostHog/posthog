@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import json
 import errno
 import hashlib
@@ -32,6 +33,7 @@ from products.posthog_ai.eval_harness.environment.schema import (
     EnvironmentEvent,
     EnvironmentMetric,
 )
+from products.signals.backend.scout_harness.profile_version import INVENTORY_SOURCE_VERSION
 
 SOURCE = datetime(2030, 6, 4, 12, tzinfo=UTC)
 S3_URI = "s3://example-fixture-bucket/environments/example.tar.gz"
@@ -85,6 +87,40 @@ def write_inputs(root: Path) -> tuple[Path, Path]:
         ],
     )
     return events, metrics
+
+
+def write_scout(root: Path) -> Path:
+    path = root / "source-scout.json"
+    path.write_text(
+        json.dumps(
+            {
+                "environment_id": "example-environment",
+                "source_cutoff": SOURCE.isoformat(),
+                "checkpoint": SOURCE.isoformat(),
+                "prompt_mode": "native",
+                "config": {"output_destinations": {"slack": None, "webhook": None, "inbox": True}},
+                "state": {
+                    "profile": {
+                        "id": "00000000-0000-4000-8000-000000000020",
+                        "created_at": SOURCE.isoformat(),
+                        "fields": {
+                            "source_version": INVENTORY_SOURCE_VERSION,
+                            "expires_at": (SOURCE + timedelta(hours=1)).isoformat(),
+                            "payload": {"inventory": {"top_events": []}},
+                        },
+                    },
+                },
+                "skill": {
+                    "id": "00000000-0000-4000-8000-000000000010",
+                    "name": "example-scout",
+                    "body": "Inspect example_action events and explain any increase in failures.",
+                    "version": 1,
+                    "origin": "custom",
+                },
+            }
+        )
+    )
+    return path
 
 
 def checksum_manifest(folder: Path) -> None:
@@ -356,7 +392,7 @@ class TestEnvironmentApp(TestCase):
 class TestEnvironmentCLI(TestCase):
     def test_s3_cli_restores_validated_archive_and_preserves_external_source_pin(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             content = bundle(root).read_bytes()
             digest = hashlib.sha256(content).hexdigest()
             workspace = root / "state"
@@ -682,11 +718,17 @@ class TestEnvironmentCLI(TestCase):
 
 
 class TestEnvironmentPack(TestCase):
-    def test_pack_round_trip_contains_only_manifest_data_and_checksums_without_loading_django(self) -> None:
+    @parameterized.expand([False, True])
+    def test_pack_round_trip_contains_only_manifest_data_and_checksums_without_loading_django(
+        self, scout: bool
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             events, metrics = write_inputs(root)
             originals = {path: path.read_bytes() for path in (events, metrics)}
+            scout_path = write_scout(root) if scout else None
+            if scout_path:
+                originals[scout_path] = scout_path.read_bytes()
             (root / "unrelated-secret.txt").write_text("invented secret excluded from bundle")
             archive = root / "environment.tar.gz"
             with (
@@ -710,6 +752,7 @@ class TestEnvironmentPack(TestCase):
                             "example-environment",
                             "--output",
                             archive.name,
+                            *(["--scout-case", scout_path.name] if scout_path else []),
                         ]
                     ),
                     0,
@@ -717,6 +760,35 @@ class TestEnvironmentPack(TestCase):
             django_setup.assert_not_called()
             backend.assert_not_called()
             start.assert_not_called()
+            if scout_path:
+                environment = dict(os.environ)
+                environment.pop("DJANGO_SETTINGS_MODULE", None)
+                subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import sys; from django.apps import apps; "
+                        "from products.posthog_ai.eval_harness.environment.cli import main; "
+                        "assert not apps.ready; assert main(sys.argv[1:]) == 0; assert not apps.ready",
+                        "pack",
+                        "--events",
+                        str(events),
+                        "--metrics",
+                        str(metrics),
+                        "--scout-case",
+                        str(scout_path),
+                        "--source-cutoff",
+                        SOURCE.isoformat(),
+                        "--name",
+                        "example-environment",
+                        "--output",
+                        str(root / "pristine.tar.gz"),
+                    ],
+                    cwd=cli.REPO_ROOT,
+                    env=environment,
+                    capture_output=True,
+                    check=True,
+                )
             self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
             with tarfile.open(archive) as packed:
                 for member in packed:
@@ -734,9 +806,109 @@ class TestEnvironmentPack(TestCase):
             self.assertIsNotNone(dataset.manifest.metrics)
             if dataset.manifest.metrics:
                 allowed.add(dataset.manifest.metrics.resolve(folder))
+            if scout_path:
+                self.assertEqual(dataset.manifest.schema_version, 2)
+                assert dataset.manifest.scout is not None
+                restored_scout = dataset.manifest.scout.resolve(folder)
+                self.assertEqual(restored_scout.read_bytes(), originals[scout_path])
+                allowed.add(restored_scout)
+            else:
+                self.assertEqual(dataset.manifest.schema_version, 1)
+                self.assertNotIn("scout", json.loads(dataset.path.read_bytes()))
             self.assertEqual(cli.regular_files(folder), allowed)
             self.assertEqual(dataset.manifest.environment_id, "example-environment")
             self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+
+    @parameterized.expand(
+        [
+            "checksum",
+            "unsupported",
+            "checkpoint",
+            "relationship",
+            "recorded_prompt",
+            "profile_version",
+            "missing_profile",
+            "expired_profile",
+            "external_destination",
+        ]
+    )
+    def test_invalid_scout_attachment_is_rejected_before_app_start(self, invalid: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            events, _ = write_inputs(root)
+            case_path = write_scout(root)
+            dataset = EnvironmentDataset.build(
+                root / "bundle",
+                environment_id="example-environment",
+                event_paths=[events],
+                source_cutoff=SOURCE,
+                scout_case_path=case_path,
+            )
+            assert dataset.manifest.scout is not None
+            attached = dataset.manifest.scout.resolve(dataset.path.parent)
+            case = json.loads(attached.read_bytes())
+            if invalid == "unsupported":
+                case["config"] = {"repositories": [{"repository": "invented-private-value"}]}
+            elif invalid == "checkpoint":
+                case["checkpoint"] = (SOURCE + timedelta(seconds=1)).isoformat()
+            elif invalid == "relationship":
+                case["state"] = {
+                    "memory": [
+                        {
+                            "id": "00000000-0000-4000-8000-000000000012",
+                            "created_at": SOURCE.isoformat(),
+                            "fields": {"key": "previous", "created_by_run_id": "00000000-0000-4000-8000-000000000011"},
+                        }
+                    ]
+                }
+            elif invalid == "recorded_prompt":
+                case["prompt_mode"] = "recorded"
+            elif invalid == "profile_version":
+                case["state"]["profile"]["fields"]["source_version"] = "unsupported-profile-version"
+            elif invalid == "missing_profile":
+                case["state"] = {}
+            elif invalid == "expired_profile":
+                case["state"]["profile"]["fields"]["expires_at"] = SOURCE.isoformat()
+            elif invalid == "external_destination":
+                case["config"]["output_destinations"]["webhook"] = {"hog_function_id": "invented-private-value"}
+            attached.write_text(json.dumps(case) + "\n")
+            if invalid != "checksum":
+                manifest = json.loads(dataset.path.read_bytes())
+                manifest["scout"]["sha256"] = hashlib.sha256(attached.read_bytes()).hexdigest()
+                dataset.path.write_text(json.dumps(manifest))
+            errors = io.StringIO()
+            with (
+                patch.object(cli.LocalApp, "ensure") as start,
+                patch.object(cli, "load_backend") as backend,
+                redirect_stderr(errors),
+                redirect_stdout(io.StringIO()),
+            ):
+                if invalid == "expired_profile":
+                    output = root / "stale-profile.tar.gz"
+                    self.assertEqual(
+                        cli.main(
+                            [
+                                "pack",
+                                "--events",
+                                str(events),
+                                "--scout-case",
+                                str(attached),
+                                "--source-cutoff",
+                                SOURCE.isoformat(),
+                                "--name",
+                                "example-environment",
+                                "--output",
+                                str(output),
+                            ]
+                        ),
+                        1,
+                    )
+                    self.assertFalse(output.exists())
+                self.assertEqual(cli.main(["prepare", str(dataset.path.parent), "--state-dir", str(root / "state")]), 1)
+            start.assert_not_called()
+            backend.assert_not_called()
+            self.assertFalse((root / "state" / "receipt.json").exists())
+            self.assertNotIn("invented-private-value", errors.getvalue())
 
     @parameterized.expand(["existing_output", "invalid_policy", "archive_limit"])
     def test_pack_failure_does_not_publish_or_replace_bundle(self, failure: str) -> None:

@@ -8,6 +8,15 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 
 ## What lives here
 
+- `eval_environment/`
+  Private source-data export and trace reconstruction, portable Scout attachments,
+  immutable inputs, native or recorded prompts, and budgeted Scout trials.
+  `python -m ...eval_environment.source` exports supported source slices without Django;
+  `scout_eval_environment` manages local preparation and trials. Load
+  `creating-scout-eval-environments` through PostHog MCP (`posthog:skill-get`)
+  when choosing data scope or validating a bundle; MCP is its only source of truth.
+  Case data and validation artifacts stay outside Git and outside scout sandboxes.
+
 - `rubrics.py` / `rubrics_runner.py`
   Store revisioned criteria on the scout config and generate separate suggestions in a background sandbox. Read the scout rubrics section of `products/signals/ARCHITECTURE.md` when changing persistence, generation, or access restrictions.
 - `tool_catalogue.py`
