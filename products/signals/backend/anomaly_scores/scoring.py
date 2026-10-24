@@ -8,6 +8,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import structlog
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
@@ -37,6 +38,8 @@ from products.signals.backend.anomaly_scores.config import (
     ScoringProfile,
     resolve_profile,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
@@ -197,6 +200,9 @@ def build_scoring_query(query: TrendsQuery, buckets: int, limits: ScoringLimits 
         "dateRange": DateRange(date_from=f"-{buckets}{_DATE_UNITS[_interval(query)]}", daysOfWeek=days_of_week),
         "compareFilter": None,
     }
+    if query.trendsFilter and query.trendsFilter.display == ChartDisplayType.METRIC:
+        # The runner adds the previous period for a Metric display. A line display returns the same buckets.
+        update["trendsFilter"] = query.trendsFilter.model_copy(update={"display": ChartDisplayType.ACTIONS_LINE_GRAPH})
     if has_breakdown_filter(query.breakdownFilter):
         lines_per_value = len(_formulas(query)) or len(query.series)
         breakdown_filter = query.breakdownFilter or BreakdownFilter()
@@ -316,9 +322,20 @@ def score_insight(
     if not isinstance(results, list):
         raise RuntimeError(f"No results for insight {insight.pk}")
 
+    current_results = [
+        result for result in cast(list[dict[str, Any]], results) if result.get("compare_label") != "previous"
+    ]
+    if len(current_results) < len(results):
+        # A previous-period line has the key of its current line and old buckets, so it would write a false series.
+        logger.warning(
+            "anomaly_scores.previous_period_skipped",
+            insight_id=insight.pk,
+            skipped=len(results) - len(current_results),
+        )
+
     series: list[ScoredSeries] = []
     key_counts: dict[str, int] = {}
-    for result in cast(list[dict[str, Any]], results)[: limits.max_series]:
+    for result in current_results[: limits.max_series]:
         buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
         key = series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value)

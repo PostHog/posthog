@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ChartDisplayType,
+    CompareFilter,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -221,6 +222,19 @@ class TestScoreInsight(SimpleTestCase):
         assert named["web"] == single["web"]
         assert named["app"] != named["web"]
 
+    def test_previous_period_lines_are_not_scored_and_the_current_line_keeps_its_key(self) -> None:
+        pageview = EventsNode(event="$pageview")
+        line = self._keys(_insight([pageview]), [_result(0, "pageview")])
+        metric = self._keys(
+            _insight([pageview], trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC)),
+            [
+                {**_result(0, "pageview"), "compare_label": "current"},
+                {**_result(0, "pageview"), "compare_label": "previous"},
+            ],
+        )
+
+        assert metric == line
+
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
         limits: list[int] = []
@@ -240,6 +254,27 @@ class TestScoreInsight(SimpleTestCase):
         assert timedelta(seconds=waves * limits[0]) <= _INSIGHT_TIMEOUT - timedelta(minutes=1)
         if waves == 1:
             assert limits[0] == 150
+
+
+class TestMetricScoringQuery(SimpleTestCase):
+    @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
+    def test_metric_display_is_scored_as_a_line_without_the_previous_period(
+        self, _name: str, compare_filter: CompareFilter | None
+    ) -> None:
+        insight = _insight(
+            [EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            compareFilter=compare_filter,
+        )
+
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
+
+        query = runner.call_args.kwargs["query"]
+        assert query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH
+        assert query.compareFilter is None
+        assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
 class TestFetchBuckets(SimpleTestCase):
