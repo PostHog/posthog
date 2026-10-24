@@ -22,10 +22,9 @@ export const ContentAutopilotPromptSentiment = ({
     if (summary.scored === 0) {
         return (
             <p className="m-0 text-muted">
-                No sentences mention you yet, so there is nothing to score.
                 {summary.unscored > 0
-                    ? ` ${pluralize(summary.unscored, 'answer')} do mention you and get scored after the next run.`
-                    : ''}
+                    ? `${pluralize(summary.unscored, 'answer')} mention you but have not been scored yet.`
+                    : 'No sentences mention you yet, so there is nothing to score.'}
             </p>
         )
     }

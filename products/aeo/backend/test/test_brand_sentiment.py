@@ -1,7 +1,10 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
@@ -54,7 +57,13 @@ def _seed_run(team: Team) -> tuple[uuid.UUID, dict[str, AEOCitationCheck]]:
         "failed": _check(team, prompt, run_id, None, check_failed=True),
         "scored": _check(team, prompt, run_id, "Example again.", brand_sentiment="neutral", brand_sentiment_score=0.5),
         "other_run": _check(team, prompt, uuid.uuid4(), "Example elsewhere."),
+        "too_old": _check(team, prompt, uuid.uuid4(), "Example long ago."),
     }
+
+
+def _age(check: AEOCitationCheck, days: int) -> None:
+    with team_scope(check.team_id):
+        AEOCitationCheck.objects.filter(id=check.id).update(created_at=timezone.now() - dt.timedelta(days=days))
 
 
 def _result(**scores: float) -> SentimentResult:
@@ -64,15 +73,18 @@ def _result(**scores: float) -> SentimentResult:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_activity_scores_only_the_runs_unscored_brand_answers(settings) -> None:
+async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog(settings) -> None:
     settings.AEO_TARGET_DOMAINS = ["example.com"]
     team = await sync_to_async(_team)()
     run_id, checks = await sync_to_async(_seed_run)(team)
+    await sync_to_async(_age)(checks["other_run"], 10)
+    await sync_to_async(_age)(checks["too_old"], 31)
     classify = MagicMock(
         return_value=[
             _result(positive=0.9, neutral=0.08, negative=0.02),
             _result(positive=0.05, neutral=0.15, negative=0.8),
             _result(positive=0.75, neutral=0.2, negative=0.05),
+            _result(positive=0.1, neutral=0.85, negative=0.05),
         ]
     )
 
@@ -81,8 +93,10 @@ async def test_activity_scores_only_the_runs_unscored_brand_answers(settings) ->
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
         )
 
-    assert result == {"scored": 2, "answers": 2}
-    classify.assert_called_once_with(["Example is fast.", "Example is slow.", "Still, Example is cheap."])
+    assert result == {"scored": 3, "answers": 3}
+    classify.assert_called_once_with(
+        ["Example is fast.", "Example is slow.", "Still, Example is cheap.", "Example elsewhere."]
+    )
 
     def sentiments() -> dict[str, tuple[str | None, float | None]]:
         with team_scope(team.pk):
@@ -98,7 +112,8 @@ async def test_activity_scores_only_the_runs_unscored_brand_answers(settings) ->
         "no_brand": (None, None),
         "failed": (None, None),
         "scored": ("neutral", 0.5),
-        "other_run": (None, None),
+        "other_run": ("neutral", 0.85),
+        "too_old": (None, None),
     }
 
 
@@ -115,7 +130,7 @@ async def test_activity_leaves_rows_unscored_when_the_model_is_unavailable(setti
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
         )
 
-    assert result == {"scored": 0, "answers": 2, "error": "model_unavailable"}
+    assert result == {"scored": 0, "answers": 4, "error": "model_unavailable"}
     unscored = await sync_to_async(
         lambda: AEOCitationCheck.objects.for_team(team.id).filter(brand_sentiment__isnull=True).count()
     )()

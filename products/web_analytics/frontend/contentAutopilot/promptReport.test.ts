@@ -85,24 +85,32 @@ describe('promptReport', () => {
         ])
     })
 
-    it('sums sentiment across engines and lists only engines with scored answers', () => {
-        const summary = promptSentimentSummary(
-            stats([], {
-                sentiment: [
-                    { engine: 'a', positive: 3, neutral: 1, negative: 0, unscored: 2 },
-                    { engine: 'b', positive: 0, neutral: 0, negative: 0, unscored: 5 },
-                ],
-            }),
-            ['b', 'a']
-        )
-
-        expect(summary).toEqual({
-            positive: 3,
-            neutral: 1,
-            negative: 0,
-            unscored: 7,
-            scored: 4,
-            byEngine: [{ engine: 'a', scored: 4, positive: 3, neutral: 1, negative: 0 }],
-        })
-    })
+    it.each([
+        [
+            'some scored',
+            [
+                { engine: 'a', positive: 3, neutral: 1, negative: 0, unscored: 2 },
+                { engine: 'b', positive: 0, neutral: 0, negative: 0, unscored: 5 },
+            ],
+            {
+                positive: 3,
+                neutral: 1,
+                negative: 0,
+                unscored: 7,
+                scored: 4,
+                byEngine: [{ engine: 'a', scored: 4, positive: 3, neutral: 1, negative: 0 }],
+            },
+        ],
+        // Scoring off: mentions exist but nothing is scored, so the UI must not claim there are no mentions.
+        [
+            'mentions but nothing scored',
+            [{ engine: 'a', positive: 0, neutral: 0, negative: 0, unscored: 4 }],
+            { positive: 0, neutral: 0, negative: 0, unscored: 4, scored: 0, byEngine: [] },
+        ],
+    ])(
+        'sums sentiment across engines with %s and lists only engines with scored answers',
+        (_name, sentiment, expected) => {
+            expect(promptSentimentSummary(stats([], { sentiment }), ['b', 'a'])).toEqual(expected)
+        }
+    )
 })

@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from temporalio import activity, workflow
@@ -36,6 +37,10 @@ WORKFLOW_NAME = "aeo-brand-sentiment"
 # One run is at most ~150 answers x 20 sentences on a CPU model, well inside this.
 CLASSIFY_TIMEOUT = dt.timedelta(minutes=15)
 CLASSIFY_BATCH = 32
+# Answers scored before the setting was turned on, or missed by a failed run, are picked up from
+# this far back, which matches the window the prompt report shows.
+BACKLOG_WINDOW = dt.timedelta(days=30)
+MAX_ROWS_PER_RUN = 2000
 
 
 @dataclasses.dataclass(frozen=True)
@@ -51,16 +56,28 @@ class _PendingAnswer:
 
 
 def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
+    """The run's unscored answers, then the team's other unscored answers from the backlog window,
+    oldest first, capped so one activity never scans an unbounded history.
+
+    Two concurrent runs can both pick up the same backlog row. The writes are idempotent (the same
+    text scores the same), so that only costs a duplicate classification, and no transaction is
+    held across the model call that a row lock could ride on."""
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
-    rows = (
+    unscored = (
         AEOCitationCheck.objects.for_team(inputs.team_id)
-        .filter(run_id=inputs.run_id, check_failed=False, brand_sentiment__isnull=True)
+        .filter(check_failed=False, brand_sentiment__isnull=True)
         .exclude(answer_text__isnull=True)
-        .values_list("id", "answer_text")
+    )
+    own_rows = list(unscored.filter(run_id=inputs.run_id).order_by("created_at").values_list("id", "answer_text"))
+    backlog_rows = list(
+        unscored.exclude(run_id=inputs.run_id)
+        .filter(created_at__gte=timezone.now() - BACKLOG_WINDOW)
+        .order_by("created_at")
+        .values_list("id", "answer_text")[: max(0, MAX_ROWS_PER_RUN - len(own_rows))]
     )
     pending = [
         _PendingAnswer(check_id=str(check_id), sentences=brand_sentences(text, target_domains))
-        for check_id, text in rows
+        for check_id, text in [*own_rows, *backlog_rows]
     ]
     return [answer for answer in pending if answer.sentences]
 
