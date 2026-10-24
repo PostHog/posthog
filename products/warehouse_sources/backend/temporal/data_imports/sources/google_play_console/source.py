@@ -101,6 +101,17 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             ),
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # The Reporting API answers its own outages with a 500 "Internal error encountered" on every
+        # metric set at once, which clears without any change on the customer's side. Left unmapped,
+        # the job keeps the raw status and a URL that names the customer's app.
+        return {
+            "500 Server Error": (
+                "Google Play's reporting API had an internal error, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
