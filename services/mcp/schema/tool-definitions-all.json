@@ -711,6 +711,54 @@
         },
         "feature_entitlement": "audit_logs"
     },
+    "aeo-brands-get": {
+        "description": "Get one brand from the project's AI citation brand catalog by id: its name, registrable `domain`, `kind` (own, competitor, publisher or unknown), review `status` and `aliases`. Get the id from `aeo-brands-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get a brand from the AI citation catalog",
+        "title": "Get a brand from the AI citation catalog",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_brands/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-brands-list": {
+        "description": "List the project's AI citation brand catalog by domain, paginated with `limit`/`offset`. Each brand is one registrable domain the answer engines cited: the project's own site (`kind: own`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`kind: unknown`, `status: suggested`). Each daily run adds the domains its answers cited for the first time. Filter by `kind` or `status`, for example `status=suggested` to find brands that still need a label.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List brands in the AI citation catalog",
+        "title": "List brands in the AI citation catalog",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_brands/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-brands-update": {
+        "description": "Rename, relabel, confirm or ignore one brand in the project's AI citation catalog, or replace its `aliases`. Set `kind` to competitor, publisher, own or unknown, and `status` to confirmed or ignored once it is reviewed. The daily run keeps these edits; it only adds newly cited domains. Ask the user before you label a brand as a competitor.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Update a brand in the AI citation catalog",
+        "title": "Update a brand in the AI citation catalog",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/aeo_brands/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "aeo-prompts-archive": {
         "description": "Archive one AI citation tracking prompt. It is turned off, never runs again, and drops out of `aeo-prompts-list` unless `include_archived` is true. Nothing is deleted: its check history and versions stay readable, and `aeo-prompts-update` with `archived: false` restores it. Re-importing its text with `aeo-prompts-import` does not bring it back. Ask the user to confirm before you archive prompts.",
         "category": "AI citation tracking",

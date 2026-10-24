@@ -13,6 +13,84 @@ export namespace Schemas {
     /**
      *
      */
+    /**
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     */
+    export type BrandKindEnum = typeof BrandKindEnum[keyof typeof BrandKindEnum];
+
+
+    export const BrandKindEnum = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     */
+    export type BrandStatusEnum = typeof BrandStatusEnum[keyof typeof BrandStatusEnum];
+
+
+    export const BrandStatusEnum = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `citations` - Citations
+     * * `manual` - Manual
+     */
+    export type BrandSourceEnum = typeof BrandSourceEnum[keyof typeof BrandSourceEnum];
+
+
+    export const BrandSourceEnum = {
+      Citations: 'citations',
+      Manual: 'manual',
+    } as const;
+
+    export interface AEOBrand {
+      /** Brand id. */
+      id: string;
+      /** Brand name as people say it. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand. */
+      domain: string;
+      /** What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet).
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /** 'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status: BrandStatusEnum;
+      /** How the brand entered the catalog: 'citations' or 'manual'.
+       *
+       * * `citations` - Citations
+       * * `manual` - Manual */
+      source: BrandSourceEnum;
+      /** Other names for the brand, used to find it in answer text. */
+      aliases: string[];
+      /** When the brand entered the catalog. */
+      created_at: string;
+      /**
+         * When a person last changed the brand.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -74239,6 +74317,15 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface PaginatedAEOBrandList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AEOBrand[];
+    }
+
     export interface PaginatedAEOPromptCheckList {
       count: number;
       /** @nullable */
@@ -82432,6 +82519,33 @@ export namespace Schemas {
          * @nullable
          */
       success_rate: number | null;
+    }
+
+    export interface PatchedAEOBrandUpdateRequest {
+      /**
+         * Brand name as people say it.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind?: BrandKindEnum;
+      /** 'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.
+       *
+       * * `suggested` - Suggested
+       * * `confirmed` - Confirmed
+       * * `ignored` - Ignored */
+      status?: BrandStatusEnum;
+      /**
+         * Replaces the brand's other names. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
     }
 
     export interface PatchedAEOPromptUpdateRequest {
@@ -126116,6 +126230,55 @@ export namespace Schemas {
 
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
+    } as const;
+
+    export type AeoBrandsListParams = {
+    /**
+     * Only list brands of this kind.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     * @minLength 1
+     */
+    kind?: AeoBrandsListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only list brands with this review status.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     * @minLength 1
+     */
+    status?: AeoBrandsListStatus;
+    };
+
+    export type AeoBrandsListKind = typeof AeoBrandsListKind[keyof typeof AeoBrandsListKind];
+
+
+    export const AeoBrandsListKind = {
+      Own: 'own',
+      Competitor: 'competitor',
+      Publisher: 'publisher',
+      Unknown: 'unknown',
+    } as const;
+
+    export type AeoBrandsListStatus = typeof AeoBrandsListStatus[keyof typeof AeoBrandsListStatus];
+
+
+    export const AeoBrandsListStatus = {
+      Suggested: 'suggested',
+      Confirmed: 'confirmed',
+      Ignored: 'ignored',
     } as const;
 
     export type AeoPromptsListParams = {

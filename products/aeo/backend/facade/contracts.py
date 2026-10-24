@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 @frozen
@@ -192,6 +193,63 @@ class PromptVersion:
 
 
 class PromptNotFoundError(Exception):
+    pass
+
+
+BRAND_NAME_MAX_LENGTH = 200
+BRAND_DOMAIN_MAX_LENGTH = 253
+
+
+class BrandKind(LabeledStrEnum):
+    OWN = "own", "Own"
+    COMPETITOR = "competitor", "Competitor"
+    PUBLISHER = "publisher", "Publisher"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class BrandStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    CONFIRMED = "confirmed", "Confirmed"
+    IGNORED = "ignored", "Ignored"
+
+
+class BrandSource(LabeledStrEnum):
+    CITATIONS = "citations", "Citations"
+    MANUAL = "manual", "Manual"
+
+
+@frozen
+class Brand:
+    """One company in the team's brand catalog, keyed by its registrable domain."""
+
+    id: str
+    name: str
+    domain: str
+    kind: BrandKind
+    status: BrandStatus
+    source: BrandSource
+    aliases: tuple[str, ...]
+    created_at: dt.datetime
+    updated_at: dt.datetime | None
+
+
+@frozen
+class BrandUpdate:
+    """A partial edit of one brand. None leaves the field as it is."""
+
+    name: str | None = None
+    kind: BrandKind | None = None
+    status: BrandStatus | None = None
+    aliases: tuple[str, ...] | None = None
+
+
+@frozen
+class BrandSyncResult:
+    domains: int
+    created: int
+
+
+class BrandNotFoundError(Exception):
     pass
 
 

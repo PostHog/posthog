@@ -20,10 +20,17 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 
-from products.aeo.backend import gaps
+from products.aeo.backend import brands, gaps
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
+    Brand,
+    BrandKind,
+    BrandNotFoundError,
+    BrandSource,
+    BrandStatus,
+    BrandSyncResult,
+    BrandUpdate,
     CitationGap,
     CitationRunSummary,
     Prompt,
@@ -42,7 +49,7 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdateError,
     PromptVersion,
 )
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 
@@ -246,6 +253,75 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
     ]
     result = upsert_prompts(team, candidates)
     return PromptImportResult(created=result["created"], updated=result["updated"], skipped=result["skipped"])
+
+
+def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
+    return brands.sync_brands_from_run(team_id, run_id)
+
+
+def list_brands(
+    team_id: int,
+    *,
+    limit: int,
+    offset: int,
+    kind: BrandKind | None = None,
+    status: BrandStatus | None = None,
+) -> tuple[list[Brand], int]:
+    """One page of the team's brand catalog, by domain, and the total count."""
+    rows = AEOBrand.objects.for_team(team_id)
+    if kind is not None:
+        rows = rows.filter(kind=kind)
+    if status is not None:
+        rows = rows.filter(status=status)
+    page = rows.order_by("domain")[offset : offset + limit]
+    return [_to_brand(brand) for brand in page], rows.count()
+
+
+def get_brand(team_id: int, brand_id: str) -> Brand:
+    return _to_brand(_get_brand_row(team_id, brand_id))
+
+
+def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
+    brand = _get_brand_row(team_id, brand_id)
+    # Only the fields sent are written, so two people editing different fields do not undo each other.
+    changed: list[str] = []
+    if change.name is not None:
+        brand.name = change.name
+        changed.append("name")
+    if change.kind is not None:
+        brand.kind = change.kind
+        changed.append("kind")
+    if change.status is not None:
+        brand.status = change.status
+        changed.append("status")
+    if change.aliases is not None:
+        # Order kept and duplicates dropped, so the mention regex gets each name once.
+        brand.aliases = list(dict.fromkeys(alias.strip() for alias in change.aliases if alias.strip()))
+        changed.append("aliases")
+    if changed:
+        brand.save(update_fields=[*changed, "updated_at"])
+    return _to_brand(brand)
+
+
+def _get_brand_row(team_id: int, brand_id: str) -> AEOBrand:
+    try:
+        return AEOBrand.objects.for_team(team_id).get(id=brand_id)
+    except (AEOBrand.DoesNotExist, ValueError, ValidationError) as error:
+        raise BrandNotFoundError(brand_id) from error
+
+
+def _to_brand(brand: AEOBrand) -> Brand:
+    return Brand(
+        id=str(brand.id),
+        name=brand.name,
+        domain=brand.domain,
+        kind=BrandKind(brand.kind),
+        status=BrandStatus(brand.status),
+        source=BrandSource(brand.source),
+        aliases=_strings(brand.aliases),
+        created_at=brand.created_at,
+        updated_at=brand.updated_at,
+    )
 
 
 def _get_prompt_row(team_id: int, prompt_id: str, *, lock: bool = False) -> AEOPrompt:
