@@ -132,6 +132,7 @@ _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
 )
 
 
