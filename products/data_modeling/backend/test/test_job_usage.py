@@ -86,7 +86,9 @@ class TestJobUsageCollector(BaseTest):
                 "read_bytes": 345,
             }
         )
-        DataModelingJob.objects.filter(team=self.team).update(created_at=finished - timedelta(hours=1))
+        DataModelingJob.objects.filter(team=self.team).update(
+            created_at=finished - timedelta(hours=1), updated_at=finished - timedelta(hours=1)
+        )
         bootstrap_client = MagicMock()
         bootstrap_client.execute.return_value = [("ops.example.com", 9000, 1, 1, "online", "ops")]
         cluster = ClickhouseCluster(bootstrap_client)
@@ -108,6 +110,8 @@ class TestJobUsageCollector(BaseTest):
             (4096, 800, 2000, 4),
         )
         self.assertIsNotNone(measured.usage_updated_at)
+        self.assertEqual(measured.updated_at, measured.usage_updated_at)
+        self.assertGreater(measured.updated_at, finished - timedelta(hours=1))
         self.assertIsNone(missing.read_bytes)
         self.assertIsNone(duplicate.read_bytes)
         self.assertIsNone(duplicate.usage_updated_at)
