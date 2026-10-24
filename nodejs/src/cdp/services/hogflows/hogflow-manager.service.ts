@@ -49,9 +49,13 @@ const HOG_FLOW_FIELDS = [
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
+type HogFlowRevisionSteps = Pick<HogFlow, 'actions' | 'edges' | 'trigger'>
+
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
+    private revisionStepsLoader: LazyLoader<HogFlowRevisionSteps>
+    private actionIdsWithSecrets = new WeakMap<HogFlow, ReadonlySet<string>>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -82,6 +86,13 @@ export class HogFlowManagerService {
             name: 'hog_flow_manager',
             ...cacheOptions,
             loader: async (ids) => await this.fetchHogFlows(ids),
+        })
+
+        // A revision never changes, so it needs no reload.
+        this.revisionStepsLoader = new LazyLoader({
+            name: 'hog_flow_revision_steps',
+            loaderRetry: DEFAULT_LOADER_RETRY,
+            loader: async (keys) => await this.fetchRevisionSteps(keys),
         })
 
         this.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
@@ -144,6 +155,42 @@ export class HogFlowManagerService {
 
     public async getHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         return await this.lazyLoader.getMany(ids)
+    }
+
+    /**
+     * The flow with the steps and trigger it had when it was published as `version`. Everything else, such as
+     * its status and email pause, stays live, and a step that is sensitive now stays sensitive. Null when no
+     * revision holds that version, or when a step of it holds secret inputs, which revisions do not store.
+     */
+    public async getHogFlowAtVersion(hogFlow: HogFlow, version: number): Promise<HogFlow | null> {
+        const steps = await this.revisionStepsLoader.get(revisionKey(hogFlow.id, version))
+        const liveSecrets = this.actionIdsWithSecrets.get(hogFlow)
+        if (!steps || steps.actions.some((action) => liveSecrets?.has(action.id))) {
+            return null
+        }
+        return { ...hogFlow, ...steps, actions: withLiveSensitivity(steps.actions, hogFlow.actions), version }
+    }
+
+    private async fetchRevisionSteps(keys: string[]): Promise<Record<string, HogFlowRevisionSteps | undefined>> {
+        const revisions = keys.map(parseRevisionKey)
+        const response = await this.postgres.query<{ hog_flow_id: string; version: number; content: HogFlow }>(
+            PostgresUse.COMMON_READ,
+            `SELECT r.hog_flow_id, r.version, r.content
+             FROM workflows_hogflowrevision r
+             JOIN unnest($1::uuid[], $2::int[]) AS k(hog_flow_id, version)
+               ON r.hog_flow_id = k.hog_flow_id AND r.version = k.version`,
+            [revisions.map((r) => r.hogFlowId), revisions.map((r) => r.version)],
+            'fetchHogFlowRevisionSteps'
+        )
+        const steps: Record<string, HogFlowRevisionSteps | undefined> = {}
+        for (const row of response.rows) {
+            steps[revisionKey(row.hog_flow_id, row.version)] = {
+                actions: row.content.actions,
+                edges: row.content.edges,
+                trigger: row.content.trigger,
+            }
+        }
+        return steps
     }
 
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
@@ -244,6 +291,7 @@ export class HogFlowManagerService {
         if (!decrypted) {
             return
         }
+        this.actionIdsWithSecrets.set(item, new Set(Object.keys(decrypted)))
 
         for (const action of item.actions ?? []) {
             const actionSecrets = decrypted[action.id]
@@ -263,4 +311,24 @@ export class HogFlowManagerService {
             }
         }
     }
+}
+
+const revisionKey = (hogFlowId: HogFlow['id'], version: number): string => `${hogFlowId}:${version}`
+
+const parseRevisionKey = (key: string): { hogFlowId: string; version: number } => {
+    const separator = key.lastIndexOf(':')
+    return { hogFlowId: key.slice(0, separator), version: Number(key.slice(separator + 1)) }
+}
+
+const withLiveSensitivity = (pinned: HogFlow['actions'], live: HogFlow['actions']): HogFlow['actions'] => {
+    const sensitiveIds = new Set(
+        live
+            .filter((action) => action.type === 'function_email' && action.config.sensitive === true)
+            .map((action) => action.id)
+    )
+    return pinned.map((action) =>
+        action.type === 'function_email' && sensitiveIds.has(action.id)
+            ? { ...action, config: { ...action.config, sensitive: true } }
+            : action
+    )
 }

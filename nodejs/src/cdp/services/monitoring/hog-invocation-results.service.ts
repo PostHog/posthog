@@ -205,9 +205,9 @@ const extractTriggerFields = (
 // for rerun correctness — we'll always pick up the latest secrets, not a
 // snapshot from when the original invocation ran.
 const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
-// A sensitive email's message data carries reset links and login codes, so its snapshot keeps no
-// variables either, and a rerun can't rebuild the send.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables'])
+// A sensitive email's message data and rendered content carry reset links and login codes, so its
+// snapshot keeps no variables or accepted send either, and a rerun can't rebuild the send.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'send'])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
