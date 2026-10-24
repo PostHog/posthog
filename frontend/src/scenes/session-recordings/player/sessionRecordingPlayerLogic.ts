@@ -3283,6 +3283,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.recordingTooLargeToPlay) {
                 return
             }
+            // A replayer re-init clears endReached but keeps the playhead past the end, so resuming there lands back on the end state.
+            const end = values.sessionPlayerData.end?.valueOf()
+            const shouldRestart =
+                values.endReached ||
+                (end !== undefined && values.currentTimestamp != null && values.currentTimestamp > end)
+
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
@@ -3296,7 +3302,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             let nextTimestamp = values.currentTimestamp || values.currentSegment?.startTimestamp
 
-            if (values.endReached) {
+            if (shouldRestart) {
                 nextTimestamp = values.sessionPlayerData.segments[0].startTimestamp
             }
 
