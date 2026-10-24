@@ -1,5 +1,7 @@
 from typing import ClassVar, Optional
 
+import pytest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -10,6 +12,7 @@ from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabase
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
+    key_filter_reaches_source,
     propose_incremental_config,
 )
 
@@ -268,11 +271,11 @@ class TestIncrementalEligibility(SimpleTestCase):
     def test_key_behind_an_aggregating_cte_warns_that_it_will_not_prune(self) -> None:
         """The filter still lands in the outer WHERE, so the result is correct, but ClickHouse
         cannot push it through the inner GROUP BY and the run reads as much as a full refresh."""
-        result = check_incremental_eligibility(
+        query = (
             "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
-            "SELECT day, c FROM daily",
-            IncrementalConfig(incremental_key="day", unique_key=("day",)),
+            "SELECT day, c FROM daily"
         )
+        result = check_incremental_eligibility(query, IncrementalConfig(incremental_key="day", unique_key=("day",)))
 
         assert result.eligible
         assert any("cannot be pushed down" in warning for warning in result.warnings), result.warnings
@@ -297,6 +300,31 @@ class TestIncrementalEligibility(SimpleTestCase):
 
         assert not result.eligible
         assert len(result.blockers) == 1, result.blockers
+
+
+@pytest.mark.parametrize(
+    "query, reaches",
+    [
+        ("SELECT toStartOfDay(timestamp) AS day FROM events", True),
+        (
+            "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
+            "SELECT day, c FROM daily",
+            False,
+        ),
+        (
+            "SELECT first_seen AS day FROM (SELECT person_id, min(timestamp) AS first_seen FROM events GROUP BY person_id)",
+            False,
+        ),
+        (
+            "SELECT first_seen AS day FROM (SELECT first_seen FROM "
+            "(SELECT person_id, min(timestamp) AS first_seen FROM events GROUP BY person_id))",
+            False,
+        ),
+        ("SELECT day FROM no_such_table", False),
+    ],
+)
+def test_key_filter_reaches_source(query: str, reaches: bool) -> None:
+    assert key_filter_reaches_source(query, "day", database=Database()) is reaches
 
 
 class TestStarExpansion:

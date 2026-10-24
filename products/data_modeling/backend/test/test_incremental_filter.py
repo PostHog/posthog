@@ -12,6 +12,7 @@ from products.data_modeling.backend.logic.incremental_filter import (
     GUARD_ALIAS,
     IncrementalFilterError,
     inject_incremental_filter,
+    ungrouped_key_rows,
 )
 
 SINCE = datetime(2026, 8, 1, tzinfo=UTC)
@@ -126,17 +127,18 @@ class TestInjectIncrementalFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("upper_bound", False, "{key} >= {since} AND {key} < {until}"),
-            ("null_keys_included", True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
+            ("upper_bound", SINCE, False, "{key} >= {since} AND {key} < {until}"),
+            ("null_keys_included", SINCE, True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
+            ("only_an_upper_bound", None, False, "{key} < {until}"),
         ]
     )
     def test_a_bounded_window_filters_the_source_and_the_guard(
-        self, _name: str, include_null_keys: bool, expected_template: str
+        self, _name: str, since: datetime | None, include_null_keys: bool, expected_template: str
     ) -> None:
         node = inject_incremental_filter(
             "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
             incremental_key="day",
-            since=SINCE,
+            since=since,
             until=UNTIL,
             include_null_keys=include_null_keys,
         )
@@ -186,3 +188,22 @@ class TestInjectIncrementalFilter(SimpleTestCase):
             assert isinstance(predicate, ast.CompareOperation)
             assert clear_locations(predicate.left) == ast.Field(chain=list(chain))
             assert predicate.right == ast.Constant(value=SINCE)
+
+
+class TestUngroupedKeyRows(SimpleTestCase):
+    def test_a_grouped_union_reads_source_rows_inside_the_window(self) -> None:
+        node = ungrouped_key_rows(
+            "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day HAVING c > 1 "
+            "UNION ALL SELECT toStartOfDay(created_at) AS day, uniq(person_id) FROM persons GROUP BY day "
+            "ORDER BY day LIMIT 10",
+            incremental_key="day",
+            until=UNTIL,
+        )
+
+        branches = _inner_selects(node)
+        assert len(branches) == 2
+        for branch in branches:
+            assert branch.group_by is None and branch.having is None and branch.limit is None
+            assert len(branch.select) == 2
+            assert all(not isinstance(item, ast.Call) for item in branch.select)
+            assert len(_where_terms(branch)) == 1
