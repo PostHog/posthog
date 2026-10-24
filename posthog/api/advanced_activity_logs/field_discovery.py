@@ -28,7 +28,8 @@ class AdvancedActivityLogFieldDiscovery:
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
         cached = get_cached_fields(str(self.organization_id))
-        record_count = self._get_org_record_count()
+        cached_record_count = cached.pop("record_count", None) if cached is not None else None
+        record_count = cached_record_count if cached_record_count is not None else self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
             if cached is not None:
@@ -56,11 +57,12 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
+        scopes, activities, clients = self._get_available_scopes_activities_clients(queryset)
         return {
             "users": self._get_available_users(queryset),
-            "scopes": self._get_available_scopes(queryset),
-            "activities": self._get_available_activities(queryset),
-            "clients": self._get_available_clients(queryset),
+            "scopes": scopes,
+            "activities": activities,
+            "clients": clients,
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
@@ -82,20 +84,26 @@ class AdvancedActivityLogFieldDiscovery:
 
         return unique_users
 
-    def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.order_by().values_list("scope", flat=True).distinct()
-        scopes = set(scopes_query)
-        return [{"value": scope} for scope in sorted(scopes) if scope]
-
-    def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.order_by().values_list("activity", flat=True).distinct()
-        activities = set(activities_query)
-        return [{"value": activity} for activity in sorted(activities) if activity]
-
-    def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.order_by().values_list("client", flat=True).distinct()
-        clients = set(clients_query)
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+    def _get_available_scopes_activities_clients(
+        self, queryset: QuerySet
+    ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, str]]]:
+        # One grouped scan instead of one DISTINCT scan per column.
+        rows = queryset.order_by().values_list("scope", "activity", "client").distinct()
+        scopes: set[str] = set()
+        activities: set[str] = set()
+        clients: set[str] = set()
+        for scope, activity, client in rows:
+            if scope:
+                scopes.add(scope)
+            if activity:
+                activities.add(activity)
+            if client:
+                clients.add(client)
+        return (
+            [{"value": scope} for scope in sorted(scopes)],
+            [{"value": activity} for activity in sorted(activities)],
+            [{"value": client} for client in sorted(clients)],
+        )
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
