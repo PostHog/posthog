@@ -9884,18 +9884,26 @@ snapshots:
         hash: v1.k794b7964.c4b1a6986db44af6a8e496ec80f9d177d131a2db6e5fa09cc87a79ec6c53a6f4.09YBKQpa28bk-h-ntRltPIPEGy_XRWA3Ner82vwyHRc
     scenes-app-batchexports--runs-with-data--light:
         hash: v1.k794b7964.4c1646577dc53efffd814b1a2e723f9da6b10d3641e979f48c5d0447859e2348.fkHuUw1l_9c3rJKSi467jx-6Nv81nNp-PjeRmsgU7l0
+    scenes-app-business-knowledge-playground--chat-citations--dark:
+        hash: v1.k794b7964.46287a4667d6a7977a23193db30e3042377ebc7e988cd5eccd8a1ac411d45966.OZvEKplY375_EkYnxSBg_hWz-HmkWE-3n83RW4gcPe0
+    scenes-app-business-knowledge-playground--chat-citations--light:
+        hash: v1.k794b7964.51499b6453006544ad1dea90bb84c7d1006aa68c3579f7d43a24eefced66cd34.SDbrud1AhjhV6lNIqj2G2jKfOaIWrYvLla6q5qE7-pg
     scenes-app-business-knowledge-playground--narrow-scene--dark:
-        hash: v1.k794b7964.b321de09fb261e9702b5108e3e5e728dce9725a4f6505a6d7320fe69ec9d1e03.y3-moQ1dJq2sK8P6JK6Y9RnV_J2KA6mk74yuonrxgaQ
+        hash: v1.k794b7964.f79ec74f665be20d3b328907b340731950a6511614029a321c80050d1709c962.io6TjbEN37uQwwctqkEEDM65Qw7qODR91KqQQDGBz_A
     scenes-app-business-knowledge-playground--narrow-scene--light:
-        hash: v1.k794b7964.4bf82cff8092f8ba03f06805e2dfd5ff50ce1cc69a1a7d4d133c5e8f3739c4a5.kHMLcQF3qu0iQIs6_KjfRnjXiy2nxlpmiCV906-VMV8
+        hash: v1.k794b7964.f3a473dd47ff467d5c44f2a1e3d85c33b9339974a0b304d8c1394cc346fea0a3.oNrw5CTqGZQ5KUU1B04MTM5KWJZMa4AiIMWO9YOy3s8
     scenes-app-business-knowledge-playground--new-chat--dark:
-        hash: v1.k794b7964.764a1ff0a787ddd6bd73d691a34c5d22cebaf9be9877d0c36de12104ab87156b.DUQXhk7rrwF65Bm_eblKzmLzOVRG3hFv5QVSeGOBplg
+        hash: v1.k794b7964.5204ba012e17ab3cb7d32cce00fadc82ca73d186071ce944c7bea604b9a0e018.xYIFSiA8hbd2dgrd2obg6v-zKOgMwwfsZ0cXDjePRG8
     scenes-app-business-knowledge-playground--new-chat--light:
-        hash: v1.k794b7964.2b766f32efc2f6e78a8689dd32769561427c44dd781a1b22e04a991795e21943.vplL_jaXejpIF00jWKMtGn9WHDcvrx-XUEsZPreuPmE
+        hash: v1.k794b7964.62cf0349d8e1f4b1ceff4bab4c0065a605bfd6c7c1850f9a9250e9f362901fcc.owuQiZCglMK7214KVp8j2lGQqymA4i3lPcpyxr8uObI
     scenes-app-business-knowledge-playground--saved-chat--dark:
-        hash: v1.k794b7964.9679c5b5506576d63a6fa87eb3a782cf9c4923c28c4921ba5b5bbb4e6a7ca085.qbsU5idHy6QnOQb0HzlGOqkAiVOnyN13qhdsBtlJY_0
+        hash: v1.k794b7964.0071e299896e5467fc857e07d2000a5e47f73f38a91d6cc0333e18f461d5e87d.FbrwmsH2s0A7Ntc2XjQrI6MxsLs5zAgNWBifTKxHwco
     scenes-app-business-knowledge-playground--saved-chat--light:
-        hash: v1.k794b7964.f2388b5b836e5f04fe2f7c94b51a2e7c8356bd4806cf135c1ee115951b43d2ec.syOurGASFyjDfm1O0BrEprdwtoTrpOLtWcEeMz_cYAo
+        hash: v1.k794b7964.bb58e075b37a593d5d4979d2427a5183a9c624ca67dbd977b861c5333068216b.FCVDwV8RrYTtl5_ccv2ZRNStH9BjDJDST3P_EqYHGPM
+    scenes-app-business-knowledge-playground--search-results--dark:
+        hash: v1.k794b7964.4a5178e5723a01554f25bbd2f8bcfbda830e1fe4d715638f8a8cd670a368bf7f.IsZTKk5J2yMk8-AoHT9SKgA_A8CuUqV_sGzr_HcIcf8
+    scenes-app-business-knowledge-playground--search-results--light:
+        hash: v1.k794b7964.11e67e933f080984cda5268a25348799fe68f31b315c2735ae9b624e342e8867.b6mjNKB0pZA-Oknq0lfzCo9APZc1_fjMamfiTnoHzRU
     scenes-app-businessknowledge-knowledgesourcedetails--file--dark:
         hash: v1.k794b7964.aa678ca573339c3280899906358dfc7a66cd6a80092cd0e85caf9eb2e9ada21d.KntYpsaUMk50Qp1knzQP00-1cOUiZGmFF7GnkPAlrwc
     scenes-app-businessknowledge-knowledgesourcedetails--file--light:
