@@ -1,0 +1,8 @@
+{
+    "name": "club-hoguin",
+    "version": "0.1.0",
+    "description": "Hang out with other hedgehogs in Club Hoguin while Claude works",
+    "author": { "name": "PostHog" },
+    "homepage": "https://github.com/PostHog/posthog/tree/master/products/games/services/club-hoguin",
+    "license": "MIT"
+}

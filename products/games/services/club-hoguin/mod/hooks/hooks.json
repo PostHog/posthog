@@ -1,0 +1,4 @@
+{
+    "description": "The Club Hoguin hooks module",
+    "modules": ["./register.js"]
+}
