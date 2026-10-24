@@ -1,9 +1,7 @@
 from langchain_core.runnables import RunnableConfig
-from langgraph.types import Send
 
 from posthog.schema import AssistantMessage, AssistantMessageMetadata, HumanMessage
 
-from ee.hogai.chat_agent.memory.nodes import MemoryOnboardingNode
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
@@ -72,30 +70,14 @@ class SlashCommandHandlerNode(AssistantNode):
                 stamped.append(msg)
         return result.model_copy(update={"messages": stamped})
 
-    async def arouter(self, state: AssistantState) -> AssistantNodeName | list[Send]:
+    async def arouter(self, state: AssistantState) -> AssistantNodeName:
         """
         Route based on whether a slash command was detected.
 
         Returns:
             - END if a slash command was handled in arun
-            - A list of Send objects for normal conversation flow (ROOT + MEMORY_COLLECTOR)
-            - MEMORY_ONBOARDING if this is the first message and onboarding should run
+            - SCOPE_GATE for every other message, which then picks the normal conversation flow
         """
-        command = self._get_command(state)
-        if command is not None:
+        if self._get_command(state) is not None:
             return AssistantNodeName.END
-
-        # No command detected - route to normal conversation flow
-        send_list: list[Send] = [
-            Send(AssistantNodeName.ROOT, state),
-            Send(AssistantNodeName.MEMORY_COLLECTOR, state),
-        ]
-
-        # Check if memory onboarding should run instead
-        memory_onboarding_should_run = await MemoryOnboardingNode(
-            self._team, self._user
-        ).should_run_onboarding_at_start(state)
-        if memory_onboarding_should_run == "memory_onboarding":
-            send_list = [Send(AssistantNodeName.MEMORY_ONBOARDING, state)]
-
-        return send_list
+        return AssistantNodeName.SCOPE_GATE
