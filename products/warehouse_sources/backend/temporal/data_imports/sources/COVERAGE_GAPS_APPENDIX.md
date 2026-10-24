@@ -8237,10 +8237,10 @@ Today (11): `clients`, `contacts`, `email_templates`, `form_names`, `invoice_tem
 
 Diffed against: <https://api-docs.withmoxie.com/sitemap.xml>
 
-- [ ] `List tasks (GET /public/action/tasks/list)` — analyze project workload, task completion, and status distributions beyond the synced project summaries (high)
-- [ ] `getCustomFields (GET /public/api/customFields)` — interpret customValues on synced client and project records with the workspace field definitions (high)
-- [ ] `Search Agreements (GET /public/action/agreements/search)` — measure agreement completion, signature status, and contract lifecycle by client (medium)
-- [ ] `List tickets (GET /public/action/tickets/list)` — analyze customer support workload and ticket states alongside synced clients and projects (medium)
+- [x] `List tasks (GET /public/action/tasks/list)` — analyze project workload, task completion, and status distributions beyond the synced project summaries (high). Added as `tasks`.
+- ~~`getCustomFields (GET /public/api/customFields)` — interpret customValues on synced client and project records with the workspace field definitions (high)~~ — skipped: it is a Zapier hook endpoint that needs a `type` value the spec does not document, and it returns only key and label pairs, not the field definitions
+- [x] `Search Agreements (GET /public/action/agreements/search)` — measure agreement completion, signature status, and contract lifecycle by client (medium). Added as `agreements`.
+- [x] `List tickets (GET /public/action/tickets/list)` — analyze customer support workload and ticket states alongside synced clients and projects (medium). Added as `tickets`.
 
 Note: Followed the retired help collection to the current reference, then read collection operations listed in its sitemap. Current paths use /public/action or /public/api, so the configured workspace base URL must have the matching prefix. These gaps do not require parent enumeration. Excluded write-only time, expense, invoice, payment, and opportunity operations, plus configuration templates.
 
