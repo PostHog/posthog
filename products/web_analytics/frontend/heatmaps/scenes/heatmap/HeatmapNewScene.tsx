@@ -15,9 +15,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,7 +36,6 @@ import { HeatmapsInvalidURL } from '../../components/HeatmapsInvalidURL'
 import { HeatmapsPricingNotice } from '../../components/HeatmapsPricingNotice'
 import { HeatmapCreationStep, heatmapCreationLogic } from './heatmapCreationLogic'
 import { heatmapLogic } from './heatmapLogic'
-import { HeatmapNewSceneLegacy } from './HeatmapNewSceneLegacy'
 
 const CREATION_STEPS: { key: HeatmapCreationStep; label: string }[] = [
     { key: 'page', label: 'Page' },
@@ -651,12 +648,6 @@ function RecordingHeatmapStep(): JSX.Element {
 }
 
 export function HeatmapNewScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    return featureFlags[FEATURE_FLAGS.HEATMAPS_CREATION_FLOW] ? <HeatmapCreationWizard /> : <HeatmapNewSceneLegacy />
-}
-
-function HeatmapCreationWizard(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
     const { name } = useValues(logic)
     const { setName } = useActions(logic)

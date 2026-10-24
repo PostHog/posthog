@@ -30,9 +30,7 @@ import type { HeatmapUrlFilter, HeatmapUrlMatchMode } from 'lib/components/heatm
 import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import type { HeatmapFilters } from 'lib/components/heatmaps/types'
 import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -104,7 +102,6 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
 export interface heatmapsBrowserLogicValues {
     checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
     urlsKeyed: KeyedAppUrl[] // authorizedUrlListLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     commonFilters: CommonFilters // heatmapDataLogic
     heatmapColorPalette: string | null // heatmapDataLogic
     heatmapEmpty: boolean // heatmapDataLogic
@@ -367,8 +364,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 'heatmapFixedPositionMode',
                 'heatmapColorPalette',
             ],
-            featureFlagLogic,
-            ['featureFlags'],
             teamLogic,
             ['currentTeamIdStrict'],
         ],
@@ -747,10 +742,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setDataUrl: ({ url }) => {
             actions.maybeLoadTopUrls()
             // the creation wizard drives its own preview, so it must not push the data URL into the shared href
-            if (
-                values.featureFlags[FEATURE_FLAGS.HEATMAPS_CREATION_FLOW] &&
-                router.values.location.pathname === '/heatmaps/new'
-            ) {
+            if (router.values.location.pathname === '/heatmaps/new') {
                 return
             }
             const filter = resolveHeatmapUrlFilter(url)
