@@ -466,10 +466,12 @@ class TestSiteFunctions(TestCase):
             "first": {"value": "I am first", "order": 0},
             "second": {"value": "{person.properties.name}", "order": 1},
             "third": {"value": "{event.properties.url}", "order": 2},
+            "unset": None,
         }
 
         result = self.compile_and_run()
 
+        assert '"unset"' not in result
         assert '"first": "I am first"' in result
         idx_first = result.index('"first": "I am first"')
         idx_second = result.index('inputs["second"] = getInputsKey("second");')
