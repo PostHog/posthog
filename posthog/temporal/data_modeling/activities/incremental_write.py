@@ -20,6 +20,13 @@ column rather than as a Rust error or as quiet drift. The fourth is why the full
 stays on delta-rs.
 """
 
+import json
+import sqlite3
+import weakref
+from collections.abc import Iterator
+from contextlib import ExitStack
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Optional
 
 from django.conf import settings
@@ -27,9 +34,7 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 
-# Exact duplicate detection has to remember every distinct key a run has produced. The cap bounds
-# that state so a huge materialization cannot OOM the worker; hitting it fails the run loudly
-# rather than quietly skipping verification.
+# Large builds spill their exact key set to disk rather than retaining it all in worker memory.
 MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
 
 
@@ -101,14 +106,55 @@ class UniqueKeyTracker:
     twice, whereas here a duplicate means the config is wrong and quietly keeping one row would
     hide it. A per-batch check cannot see a duplicate split across batches — deltalite would turn
     it into an update, silently — so the distinct keys seen so far are carried across ``check``
-    calls. Only the key columns of the group_by output are retained, so memory grows with distinct
-    keys, not rows, and the byte cap turns "too big to verify" into a loud failure.
+    calls. Only key columns are retained, and a local SQLite index takes over when they exceed the
+    memory budget. SQLite keeps its index on disk, so initial builds need no row-count limit.
     """
 
     def __init__(self, unique_key: tuple[str, ...], max_bytes: int = MAX_UNIQUE_KEY_CHECK_BYTES) -> None:
         self._columns = list(unique_key)
         self._max_bytes = max_bytes
         self._seen: pa.Table | None = None
+        self._spill: sqlite3.Connection | None = None
+        self._resources = ExitStack()
+        # Checks run on executor threads, so cleanup cannot depend on which thread releases the tracker.
+        self._cleanup = weakref.finalize(self, self._resources.close)
+
+    def close(self) -> None:
+        self._cleanup()
+
+    def _check_disk(self, keys: pa.Table) -> None:
+        assert self._spill is not None
+
+        def rows() -> Iterator[tuple[str]]:
+            for batch in keys.to_batches(max_chunksize=8192):
+                columns = batch.to_pydict().values()
+                for row in zip(*columns, strict=True):
+                    # Arrow groups positive and negative zero together. JSON otherwise preserves
+                    # scalar equality within each fixed Arrow column type, including NaN and dates.
+                    normalized = [0.0 if isinstance(value, float) and value == 0 else value for value in row]
+                    yield (json.dumps(normalized, default=str, ensure_ascii=False, separators=(",", ":")),)
+
+        try:
+            with self._spill:
+                self._spill.executemany("INSERT INTO unique_keys (key) VALUES (?)", rows())
+        except sqlite3.IntegrityError as error:
+            raise IncrementalWriteError(
+                f"The unique key ({', '.join(self._columns)}) does not identify a single row: "
+                "a key appears more than once in this run's result. Add the columns that tell those rows apart."
+            ) from error
+
+    def _start_spill(self) -> None:
+        directory = self._resources.enter_context(TemporaryDirectory(prefix="posthog-materialization-keys-"))
+        # Each check is awaited before the next starts, but asyncio.to_thread may choose another thread.
+        self._spill = sqlite3.connect(Path(directory) / "keys.sqlite3", check_same_thread=False)
+        self._resources.callback(self._spill.close)
+        # The index is discarded with the run, so journaling and fsync buy nothing.
+        self._spill.execute("PRAGMA journal_mode=OFF")
+        self._spill.execute("PRAGMA synchronous=OFF")
+        self._spill.execute("CREATE TABLE unique_keys (key TEXT PRIMARY KEY) WITHOUT ROWID")
+        if self._seen is not None:
+            self._check_disk(self._seen)
+            self._seen = None
 
     def check(self, batch: pa.RecordBatch) -> None:
         """Fail if ``batch`` has a missing, null, or duplicate key — including a key already seen
@@ -123,6 +169,11 @@ class UniqueKeyTracker:
         assert_no_null_keys(batch, tuple(self._columns))
 
         keys = pa.Table.from_batches([batch]).select(self._columns)
+        if self._spill is None and (self._seen.nbytes if self._seen is not None else 0) + keys.nbytes > self._max_bytes:
+            self._start_spill()
+        if self._spill is not None:
+            self._check_disk(keys)
+            return
         combined = keys if self._seen is None else pa.concat_tables([self._seen, keys])
         grouped = combined.group_by(self._columns).aggregate([([], "count_all")])
         if grouped.num_rows != combined.num_rows:
@@ -132,14 +183,7 @@ class UniqueKeyTracker:
                 f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
             )
 
-        seen = grouped.select(self._columns)
-        if seen.nbytes > self._max_bytes:
-            raise IncrementalWriteError(
-                f"This query returns too many unique keys to verify ({seen.num_rows} so far). "
-                f"Reduce the rows the query returns, or turn off incremental materialization for "
-                f"this view to fall back to a full refresh."
-            )
-        self._seen = seen
+        self._seen = grouped.select(self._columns)
 
 
 def max_of(batch: pa.RecordBatch, column: str, running: Any = None) -> Any:

@@ -23,6 +23,7 @@ from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -41,14 +42,15 @@ def materializes(saved_query: "DataWarehouseSavedQuery") -> bool:
     types the node VIEW, which `get_dag_structure` calls ephemeral and a run skips, so the table can
     never come back and the query stops updating for good, without an error.
 
-    Managed views are excluded because their flag is not a statement of intent: the Revenue
-    Analytics viewsets set `is_materialized` at provisioning, before anything runs, so reading it
-    would enroll a large population of views that have never materialized a row.
+    Revenue Analytics sets its flag before the first build. Requiring an existing table keeps
+    those legacy views out of scheduling until they have actually materialized.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
-        return saved_query.table_id is not None
+        viewset = saved_query.managed_viewset
+        if viewset is None or viewset.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+            return saved_query.table_id is not None
     # The column is nullable, and NULL predates its default: it means the same as False here, which
     # is also how `_materializes_q` reads it.
     return bool(saved_query.is_materialized)
@@ -599,8 +601,13 @@ def _materializes_q() -> Q:
     """`materializes` as a filter, for the callers that cannot ask row by row."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET)
-    return (~managed & Q(saved_query__is_materialized=True)) | (managed & Q(saved_query__table_id__isnull=False))
+    legacy_managed = Q(saved_query__origin=DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET) & (
+        Q(saved_query__managed_viewset__isnull=True)
+        | Q(saved_query__managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
+    )
+    return (~legacy_managed & Q(saved_query__is_materialized=True)) | (
+        legacy_managed & Q(saved_query__table_id__isnull=False)
+    )
 
 
 def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
