@@ -74,14 +74,14 @@ Override it with `clickhouse_settings.max_memory_usage` when launching a run.
 For a memory failure, lower `max_s3_file_fanout` and rerun the same team partition with `delete_tables: false`.
 A failed export leaves the affected partition empty when cleanup is enabled; only a successful export proceeds to registration.
 
-Both groups sensors default to stopped. Use a manual snapshot to validate rollout before enabling automatic discovery:
+Both groups sensors default to running, so backfill-enabled teams in ready warehouses receive an initial snapshot and subsequent daily refreshes automatically.
+Dagster preserves explicit sensor overrides. Start a previously stopped sensor explicitly to resume automatic discovery or refreshes.
 
-1. Deploy the job and confirm both `duckling_groups_full_backfill_sensor` and `duckling_groups_daily_backfill_sensor` are stopped in Dagster. The default does not override a previously stored running state.
-2. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set through **Materialize… → Add a partition**.
-3. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
-4. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
-5. Start `duckling_groups_full_backfill_sensor` to discover all teams with `backfill_enabled: true` in ready warehouses. The successful manual snapshot is skipped.
-6. Start `duckling_groups_daily_backfill_sensor` after the initial snapshot succeeds. It imports yesterday's UTC `_timestamp` day under a separate team/date partition.
+To run a full snapshot manually:
+
+1. Add the selected team's ID to the `duckling_groups_backfill` dynamic partition set through **Materialize… → Add a partition**.
+2. Launch `duckling_groups_backfill_job` for that partition with `dry_run: false`, `skip_ducklake_registration: false`, and `delete_tables: false`.
+3. Verify the latest groups per type/key against ClickHouse and run a managed warehouse HogQL groups query. Use Dagster run status and output metadata to inspect registration.
 
 To retry an older day manually, add its `team_id_YYYY-MM-DD` partition and materialize it with `delete_tables: false`. Like the persons sensor, automatic daily discovery targets yesterday.
 
