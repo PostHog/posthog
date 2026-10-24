@@ -359,6 +359,8 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
    export default () => withUiApp('my-custom-app', { name: 'my-tool', schema, handler })
    ```
 
+   When the app is the whole answer, set `renderedNote` on the tool. `render-ui` appends it to its result, so the model knows what the app already shows and keeps its reply short.
+
 ## Deployment
 
 The MCP server ships as the `posthog-mcp` Docker image to PostHog's US and EU Kubernetes clusters:
