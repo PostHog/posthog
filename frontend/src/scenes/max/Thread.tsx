@@ -251,6 +251,8 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
         [threadGrouped, streamingActive, canCreateTicket]
     )
 
+    const lastErrorIndex = useMemo(() => threadGrouped.findLastIndex(isErrorMessage), [threadGrouped])
+
     return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
         <>
             <MessageGroupSkeleton groupType="human" />
@@ -280,8 +282,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
 
                     // Hide old failed attempts - only show the most recent error
                     if (isErrorMessage(message)) {
-                        const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
-                        if (hasNewerError) {
+                        if (index < lastErrorIndex) {
                             return null
                         }
                     }
