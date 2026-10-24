@@ -234,7 +234,7 @@ export interface modelsUsageLogicMeta {
         chartLabels: (usage: ModelUsageApi | null) => string[]
         chartSeries: (usage: ModelUsageApi | null) => Series[]
         statusChartLabels: (usage: ModelUsageApi | null) => string[]
-        statusChartSeries: (usage: ModelUsageApi | null, statusChartLabels: string[]) => Series[]
+        statusChartSeries: (usage: ModelUsageApi | null) => Series[]
     }
 }
 
@@ -431,19 +431,20 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                 ).map(modelStatusLabel),
         ],
         statusChartSeries: [
-            (s) => [s.usage, s.statusChartLabels],
-            (usage: ModelUsageApi | null, labels: string[]): Series[] => {
+            (s) => [s.usage],
+            (usage: ModelUsageApi | null): Series[] => {
                 const engines = [...new Set(usage?.status_breakdown.map((item) => item.engine) ?? [])]
+                const statuses = MODEL_STATUS_ORDER.filter((status) =>
+                    usage?.status_breakdown.some((item) => item.status === status)
+                )
                 return engines.map((engine) => ({
                     key: engine,
                     label: MATERIALIZATION_ENGINE_LABELS[engine] ?? engine,
-                    data: labels.map((label) => {
-                        const status = label === 'Canceled' ? DataModelingJobsListStatus.Cancelled : label
-                        return (
+                    data: statuses.map(
+                        (status) =>
                             usage?.status_breakdown.find((item) => item.engine === engine && item.status === status)
                                 ?.count ?? 0
-                        )
-                    }),
+                    ),
                 }))
             },
         ],

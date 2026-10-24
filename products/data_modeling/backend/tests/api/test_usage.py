@@ -59,6 +59,22 @@ class TestModelUsageValidation(SimpleTestCase):
         serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "9999-12-31"})
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
+    def test_normalizes_legacy_saved_query_id(self) -> None:
+        saved_query_id = UUID(int=1)
+        serializer = ModelUsageQuerySerializer(data={"saved_query_id": str(saved_query_id)})
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["saved_query_ids"], [saved_query_id])
+
+    def test_rejects_single_and_multiple_saved_query_filters(self) -> None:
+        saved_query_id = UUID(int=1)
+        serializer = ModelUsageQuerySerializer(
+            data={"saved_query_id": str(saved_query_id), "saved_query_ids": str(saved_query_id)}
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("saved_query_id", serializer.errors)
+
 
 @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
 class TestModelUsage(WarehouseAccessControlTestMixin):
@@ -120,7 +136,6 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
                             "saved_query_id": str(model.id),
                             "name": "daily_orders",
                             "deleted": False,
-                            "error": "Query failed",
                         }
                     ],
                 }
@@ -153,7 +168,6 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
                             "saved_query_id": str(model.id),
                             "name": "daily_orders",
                             "deleted": False,
-                            "error": "Query failed",
                         }
                     ],
                 },
@@ -166,7 +180,6 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
                             "saved_query_id": str(model.id),
                             "name": "daily_orders",
                             "deleted": False,
-                            "error": None,
                         }
                     ],
                 },
@@ -200,6 +213,12 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
             {row["saved_query_id"] for row in filtered["models"]},
             {str(model.id), str(second_model.id)},
         )
+        legacy_filtered = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/",
+            {"days": 7, "engine": "all", "saved_query_id": str(second_model.id)},
+        ).json()
+        self.assertEqual(legacy_filtered["count"], 1)
+        self.assertEqual(legacy_filtered["models"][0]["saved_query_id"], str(second_model.id))
         invalid = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 91})
         self.assertEqual(invalid.status_code, 400)
 

@@ -26,7 +26,6 @@ class ModelStatusModel(TypedDict):
     saved_query_id: UUID
     name: str
     deleted: bool
-    error: str | None
 
 
 class ModelStatusBreakdown(TypedDict):
@@ -104,7 +103,7 @@ class ModelUsage:
         latest_jobs = (
             jobs.filter(saved_query_id__isnull=False)
             .select_related("saved_query")
-            .only("saved_query_id", "engine", "status", "error", "saved_query__name", "saved_query__deleted")
+            .only("saved_query_id", "engine", "status", "saved_query__name", "saved_query__deleted")
             .order_by("saved_query_id", "engine", "-last_run_at", "-created_at")
             .distinct("saved_query_id", "engine")
         )
@@ -118,7 +117,6 @@ class ModelUsage:
                     saved_query_id=job.saved_query_id,
                     name=job.saved_query.name or "Untitled model",
                     deleted=job.saved_query.deleted is not False,
-                    error=job.error,
                 )
             )
 

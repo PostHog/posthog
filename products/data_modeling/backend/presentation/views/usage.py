@@ -42,6 +42,7 @@ class ModelUsageQuerySerializer(serializers.Serializer):
     saved_query_ids = serializers.CharField(
         required=False, help_text="Comma-separated materialized view IDs. Usage is limited to accessible views."
     )
+    saved_query_id = serializers.UUIDField(required=False, help_text="Limit usage to one accessible materialized view.")
 
     def validate_saved_query_ids(self, value: str) -> list[UUID]:
         values = [item.strip() for item in value.split(",") if item.strip()]
@@ -53,6 +54,13 @@ class ModelUsageQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError("Enter valid materialized view IDs.") from error
 
     def validate(self, attrs: dict) -> dict:
+        saved_query_id = attrs.get("saved_query_id")
+        if saved_query_id is not None:
+            if "saved_query_ids" in attrs:
+                raise serializers.ValidationError(
+                    {"saved_query_id": "Use saved_query_id or saved_query_ids, not both."}
+                )
+            attrs["saved_query_ids"] = [saved_query_id]
         days = attrs.get("days")
         date_from = attrs.get("date_from")
         date_to = attrs.get("date_to")
@@ -112,7 +120,6 @@ class ModelStatusModelSerializer(serializers.Serializer):
     saved_query_id = serializers.UUIDField(help_text="Model ID.")
     name = serializers.CharField(help_text="Model name.")
     deleted = serializers.BooleanField(help_text="Whether this model has been deleted.")
-    error = serializers.CharField(allow_null=True, help_text="Error from the latest run, if present.")
 
 
 class ModelStatusBreakdownSerializer(serializers.Serializer):

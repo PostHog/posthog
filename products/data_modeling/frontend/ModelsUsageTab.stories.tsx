@@ -70,11 +70,10 @@ const models: ModelUsageRowApi[] = [
         ],
     },
 ]
-const statusModel = (index: number, error: string | null = null): ModelStatusModelApi => ({
+const statusModel = (index: number): ModelStatusModelApi => ({
     saved_query_id: models[index].saved_query_id!,
     name: models[index].name,
     deleted: models[index].deleted,
-    error,
 })
 const populated: ModelUsageApi = {
     date_from: '2026-09-16',
@@ -88,7 +87,7 @@ const populated: ModelUsageApi = {
             engine: 'clickhouse',
             status: 'Failed',
             count: 1,
-            models: [statusModel(2, 'Table weekly_revenue has an incompatible column type')],
+            models: [statusModel(2)],
         },
         { engine: 'managed_warehouse', status: 'Completed', count: 1, models: [statusModel(0)] },
         { engine: 'managed_warehouse', status: 'Running', count: 1, models: [statusModel(1)] },
@@ -96,7 +95,7 @@ const populated: ModelUsageApi = {
             engine: 'managed_warehouse',
             status: 'Failed',
             count: 1,
-            models: [statusModel(2, 'The source query reached its time limit')],
+            models: [statusModel(2)],
         },
     ],
     usage_updated_at: '2026-10-16T03:00:00Z',

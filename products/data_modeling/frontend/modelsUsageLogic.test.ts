@@ -135,7 +135,6 @@ describe('modelsUsageLogic', () => {
                             saved_query_id: 'deleted-view',
                             name: 'Deleted view',
                             deleted: true,
-                            error: 'Query failed',
                         },
                     ],
                 },
