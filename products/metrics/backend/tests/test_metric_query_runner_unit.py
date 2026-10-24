@@ -10,6 +10,7 @@ from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     _active_since_expr,
     _exponential_upper_edges,
+    _Histogram,
     _histogram_quantile,
     _merge_histograms,
     _pick_interval,
@@ -105,8 +106,9 @@ class TestExponentialUpperEdges:
     def test_resolution_edges_keep_the_real_edge(self):
         # Before the fix, bisecting this unsorted edge list silently dropped the 2**-19 edge.
         bounds, counts = _exponential_upper_edges([2**-20, 2**-19.5, 2**-19], [5, 5, 5])
-        merged_bounds, merged_counts = _merge_histograms([(bounds, counts)])
-        assert _resolution_edges([(bounds, counts)], merged_bounds) == merged_bounds
+        histogram = _Histogram(bounds=bounds, counts=counts)
+        merged = _merge_histograms([histogram])
+        assert _resolution_edges([histogram], merged.bounds) == merged.bounds
 
     @parameterized.expand(
         [
@@ -170,13 +172,18 @@ class TestMergeHistograms:
         ]
     )
     def test_merge(self, _name, distributions, expected_bounds, expected_counts):
-        bounds, counts = _merge_histograms(distributions)
-        assert bounds == expected_bounds
-        assert counts == pytest.approx(expected_counts)
+        merged = _merge_histograms([_Histogram(bounds=bounds, counts=counts) for bounds, counts in distributions])
+        assert merged.bounds == expected_bounds
+        assert merged.counts == pytest.approx(expected_counts)
 
     def test_total_count_is_kept(self):
-        _, counts = _merge_histograms([([0.1, 0.3, 0.9], [5.0, 7.0, 11.0, 2.0]), ([0.2, 1.0], [3.0, 4.0, 1.0])])
-        assert sum(counts) == pytest.approx(33.0)
+        merged = _merge_histograms(
+            [
+                _Histogram(bounds=[0.1, 0.3, 0.9], counts=[5.0, 7.0, 11.0, 2.0]),
+                _Histogram(bounds=[0.2, 1.0], counts=[3.0, 4.0, 1.0]),
+            ]
+        )
+        assert sum(merged.counts) == pytest.approx(33.0)
 
 
 class TestResolutionEdges:
@@ -198,8 +205,8 @@ class TestResolutionEdges:
         ]
     )
     def test_resolution_edges(self, _name, distributions, expected):
-        edges, _ = _merge_histograms(distributions)
-        assert _resolution_edges(distributions, edges) == expected
+        histograms = [_Histogram(bounds=bounds, counts=counts) for bounds, counts in distributions]
+        assert _resolution_edges(histograms, _merge_histograms(histograms).bounds) == expected
 
 
 class TestFormulaParser:
