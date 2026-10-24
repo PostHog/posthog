@@ -281,6 +281,7 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 )
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    @patch("products.feature_flags.backend.flag_analytics.TEAM_KEY_CHECK_BATCH_SIZE", 2)
     def test_efficient_querying_of_team_decide_usage_data(self):
         mock_capture = MagicMock()
         team_id = 3901
@@ -295,6 +296,8 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
         Team.objects.create(
             id=other_team_id, organization=self.organization, api_token=f"token:::{other_team_id}", uuid=other_team_uuid
         )
+        local_evaluation_team_id = Team.objects.create(organization=self.organization).id
+        remote_config_team_id = Team.objects.create(organization=self.organization).id
 
         with time_machine.travel("2022-05-07 12:23:07", tick=False) as frozen_datetime:
             for _ in range(10):
@@ -303,6 +306,8 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             for _ in range(7):
                 # 7 requests for other team
                 increment_request_count(other_team_id)
+            increment_request_count(local_evaluation_team_id, request_type=FlagRequestType.LOCAL_EVALUATION)
+            increment_request_count(remote_config_team_id, request_type=FlagRequestType.REMOTE_CONFIG)
 
             frozen_datetime.shift(datetime.timedelta(seconds=5))
 
@@ -319,6 +324,8 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 # 5 requests in third bucket
                 increment_request_count(team_id)
                 increment_request_count(other_team_id)
+            increment_request_count(local_evaluation_team_id, request_type=FlagRequestType.LOCAL_EVALUATION)
+            increment_request_count(remote_config_team_id, request_type=FlagRequestType.REMOTE_CONFIG)
 
             with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="token"), snapshot_postgres_queries_context(self):
                 capture_usage_for_all_teams(mock_capture)
@@ -348,7 +355,16 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                         "token": "token",
                     },
                 )
-                assert mock_capture.capture.call_count == 2
+                exported = {
+                    (call.kwargs["distinct_id"], call.kwargs["event"]) for call in mock_capture.capture.call_args_list
+                }
+                assert exported == {
+                    (team_id, "decide usage"),
+                    (other_team_id, "decide usage"),
+                    (local_evaluation_team_id, "local evaluation usage"),
+                    (remote_config_team_id, "remote config usage"),
+                }
+                assert mock_capture.capture.call_count == 4
 
     @pytest.mark.skip(
         reason="This works locally, but causes issues in CI because the frozen clock applies to threads as well in unrelated tests, causing timeouts."

@@ -1,5 +1,6 @@
 import time
 from datetime import datetime
+from itertools import batched
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -31,6 +32,7 @@ logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+TEAM_KEY_CHECK_BATCH_SIZE = 1000
 
 # SDK library names must match the Rust Library::as_str() values in
 # rust/feature-flags/src/handler/types.rs
@@ -72,6 +74,8 @@ _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
+
+EXPORTED_REQUEST_TYPES = (FlagRequestType.DECIDE, FlagRequestType.LOCAL_EVALUATION, FlagRequestType.REMOTE_CONFIG)
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
@@ -184,8 +188,16 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    client = get_client()
+    teams = Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid")
+    # Most teams have no flag requests, so one pipelined key check per batch skips them in bulk.
+    for batch in batched(teams, TEAM_KEY_CHECK_BATCH_SIZE, strict=False):
+        pipe = client.pipeline(transaction=False)
+        for team in batch:
+            pipe.exists(*(get_team_request_key(team.id, request_type) for request_type in EXPORTED_REQUEST_TYPES))
+        for team, existing_keys in zip(batch, pipe.execute()):
+            if existing_keys:
+                capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
 def _capture_team_usage_for_request_type(
@@ -227,11 +239,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
+            for request_type in EXPORTED_REQUEST_TYPES:
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:
