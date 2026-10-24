@@ -182,6 +182,18 @@ const MOCK_HOG_FUNCTION_WITH_DRAFT = {
         masking: null,
     },
     draft_updated_at: '2024-01-14T10:00:00Z',
+    version: 3,
+}
+
+const MOCK_HOG_FUNCTION_REVISIONS = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        { version: 3, created_at: '2024-01-12T09:30:00Z', created_by: MOCK_HOG_FUNCTION.created_by },
+        { version: 2, created_at: '2024-01-08T16:05:00Z', created_by: null },
+        { version: 1, created_at: '2024-01-02T11:00:00Z', created_by: MOCK_HOG_FUNCTION.created_by },
+    ],
 }
 
 const commonMocks = {
@@ -190,6 +202,8 @@ const commonMocks = {
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID}/`]:
             MOCK_HOG_FUNCTION_TEMPLATING_WARNING,
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_WITH_DRAFT_ID}/`]: MOCK_HOG_FUNCTION_WITH_DRAFT,
+        [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_WITH_DRAFT_ID}/revisions/`]:
+            MOCK_HOG_FUNCTION_REVISIONS,
         '/api/environments/:team_id/hog_functions/': { count: 1, results: [MOCK_HOG_FUNCTION], next: null },
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT,
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
@@ -327,5 +341,11 @@ export const ConfigurationWithTemplatingWarning: Story = {
 export const ConfigurationWithStagedDraft: Story = {
     parameters: {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_WITH_DRAFT_ID),
+    },
+}
+
+export const HistoryWithVersions: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_WITH_DRAFT_ID, 'history'),
     },
 }
