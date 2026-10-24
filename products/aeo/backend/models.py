@@ -1,9 +1,16 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
 
-from products.aeo.backend.facade.contracts import PROMPT_TOPIC_MAX_LENGTH
+from products.aeo.backend.facade.contracts import (
+    BRAND_DOMAIN_MAX_LENGTH,
+    BRAND_NAME_MAX_LENGTH,
+    PROMPT_TOPIC_MAX_LENGTH,
+    BrandKind,
+    BrandSource,
+    BrandStatus,
+)
 
 
 class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -156,3 +163,54 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
 
     def __str__(self) -> str:
         return f"[{self.engine}] cited={self.cited} {self.prompt_text[:40]}"
+
+
+class AEOBrand(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    """
+    One company in the team's brand catalog: the team itself, a competitor, a
+    publisher, or a domain nobody has labeled yet.
+
+    The catalog fills from the domains the answer engines cite, so each brand is
+    keyed by its registrable domain. People confirm, relabel or ignore the
+    suggestions; the sync only adds new domains and never overwrites a person's
+    edits. How often a brand is cited is computed from the checks when it is read.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the unique (team, domain) index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+
+    name = models.CharField(max_length=BRAND_NAME_MAX_LENGTH, help_text="Brand name as people say it.")
+    domain = models.CharField(
+        max_length=BRAND_DOMAIN_MAX_LENGTH,
+        help_text="Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand.",
+    )
+    kind = models.CharField(
+        max_length=32,
+        choices=BrandKind.choices,
+        default=BrandKind.UNKNOWN.value,
+        help_text="What the brand is to the team.",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=BrandStatus.choices,
+        default=BrandStatus.SUGGESTED.value,
+        help_text="Whether a person confirmed the brand, ignored it, or has not looked at it yet.",
+    )
+    source = models.CharField(
+        max_length=32, choices=BrandSource.choices, help_text="How the brand entered the catalog."
+    )
+    aliases = models.JSONField(
+        default=list, blank=True, help_text="Other names for the brand, used to find it in answer text."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the brand entered the catalog.")
+
+    class Meta:
+        db_table = "posthog_aeo_brand"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "domain"], name="aeo_brand_unique_team_domain"),
+        ]
+
+    def __str__(self) -> str:
+        return f"[{self.kind}] {self.domain}"

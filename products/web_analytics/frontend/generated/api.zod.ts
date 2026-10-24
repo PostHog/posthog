@@ -10,6 +10,39 @@
 import * as zod from 'zod'
 
 /**
+ * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
+ * @summary Update an AEO brand
+ */
+export const aeoBrandsPartialUpdateBodyNameMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesItemMax = 200
+
+export const aeoBrandsPartialUpdateBodyAliasesMax = 20
+
+export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(aeoBrandsPartialUpdateBodyNameMax).optional().describe('Brand name as people say it.'),
+    kind: zod
+        .enum(['own', 'competitor', 'publisher', 'unknown'])
+        .describe('\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown')
+        .optional()
+        .describe(
+            "What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.\n\n\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown"
+        ),
+    status: zod
+        .enum(['suggested', 'confirmed', 'ignored'])
+        .describe('\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored')
+        .optional()
+        .describe(
+            "'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.\n\n\* `suggested` - Suggested\n\* `confirmed` - Confirmed\n\* `ignored` - Ignored"
+        ),
+    aliases: zod
+        .array(zod.string().max(aeoBrandsPartialUpdateBodyAliasesItemMax).describe('One other name for the brand.'))
+        .max(aeoBrandsPartialUpdateBodyAliasesMax)
+        .optional()
+        .describe("Replaces the brand's other names. Names are trimmed, and repeated names are dropped."),
+})
+
+/**
  * Turns a prompt on or off. Only active prompts run against the answer engines. Past checks are kept either way.
  * @summary Turn an AEO prompt on or off
  */

@@ -7,6 +7,46 @@ feature: aeo
 url_prefix: /web/content-autopilot
 ui_apps: {}
 tools:
+    aeo-brands-get:
+        operation: aeo_brands_retrieve
+        enabled: true
+        title: Get a brand from the AI citation catalog
+        description: >
+            Get one brand from the project's AI citation brand catalog by id: its name, registrable `domain`, `kind`
+            (own, competitor, publisher or unknown), review `status` and `aliases`. Get the id from `aeo-brands-list`.
+        param_overrides:
+            id:
+                description: The brand id (a UUID), from `aeo-brands-list`.
+        feature_flag: aeo-citation-tracking
+    aeo-brands-list:
+        operation: aeo_brands_list
+        enabled: true
+        list: true
+        title: List brands in the AI citation catalog
+        description: >
+            List the project's AI citation brand catalog by domain, paginated with `limit`/`offset`. Each brand is one
+            registrable domain the answer engines cited: the project's own site (`kind: own`), competitors, publishers
+            such as review and community sites, and domains nobody has labeled yet (`kind: unknown`,
+            `status: suggested`). Each daily run adds the domains its answers cited for the first time. Filter by `kind`
+            or `status`, for example `status=suggested` to find brands that still need a label.
+        feature_flag: aeo-citation-tracking
+    aeo-brands-update:
+        operation: aeo_brands_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a brand in the AI citation catalog
+        description: >
+            Rename, relabel, confirm or ignore one brand in the project's AI citation catalog, or replace its `aliases`.
+            Set `kind` to competitor, publisher, own or unknown, and `status` to confirmed or ignored once it is
+            reviewed. The daily run keeps these edits; it only adds newly cited domains. Ask the user before you
+            label a brand as a competitor.
+        param_overrides:
+            id:
+                description: The brand id (a UUID), from `aeo-brands-list`.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-checks-list:
         operation: aeo_prompts_checks
         enabled: true

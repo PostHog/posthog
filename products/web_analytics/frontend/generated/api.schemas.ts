@@ -7,6 +7,120 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `own` - Own
+ * * `competitor` - Competitor
+ * * `publisher` - Publisher
+ * * `unknown` - Unknown
+ */
+export type BrandKindEnumApi = (typeof BrandKindEnumApi)[keyof typeof BrandKindEnumApi]
+
+export const BrandKindEnumApi = {
+    Own: 'own',
+    Competitor: 'competitor',
+    Publisher: 'publisher',
+    Unknown: 'unknown',
+} as const
+
+/**
+ * * `suggested` - Suggested
+ * * `confirmed` - Confirmed
+ * * `ignored` - Ignored
+ */
+export type BrandStatusEnumApi = (typeof BrandStatusEnumApi)[keyof typeof BrandStatusEnumApi]
+
+export const BrandStatusEnumApi = {
+    Suggested: 'suggested',
+    Confirmed: 'confirmed',
+    Ignored: 'ignored',
+} as const
+
+/**
+ * * `citations` - Citations
+ * * `memory` - Memory
+ * * `manual` - Manual
+ */
+export type BrandSourceEnumApi = (typeof BrandSourceEnumApi)[keyof typeof BrandSourceEnumApi]
+
+export const BrandSourceEnumApi = {
+    Citations: 'citations',
+    Memory: 'memory',
+    Manual: 'manual',
+} as const
+
+export interface AEOBrandApi {
+    /** Brand id. */
+    id: string
+    /** Brand name as people say it. Starts as a guess from the domain until someone edits it. */
+    name: string
+    /** Registrable domain, for example 'amplitude.com'. Citations on its subdomains count for the brand. */
+    domain: string
+    /** What the brand is to the project: 'own' (the project's site), 'competitor', 'publisher' (a review, community or media site) or 'unknown' (not labeled yet).
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind: BrandKindEnumApi
+    /** 'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored */
+    status: BrandStatusEnumApi
+    /** How the brand entered the catalog: 'citations', 'memory' or 'manual'.
+     *
+     * * `citations` - Citations
+     * * `memory` - Memory
+     * * `manual` - Manual */
+    source: BrandSourceEnumApi
+    /** Other names for the brand, used to find it in answer text. */
+    aliases: string[]
+    /** When the brand entered the catalog. */
+    created_at: string
+    /**
+     * When a person last changed the brand.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface PaginatedAEOBrandListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AEOBrandApi[]
+}
+
+export interface PatchedAEOBrandUpdateRequestApi {
+    /**
+     * Brand name as people say it.
+     * @maxLength 200
+     */
+    name?: string
+    /** What the brand is to the project: 'own', 'competitor', 'publisher' or 'unknown'.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown */
+    kind?: BrandKindEnumApi
+    /** 'confirmed' to accept the brand, 'ignored' to hide it, 'suggested' to put it back for review.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored */
+    status?: BrandStatusEnumApi
+    /**
+     * Replaces the brand's other names. Names are trimmed, and repeated names are dropped.
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+    aliases?: string[]
+}
+
 export interface AEOPromptEngineCheckApi {
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
     engine: string
@@ -1839,6 +1953,53 @@ export interface GeneratePathCleaningSuggestionResponseApi {
     /** The stored suggestion when status is generated, else null. */
     suggestion?: PathCleaningSuggestionIssueApi | null
 }
+
+export type AeoBrandsListParams = {
+    /**
+     * Only list brands of this kind.
+     *
+     * * `own` - Own
+     * * `competitor` - Competitor
+     * * `publisher` - Publisher
+     * * `unknown` - Unknown
+     * @minLength 1
+     */
+    kind?: AeoBrandsListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only list brands with this review status.
+     *
+     * * `suggested` - Suggested
+     * * `confirmed` - Confirmed
+     * * `ignored` - Ignored
+     * @minLength 1
+     */
+    status?: AeoBrandsListStatus
+}
+
+export type AeoBrandsListKind = (typeof AeoBrandsListKind)[keyof typeof AeoBrandsListKind]
+
+export const AeoBrandsListKind = {
+    Own: 'own',
+    Competitor: 'competitor',
+    Publisher: 'publisher',
+    Unknown: 'unknown',
+} as const
+
+export type AeoBrandsListStatus = (typeof AeoBrandsListStatus)[keyof typeof AeoBrandsListStatus]
+
+export const AeoBrandsListStatus = {
+    Suggested: 'suggested',
+    Confirmed: 'confirmed',
+    Ignored: 'ignored',
+} as const
 
 export type AeoPromptsListParams = {
     /**
