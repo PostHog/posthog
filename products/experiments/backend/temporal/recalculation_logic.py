@@ -502,6 +502,61 @@ def _fail(
     )
 
 
+def _reuse_known_failure(
+    recalculation_id: str, experiment_id: int, metric_uuid: str, query_to: datetime, recalc_fp: str
+) -> MetricRecalculationResult | None:
+    """Carry a prior run's failure into this run instead of querying again, or None to run the query.
+
+    A stopped experiment has a fixed window, so a FAILED row with this fingerprint means the same inputs
+    already failed and a new query fails the same way. The FAILED row stays this run's result row. The
+    prior run's metric_errors entry is copied so the error keeps its retriable flag. Without that entry the
+    retriability is unknown, so the query runs.
+    """
+    known_failure = ExperimentMetricResult.objects.filter(
+        experiment_id=experiment_id,
+        metric_uuid=metric_uuid,
+        query_to=query_to,
+        fingerprint=recalc_fp,
+        status=ExperimentMetricResult.Status.FAILED,
+    ).exists()
+    if not known_failure:
+        return None
+
+    prior_errors = (
+        ExperimentMetricsRecalculation.objects.filter(
+            experiment_id=experiment_id, query_to=query_to, metric_errors__has_key=metric_uuid
+        )
+        .exclude(id=recalculation_id)
+        .order_by("-created_at")
+        .values_list("metric_errors", flat=True)
+        .first()
+    )
+    if prior_errors is None:
+        return None
+
+    entry = prior_errors[metric_uuid]
+    message = entry.get("message") or ""
+    step = entry.get("step") or "calculation"
+    _record_failure(
+        recalculation_id,
+        metric_uuid,
+        step,
+        message,
+        error_type=entry.get("error_type") or "unknown",
+        retriable=entry.get("retriable") is True,
+    )
+    _clear_retry(recalculation_id, metric_uuid)
+    logger.info(
+        "Reused a known failure for a stopped experiment metric instead of querying again",
+        experiment_id=experiment_id,
+        metric_uuid=metric_uuid,
+        recalculation_id=recalculation_id,
+    )
+    return MetricRecalculationResult(
+        metric_uuid=metric_uuid, success=False, error_step=step, error_message=message[:_MAX_ERROR_MESSAGE_LENGTH]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Product analytics (recalculation flow)
 #
@@ -692,6 +747,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
             # next one; clear so a completed metric can't keep reporting as retrying.
             _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        if experiment.is_stopped and state.trigger != ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY:
+            reused_failure = _reuse_known_failure(recalculation_id, experiment_id, metric_uuid, query_to_dt, recalc_fp)
+            if reused_failure is not None:
+                return reused_failure
 
         client_query_id = _client_query_id(recalculation_id, metric_uuid, attempt)
 
