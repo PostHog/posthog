@@ -303,8 +303,10 @@ Compare it with now, and with the time of the events the user expects to see.
 What makes a number old:
 
 - **The schedule.** Stored results are refreshed by a scheduled calculation, once a day by default.
-  It takes a running experiment whose flag is on, that started between 12 hours and about two months ago, and that has at least 50 exposures in total.
+  It takes a running experiment whose flag is on and that started between 12 hours and about two months ago.
+  It then counts the exposures, and it calculates only at 50 or more in total.
   A paused experiment, a small one and one that has run for more than about two months get no scheduled calculation.
+  After three counts in a row below 50, the schedule stops counting that experiment for seven days, so a small experiment that grows past 50 can wait up to seven days for a scheduled calculation.
   The schedule is a rollout: where it is off, the stored results change only when someone refreshes on the page, edits the experiment there, or starts a calculation.
   So read `query_to`, and do not assume a daily refresh.
 - **The cache.** A result computed on demand is kept for up to 24 hours.
