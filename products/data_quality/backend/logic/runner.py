@@ -30,8 +30,8 @@ from posthog.models.user import User
 
 from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualitySuiteRun
-from .compiler import compile_check, related_subject_ref
-from .contracts import CompiledCheck, Evaluation, SubjectRef
+from .compiler import compile_execution_plan, related_subject_ref
+from .contracts import BulkQuestionPlan, CompiledCheck, Evaluation, SubjectRef
 from .run_records import record_check_run
 from .staged_audit import StagedSubjectOverride, build_staged_database, replayable_failing_rows_query
 from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
@@ -213,13 +213,15 @@ def _execute(
         )
 
     related = related_subject_ref(check.check_type, check.config)
-    compiled = compile_check(
+    compiled = compile_execution_plan(
         check_type=check.check_type,
         subject=subject,
         column_name=check.column_name,
         config=check.config,
         related_subject=resolve_subject(team.id, *related) if related else None,
     )
+    if isinstance(compiled, BulkQuestionPlan):
+        return CheckOutcome(status=CheckRunStatus.ERRORED, error="Question checks require durable bulk execution.")
     if staged is not None and subject.subject_type == SubjectType.METRIC:
         return CheckOutcome(status=CheckRunStatus.ERRORED, error="Metric checks cannot audit staged data.")
     if staged is not None:

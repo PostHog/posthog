@@ -16,7 +16,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.storage import object_storage
-from posthog.sync import database_sync_to_async_pool
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.asyncpa import AsyncRecordBatchReader
 from posthog.temporal.common.clickhouse import ChunkBytesAsyncStreamIterator, get_client
 
@@ -141,12 +141,15 @@ async def freeze_question_inputs(
     column_name: str,
     retention_hours: int = 24,
     max_inputs: int = MAX_FROZEN_INPUTS,
+    register_attempt: Callable[[str], None] | None = None,
 ) -> QuestionManifest:
     if not model_id.strip() or not model_revision.strip() or retention_hours < 1 or max_inputs < 1:
         raise ValueError("A snapshot needs a pinned model revision and a positive lifetime.")
     config.input_columns(column_name)
     # Attempts use separate prefixes. Only a complete manifest may be published as the run's snapshot.
     prefix = f"data_quality/jev/{team_id}/{uuid4().hex}"
+    if register_attempt is not None:
+        await database_sync_to_async(register_attempt)(prefix)
     chunk: list[WeightedInput] = []
     chunks = rows = unique = 0
     try:

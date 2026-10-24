@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
-from ...facade.enums import CheckRunStatus, CheckSeverity
+from ...facade.enums import CheckRunStatus, CheckSeverity, CheckType
 from ...logic.runner import STAGED_FILES_UNREADABLE, record_unrunnable_check, run_check, staged_subject_is_reachable
 from ...logic.staged_audit import StagedSubjectOverride
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -41,13 +41,15 @@ def _record_unaudited_batch(
 def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     team = Team.objects.get(id=inputs.team_id)
     suite_run = DataQualitySuiteRun.objects.for_team(inputs.team_id).get(id=inputs.suite_run_id)
-    checks = DataQualityCheck.objects.for_team(inputs.team_id).filter(
-        id__in=inputs.check_ids, enabled=True, deleted=False
+    checks = (
+        DataQualityCheck.objects.for_team(inputs.team_id)
+        .filter(id__in=inputs.check_ids, enabled=True, deleted=False)
+        .exclude(check_type=CheckType.QUESTION)
     )
 
     DataQualityCheckRun.objects.for_team(inputs.team_id).filter(
         suite_run=suite_run, quality_check_id__in=inputs.check_ids
-    ).delete()
+    ).exclude(check_type=CheckType.QUESTION).delete()
 
     staged = None
     staged_database_cache: dict = {}

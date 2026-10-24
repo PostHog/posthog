@@ -180,16 +180,21 @@ export function CheckEditorModal(): JSX.Element {
             >
                 <LemonField name="checkType" label="Check type">
                     <LemonSelect
-                        options={checkTypes.map((checkType) => ({
-                            value: checkType.check_type as CheckTypeEnumApi,
-                            label: checkTypeLabel(checkType.check_type),
-                            labelInMenu: (
-                                <div className="flex flex-col">
-                                    <span>{checkTypeLabel(checkType.check_type)}</span>
-                                    <span className="text-secondary text-xs">{checkType.description}</span>
-                                </div>
-                            ),
-                        }))}
+                        // The editor has no question controls yet, so only an existing question check keeps it listed.
+                        options={checkTypes
+                            .filter(
+                                (checkType) => checkType.check_type !== 'question' || checkForm.checkType === 'question'
+                            )
+                            .map((checkType) => ({
+                                value: checkType.check_type as CheckTypeEnumApi,
+                                label: checkTypeLabel(checkType.check_type),
+                                labelInMenu: (
+                                    <div className="flex flex-col">
+                                        <span>{checkTypeLabel(checkType.check_type)}</span>
+                                        <span className="text-secondary text-xs">{checkType.description}</span>
+                                    </div>
+                                ),
+                            }))}
                         onChange={(checkType) =>
                             // The config fields belong to the type that was selected, so they can't carry over.
                             setCheckFormValues({
