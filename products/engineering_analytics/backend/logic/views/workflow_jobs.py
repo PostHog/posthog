@@ -90,7 +90,37 @@ class JobsTable:
         return cls(rows=table, duplicates=table)
 
 
-def build_query(table: JobsTable, *, created_floor: bool = False, include_steps: bool = False) -> str:
+COLUMNS = (
+    "id",
+    "run_id",
+    "run_attempt",
+    "name",
+    "workflow_name",
+    "head_sha",
+    "head_branch",
+    "status",
+    "conclusion",
+    "labels",
+    "runner_name",
+    "created_at",
+    "created_at_raw",
+    "started_at",
+    "completed_at",
+    "duration_seconds",
+    "queue_seconds",
+    "provisioning_seconds",
+    "is_rerun_copy",
+    "ci_engine",
+    "native_run_id",
+    "native_workflow_run_id",
+    "native_job_id",
+    "native_attempt_id",
+)
+
+
+def build_query(
+    table: JobsTable, *, created_floor: bool = False, include_steps: bool = False, compact_duplicates: bool = True
+) -> str:
     """``include_steps`` appends the raw ``steps`` JSON as the last column. It is the widest column of
     the table, so only a read bounded to one run asks for it."""
 
@@ -105,6 +135,11 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
     duplicates_source = floored(table.duplicates)
     steps_column = ",\n            job.steps AS steps" if include_steps else ""
     parsed_steps_column = ",\n                ifNull(toString(steps), '[]') AS steps" if include_steps else ""
+    # The HAVING saves memory on unbounded live reads. Bounded materializations retain singleton
+    # groups too, so the lookup has no group-removing construct that incremental validation rejects.
+    duplicate_filter = (
+        "HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL" if compact_duplicates else ""
+    )
     return f"""
         SELECT
             job.id AS id,
@@ -149,11 +184,11 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
                 ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
-                name,
+                ifNull(name, '') AS name,
                 ifNull(workflow_name, '') AS workflow_name,
                 ifNull(head_sha, '') AS head_sha,
                 ifNull(head_branch, '') AS head_branch,
-                status,
+                ifNull(status, '') AS status,
                 conclusion,
                 ifNull(labels, '[]') AS labels,
                 ifNull(runner_name, '') AS runner_name,
@@ -181,7 +216,7 @@ def build_query(table: JobsTable, *, created_floor: bool = False, include_steps:
                 min(run_attempt) AS first_attempt
             FROM {duplicates_source}
             GROUP BY ci_engine, run_id, name, started_key, completed_key
-            HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL
+            {duplicate_filter}
         ) AS dupes
             ON job.run_id = dupes.run_id AND job.ci_engine = dupes.ci_engine
             AND job.name = dupes.name
