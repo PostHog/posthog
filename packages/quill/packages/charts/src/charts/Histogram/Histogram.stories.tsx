@@ -41,7 +41,7 @@ const STACKED_SERIES: HistogramSeries[] = [
     { key: 'error', label: 'Error', data: ERROR_COUNTS, color: 'var(--data-color-5)' },
 ]
 
-const DURATION_AXIS = { scaleType: 'log', format: 'duration_ns', label: 'Duration' } as const
+const DURATION_AXIS = { scale: 'log', format: 'duration_ns', label: 'Duration' } as const
 
 const meta: Meta<typeof Histogram> = {
     title: 'Charts/Histogram',
@@ -126,7 +126,7 @@ export const LogCountAxis: Story = {
                     bins={LATENCY_BINS}
                     series={STACKED_SERIES}
                     theme={theme}
-                    config={{ xAxis: DURATION_AXIS, yAxis: { scaleType: 'log' } }}
+                    config={{ xAxis: DURATION_AXIS, yAxis: { scale: 'log' } }}
                 />
             </Stage>
         )
@@ -216,7 +216,7 @@ export const EdgeCases: Story = {
                             { start: 50 * MS, end: 100 * MS, count: 3 },
                         ]}
                         theme={theme}
-                        config={{ xAxis: { scaleType: 'log', format: 'duration_ns' } }}
+                        config={{ xAxis: { scale: 'log', format: 'duration_ns' } }}
                     />
                 </Stage>
                 <Stage width={340} height={180}>

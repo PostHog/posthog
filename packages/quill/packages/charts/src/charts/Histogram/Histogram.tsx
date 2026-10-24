@@ -209,8 +209,8 @@ function HistogramInner<Meta = unknown>({
 
     const xFormatter = useYTickFormatter(xAxis)
     const yFormatter = useYTickFormatter(yAxis)
-    const xScaleType = xAxis.scaleType
-    const yScaleType = yAxis.scaleType
+    const xScaleType = xAxis.scale
+    const yScaleType = yAxis.scale
 
     const prepared = useMemo(() => prepareHistogramBins(bins), [bins])
     const labels = useMemo(() => prepared.map((_, i) => String(i)), [prepared])
