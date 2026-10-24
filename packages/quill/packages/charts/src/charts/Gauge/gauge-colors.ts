@@ -1,7 +1,7 @@
 import { dimColor, resolveCssColor, toSrgbColor } from '../../core/color-utils'
-import type { GaugeThreshold } from '../../core/gauge-layout'
 import type { ChartTheme } from '../../core/types'
 import { FONT_FAMILY } from '../../utils/text-measure'
+import type { GaugeThreshold } from './gauge-layout'
 
 /** Every color the gauge paints, as concrete values the canvas accepts, plus the host font. */
 export interface GaugeColors {

@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useEffect, useState } from 'react'
 
-import type { GaugeThreshold } from '../../core/gauge-layout'
 import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
 import { Gauge } from './Gauge'
+import type { GaugeThreshold } from './gauge-layout'
 
 const HEALTH: GaugeThreshold[] = [
     { value: 0, color: 'var(--data-color-7)', label: 'Healthy' },

@@ -5,6 +5,17 @@ import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useChartCanvas } from '../../core/hooks/useChartCanvas'
+import { useChartDraw } from '../../core/hooks/useChartDraw'
+import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
+import { defaultResolveValue } from '../../core/types'
+import { Tooltip } from '../../overlays/Tooltip'
+import { measureLabelWidth } from '../../utils/text-measure'
+import { buildYTickFormatter } from '../../utils/y-formatters'
+import type { YFormatterConfig } from '../../utils/y-formatters'
+import { drawGauge } from './draw-gauge'
+import type { GaugePaint } from './draw-gauge'
+import { initialGaugeColors, resolveGaugeColors } from './gauge-colors'
 import {
     clampGaugeSweep,
     computeGaugeLayout,
@@ -18,19 +29,8 @@ import {
     sortThresholds,
     thresholdBands,
     thresholdIndexAt,
-} from '../../core/gauge-layout'
-import type { GaugeLayout, GaugeThreshold } from '../../core/gauge-layout'
-import { useChartCanvas } from '../../core/hooks/useChartCanvas'
-import { useChartDraw } from '../../core/hooks/useChartDraw'
-import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, TooltipContext } from '../../core/types'
-import { defaultResolveValue } from '../../core/types'
-import { Tooltip } from '../../overlays/Tooltip'
-import { measureLabelWidth } from '../../utils/text-measure'
-import { buildYTickFormatter } from '../../utils/y-formatters'
-import type { YFormatterConfig } from '../../utils/y-formatters'
-import { drawGauge } from './draw-gauge'
-import type { GaugePaint } from './draw-gauge'
-import { initialGaugeColors, resolveGaugeColors } from './gauge-colors'
+} from './gauge-layout'
+import type { GaugeLayout, GaugeThreshold } from './gauge-layout'
 import { GAUGE_EMPTY_VALUE, GaugeTooltip } from './GaugeTooltip'
 import type { GaugeTooltipContext, GaugeTooltipThreshold } from './GaugeTooltip'
 

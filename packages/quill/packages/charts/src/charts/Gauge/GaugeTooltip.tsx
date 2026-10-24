@@ -1,7 +1,7 @@
 import React from 'react'
 
-import type { GaugeThreshold } from '../../core/gauge-layout'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
+import type { GaugeThreshold } from './gauge-layout'
 
 export interface GaugeTooltipThreshold {
     /** Index into the thresholds sorted by value. */
