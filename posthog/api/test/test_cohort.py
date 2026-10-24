@@ -4809,6 +4809,65 @@ email@example.org,
 
     @parameterized.expand(
         [
+            ("editor_only_name", "not_performed_event"),
+            ("invented_name", "did_not_perform_event"),
+            ("bare_verb", "performed"),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_rejects_unknown_behavioral_value(self, _name, value, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort behavioral",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "$pageview", "type": "behavioral", "value": value, "event_type": "events"},
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        detail = response.json()["detail"]
+        self.assertTrue(detail.startswith(f"Invalid behavioral value '{value}'. Use one of: "), detail)
+        self.assertIn("performed_event,", detail)
+        self.assertIn("performed_event_sequence", detail)
+        self.assertNotIn("performed_event_multiple_times", detail)
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="cohort behavioral").exists())
+
+    @parameterized.expand([("canonical", "performed_event_multiple"), ("alias", "performed_event_multiple_times")])
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_accepts_known_behavioral_values(self, _name, value, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort behavioral alias",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": value,
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 2,
+                                "time_value": 30,
+                                "time_interval": "day",
+                            },
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+    @parameterized.expand(
+        [
             ("non_list_values", {"properties": {"type": "OR", "values": 5}}),
             ("non_object_filters", [1]),
         ]
