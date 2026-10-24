@@ -9,7 +9,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
     description:
-        'Update the status, priority, SLA, assignee, or tags of a conversation ticket. Tags are additive by default.',
+        'Update the status, priority, SLA, assignee, tags, or Cc list of a conversation ticket. Tags and Cc are additive by default.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -57,6 +57,12 @@ if (not empty(inputs.assignee)) {
 if (not empty(inputs.tags)) {
   updates.tags := inputs.tags
   updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
+}
+
+let cc := arrayFilter(x -> not empty(x), arrayMap(x -> trim(x), splitByString(',', inputs.cc ?? '')))
+if (not empty(cc)) {
+  updates.cc_participants := cc
+  updates.cc_mode := (not empty(inputs.cc_mode)) ? inputs.cc_mode : 'add'
 }
 
 let response := postHogUpdateTicket({
@@ -170,6 +176,29 @@ return response.body
             ],
             description:
                 'How the tags above are applied. Add (default) is safe when multiple workflows tag the same ticket.',
+        },
+        {
+            key: 'cc',
+            type: 'string',
+            label: 'Cc',
+            secret: false,
+            required: false,
+            description:
+                'Email addresses to copy on email replies, separated by commas. Supports variables, e.g. {person.properties.account_owner_email}. The requester is never added. Leave empty to keep the current Cc list.',
+        },
+        {
+            key: 'cc_mode',
+            type: 'choice',
+            label: 'Cc mode',
+            secret: false,
+            required: false,
+            default: 'add',
+            choices: [
+                { label: 'Add to the current Cc list', value: 'add' },
+                { label: 'Replace the Cc list', value: 'set' },
+                { label: 'Remove these addresses', value: 'remove' },
+            ],
+            description: 'How the Cc addresses above are applied.',
         },
     ],
 }
