@@ -5,6 +5,7 @@ import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { AIO_EVALS_HINT_FLAG } from '@/lib/discovery-hints'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, noDataAnalyticsProperties } from '@/lib/no-data-guard'
@@ -239,6 +240,9 @@ export async function trackToolCall(
                     state.toolFeatureFlags?.[MCP_NO_DATA_INSTALL_NOTICE_FLAG],
                     state.noDataAction
                 ),
+                ...(typeof state.toolFeatureFlags?.[AIO_EVALS_HINT_FLAG] === 'string'
+                    ? { [`$feature/${AIO_EVALS_HINT_FLAG}`]: state.toolFeatureFlags[AIO_EVALS_HINT_FLAG] }
+                    : {}),
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 is_impersonated: state.isImpersonated === true,

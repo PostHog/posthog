@@ -10,6 +10,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import { isCloudApi } from '@/lib/constants'
+import { AIO_EVALS_HINT_FLAG, isEvalsHintEnabled } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     handleToolError,
@@ -535,6 +536,10 @@ export class ToolExecutor {
                     distinctId,
                     mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
                         .mcpClientName,
+                    evalsHintEnabled: isEvalsHintEnabled(
+                        state.toolFeatureFlags?.[AIO_EVALS_HINT_FLAG],
+                        state.apiKeyScopes
+                    ),
                 })
             }
 
@@ -993,6 +998,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+                evalsHintEnabled: isEvalsHintEnabled(state.toolFeatureFlags?.[AIO_EVALS_HINT_FLAG], state.apiKeyScopes),
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()
