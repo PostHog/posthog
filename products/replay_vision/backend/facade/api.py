@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
@@ -19,7 +20,9 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
+    can_read_observation,
     can_read_targeted_experiment,
+    is_uuid,
     readable_observation_scanner_ids,
 )
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
@@ -296,6 +299,41 @@ def start_workflow_observation_request(
     return StartedObservationRequest(
         request_id=request.id, status="completed", created=created, result=step_result(request, progress)
     )
+
+
+def can_view_observation(access: UserAccessControl, team_id: int, observation_id: str) -> bool:
+    """Whether the caller may read one observation, with the gates the observations API applies.
+
+    Those are session recording access, the scanner's RBAC, the scanner's current experiment and the
+    experiment in the observation's own snapshot. A malformed or unknown id reads as not viewable.
+    """
+    if not is_uuid(observation_id):
+        return False
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return False
+    observation = ReplayObservation.objects.filter(team_id=team_id, id=observation_id).select_related("scanner").first()
+    if observation is None:
+        return False
+    scanner = observation.scanner
+    return (
+        bool(access.check_access_level_for_object(scanner, "viewer"))
+        and can_read_targeted_experiment(access, team_id, scanner)
+        and can_read_observation(access, team_id, observation)
+    )
+
+
+def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:
+    """The users among `user_ids` who may read the observation, so a note's mentions reach only them."""
+    # Deferred: reach the temporal package, whose activities import this facade while it loads.
+    from products.replay_vision.backend.observation_requests import recording_viewer_access  # noqa: PLC0415
+
+    team = TeamModel.objects.get(id=team_id)
+    return {
+        user.id
+        for user in User.objects.filter(id__in=list(user_ids))
+        if (access := recording_viewer_access(user, team)) is not None
+        and can_view_observation(access, team_id, observation_id)
+    }
 
 
 def _can_scan_with(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:

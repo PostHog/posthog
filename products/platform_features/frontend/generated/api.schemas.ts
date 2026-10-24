@@ -1420,6 +1420,7 @@ export type ActivityLogListParams = {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -1536,6 +1537,7 @@ export const ActivityLogListScope = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1639,6 +1641,7 @@ export const ActivityLogListScope = {
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
  * * `ReplayScanner` - ReplayScanner
+ * * `ReplayObservation` - ReplayObservation
  * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
@@ -1743,6 +1746,7 @@ export const ActivityLogListScopesItem = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',

@@ -3,8 +3,10 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
 import { ReplayObservationSceneComponent } from './ReplayObservation'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -77,6 +79,7 @@ describe('ReplayObservation', () => {
                     completed_at: '2026-07-01T00:01:00Z',
                     ...observationOverrides,
                 }),
+                '/api/projects/:team/comments/': { results: [] },
             },
             post: {
                 '/api/projects/:team/vision/observations/:id/viewed/': () => [204],
@@ -143,26 +146,42 @@ describe('ReplayObservation', () => {
     })
 
     it.each([
-        ['an unrated succeeded scan', {}, true, true],
-        ['an already rated scan', { label: { is_correct: true, feedback: '' } }, false, true],
+        ['an unrated succeeded scan', {}, true, true, true],
+        ['an already rated scan', { label: { is_correct: true, feedback: '' } }, false, true, true],
         [
             'a failed scan',
             { status: 'failed', error_reason: 'provider_transient:Timed out.', scanner_result: null },
             false,
             false,
+            // A retry replaces a failed scan with a new id, which would strand its notes.
+            false,
         ],
     ])(
-        'for %s, shows the rating question and the event link only when they apply',
-        async (_name, overrides, asksForRating, linksEvent) => {
+        'for %s, shows the rating question, the event link and the notes only when they apply',
+        async (_name, overrides, asksForRating, linksEvent, showsNotes) => {
             observationOverrides = overrides
             render(<ReplayObservationSceneComponent />)
             await screen.findByTestId('observation-recording')
 
             expect(screen.queryByText('Did the scanner get this right?') !== null).toBe(asksForRating)
+            expect(screen.queryByText('Internal notes') !== null).toBe(showsNotes)
+            await waitFor(() =>
+                expect(replayObservationSceneLogic.values.sidePanelContext.discussions_disabled).toBe(!showsNotes)
+            )
             fireEvent.click(screen.getByText('Details'))
             expect(screen.queryByText('$recording_observed') !== null).toBe(linksEvent)
         }
     )
+
+    it('hands the notes to the discussion panel while it is open, so one composer edits the thread', async () => {
+        render(<ReplayObservationSceneComponent />)
+        await screen.findByText('Internal notes')
+        expect(screen.queryByText('The notes are open in the discussion panel.')).toBeNull()
+
+        act(() => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion))
+
+        await screen.findByText('The notes are open in the discussion panel.')
+    })
 
     it.each([
         ['an unrated scan saves the rating', {}, [{ is_correct: true, feedback: '' }]],

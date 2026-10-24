@@ -71885,6 +71885,7 @@ export namespace Schemas {
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
      * * `ticket` - TICKET
+     * * `replay_observation` - REPLAY_OBSERVATION
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -71900,6 +71901,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
       Ticket: 'ticket',
+      ReplayObservation: 'replay_observation',
     } as const;
 
     export interface NotificationEvent {
@@ -125375,6 +125377,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -125492,6 +125495,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
@@ -125595,6 +125599,7 @@ export namespace Schemas {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -125700,6 +125705,7 @@ export namespace Schemas {
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
       ReplayScanner: 'ReplayScanner',
+      ReplayObservation: 'ReplayObservation',
       VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
