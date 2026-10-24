@@ -1,6 +1,11 @@
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.catalog import match_destination, match_source
+from products.warehouse_sources.backend.migration.catalog.fivetran_details import (
+    FIVETRAN_CONFIG_KEYS,
+    FIVETRAN_NOTES,
+    FIVETRAN_TABLE_ALIASES,
+)
 from products.warehouse_sources.backend.migration.catalog.fivetran_sources import FIVETRAN_SOURCE_TYPES
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -16,6 +21,40 @@ class TestCatalog:
             if source_type not in registered
         }
         assert unregistered == {}
+
+    def test_curated_details_only_name_matched_services(self) -> None:
+        curated = set(FIVETRAN_TABLE_ALIASES) | set(FIVETRAN_CONFIG_KEYS) | set(FIVETRAN_NOTES)
+        assert curated - set(FIVETRAN_SOURCE_TYPES) == set()
+
+    def test_every_table_alias_points_at_a_posthog_table(self) -> None:
+        missing: dict[str, list[str]] = {}
+        for service, aliases in FIVETRAN_TABLE_ALIASES.items():
+            source = SourceRegistry.get_source(FIVETRAN_SOURCE_TYPES[service])
+            # A source that needs credentials to list its tables still documents each one.
+            if source.lists_tables_without_credentials:
+                tables = {table["name"] for table in source.get_documented_tables()}
+            else:
+                tables = set(source.get_canonical_descriptions())
+            unknown = sorted(set(aliases.values()) - tables)
+            if unknown:
+                missing[service] = unknown
+        assert missing == {}
+
+    def test_every_config_key_points_at_a_non_secret_source_field(self) -> None:
+        invalid: dict[str, list[str]] = {}
+        for service, config_keys in FIVETRAN_CONFIG_KEYS.items():
+            fields = SourceRegistry.get_source(FIVETRAN_SOURCE_TYPES[service]).get_source_config.fields
+            allowed = {field.name for field in fields if not getattr(field, "secret", False)}
+            unknown = sorted(key for key in config_keys.values() if key.split(".")[0] not in allowed)
+            if unknown:
+                invalid[service] = unknown
+        assert invalid == {}
+
+    def test_match_source_carries_curated_details(self) -> None:
+        stripe = match_source("fivetran", "stripe_test")
+        postgres = match_source("fivetran", "postgres_rds")
+        assert stripe is not None and stripe.table_aliases["charge"] == "Charge"
+        assert postgres is not None and postgres.config_keys["tunnel_host"] == "ssh_tunnel.host"
 
     @parameterized.expand(
         [
