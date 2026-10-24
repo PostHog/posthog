@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # `INCREMENTAL_FIELDS` is therefore empty for all endpoints; see the module docstring in netlify.py.
 
 
-@dataclass
+@dataclass(frozen=True)
 class NetlifyEndpointConfig:
     name: str
     # Path template appended to the API base. Fan-out children carry a placeholder filled from the
