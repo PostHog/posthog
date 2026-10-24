@@ -1,7 +1,7 @@
 ---
 name: exploring-endpoint-execution-logs
 description: >
-  Explore and diagnose a PostHog endpoint's execution logs — error messages, failed runs, cache
+  Explores and diagnoses a PostHog endpoint's execution logs — error messages, failed runs, cache
   misses, slow runs, or unexpected row counts during endpoint invocations. Use when the user says
   "my endpoint is failing", "show me the logs for endpoint X", "what error did endpoint Y produce",
   "why did endpoint Z return no rows", "is this endpoint hitting cache", or "check the last N runs".
