@@ -37,6 +37,7 @@ import {
     PromptReportWindow,
     promptCitationsQuery,
     promptSearchesQuery,
+    promptSentimentQuery,
     promptSourcesQuery,
     promptVisibilityQuery,
 } from './promptReportQueries'
@@ -72,6 +73,7 @@ export interface contentAutopilotPromptDetailLogicValues {
     searchesQuery: DataTableNode | null
     selectedCheck: AEOPromptCheckApi | null
     selectedEngine: string | null
+    sentimentQuery: DataVisualizationNode | null
     sentimentSummary: PromptSentimentSummary | null
     shownCheck: AEOPromptCheckApi | null
     sourcesQuery: DataTableNode | null
@@ -249,6 +251,7 @@ export interface contentAutopilotPromptDetailLogicMeta {
         sourcesQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
         citationsQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
         searchesQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
+        sentimentQuery: (reportWindow: PromptReportWindow | null) => DataVisualizationNode | null
     }
 }
 
@@ -515,6 +518,11 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             (s) => [s.reportWindow],
             (reportWindow: PromptReportWindow | null): DataTableNode | null =>
                 reportWindow ? promptSearchesQuery(reportWindow) : null,
+        ],
+        sentimentQuery: [
+            (s) => [s.reportWindow],
+            (reportWindow: PromptReportWindow | null): DataVisualizationNode | null =>
+                reportWindow ? promptSentimentQuery(reportWindow) : null,
         ],
     }),
     listeners(({ actions, values }) => ({

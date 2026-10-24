@@ -51,6 +51,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         sourcesQuery,
         citationsQuery,
         searchesQuery,
+        sentimentQuery,
     } = useValues(contentAutopilotPromptDetailLogic)
     const { closePromptDetail, openPromptDetail, setArchiveConfirming, setVisibilityMetric } = useActions(
         contentAutopilotPromptDetailLogic
@@ -79,7 +80,8 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         visibilityQuery &&
         sourcesQuery &&
         citationsQuery &&
-        searchesQuery
+        searchesQuery &&
+        sentimentQuery
 
     return (
         <LemonModal isOpen onClose={closePromptDetail} title={prompt?.prompt ?? 'Loading prompt'} width={960}>
@@ -231,7 +233,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 title="How answers talk about you"
                                 description="Scored on the sentences that name you, so praise of another tool does not count."
                             >
-                                <ContentAutopilotPromptSentiment summary={sentimentSummary} />
+                                <ContentAutopilotPromptSentiment summary={sentimentSummary} query={sentimentQuery} />
                             </Section>
 
                             <Section

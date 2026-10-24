@@ -134,3 +134,25 @@ LIMIT ${PROMPT_REPORT_TOP_SEARCHES}`,
         ),
         PROMPT_SEARCH_COLUMNS
     )
+
+/** Scored answers per engine, split by how they speak about the brand. Unscored answers are left out. */
+export const promptSentimentQuery = (window: PromptReportWindow): DataVisualizationNode => ({
+    kind: NodeKind.DataVisualizationNode,
+    source: hogql(
+        `SELECT engine,
+    multiIf(brand_sentiment = 'positive', 'Positive', brand_sentiment = 'negative', 'Negative', 'Neutral') AS sentiment,
+    count() AS answers
+FROM system.aeo_citation_checks
+WHERE ${WHERE} AND brand_sentiment IS NOT NULL
+GROUP BY engine, sentiment
+ORDER BY engine, sentiment`,
+        window
+    ),
+    display: ChartDisplayType.ActionsStackedBar,
+    chartSettings: {
+        xAxis: { column: 'engine' },
+        yAxis: [{ column: 'answers' }],
+        seriesBreakdownColumn: 'sentiment',
+        showLegend: true,
+    },
+})

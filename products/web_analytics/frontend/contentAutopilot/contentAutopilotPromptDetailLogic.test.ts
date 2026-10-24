@@ -99,6 +99,8 @@ describe('contentAutopilotPromptDetailLogic', () => {
         expect(citedQuery.source.values).toEqual({ prompt_id: PROMPT.id, window_start: '2026-09-01 00:00:00' })
         expect(citedQuery.source.query).toContain('countIf(cited)')
         expect((logic.values.sourcesQuery!.source as HogQLQuery).values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.query).toContain('brand_sentiment IS NOT NULL')
 
         logic.actions.setVisibilityMetric('mentioned')
         const mentionedQuery = logic.values.visibilityQuery!
