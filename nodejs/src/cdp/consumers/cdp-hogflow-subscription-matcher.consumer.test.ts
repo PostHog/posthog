@@ -314,6 +314,9 @@ const cohortMembershipEvent = (): HogFunctionInvocationGlobals =>
         person: { id: 'person-uuid-1', properties: {}, name: '', url: '' },
     })
 
+// person.properties.email == null, which an empty person satisfies.
+const personEmailIsNotSetBytecode = ['_H', 1, 31, 32, 'email', 32, 'properties', 32, 'person', 1, 3, 11]
+
 const invalidTeamIds = [undefined, null, 'abc', 1.5, 3_000_000_000]
 
 describe('CdpHogflowSubscriptionMatcherConsumer', () => {
@@ -1840,8 +1843,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it('counts only event goals from a cohort membership change, and attributes them to the run', async () => {
-            // A membership change has no person properties, so an always-true property goal stands in
-            // for a negative filter such as "email is not set" that would match the empty person.
+            // A membership change has no person properties, so a negative person filter such as "email is
+            // not set" would match the empty person, in a property goal or inside an event goal.
             matcher.watcherRows = [
                 watcher({
                     person_id: 'person-uuid-1',
@@ -1852,6 +1855,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     run_id: 'run-2',
                     person_id: 'person-uuid-1',
                     goal: { properties: ['_H', 1, 29] },
+                }),
+                watcher({
+                    id: 'watcher-3',
+                    run_id: 'run-3',
+                    person_id: 'person-uuid-1',
+                    goal: { events: [personEmailIsNotSetBytecode] },
                 }),
             ]
 
@@ -2042,6 +2051,22 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                             properties: [{ key: 'email', type: 'person', operator: 'is_not_set' }],
                         },
                     },
+                },
+                event: cohortMembershipEvent,
+                source: 'cohort_membership',
+                woken: false,
+            },
+            {
+                name: 'event entry that reads the person + cohort membership change',
+                config: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: personEmailIsNotSetBytecode,
+                                events: [{ id: '$cohort_membership_changed' }],
+                            },
+                        },
+                    ],
                 },
                 event: cohortMembershipEvent,
                 source: 'cohort_membership',

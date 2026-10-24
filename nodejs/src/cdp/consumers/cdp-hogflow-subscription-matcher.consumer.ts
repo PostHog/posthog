@@ -339,8 +339,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return fg
         }
 
-        // A cohort membership change carries no person properties. A property condition judged against
-        // it would see an empty person, so a negative filter such as "is not set" would match.
+        // A cohort membership change carries no person properties. A filter that reads the person would see
+        // an empty person, so a negative filter such as "is not set" would match. Such a change is judged
+        // only by event entries that do not read the person.
         const eventsOnly = source === 'cohort_membership'
 
         // Claimed before the parked-job work and independently of it: a watcher's run may have
@@ -397,7 +398,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 : undefined
             const action =
                 eventsOnly && parkedOn?.type === 'wait_until_condition'
-                    ? { ...parkedOn, config: { ...parkedOn.config, condition: { filters: null } } }
+                    ? {
+                          ...parkedOn,
+                          config: {
+                              ...parkedOn.config,
+                              condition: { filters: null },
+                              events: parkedOn.config.events?.filter(
+                                  (eventConfig) => !readsPerson(eventConfig.filters?.bytecode)
+                              ),
+                          },
+                      }
                     : parkedOn
 
             // Any single matching event is enough. Stop early once both flags are set.
@@ -424,7 +434,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals, eventsOnly))) {
                     conversionMatched = true
                     // Remember who converted (and via which event) so we can emit $workflows_conversion.
                     conversionDistinctId = globals.event.distinct_id
@@ -472,11 +482,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
+    private async evaluateConversionEvents(
+        hogflow: HogFlow,
+        filterGlobals: FilterGlobals,
+        eventsOnly: boolean
+    ): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
             if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
+            if (eventsOnly && readsPerson(eventConfig.filters?.bytecode)) {
                 continue
             }
             if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
@@ -684,7 +701,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 byDistinctId,
                 byPersonId
             )
-            const goal: PinnedConversionGoal = eventsOnly ? { events: row.goal.events } : row.goal
+            const goal: PinnedConversionGoal = eventsOnly
+                ? { events: row.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
+                : row.goal
             for (const globals of candidateGlobals) {
                 const conversionType = await matchesPinnedGoal(goal, filterGlobalsFor(globals), row.function_id)
                 if (conversionType) {
@@ -1351,6 +1370,12 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     }
     const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+// Compiled filters read `person.properties.<key>` by pushing the string 'person' as the root of the field
+// chain. A literal 'person' value in a filter also matches, which only drops that entry for membership changes.
+function readsPerson(bytecode: unknown): boolean {
+    return Array.isArray(bytecode) && bytecode.includes('person')
 }
 
 // A pinned goal converts when the property branch matches, or any event branch does. The two are
