@@ -3284,6 +3284,40 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("toDateTime('{D-1} 00:00:00', 'UTC')", "toDateTime", "{D-1} 00:00:00"),
+            ("toDateTime('{{prev_utc_day_start}}')", "toDateTime", "{{prev_utc_day_start}}"),
+            ("toDateTime('<prior_day_start>', 'UTC')", "toDateTime", "<prior_day_start>"),
+            ("toDate('{D-1}')", "toDate", "{D-1}"),
+            ("toDateTimeUS('{D}')", "toDateTimeUS", "{D}"),
+            ("parseDateTimeBestEffort('{D-1}', 'UTC')", "parseDateTimeBestEffort", "{D-1}"),
+        ]
+    )
+    def test_date_conversion_rejects_an_unfilled_template_literal(
+        self, expression: str, function_name: str, literal: str
+    ) -> None:
+        with self.assertRaises(QueryError) as error_context:
+            self._expr(expression)
+        self.assertEqual(
+            str(error_context.exception),
+            f"{function_name}() can't read '{literal}' as a date. "
+            "Replace the unfilled placeholder in the string with a real date, such as '2026-01-31'.",
+        )
+
+    @parameterized.expand(
+        [
+            ("toDateTime('2026-10-20 00:00:00', 'UTC')",),
+            ("toDateTime('2026-10-20T00:00:00Z')",),
+            ("toDate('2026-10-20')",),
+            ("toDate('2026<10>20')",),
+            ("toDate('2026{10}20')",),
+            ("toDateTime(properties.created_at)",),
+        ]
+    )
+    def test_date_conversion_accepts_real_dates(self, expression: str) -> None:
+        self._expr(expression)
+
+    @parameterized.expand(
+        [
             ("toDate(toDateTime(200000) - toDateTime(100000))", "toDate(toFloat64(minus("),
             ("toDateTime(toDateTime(200000) - toDateTime(100000))", "toDateTime(toFloat64(minus("),
             ("toDate(toDate(timestamp) - toDate(timestamp))", "toDate(minus("),

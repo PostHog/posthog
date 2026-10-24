@@ -144,6 +144,13 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     }
 )
 
+NULL_ON_FAILURE_DATE_PARSERS = frozenset(
+    {"parseDateTime64BestEffortOrNull", "parseDateTime64BestEffortUSOrNull", "toDateOrNull"}
+)
+# The run before the first letter excludes letters, so the search stays linear. Two runs that both
+# accept letters backtrack quadratically on a long literal with an unclosed bracket.
+TEMPLATE_PLACEHOLDER_TOKEN = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
+
 
 # ClickHouse JSON functions whose arguments after the document are all keys into it.
 _JSON_KEY_PATH_FUNCTIONS = frozenset(
@@ -327,6 +334,9 @@ class ClickHousePrinter(BasePrinter):
                 ):
                     args[0] = f"toFloat64({args[0]})"
 
+        if relevant_clickhouse_name in NULL_ON_FAILURE_DATE_PARSERS:
+            self._reject_template_date_literal(node)
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 
@@ -384,6 +394,19 @@ class ClickHousePrinter(BasePrinter):
         args_part = f"({', '.join(args)}{order_by_part})"
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+
+    @staticmethod
+    def _reject_template_date_literal(node: ast.Call) -> None:
+        first_arg = node.args[0] if node.args else None
+        if (
+            isinstance(first_arg, ast.Constant)
+            and isinstance(first_arg.value, str)
+            and TEMPLATE_PLACEHOLDER_TOKEN.search(first_arg.value)
+        ):
+            raise QueryError(
+                f"{node.name}() can't read '{first_arg.value}' as a date. "
+                "Replace the unfilled placeholder in the string with a real date, such as '2026-01-31'."
+            )
 
     @staticmethod
     def _returns_json_container(node: ast.Call) -> bool:
