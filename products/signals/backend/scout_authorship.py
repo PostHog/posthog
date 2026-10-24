@@ -8,8 +8,7 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet
-from django.db.models.functions import Cast, JSONArray
+from django.db.models import Q, QuerySet
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
@@ -133,23 +132,25 @@ def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
 
 def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
     # Matches `scout_lists_reports_in_inbox`: only an explicit `inbox: false` opts a scout out.
-    # A subquery rather than a join, so the inbox list query keeps its join-free plan.
     opted_out_configs = SignalScoutConfig.objects.for_team(team_id).filter(output_destinations__inbox=False)
     return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
 
 
-def inbox_hidden_report_exists(team_id: int) -> Exists:
-    """Matches a report kept out of the inbox because the scout that authored it turned off its inbox destination.
+def inbox_hidden_report_ids(team_id: int) -> list[str]:
+    """The reports kept out of the inbox because the scout that authored them turned off its inbox destination.
 
     Only authorship counts, read from the config's current setting: an opted-out scout that edits
     another source's report does not hide it, and turning the scout back on lists its reports again.
-    Use it in a filter on a `SignalReport` queryset, so the check stays in the database.
+    The list endpoint resolves the ids once and excludes them by primary key. A correlated check
+    on the report queryset probes the run table once for each report in the team, before the page
+    limit applies.
     """
-    return Exists(
-        _inbox_opted_out_runs(team_id).filter(
-            emitted_report_ids__contains=JSONArray(Cast(OuterRef("id"), output_field=CharField()))
-        )
-    )
+    hidden: set[str] = set()
+    for emitted in (
+        _inbox_opted_out_runs(team_id).exclude(emitted_report_ids=[]).values_list("emitted_report_ids", flat=True)
+    ):
+        hidden.update(emitted or [])
+    return sorted(hidden)
 
 
 def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:

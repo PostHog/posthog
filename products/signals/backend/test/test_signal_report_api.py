@@ -427,10 +427,15 @@ class TestSignalReportListAPI(APIBaseTest):
             edited_report_ids=[str(edited_only.id)],
         )
 
-        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        with CaptureQueriesContext(connection) as ctx:
+            default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        report_list_sql = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
         opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
         retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
 
+        assert report_list_sql
+        # A per-report probe of the scout run table runs before the page limit and slows every inbox load.
+        assert not any("signals_signalscoutrun" in sql for sql in report_list_sql)
         assert default_ids == {str(listed.id), str(edited_only.id)}
         assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
         assert retrieve_response.status_code == status.HTTP_200_OK
@@ -2177,10 +2182,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
-            response = self.client.get(
-                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
-            )
+            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
 
         assert response.status_code == status.HTTP_200_OK
         # All association subqueries must stay team-scoped. Without the scope the planner can
