@@ -52,12 +52,12 @@ export function ReplayVisionScannerOption(): JSX.Element {
         sessionPrice: formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL]),
     }
 
-    const option =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD] === 'test' ? (
-            <ReplayVisionScannerCard {...optionProps} />
-        ) : (
-            <ReplayVisionScannerCheckbox {...optionProps} />
-        )
+    const showCard = featureFlags[FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD] === 'test'
+    const option = showCard ? (
+        <ReplayVisionScannerCard {...optionProps} />
+    ) : (
+        <ReplayVisionScannerCheckbox {...optionProps} />
+    )
 
     if (dataProcessingAccepted) {
         return option
@@ -76,7 +76,9 @@ export function ReplayVisionScannerOption(): JSX.Element {
             }}
             onDismiss={() => setConsentRequested(false)}
         >
-            {option}
+            {/* The popover anchors to its child through a ref, which the card and checkbox don't forward.
+                w-fit keeps the arrow on the checkbox, which is only as wide as its label. */}
+            <div className={showCard ? undefined : 'w-fit'}>{option}</div>
         </AIConsentPopoverWrapper>
     )
 }

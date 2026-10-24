@@ -926,6 +926,23 @@ describe('experimentWizardLogic', () => {
             }
         )
 
+        it.each(['control' as const, 'test' as const])(
+            'anchors the consent popover to the option in %s',
+            async (arm) => {
+                ;(global as any).__consentAccepted = false
+                setArm(arm)
+
+                renderAnalyticsStep()
+                await turnOn(arm)
+
+                // The popover anchors to its child through a ref. Without one it never gets a position,
+                // so it sits at the top left of the page and its arrow points at nothing.
+                await waitFor(() =>
+                    expect(document.querySelector<HTMLElement>('.Popover__arrow')?.style.left).toMatch(/px$/)
+                )
+            }
+        )
+
         it.each(['control' as const, 'test' as const])('shows the per-session price in %s', (arm) => {
             ;(global as any).__consentAccepted = true
             setArm(arm)
