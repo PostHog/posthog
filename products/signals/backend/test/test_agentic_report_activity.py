@@ -1898,11 +1898,27 @@ def test_parse_artefact_content_parses_valid_content():
     assert _parse_artefact_content(ActionabilityAssessment, artefact, "report-1") == actionability
 
 
-def test_parse_artefact_content_raises_on_incompatible_schema():
-    # No legacy path writes these artefacts, so a parse failure is our bug — fail loudly, don't skip.
+def test_parse_artefact_content_upgrades_legacy_actionability():
     artefact = SignalReportArtefact(
-        type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, content='{"unexpected": "shape"}'
+        type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+        content=json.dumps({"choice": "requires_human_input", "explanation": "e"}),
     )
+    assert _parse_artefact_content(ActionabilityAssessment, artefact, "report-1") == ActionabilityAssessment(
+        explanation="e", actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT, already_addressed=False
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"unexpected": "shape"}',
+        '{"choice": "not_an_actionability", "explanation": "e"}',
+        "not json",
+    ],
+)
+def test_parse_artefact_content_raises_on_incompatible_schema(content):
+    # Outside the legacy `{choice, explanation}` shape, a parse failure is our bug — fail loudly, don't skip.
+    artefact = SignalReportArtefact(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, content=content)
     with pytest.raises(ValueError, match="incompatible with the current ActionabilityAssessment schema"):
         _parse_artefact_content(ActionabilityAssessment, artefact, "report-1")
 
