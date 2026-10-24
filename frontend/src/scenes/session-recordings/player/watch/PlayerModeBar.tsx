@@ -35,7 +35,7 @@ export function PlayerModeBar(): JSX.Element {
     const { windowIds, trackedWindow, currentURL, currentWindowIndex, loading } = useValues(playerMetaLogic(logicProps))
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
     const { debugMode } = useValues(playerSettingsLogic)
-    const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { setDebugMode } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const chromeItems = usePlayerChromeMenuItems()
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
@@ -43,7 +43,7 @@ export function PlayerModeBar(): JSX.Element {
     const mode: PlayerMode = debugMode ? 'debug' : 'watch'
     const setMode = (next: PlayerMode): void => {
         posthog.capture('session recording mode changed', { mode: next })
-        setSidebarOpen(next === 'debug')
+        setDebugMode(next === 'debug')
         if (next === 'debug') {
             setTab(SessionRecordingSidebarTab.INSPECTOR)
         }

@@ -13,7 +13,7 @@ const DEBUG_HINT_UNTIL = Date.parse('2026-12-01')
 
 export function DebugModeBanner(): JSX.Element | null {
     const { debugMode, debugHintDismissed } = useValues(playerSettingsLogic)
-    const { setSidebarOpen, dismissDebugHint } = useActions(playerSettingsLogic)
+    const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
 
     if (debugMode || debugHintDismissed || Date.now() >= DEBUG_HINT_UNTIL) {
@@ -29,7 +29,7 @@ export function DebugModeBanner(): JSX.Element | null {
                 'data-attr': 'player-debug-hint-open',
                 onClick: () => {
                     posthog.capture('session recording mode changed', { mode: 'debug', source: 'hint' })
-                    setSidebarOpen(true)
+                    setDebugMode(true)
                     setTab(SessionRecordingSidebarTab.INSPECTOR)
                 },
             }}
