@@ -5248,8 +5248,9 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
-            # Only on an add: assignment is additive, so a removal leaves the pull request alone.
-            if added_github_logins:
+            # A changed reviewer set may change the automatic PR owners in either direction.
+            # The worker protects human and unknown-origin assignments before it mutates GitHub.
+            if added_entries or removed_payloads:
                 for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team.id).get(
                     str(report_id), []
                 ):
@@ -5264,19 +5265,11 @@ def append_suggested_reviewers(
             # is the only return path a scout has for routing memory it already cached — but only for
             # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
             # steers nothing, matching the reviewer-corrections profile's impersonation filter.
-            # Scout routing memory is keyed on GitHub logins, so a change that only moved a
-            # login-less reviewer carries nothing for that channel to steer and is skipped there.
             if not was_impersonated:
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
-                    added_logins=tuple(added_github_logins),
-                    removed_logins=tuple(
-                        login
-                        for login in (
-                            str(prior.get("github_login") or "").strip().lower() for prior in removed_payloads
-                        )
-                        if login
-                    ),
+                    added_reviewers=tuple(_reviewer_identity_label(entry) for entry in added_entries),
+                    removed_reviewers=tuple(_reviewer_identity_label(entry) for entry in removed_payloads),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
                 )
@@ -5425,11 +5418,11 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
         )
         correction = (
             None
-            if was_impersonated or not github_login
+            if was_impersonated
             else ReviewerCorrection(
                 report_id=str(report_id),
-                added_logins=(),
-                removed_logins=(github_login,),
+                added_reviewers=(),
+                removed_reviewers=(github_login or str(user.uuid),),
                 actor_user_id=user_id,
                 scoped_team_ids=scoped_team_id_tuple,
             )
@@ -5951,6 +5944,7 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, SuggestedReviewers):
             try:
                 expected = request.validated_data.get("expected_reviewers")
+                reviewer_outcome = request.validated_data.get("reviewer_outcome", "selected")
                 with transaction.atomic():
                     SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
                     previous = ReviewerRules.read_for_report(
@@ -5963,13 +5957,13 @@ class SignalReportArtefactViewSet(
                         attribution=attribution,
                         reviewer_proposal=ReviewerProposal(
                             expected_state=ReviewerState.model_validate(expected),
-                            outcome=request.validated_data["reviewer_outcome"],
+                            outcome=reviewer_outcome,
                             retry_reason=request.validated_data.get("reviewer_retry_reason"),
                         )
                         if expected is not None
                         else None,
                         reviewer_edit=ReviewerEdit(action="replace", expected_state=expected)
-                        if attribution.kind == "user" and request.validated_data["reviewer_outcome"] == "selected"
+                        if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
                     )

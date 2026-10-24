@@ -2718,6 +2718,13 @@ class MetricsQuerySeries(BaseModel):
         default=None,
         description=("Clause alias that produced this series (`formula` for the formula result)"),
     )
+    histogramBounds: list[float] | None = Field(
+        default=None,
+        description=(
+            "Bucket upper edges a histogram quantile series was estimated from. The"
+            " true quantile can be anywhere between two edges."
+        ),
+    )
     labels: dict[str, str] = Field(
         ...,
         description=("Label values identifying this series; empty for an ungrouped query"),
@@ -6672,7 +6679,18 @@ class MCPToolQualityDailyStatItem(BaseModel):
     calls: int
     day: str
     errors: int
+    max: float | None = None
+    mean: float | None = None
+    min: float | None = Field(
+        default=None,
+        description=(
+            "Latency spread for the box plot view. Optional so responses cached before"
+            " these fields existed still parse."
+        ),
+    )
+    p25: float | None = None
     p50: float
+    p75: float | None = None
     p95: float
     p99: float
 

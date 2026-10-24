@@ -7877,6 +7877,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results
@@ -7892,6 +7893,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
@@ -7919,6 +7921,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
        * * `survey_results` - Survey Results */
@@ -7932,7 +7935,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -11461,7 +11464,127 @@ export namespace Schemas {
       canvasId?: string | null;
     }
 
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig;
+    /**
+     * How each time bucket of a row is computed. `rate` and `increase` read counters.
+     */
+    export type MetricsTableColumnAggregation = typeof MetricsTableColumnAggregation[keyof typeof MetricsTableColumnAggregation];
+
+
+    export const MetricsTableColumnAggregation = {
+      Rate: 'rate',
+      Increase: 'increase',
+      Sum: 'sum',
+      Avg: 'avg',
+      Min: 'min',
+      Max: 'max',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    /**
+     * How the label value is compared.
+     */
+    export type MetricsTableFilterOp = typeof MetricsTableFilterOp[keyof typeof MetricsTableFilterOp];
+
+
+    export const MetricsTableFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export interface MetricsTableFilter {
+      /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         * @minLength 1
+         * @maxLength 200
+         */
+      key: string;
+      /** How the label value is compared. */
+      op?: MetricsTableFilterOp;
+      /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         * @maxLength 400
+         */
+      value: string;
+    }
+
+    export interface MetricsTableColumn {
+      /**
+         * Column header, e.g. `Requests/s`.
+         * @minLength 1
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * Name of the metric this column reads.
+         * @minLength 1
+         * @maxLength 200
+         */
+      metricName: string;
+      /** How each time bucket of a row is computed. `rate` and `increase` read counters. */
+      aggregation: MetricsTableColumnAggregation;
+      /** Required for `histogram_quantile`, e.g. 0.95 for p95. */
+      quantile?: number | null;
+      /**
+         * Label filters for this column only, e.g. 5xx status codes for an errors column.
+         * @maxItems 5
+         */
+      filters?: MetricsTableFilter[];
+    }
+
+    /**
+     * Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points.
+     */
+    export type MetricsTableWidgetConfigInterval = typeof MetricsTableWidgetConfigInterval[keyof typeof MetricsTableWidgetConfigInterval] | null;
+
+
+    export const MetricsTableWidgetConfigInterval = {
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
+    /**
+     * Sort direction for orderByColumn.
+     */
+    export type MetricsTableWidgetConfigOrderDirection = typeof MetricsTableWidgetConfigOrderDirection[keyof typeof MetricsTableWidgetConfigOrderDirection];
+
+
+    export const MetricsTableWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    export interface MetricsTableWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /** Label that makes one row per value, e.g. `http.route`. Null until the user sets it. */
+      groupBy?: string | null;
+      /**
+         * One metric per column. Each row shows the column's average over the date range and a sparkline.
+         * @maxItems 6
+         */
+      columns?: MetricsTableColumn[];
+      /** Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points. */
+      interval?: MetricsTableWidgetConfigInterval;
+      /**
+         * Index of the column that sorts the rows.
+         * @minimum 0
+         */
+      orderByColumn?: number;
+      /** Sort direction for orderByColumn. */
+      orderDirection?: MetricsTableWidgetConfigOrderDirection;
+      /**
+         * Maximum number of rows to show.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+    }
+
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -28258,7 +28381,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       title?: string;
-      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it. */
       collapsed?: boolean;
       /** Color of a dot before the group heading. Null or omitted shows no dot.
        *
@@ -28807,6 +28930,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
        * * `survey_results` - Survey Results */
@@ -36923,6 +37047,54 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    export interface DevUserUsage {
+      /**
+         * PostHog user id. Null when no user has this distinct_id.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * The user's email. Null when no user has this distinct_id.
+         * @nullable
+         */
+      email: string | null;
+      /** distinct_id pinned on the user's tokens as $ai_user. */
+      distinct_id: string;
+      /** Tokens minted in the last 24 hours. */
+      tokens_minted_24h: number;
+      /** Tokens minted in the last 30 days. */
+      tokens_minted_30d: number;
+      /** Tokens that are neither revoked nor expired. */
+      live_tokens: number;
+      /** Tokens minted in the last 30 days that were revoked. */
+      revoked_30d: number;
+      /**
+         * Token caps minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      reserved_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_24h: string;
+      /**
+         * Settled gateway spend in the last 7 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_7d: string;
+      /**
+         * Settled gateway spend in the last 30 days, in USD.
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spend_usd_30d: string;
+      /**
+         * When the user last minted a token.
+         * @nullable
+         */
+      last_minted_at: string | null;
+    }
+
     /**
      * * `web` - Web
      * * `cli` - CLI
@@ -36934,6 +37106,43 @@ export namespace Schemas {
       Web: 'web',
       Cli: 'cli',
     } as const;
+
+    export interface DevTokenActivity {
+      /** When the action happened. */
+      at: string;
+      /** What happened to the token: minted or revoked. */
+      activity: string;
+      /**
+         * Who did it. Null when the user was deleted.
+         * @nullable
+         */
+      actor_email: string | null;
+      /**
+         * Whose token it is. Null when the token row is gone, e.g. a refused mint.
+         * @nullable
+         */
+      owner_email: string | null;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum | null;
+      /**
+         * Most the token can spend, in USD.
+         * @nullable
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string | null;
+    }
+
+    export interface DevTeamUsage {
+      /** Project whose wallet pays for developer mode tokens. */
+      paying_team_id: number;
+      /** One row per user with tokens or spend, highest spend first. */
+      users: DevUserUsage[];
+      /** Mints and revokes in the last 30 days, newest first, at most 1000. */
+      activity: DevTokenActivity[];
+    }
 
     /**
      * * `live` - Live
@@ -36980,6 +37189,12 @@ export namespace Schemas {
        * * `revoked` - Revoked
        * * `expired` - Expired */
       status: DevTokenStatusEnum;
+      /**
+         * Budget left on a live token, net of in-flight requests, in USD. Null when not live or unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      remaining_usd: string | null;
     }
 
     export interface DevTokenRefusal {
@@ -37000,6 +37215,14 @@ export namespace Schemas {
     export interface DevTokenRevoked {
       /** How many tokens the gateway revoked. */
       revoked_count: number;
+    }
+
+    export interface DevTokenStatusRequest {
+      /**
+         * The phe_ bearer to look up. Only its sha256 is compared.
+         * @pattern ^phe_[A-Za-z0-9_-]{1,252}$
+         */
+      token: string;
     }
 
     export interface DevTokenUsage {
@@ -39801,7 +40024,7 @@ export namespace Schemas {
     export interface EditReportRequest {
       /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+      /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
        *
        * * `selected` - Selected
        * * `no_suitable_owner` - No suitable owner
@@ -47278,6 +47501,7 @@ export namespace Schemas {
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
      * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change
@@ -47289,6 +47513,7 @@ export namespace Schemas {
       Manual: 'manual',
       ManualRetry: 'manual_retry',
       ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
       HealLatestRun: 'heal_latest_run',
       ExperimentConfigChange: 'experiment_config_change',
       MetricConfigChange: 'metric_config_change',
@@ -59884,6 +60109,8 @@ export namespace Schemas {
     export interface MetricsQuerySeries {
       /** Clause alias that produced this series (`formula` for the formula result) */
       clause?: string | null;
+      /** Bucket upper edges a histogram quantile series was estimated from. The true quantile can be anywhere between two edges. */
+      histogramBounds?: number[] | null;
       /** Label values identifying this series; empty for an ungrouped query */
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
@@ -61183,7 +61410,13 @@ export namespace Schemas {
       calls: number;
       day: string;
       errors: number;
+      max?: number | null;
+      mean?: number | null;
+      /** Latency spread for the box plot view. Optional so responses cached before these fields existed still parse. */
+      min?: number | null;
+      p25?: number | null;
       p50: number;
+      p75?: number | null;
       p95: number;
       p99: number;
     }
@@ -70391,6 +70624,37 @@ export namespace Schemas {
       dashboard_id: number | null;
     }
 
+    export type MetricsTableWidgetCatalogEntryOpenApiWidgetType = typeof MetricsTableWidgetCatalogEntryOpenApiWidgetType[keyof typeof MetricsTableWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const MetricsTableWidgetCatalogEntryOpenApiWidgetType = {
+      MetricsTable: 'metrics_table',
+    } as const;
+
+    export interface MetricsTableWidgetCatalogEntryOpenApi {
+      widget_type: MetricsTableWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
+      readonly config_schema: MetricsTableWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `metrics_table` - metrics_table
+     */
+    export type MetricsTableWidgetTypeEnum = typeof MetricsTableWidgetTypeEnum[keyof typeof MetricsTableWidgetTypeEnum];
+
+
+    export const MetricsTableWidgetTypeEnum = {
+      MetricsTable: 'metrics_table',
+    } as const;
+
     export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtra {
       severity_value: string | null;
       resolution_status_value: string | null;
@@ -77220,6 +77484,7 @@ export namespace Schemas {
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
      * * `reviewer_corrections` - Reviewer Corrections
+     * * `pr_owner_assignment` - Pr Owner Assignment
      * * `channel_assignment` - Channel Assignment
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
@@ -77260,6 +77525,7 @@ export namespace Schemas {
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
       ReviewerCorrections: 'reviewer_corrections',
+      PrOwnerAssignment: 'pr_owner_assignment',
       ChannelAssignment: 'channel_assignment',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
@@ -88337,6 +88603,8 @@ export namespace Schemas {
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -91214,6 +91482,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
        * * `survey_results` - Survey Results */
@@ -93779,6 +94048,8 @@ export namespace Schemas {
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+      readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
@@ -99183,6 +99454,7 @@ export namespace Schemas {
        * * `manual` - Manual
        * * `manual_retry` - Manual Retry
        * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
        * * `heal_latest_run` - Heal Latest Run
        * * `experiment_config_change` - Experiment Config Change
        * * `metric_config_change` - Metric Config Change */
@@ -106648,7 +106920,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
       expected_reviewers?: ReviewerState;
-      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+      /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
        *
        * * `selected` - Selected
        * * `no_suitable_owner` - No suitable owner
@@ -119648,7 +119920,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types. */
@@ -122190,6 +122462,11 @@ export namespace Schemas {
          * @nullable
          */
       unit?: string | null;
+      /**
+         * Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.
+         * @nullable
+         */
+      histogram_bounds?: number[] | null;
     }
 
     export interface _MetricAnomalyReport {
@@ -127953,6 +128230,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',

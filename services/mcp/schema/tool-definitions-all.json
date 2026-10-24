@@ -7905,7 +7905,7 @@
         }
     },
     "inbox-report-artefacts-update": {
-        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.",
+        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead. Do not use this tool to change suggested reviewers. Use `inbox-report-reviewers-update` so reviewer corrections and stale-write protection are preserved.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Replace an artefact's content",
@@ -7979,6 +7979,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-report-reviewers-update": {
+        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a report's suggested reviewers",
+        "title": "Update a report's suggested reviewers",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "inbox-reports-bulk-set-state": {
@@ -11856,7 +11871,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token, which is safe to put in client-side code. Project listing, project\nupdates and the session context leave it out, so ask for a single project when you need the token.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token. Project listing, project updates and the session context leave it out,\nso ask for a single project when you need the token.\n\nWhen you install or configure a PostHog SDK, use `api_token` as the project token and `api_host` as the\nSDK's `api_host` (the ingestion host for this project's region). The token is public, so it can ship in\nclient-side bundles, but treat it as configuration: read it from the app's environment variable and write\nthe real value to the local env file (for example `.env.local` or `.env`). Never hard-code the token or the\nhost in source files, and never use them as fallback defaults.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",

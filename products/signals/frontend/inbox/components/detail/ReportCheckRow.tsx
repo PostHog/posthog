@@ -20,7 +20,7 @@ export function ReportCheckRow({
     cancelling: boolean
     onCancel: (checkId: string) => void
 }): JSX.Element {
-    const { check, tag, detail, cancelled, cancellable } = row
+    const { check, reportStatus, tag, detail, cancelled, cancellable } = row
 
     return (
         <div
@@ -47,7 +47,7 @@ export function ReportCheckRow({
             </div>
             <div className="flex items-end gap-2 min-w-0 pl-[1.375rem]">
                 <span className="min-w-0 flex-1 text-xs leading-snug text-tertiary">
-                    <ReportCheckTiming check={check} detail={detail} />
+                    <ReportCheckTiming check={check} reportStatus={reportStatus} detail={detail} />
                 </span>
                 {cancellable && (
                     <LemonButton

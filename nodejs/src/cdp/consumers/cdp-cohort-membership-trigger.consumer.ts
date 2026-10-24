@@ -22,7 +22,7 @@ import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, skipIfMalformed } from './message-parsing'
 
 export const counterCohortMembershipTriggerSkipped = new Counter({
     name: 'cdp_cohort_membership_trigger_skipped',
@@ -159,12 +159,10 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const changes: CohortMembershipChange[] = []
         for (const message of messages) {
-            let change: CohortMembershipChange
-            try {
-                change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
-            } catch (e) {
-                logger.error('Error parsing cohort membership change', e)
-                counterParseError.labels({ error: e.message }).inc()
+            const change = skipIfMalformed('Error parsing cohort membership change', () =>
+                assertTeamId(CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString())))
+            )
+            if (!change) {
                 continue
             }
 
