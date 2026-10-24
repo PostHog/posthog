@@ -16,6 +16,7 @@ from products.data_catalog.evals.constants import (
     APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
+    DRIFTED_BADGE_CODE_POINT,
     EVAL_DESCRIPTION_CHAR_LIMIT,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
@@ -34,6 +35,7 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 __all__ = [
     "CanonicalMetricRun",
     "DeprecationProposed",
+    "DriftedBadgeShown",
     "SemanticMetadataQueried",
     "SemanticTrustDecisionCorrectness",
     "MetricDescriptionConcise",
@@ -899,15 +901,18 @@ class TrustBadgeShown(Scorer):
         )
 
 
-class ProposedBadgeShown(Scorer):
-    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+class _NoncanonicalBadgeShown(Scorer):
+    """Binary: when the agent runs the named noncanonical metric, does the answer badge it and link to it?
 
-    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
-    (``score=None``) and left to the behavior judge.
+    Using a proposed or drifted metric is the agent's call, so a case where it never runs the metric is
+    skipped (``score=None``) and left to the behavior judge.
     """
 
+    _scorer_name: str
+    _badge: str
+
     def _name(self) -> str:
-        return "proposed_badge"
+        return self._scorer_name
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = expected.get(self._name()) if isinstance(expected, dict) else None
@@ -924,17 +929,27 @@ class ProposedBadgeShown(Scorer):
             for call in parser.get_tool_calls(METRIC_RUN_TOOL)
         )
         if not ran:
-            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+            return Score(name=self._name(), score=None, metadata={"reason": "metric not used"})
 
         answer = (output or {}).get("last_message") or ""
         opening = _first_line(answer)
         # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
         # name only starts the same way does not count.
         link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
-        has_badge = PROPOSED_BADGE_ICON in opening
+        has_badge = self._badge in opening
         has_link = bool(link.search(opening))
         return Score(
             name=self._name(),
             score=1.0 if has_badge and has_link else 0.0,
             metadata={"has_badge": has_badge, "has_link": has_link},
         )
+
+
+class ProposedBadgeShown(_NoncanonicalBadgeShown):
+    _scorer_name = "proposed_badge"
+    _badge = PROPOSED_BADGE_ICON
+
+
+class DriftedBadgeShown(_NoncanonicalBadgeShown):
+    _scorer_name = "drifted_badge"
+    _badge = DRIFTED_BADGE_CODE_POINT

@@ -15,6 +15,7 @@ from products.data_catalog.evals.constants import (
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     DeprecationProposed,
+    DriftedBadgeShown,
     MetricDescriptionConcise,
     MetricDescriptionQuality,
     MetricsCatalogBeforeAnswer,
@@ -446,6 +447,7 @@ def test_deprecation_proposed(
         (MetricDescriptionConcise(), "metric_description_concise"),
         (TrustBadgeShown(), "trust_badge"),
         (ProposedBadgeShown(), "proposed_badge"),
+        (DriftedBadgeShown(), "drifted_badge"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -521,6 +523,25 @@ def test_proposed_badge_shown(_name: str, run_status: str, answer: str, expected
 
     score = ProposedBadgeShown()._run_eval_sync(
         {"raw_log": log, "last_message": answer}, {"proposed_badge": {"metric_name": "activation_rate"}}
+    )
+
+    assert score.score == expected_score
+
+
+_DRIFTED_LINK = "[Weekly active users](https://example.com/project/1/data-catalog/metrics/weekly_active_users)"
+
+
+@parameterized.expand(
+    [
+        ("warning_badge", f"\u26a0\ufe0f **Drifted definition in your data catalog**: {_DRIFTED_LINK}", 1.0),
+        ("proposed_badge_instead", f"\U0001f4dd **Proposed definition in your data catalog**: {_DRIFTED_LINK}", 0.0),
+    ]
+)
+def test_drifted_badge_shown(_name: str, answer: str, expected_score: float) -> None:
+    log = _tool_log([("data-catalog-metric-run", {"name": "weekly_active_users"}, "completed")])
+
+    score = DriftedBadgeShown()._run_eval_sync(
+        {"raw_log": log, "last_message": answer}, {"drifted_badge": {"metric_name": "weekly_active_users"}}
     )
 
     assert score.score == expected_score
