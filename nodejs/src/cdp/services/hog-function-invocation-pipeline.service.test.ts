@@ -220,8 +220,11 @@ describe('HogFunctionInvocationPipeline', () => {
         expect(result[0].queue).toBe('hogoverflow')
     })
 
-    it('drops quota-limited invocations', async () => {
-        const fn = makeHogFunction()
+    it.each([
+        ['drops billed destinations', 'destination', 0],
+        ['keeps never-billed internal destinations', 'internal_destination', 1],
+    ] as const)('for a quota-limited team, %s', async (_name, type, expectedCount) => {
+        const fn = makeHogFunction({ type })
         const inv = makeInvocation(fn)
         jest.mocked(buildHogFunctionInvocations).mockResolvedValue({
             invocations: [inv],
@@ -234,11 +237,11 @@ describe('HogFunctionInvocationPipeline', () => {
         quotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
 
         const result = await pipeline.buildInvocations([makeGlobals()], {
-            hogTypes: ['destination'],
+            hogTypes: [type],
             filterFn: () => true,
         })
 
-        expect(result).toEqual([])
+        expect(result).toHaveLength(expectedCount)
     })
 
     it('drops masked invocations', async () => {
