@@ -43,3 +43,15 @@ export function countActiveTools(tools: McpInstallationTool[]): number {
 export function countRemovedTools(tools: McpInstallationTool[]): number {
   return tools.filter((t) => !!t.removed_at).length;
 }
+
+export function groupToolsByReadOnly(tools: McpInstallationTool[]): {
+  readOnly: McpInstallationTool[];
+  writeOrDelete: McpInstallationTool[];
+} {
+  // is_read_only is already a server-derived boolean (annotations.readOnlyHint
+  // normalized to false when absent), so a tool with no hint lands here.
+  return {
+    readOnly: tools.filter((t) => t.is_read_only),
+    writeOrDelete: tools.filter((t) => !t.is_read_only),
+  };
+}
