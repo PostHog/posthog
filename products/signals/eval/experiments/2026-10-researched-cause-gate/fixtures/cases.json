@@ -1,0 +1,42 @@
+{
+  "group": {
+    "title": "chore(settings): stop logging the expected overrides 404 as a failure",
+    "researched_cause": "GET /api/users/@me/feature_overrides/ answers 404 by design when a user has never saved personal overrides. The frontend logic maps the 404 to null, so the overrides rows show 'Default'. The shared request wrapper still records the response as a client_request_failure, and the replay scanners read that event as a broken, blank, or silently failing page. Every blank-page or abandoned-setup claim so far was the scanner misreading this 404; none had a related exception. No user is hurt: every flagged user kept working after the 404. The fix is to stop recording this expected 404 as a failure.",
+    "signals": [
+      "Replay: the user opened the settings panel and GET /api/users/@me/feature_overrides/ failed with 404. The settings area stayed blank, so the agent configuration looks broken for this user. The user appeared to abandon setup.",
+      "Replay: a 404 from /api/users/@me/feature_overrides/ fired during onboarding and the settings page rendered empty. The failed request seems to leave the page without data."
+    ]
+  },
+  "cases": [
+    {
+      "name": "roster_skeleton_blamed_on_404",
+      "expected_accept": false,
+      "description": "Replay of a brand-new project: during setup GET /api/users/@me/feature_overrides/ failed with 404. Right after, the Agents tab rendered three blank white cards and a heading that says agents are working in the background, but nothing loaded. The failed overrides request seems to leave the agents area without data, so new users see an empty, broken setup."
+    },
+    {
+      "name": "roster_skeleton_next_to_404",
+      "expected_accept": false,
+      "description": "Replay of a new project: GET /api/users/@me/feature_overrides/ returned 404 on the settings panel. The user then opened the Agents tab, where the agent list showed three blank white cards with no names or controls. The user left the tab after a second."
+    },
+    {
+      "name": "other_blank_section_blamed_on_404",
+      "expected_accept": false,
+      "description": "Replay: on the settings page GET /api/users/@me/feature_overrides/ returned 404 and the notification preferences section rendered blank with no toggles. The user clicked the empty area twice and left."
+    },
+    {
+      "name": "same_404_on_another_endpoint",
+      "expected_accept": false,
+      "description": "Replay: GET /api/projects/@current/billing_usage/ returned 404 on the billing page and the usage chart stayed empty."
+    },
+    {
+      "name": "repeat_of_researched_404",
+      "expected_accept": true,
+      "description": "Replay: the settings panel fired GET /api/users/@me/feature_overrides/ which returned 404 (client_request_failure). The overrides rows read 'Default'. The user toggled a setting a few seconds later."
+    },
+    {
+      "name": "symptom_the_research_explains",
+      "expected_accept": true,
+      "description": "Replay: a 404 on /api/users/@me/feature_overrides/ and the overrides section shows 'Default' for every row instead of a value. The user seemed unsure whether the settings saved."
+    }
+  ]
+}
