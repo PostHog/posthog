@@ -4,6 +4,8 @@ from typing import Optional, cast
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -984,7 +986,7 @@ class TestPostgresPrinter(BaseTest):
             (
                 "dateDiff",
                 "dateDiff('day', now(), now())",
-                "DATE_PART(%(hogql_val_0)s, CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+                "CAST((FLOOR(EXTRACT(EPOCH FROM CAST(NOW() AS TIMESTAMP)) / 86400)) - (FLOOR(EXTRACT(EPOCH FROM CAST(NOW() AS TIMESTAMP)) / 86400)) AS BIGINT)",
             ),
             # Conditional
             ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
@@ -1059,6 +1061,48 @@ class TestPostgresPrinter(BaseTest):
     )
     def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("second_across_day", "second", "2026-10-01 00:00:00", "2026-10-02 01:02:03", 90123),
+            ("second_negative", "second", "2026-10-02 01:02:03", "2026-10-01 00:00:00", -90123),
+            ("second_fraction_crosses_boundary", "second", "2026-10-01 00:00:00.900", "2026-10-01 00:00:01.100", 1),
+            ("second_fraction_same_second", "second", "2026-10-01 00:00:01.100", "2026-10-01 00:00:01.900", 0),
+            ("second_negative_fraction", "second", "2026-10-01 00:00:01.500", "2026-10-01 00:00:00.900", -1),
+            ("minute_across_day", "minute", "2026-10-01 00:00:00", "2026-10-02 01:02:03", 1502),
+            ("minute_boundary", "minute", "2026-10-01 00:00:59", "2026-10-01 00:01:00", 1),
+            ("hour_across_day", "hour", "2026-10-01 00:00:00", "2026-10-02 01:02:03", 25),
+            ("hour_boundary", "hour", "2026-10-01 00:59:59", "2026-10-01 01:00:00", 1),
+            ("day_boundary", "day", "2026-10-01 23:59:59", "2026-10-02 00:00:00", 1),
+            ("day_across_months", "day", "2026-09-01 12:00:00", "2026-10-02 01:00:00", 31),
+            ("week_sunday_to_monday", "week", "2026-10-04 23:59:59", "2026-10-05 00:00:00", 1),
+            ("week_monday_to_sunday", "week", "2026-10-05 00:00:00", "2026-10-11 23:59:59", 0),
+            ("month_boundary", "month", "2026-01-31 23:59:59", "2026-02-01 00:00:00", 1),
+            ("month_across_years", "month", "2025-11-15 00:00:00", "2026-02-01 00:00:00", 3),
+            ("month_negative", "month", "2026-02-01 00:00:00", "2025-11-15 00:00:00", -3),
+            ("quarter_boundary", "quarter", "2026-03-31 23:59:59", "2026-04-01 00:00:00", 1),
+            ("year_boundary", "year", "2025-12-31 23:59:59", "2026-01-01 00:00:00", 1),
+            ("uppercase_unit", "SECOND", "2026-10-01 00:00:00", "2026-10-01 00:01:00", 60),
+        ]
+    )
+    def test_date_diff_counts_unit_boundaries_on_postgres(
+        self, _name: str, unit: str, start: str, end: str, expected: int
+    ):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._expr(f"dateDiff('{unit}', toDateTime('{start}'), toDateTime('{end}'))", context=context)
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT {sql}", context.values)
+            self.assertEqual(cursor.fetchone()[0], expected)
+
+    @parameterized.expand(
+        [
+            ("unsupported_unit", "dateDiff('fortnight', now(), now())", "Unsupported dateDiff unit"),
+            ("non_literal_unit", "dateDiff(event, now(), now())", "dateDiff requires a literal unit"),
+        ]
+    )
+    def test_date_diff_rejects_invalid_units(self, _name: str, expr: str, message: str):
+        with self.assertRaisesMessage(QueryError, message):
+            self._expr(expr)
 
     @parameterized.expand(
         [
