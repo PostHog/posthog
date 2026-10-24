@@ -1,16 +1,28 @@
 """Tests for unified fetch_and_format activity."""
 
 import uuid
+import dataclasses
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.temporal.ai_observability.trace_summarization.constants import (
+    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MAX,
+    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN,
+    FETCH_AND_FORMAT_RETRY_POLICY,
+    FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
     _fetch_and_format_trace,
     _format_generation_text_repr,
@@ -18,6 +30,7 @@ from posthog.temporal.ai_observability.trace_summarization.fetch_and_format impo
 )
 from posthog.temporal.ai_observability.trace_summarization.models import FetchAndFormatInput
 from posthog.temporal.ai_observability.trace_summarization.queries import TraceSize
+from posthog.temporal.common.errors import NonReportableError
 
 
 @asynccontextmanager
@@ -386,3 +399,66 @@ class TestFetchAndFormatActivity:
             assert result.skipped is True
             assert result.skip_reason == "trace_too_large"
             assert result.event_count == 1
+
+
+@patch(
+    "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Heartbeater",
+    _noop_heartbeater,
+)
+class TestFetchAndFormatActivityCapacityBackoff:
+    @pytest.mark.parametrize("capacity_error", [ClickHouseAtCapacity, ConcurrencyLimitExceeded])
+    @pytest.mark.parametrize(
+        "attempt, seconds_to_deadline, reportable",
+        [
+            (1, FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT.total_seconds(), False),
+            (
+                FETCH_AND_FORMAT_RETRY_POLICY.maximum_attempts,
+                FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT.total_seconds(),
+                True,
+            ),
+            (1, FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN.total_seconds() / 2, True),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_query_capacity_errors_back_off_and_report_only_the_last_attempt(
+        self, capacity_error: type[Exception], attempt: int, seconds_to_deadline: float, reportable: bool
+    ) -> None:
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(
+            env.info,
+            attempt=attempt,
+            retry_policy=FETCH_AND_FORMAT_RETRY_POLICY,
+            schedule_to_close_timeout=FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT,
+            scheduled_time=now - FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT + timedelta(seconds=seconds_to_deadline),
+        )
+
+        with (
+            time_machine.travel(now, tick=False),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format._fetch_and_format_trace",
+                side_effect=capacity_error(),
+            ),
+        ):
+            with pytest.raises(ApplicationError) as exc_info:
+                await env.run(
+                    fetch_and_format_activity,
+                    FetchAndFormatInput(
+                        trace_id=str(uuid.uuid4()),
+                        trace_first_timestamp=now.isoformat(),
+                        team_id=1,
+                        window_start="2025-01-01T00:00:00Z",
+                        window_end="2025-01-01T01:00:00Z",
+                    ),
+                )
+
+        err = exc_info.value
+        assert err.type == capacity_error.__name__
+        assert err.non_retryable is False
+        assert isinstance(err, NonReportableError) is not reportable
+        assert err.next_retry_delay is not None
+        assert (
+            FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN
+            <= err.next_retry_delay
+            <= FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MAX
+        )

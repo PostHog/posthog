@@ -1,19 +1,29 @@
 """Activity for fetching trace/generation data and storing formatted text in Redis."""
 
 import time
+import random
+from datetime import timedelta
 
 import structlog
 import temporalio
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.redis import get_async_client
-from posthog.temporal.ai_observability.trace_summarization.constants import MAX_RAW_TRACE_SIZE
+from posthog.temporal.ai_observability.retries import is_last_attempt
+from posthog.temporal.ai_observability.trace_summarization.constants import (
+    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MAX,
+    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN,
+    MAX_RAW_TRACE_SIZE,
+)
 from posthog.temporal.ai_observability.trace_summarization.models import (
     FetchAndFormatInput,
     FetchAndFormatResult,
@@ -22,6 +32,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 from posthog.temporal.ai_observability.trace_summarization.queries import fetch_trace, fetch_trace_size
 from posthog.temporal.ai_observability.trace_summarization.state import generate_redis_key, store_text_repr
 from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import on_asyncify_pool
 
@@ -334,19 +345,42 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
     async with Heartbeater():
         t0 = time.monotonic()
 
-        if input.generation_id:
-            result = await on_asyncify_pool(_fetch_and_format_generation)(
-                input.generation_id,
-                input.trace_id,
-                input.team_id,
-                input.window_start,
-                input.window_end,
-                input.max_length,
+        try:
+            if input.generation_id:
+                result = await on_asyncify_pool(_fetch_and_format_generation)(
+                    input.generation_id,
+                    input.trace_id,
+                    input.team_id,
+                    input.window_start,
+                    input.window_end,
+                    input.max_length,
+                )
+            else:
+                result = await on_asyncify_pool(_fetch_and_format_trace)(
+                    input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
+                )
+        except (ClickHouseAtCapacity, ConcurrencyLimitExceeded) as e:
+            next_retry_delay = timedelta(
+                seconds=random.uniform(
+                    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN.total_seconds(),
+                    FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MAX.total_seconds(),
+                )
             )
-        else:
-            result = await on_asyncify_pool(_fetch_and_format_trace)(
-                input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
+            last_attempt = is_last_attempt(next_retry_delay=next_retry_delay)
+            log.warning(
+                f"No ClickHouse query capacity to fetch {item_type}",
+                error_type=type(e).__name__,
+                last_attempt=last_attempt,
+                backoff_seconds=round(next_retry_delay.total_seconds(), 1),
             )
+            # The retry usually gets a slot. Only a failure that outlasts every attempt drops the item,
+            # so only that failure goes to error tracking.
+            error_class = ApplicationError if last_attempt else NonReportableApplicationError
+            raise error_class(
+                f"No ClickHouse query capacity to fetch {item_type}",
+                type=type(e).__name__,
+                next_retry_delay=next_retry_delay,
+            ) from e
 
         fetch_duration_s = time.monotonic() - t0
 

@@ -111,6 +111,11 @@ FETCH_AND_FORMAT_RETRY_POLICY = RetryPolicy(
     maximum_attempts=2,
     non_retryable_error_types=["ValueError", "TypeError"],
 )
+# Wait between attempts when the shared ClickHouse budget has no free slot. The jitter spreads the
+# retries of the parallel fetches, so they do not all return at the same instant. The longest wait
+# plus both attempts stays inside FETCH_AND_FORMAT_SCHEDULE_TO_CLOSE_TIMEOUT.
+FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MIN = timedelta(seconds=20)
+FETCH_AND_FORMAT_QUERY_CAPACITY_BACKOFF_MAX = timedelta(seconds=60)
 
 # Activity 2: Summarize + save (slow, I/O-bound LLM call - heartbeats work)
 SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=900)

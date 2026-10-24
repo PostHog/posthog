@@ -213,6 +213,7 @@ Text representations (up to 2 MB) are stored in Redis between the two activities
 - Embedding failures tracked separately, don't fail summary generation
 - Activity retries use exponential backoff via centralized retry policies
 - A failed LLM call is captured as an exception only on the last attempt of `summarize_and_save_activity`. An earlier attempt logs `OpenAI API call failed, retry pending` at warning level, because the retry can still save the summary.
+- When `fetch_and_format_activity` gets no ClickHouse query slot (`ConcurrencyLimitExceeded` or `ClickHouseAtCapacity`), it waits a jittered 20–60s before the retry. Only a failure on the last attempt goes to error tracking, because only that failure drops the item.
 
 ## Testing
 
