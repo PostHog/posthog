@@ -3,6 +3,7 @@
 
 import { resolveEffectiveClientName } from './client-detection'
 import { isGatewayToolName } from './gateway-tools'
+import { parseMcpResourcesFromConnection, type McpResourcesSelection } from './mcp-resources'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue, type McpMode } from './utils'
 
 export type Transport = 'streamable-http' | 'sse'
@@ -27,6 +28,8 @@ export type RequestProperties = {
     mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
+    /** Always set by `parseRequestProperties` and the worker; optional only on partial test fixtures. */
+    mcpResources?: McpResourcesSelection
     viaMcpStore?: boolean | undefined
     transport?: Transport | undefined
     mcpSessionId?: string | undefined
@@ -126,6 +129,10 @@ export function parseRequestProperties(
         mcpElicitationUrlSupported: clientInfo.elicitationUrlSupported,
         mcpVendorClient: vendorClient,
         mode: viaMcpStore ? 'tools' : parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
+        mcpResources: parseMcpResourcesFromConnection(
+            header(request, 'x-posthog-mcp-resources'),
+            params.get('resources')
+        ),
         viaMcpStore,
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
