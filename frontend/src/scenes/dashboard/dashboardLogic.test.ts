@@ -975,6 +975,12 @@ describe('dashboardLogic', () => {
                     beforeMount: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
                     ungroupedLoads: 0,
                 },
+                {
+                    name: 'the viewer follows a link to it',
+                    open: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
+                    beforeMount: () => {},
+                    ungroupedLoads: 1,
+                },
             ])('shows tabs one at a time and loads a tab when $name', async ({ open, beforeMount, ungroupedLoads }) => {
                 groupTiles({ target: { collapsed: false } })
                 dashboards[5] = {
@@ -997,6 +1003,27 @@ describe('dashboardLogic', () => {
                 expect(router.values.searchParams.tab).toEqual('group-target')
                 expect(loads(target)).toHaveLength(1)
                 expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
+            })
+
+            it('loads tiles from a hidden tab when the dashboard switches to sections', async () => {
+                groupTiles({ target: { collapsed: false } })
+                dashboards[5] = {
+                    ...dashboards[5],
+                    customization: { group_display: 'tabs' },
+                    tiles: dashboards[5].tiles.map((tile, index) =>
+                        index === 1 ? { ...tile, group_key: null } : tile
+                    ),
+                }
+                const ungrouped = dashboards[5].tiles[1].insight!.short_id
+                router.actions.push('/dashboard/5', { tab: 'group-target' })
+                await mountDashboard()
+                expect(loads(ungrouped)).toHaveLength(0)
+
+                await expectLogic(logic, () =>
+                    dashboardsModel.actions.updateDashboardSuccess({ ...logic.values.dashboard!, customization: {} })
+                ).toFinishAllListeners()
+
+                expect(loads(ungrouped)).toHaveLength(1)
             })
 
             it('loads a widget in a closed group on open', async () => {
