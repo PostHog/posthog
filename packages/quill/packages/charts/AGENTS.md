@@ -23,6 +23,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |
 | `SankeyChart`          | Flow between stages (tool call journeys, user paths) — `nodes` + `links` keyed by id, no `series`; the graph must be acyclic                |
+| `FlameGraph`           | Call trees (profiles, span trees, LLM runs) — nested `{ name, value, children }`, value is total; zoom, search, baseline diff               |
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |
@@ -112,7 +113,7 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` 
 | Doc                                                | Covers                                                                                                                       |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | [src/README.md](./src/README.md)                   | Public surface, setup, theme, custom tooltip and overlay basics, sparkline                                                   |
-| [docs/chart-types.md](./src/docs/chart-types.md)   | Per-chart behavior: scatter, funnel, slope, pie, proportion bar, bar list, box plot, heatmap, sankey, sparkline, metric card |
+| [docs/chart-types.md](./src/docs/chart-types.md)   | Charts: scatter, funnel, slope, pie, proportion bar, bar list, boxplot, heatmap, sankey, flame graph, sparkline, metric card |
 | [docs/axes.md](./src/docs/axes.md)                 | Defaults, grid and axis chrome, x-axis labels, y format, baseline and range, multi-axis, margins, blank-plot diagnosis       |
 | [docs/bars.md](./src/docs/bars.md)                 | Layouts, per-bar overrides, `minBarSize`, `trackData`, hit-testing, trend lines, combo                                       |
 | [docs/tooltips.md](./src/docs/tooltips.md)         | `config.tooltip`, `DefaultTooltip` props, custom pieces, context fields, touch                                               |

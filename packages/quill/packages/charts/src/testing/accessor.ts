@@ -103,6 +103,11 @@ export interface HogChart<Meta = unknown> {
     sankeyNodeLabels(): string[]
     /** Column headers rendered by a Sankey chart, left to right. */
     sankeyColumnLabels(): string[]
+    /** A flame graph's zoom path as shown, from `All` down to the focused node. A deep path collapses
+     *  its middle crumbs into an ellipsis, which is not listed. */
+    flameBreadcrumb(): string[]
+    /** A flame graph's search summary (`3 matches · 12% of total`), or null without a search. */
+    flameSearchSummary(): string | null
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -260,6 +265,15 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
+        flameBreadcrumb: () =>
+            Array.from(
+                wrapper
+                    .closest('[data-hog-charts-flame]')
+                    ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-flame-breadcrumb"]') ?? []
+            ).map((el) => el.textContent ?? ''),
+        flameSearchSummary: () =>
+            wrapper.closest('[data-hog-charts-flame]')?.querySelector('[data-attr="hog-chart-flame-search-summary"]')
+                ?.textContent ?? null,
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
