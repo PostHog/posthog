@@ -12,12 +12,16 @@ import { template as setVariableTemplate } from '~/cdp/templates/_destinations/p
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
+import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -30,11 +34,13 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
+import { MailDevAPI } from '../messaging/helpers/maildev'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { AcceptedSend } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -3163,7 +3169,7 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
-        it('should route email actions to the email queue', async () => {
+        beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3200,100 +3206,10 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
-
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withExitCondition('exit_only_at_end')
-                .withWorkflow({
-                    actions: {
-                        trigger: {
-                            type: 'trigger',
-                            config: {
-                                type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                            },
-                        },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test',
-                                            html: '<p>Test</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
-                    ],
-                })
-                .build()
-
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    event: '$pageview',
-                },
-            })
-
-            const result = await executor.execute(invocation)
-
-            // Should be routed to email queue, not finished
-            expect(result.finished).toBe(false)
-            expect(result.invocation.queue).toBe('email')
-            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
-            expect(result.invocation.queueParameters).toBeDefined()
-            expect(result.invocation.queueParameters?.type).toBe('email')
         })
 
-        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
-            await insertIntegration(hub.postgres, team.id, {
-                id: integrationId,
-                kind: 'email',
-                config: {
-                    email: 'test@posthog.com',
-                    name: 'Test User',
-                    domain: 'posthog.com',
-                    verified: true,
-                    provider: 'maildev',
-                },
-            })
-
-            await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-email-routing-test',
-                name: 'Email Routing Test',
-                code: `sendEmail(inputs.email)`,
-                inputs_schema: [
-                    {
-                        type: 'native_email',
-                        key: 'email',
-                        label: 'Email message',
-                        integration: 'email',
-                        required: true,
-                        default: {
-                            to: { email: '', name: '' },
-                            from: { email: '', name: '' },
-                            subject: '',
-                            text: 'Hello!',
-                            html: '<div>Hello!</div>',
-                        },
-                        secret: false,
-                        description: '',
-                        templating: 'liquid',
-                    },
-                ],
-            })
-
-            const hogFlow = new FixtureHogFlowBuilder()
+        const emailFlow = (email: Record<string, any>): HogFlow =>
+            new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
                 .withWorkflow({
@@ -3309,17 +3225,7 @@ describe('Hogflow Executor', () => {
                             type: 'function_email',
                             config: {
                                 template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test text',
-                                            html: '<p>Test html</p>',
-                                        },
-                                    },
-                                },
+                                inputs: { email: { value: email } },
                             },
                         },
                         exit: {
@@ -3334,12 +3240,172 @@ describe('Hogflow Executor', () => {
                 })
                 .build()
 
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
+        const flowInvocation = (hogFlow: HogFlow): CyclotronJobInvocationHogFlow =>
+            createExampleHogFlowInvocation(hogFlow, {
                 event: {
                     ...createHogExecutionGlobals().event,
                     event: '$pageview',
                 },
             })
+
+        const storedStep = () => ({
+            to: { email: 'recipient@example.com', name: 'Recipient' },
+            from: { integrationId, email: 'test@posthog.com' },
+            subject: 'Test Email',
+            text: 'Test text',
+            html: '<p>Test html</p>',
+        })
+
+        // What Django stores for a rendered-content key: no sender and no content, so only the
+        // run's accepted send can make the step deliverable.
+        const codeKeyStep = () => ({
+            to: { email: 'recipient@example.com', name: 'Recipient' },
+            from: { integrationId: null },
+            cc: 'cc@example.com',
+            subject: '',
+            text: '',
+            html: '',
+        })
+
+        const codeSend = (): AcceptedSend => ({
+            content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
+            from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+            replyTo: ['help@example.com', 'support@example.com'],
+            tracking: { captureEngagement: true },
+        })
+
+        it('should route email actions to the email queue', async () => {
+            const result = await executor.execute(flowInvocation(emailFlow(storedStep())))
+
+            // Should be routed to email queue, not finished
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect(result.invocation.queueParameters?.type).toBe('email')
+        })
+
+        it.each([
+            {
+                name: 'a template send as the step renders it',
+                step: storedStep,
+                send: (): AcceptedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
+            {
+                name: 'a code send for a local template as the step renders it',
+                step: storedStep,
+                send: (): AcceptedSend => ({ tracking: { captureEngagement: false } }),
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
+            {
+                name: "a code send with the caller's content, sender and reply-to over the step",
+                step: codeKeyStep,
+                send: codeSend,
+                expected: () => ({
+                    type: 'email',
+                    to: { email: 'recipient@example.com', name: 'Recipient' },
+                    from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+                    cc: 'cc@example.com',
+                    replyTo: 'help@example.com, support@example.com',
+                    subject: 'Reset your password',
+                    preheader: '',
+                    text: 'Hi',
+                    html: '<p>Hi {{ variables.name }}</p>',
+                }),
+            },
+            {
+                name: "a code send with the caller's copies, headers and tags over the step",
+                step: codeKeyStep,
+                send: (): AcceptedSend => ({
+                    ...codeSend(),
+                    cc: ['jane@example.com', 'joe@example.com'],
+                    bcc: ['audit@example.com'],
+                    headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                    tags: [{ name: 'category', value: 'password_reset' }],
+                }),
+                expected: () => ({
+                    type: 'email',
+                    to: { email: 'recipient@example.com', name: 'Recipient' },
+                    from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+                    cc: 'jane@example.com, joe@example.com',
+                    bcc: 'audit@example.com',
+                    headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                    tags: [{ name: 'category', value: 'password_reset' }],
+                    replyTo: 'help@example.com, support@example.com',
+                    subject: 'Reset your password',
+                    preheader: '',
+                    text: 'Hi',
+                    html: '<p>Hi {{ variables.name }}</p>',
+                }),
+            },
+        ])('hands the email queue $name', async ({ step, send, expected }) => {
+            const invocation = flowInvocation(emailFlow(step()))
+            invocation.state.variables = { name: 'Ada' }
+            invocation.state.send = send()
+
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation.queueParameters).toEqual(expected())
+        })
+
+        // A job queued with an accepted send can reach a worker that predates it, and a job queued
+        // without one can reach a code-key step. Neither may deliver the empty stored step.
+        it.each([
+            {
+                name: 'fails a code-key step without an accepted send',
+                send: (): AcceptedSend | undefined => undefined,
+                sent: 0,
+            },
+            { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },
+        ])('$name', async ({ send, sent }) => {
+            const invocation = flowInvocation(emailFlow(codeKeyStep()))
+            invocation.state.send = send()
+
+            let result = await executor.execute(invocation)
+            const metrics = [...result.metrics]
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+                metrics.push(...result.metrics)
+            }
+
+            expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
+        })
+
+        it("delivers a code send's attachments", async () => {
+            const subject = `Your invite ${new UUIDT().toString()}`
+            const invocation = flowInvocation(emailFlow(codeKeyStep()))
+            invocation.state.send = {
+                ...codeSend(),
+                content: { subject, html: '<p>See you there</p>', text: 'See you there' },
+                attachments: [
+                    {
+                        filename: 'invite.ics',
+                        content: Buffer.from('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n').toString('base64'),
+                        contentType: 'text/calendar; method=REQUEST',
+                    },
+                ],
+            }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.error).toBeUndefined()
+            mockFetch.mockImplementation(jest.requireActual('~/common/utils/request').fetch)
+            const mailDev = new MailDevAPI()
+            await waitForExpect(async () =>
+                expect((await mailDev.getEmails()).filter((email) => email.subject === subject)).toHaveLength(1)
+            )
+            const [delivered] = (await mailDev.getEmails()).filter((email) => email.subject === subject)
+            expect(
+                delivered.attachments.map((a: { fileName: string; contentType: string }) => [a.fileName, a.contentType])
+            ).toEqual([['invite.ics', 'text/calendar']])
+        })
+
+        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
+            const invocation = flowInvocation(emailFlow(storedStep()))
 
             // A watcher-degraded flow enters at priority 2; the routing must stash that
             // exact value, not the 0 that per-action result clones reset queuePriority to
@@ -3369,5 +3435,38 @@ describe('Hogflow Executor', () => {
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
         })
+
+        // The email service reads a code send's capture choice from the function it runs, so the
+        // choice has to survive the hand-off from the workflow worker to the email queue.
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: ['$workflows_email_sent'] },
+            { captureEngagement: false, teamCaptures: true, captured: [] },
+        ])(
+            "captures the email's events by the code send's choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, $2, 'off', '', '', 0)`,
+                    [team.id, teamCaptures],
+                    'test-team-engagement-capture'
+                )
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.send = { tracking: { captureEngagement } }
+
+                let result = await executor.execute(invocation)
+                const events = [...result.capturedPostHogEvents]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    events.push(...result.capturedPostHogEvents)
+                }
+
+                expect(
+                    events.map((event) => event.event).filter((event) => event.startsWith('$workflows_email_'))
+                ).toEqual(captured)
+            }
+        )
     })
 })

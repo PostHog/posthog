@@ -1,0 +1,343 @@
+"""What every route of the transactional email API shares: the flag, the error envelope, throttles and the send."""
+
+import re
+from typing import Any
+
+import structlog
+import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
+from rest_framework import exceptions, serializers, status
+from rest_framework.exceptions import NotFound
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.settings import api_settings
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
+from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+
+from products.messaging.backend.facade.contracts import TEMPLATE_KEY_MAX_LENGTH, TEMPLATE_KEY_PATTERN
+from products.messaging.backend.facade.templates import MessageTemplateRow
+from products.messaging.backend.facade.transactional_email import (
+    AcceptedSend,
+    EmailSendCommand,
+    EmailSendOutcome,
+    Queued,
+    Rejected,
+    SendRoute,
+    StoredTemplate,
+    Unavailable,
+    send_email,
+)
+from products.messaging.backend.presentation.views.send_email_fields import PlainAddressField
+from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.workflows import get_workflow
+
+logger = structlog.get_logger(__name__)
+
+
+TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+
+IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
+    name="Idempotency-Key",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.HEADER,
+    required=False,
+    description="A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and "
+    "the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key "
+    "for a different request, or on the other send route, returns a 422.",
+)
+
+
+class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=400,
+        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
+        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
+        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
+    )
+
+
+class SendTransactionalEmailSerializer(serializers.Serializer):
+    to = PlainAddressField(help_text="Email address of the recipient.")
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
+    )
+    message_data = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        required=False,
+        default=dict,
+        help_text="Data for the template's Liquid placeholders, available as `variables`. "
+        'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
+    )
+
+
+class SendTransactionalEmailResponseSerializer(serializers.Serializer):
+    message_id = serializers.CharField(
+        help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
+    )
+    replayed = serializers.BooleanField(
+        help_text="True when an earlier request with the same `Idempotency-Key` already queued this email. "
+        "No new email was sent, and `message_id` is the earlier send's ID."
+    )
+
+
+class TemplateErrorSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error class, such as `invalid_request`.")
+    code = serializers.CharField(help_text="Stable error code to branch on, such as `invalid_template_key`.")
+    detail = serializers.CharField(help_text="What went wrong.")
+    attr = serializers.CharField(allow_null=True, help_text="The request field the error is about, if any.")
+    why = serializers.CharField(required=False, help_text="Why PostHog refuses the request.")
+    fix = serializers.CharField(required=False, help_text="What to change before you retry.")
+    docs_url = serializers.URLField(required=False, help_text="Documentation for this error code.")
+
+
+TRANSACTIONAL_EMAIL_DOCS_URL = "https://posthog.com/docs/workflows/transactional-email-api"
+
+
+@frozen
+class TemplateRefusal:
+    """A refusal of the template routes, with what to change before the caller retries."""
+
+    code: str
+    detail: str
+    attr: str | None
+    why: str
+    fix: str
+    type: str = "invalid_request"
+
+    @property
+    def docs_url(self) -> str:
+        return f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{self.code}"
+
+
+@frozen
+class FieldError:
+    attr: str | None
+    message: str
+
+
+def invalid_template_key(key: object, attr: str = "key") -> TemplateRefusal | None:
+    if isinstance(key, str) and len(key) <= TEMPLATE_KEY_MAX_LENGTH and re.fullmatch(TEMPLATE_KEY_PATTERN, key):
+        return None
+    return TemplateRefusal(
+        code="invalid_template_key",
+        detail=f"The key can have at most {TEMPLATE_KEY_MAX_LENGTH} letters, digits, hyphens (-) and underscores (_).",
+        attr=attr,
+        why="Code names the template by its key in every project, so the key must stay the same.",
+        fix="Use a key like `password-reset`.",
+    )
+
+
+def invalid_request(errors: Any, *, why: str, retry: str) -> TemplateRefusal:
+    error = first_field_error(errors)
+    if error.attr is None:
+        return TemplateRefusal(
+            code="invalid_request",
+            detail=error.message,
+            attr=None,
+            why=why,
+            fix=f"Send the body as a JSON object and {retry}.",
+        )
+    return TemplateRefusal(
+        code="invalid_request",
+        detail=f"{error.attr}: {error.message}",
+        attr=error.attr,
+        why=why,
+        fix=f"Fix `{error.attr}` and {retry}.",
+    )
+
+
+def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
+    if isinstance(errors, dict):
+        field, nested = next(iter(errors.items()))
+        # An error about a nested object as a whole names the object.
+        field_path = path if field == api_settings.NON_FIELD_ERRORS_KEY else (*path, str(field))
+        return first_field_error(nested, field_path)
+    if isinstance(errors, list) and errors and not isinstance(errors[0], str):
+        return first_field_error(errors[0], path)
+    return FieldError(attr="__".join(path) or None, message=str(errors[0] if isinstance(errors, list) else errors))
+
+
+class TransactionalEmailRejected(exceptions.APIException):
+    STATUS_BY_CODE = {"quota_limited": 429, "idempotency_key_in_flight": 409, "idempotency_key_reused": 422}
+    ATTR_BY_CODE = {"sender_not_verified": "from"}
+    # The caller has to change the request. Without this the error handler reports a server error.
+    default_type = "invalid_request"
+
+    def __init__(self, rejected: Rejected) -> None:
+        self.rejected = rejected
+        self.status_code = self.STATUS_BY_CODE.get(rejected.code, status.HTTP_400_BAD_REQUEST)
+        super().__init__(detail=rejected.detail, code=rejected.code)
+
+    def body(self) -> dict[str, Any]:
+        rejected = self.rejected
+        body: dict[str, Any] = {
+            "type": self.default_type,
+            "code": rejected.code,
+            "detail": rejected.detail,
+            "attr": rejected.recipient_field or self.ATTR_BY_CODE.get(rejected.code),
+            "docs_url": f"{TRANSACTIONAL_EMAIL_DOCS_URL}#{rejected.code}",
+        }
+        if rejected.why is not None and rejected.fix is not None:
+            body.update(why=rejected.why, fix=rejected.fix)
+        return TemplateErrorSerializer(body).data
+
+
+class TransactionalEmailUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The email pipeline is unavailable. Try again shortly."
+    default_code = "delivery_unavailable"
+
+
+class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_burst"
+    rate = "600/minute"
+
+
+class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_sustained"
+    rate = "20000/hour"
+
+
+class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate across all of a project's secret API keys."""
+
+    scope = "transactional_email_psak_team_burst"
+    rate = "600/minute"
+
+
+class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "transactional_email_psak_team_sustained"
+    rate = "20000/hour"
+
+
+TRANSACTIONAL_EMAIL_THROTTLES = [
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailSustainedThrottle,
+    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailTeamSustainedThrottle,
+]
+
+
+def _usage(outcome: EmailSendOutcome) -> dict[str, str]:
+    match outcome:
+        case Queued(replayed=replayed):
+            return {"outcome": "replayed" if replayed else "queued"}
+        case Rejected(code=code):
+            return {"outcome": "rejected", "error_code": code}
+        case Unavailable():
+            return {"outcome": "unavailable"}
+
+
+class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
+    """What every route of the transactional email API shares: the flag, workflow access and the send."""
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # The error handler renders only type, code, detail and attr. A refused send also says why and what to fix.
+        if isinstance(exc, TransactionalEmailRejected):
+            return Response(exc.body(), status=exc.status_code)
+        return super().handle_exception(exc)
+
+    def _require_transactional_email_flag(self) -> None:
+        if not posthoganalytics.feature_enabled(
+            TRANSACTIONAL_EMAIL_API_FLAG,
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
+        # A project secret API key has no user to check, and its scope already limits it to sending and uploads.
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        try:
+            get_workflow(
+                team_id=self.team_id,
+                workflow_id=str(hog_flow_id),
+                user_access_control=self.user_access_control,
+                required_level="editor",
+            )
+        except WorkflowAccessDenied:
+            raise exceptions.PermissionDenied(
+                "You need editor access to this template's transactional email workflow."
+            ) from None
+        except WorkflowNotFound:
+            return
+
+    def _require_workflow_create(self) -> None:
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        # Access to one workflow lets a member through the viewset's checks, but this request creates a new one.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to create a new one.")
+
+    @staticmethod
+    def _auth_method(request: Request) -> str:
+        return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "user"
+
+    def _send_transactional_email(
+        self,
+        request: Any,
+        template: MessageTemplateRow,
+        data: dict[str, Any],
+        *,
+        usage: dict[str, str],
+        send: AcceptedSend | None = None,
+        idempotency_key: str | None = None,
+        route: SendRoute = SendRoute.TEMPLATE_SEND,
+    ) -> Queued:
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
+        command = EmailSendCommand(
+            team_id=self.team_id,
+            to=data["to"],
+            distinct_id=self._distinct_id(data),
+            source=StoredTemplate(template_id=template.id, message_data=data["message_data"], send=send),
+            idempotency_key=idempotency_key,
+            route=route,
+        )
+        return self._send(request, command, report={"template_id": str(template.id), **usage})
+
+    @staticmethod
+    def _distinct_id(data: dict[str, Any]) -> str | None:
+        return (data.get("identifiers") or {}).get("distinct_id") or None
+
+    def _send(self, request: Any, command: EmailSendCommand, *, report: dict[str, str]) -> Queued:
+        properties = {**report, "has_idempotency_key": command.idempotency_key is not None}
+        try:
+            outcome = send_email(command)
+        except Exception:
+            self._report_transactional_email_send(request, {**properties, "outcome": "error"})
+            raise
+        self._report_transactional_email_send(request, {**properties, **_usage(outcome)})
+        match outcome:
+            case Queued():
+                return outcome
+            case Rejected():
+                raise TransactionalEmailRejected(outcome)
+            case Unavailable():
+                raise TransactionalEmailUnavailable()
+
+    def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
+        self._report_api_usage(request, "transactional email api send", properties)
+
+    def _report_api_usage(self, request: Any, event: str, properties: dict[str, Any]) -> None:
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
+        try:
+            posthoganalytics.capture(
+                distinct_id=request.user.distinct_id,
+                event=event,
+                properties={"team_id": self.team_id, "auth_method": self._auth_method(request), **properties},
+                groups=groups(self.organization, self.team),
+            )
+        except Exception as e:
+            logger.warning("Failed to capture transactional email API usage event", event_name=event, error=str(e))

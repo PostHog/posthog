@@ -106,7 +106,8 @@ class TestRefreshHogFlows(BaseTest):
         """Test refreshing all HogFlows across all teams."""
 
         out = StringIO()
-        call_command("refresh_hog_flows", stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_flows", stdout=out)
 
         # Should have refreshed all 4 flows (including archived)
         assert mock_reload.call_count == 4
@@ -122,7 +123,8 @@ class TestRefreshHogFlows(BaseTest):
         """Test refreshing HogFlows for a specific team."""
 
         out = StringIO()
-        call_command("refresh_hog_flows", team_id=self.team.id, stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_flows", team_id=self.team.id, stdout=out)
 
         # Should have refreshed flows from team1 (hog_flow1, hog_flow2, archived_flow)
         assert mock_reload.call_count == 3
@@ -137,7 +139,8 @@ class TestRefreshHogFlows(BaseTest):
         """Test refreshing a specific HogFlow by ID."""
 
         out = StringIO()
-        call_command("refresh_hog_flows", hog_flow_id=str(self.hog_flow1.id), stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_flows", hog_flow_id=str(self.hog_flow1.id), stdout=out)
 
         # Should have refreshed only the specific flow
         assert mock_reload.call_count == 1
@@ -181,7 +184,8 @@ class TestRefreshHogFlows(BaseTest):
 
         out = StringIO()
         # Set page size to 2, should process all flows but in multiple pages
-        call_command("refresh_hog_flows", page_size=2, stdout=out)
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("refresh_hog_flows", page_size=2, stdout=out)
 
         # Should still refresh all 4 flows
         assert mock_reload.call_count == 4
@@ -225,16 +229,18 @@ class TestRefreshHogFlows(BaseTest):
             self.assertIn("Check logs for details on 1 errors encountered", output)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_keeps_an_edit_made_to_a_workflow_while_the_run_is_in_progress(self, mock_reload):
+    def test_keeps_an_edit_made_to_a_workflow_while_the_run_is_in_progress(self, _mock_reload):
         first_saved: list[str] = []
+        save = HogFlow.save
 
-        def turn_off_the_rest_once(team_id: int, hog_flow_ids: list[str]) -> None:
+        def turn_off_the_rest_once(flow: HogFlow, *args: Any, **kwargs: Any) -> None:
+            save(flow, *args, **kwargs)
             if not first_saved:
-                first_saved.extend(hog_flow_ids)
-                HogFlow.objects.exclude(id__in=hog_flow_ids).update(status=HogFlow.State.DRAFT)
+                first_saved.append(str(flow.id))
+                HogFlow.objects.exclude(id=flow.id).update(status=HogFlow.State.DRAFT)
 
-        mock_reload.side_effect = turn_off_the_rest_once
-        call_command("refresh_hog_flows", stdout=StringIO())
+        with patch.object(HogFlow, "save", turn_off_the_rest_once):
+            call_command("refresh_hog_flows", stdout=StringIO())
 
         statuses = set(HogFlow.objects.exclude(id__in=first_saved).values_list("status", flat=True))
         assert statuses == {HogFlow.State.DRAFT}

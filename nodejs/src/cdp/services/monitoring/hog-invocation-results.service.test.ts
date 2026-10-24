@@ -8,6 +8,7 @@ import { createExampleInvocation } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CdpOutput } from '../../cdp-services'
 import {
+    ATTACHMENTS_OMITTED,
     HogInvocationResultRow,
     HogInvocationResultsService,
     decodeInvocationGlobals,
@@ -144,18 +145,25 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
+        const send = {
+            content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
+            tracking: { captureEngagement: false },
+        }
+        const messageData = { variables: { code: '482913' }, send }
+        const noMessageData = { variables: undefined, send: undefined }
+
         it.each([
-            ['an ordinary email', false, {}, { code: '482913' }],
-            ['a sensitive email', true, {}, undefined],
-            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            ['an ordinary email', false, {}, messageData],
+            ['a sensitive email', true, {}, noMessageData],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, noMessageData],
             [
                 'a recovery stub of an unstamped transactional run',
                 undefined,
                 { event: { event: '$transactional_email' } },
-                undefined,
+                noMessageData,
             ],
-            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
-        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, variables) => {
+            ['a recovery stub of an ordinary run', undefined, {}, messageData],
+        ])('keeps the message data in a workflow snapshot only for %s', async (_name, sensitive, state, expected) => {
             const hogFlow =
                 sensitive === undefined
                     ? ({ id: 'flow-1' } as any)
@@ -170,7 +178,7 @@ describe('HogInvocationResultsService', () => {
                               edges: [],
                           })
                           .build()
-            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
+            const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
             Object.assign(invocation.state, state, { event: { ...invocation.state.event, ...(state as any).event } })
             await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
 
@@ -178,7 +186,27 @@ describe('HogInvocationResultsService', () => {
                 string,
                 any
             >
-            expect(globals.variables).toEqual(variables)
+            expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+        })
+
+        it("keeps a code send's attachments in a workflow snapshot as a file list without their content", async () => {
+            const content = Buffer.from('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n').toString('base64')
+            const invocation = createExampleHogFlowInvocation({ id: 'flow-1' } as any)
+            invocation.state.send = {
+                tracking: { captureEngagement: true },
+                attachments: [{ filename: 'invite.ics', content, contentType: 'text/calendar' }],
+            }
+            await expect(service.recordTerminalFailureDurably(invocation)).resolves.toBe(true)
+
+            const globals = (await decodeInvocationGlobals(parseProducedRows(outputs)[0].invocation_globals)) as Record<
+                string,
+                any
+            >
+            expect(globals.send.attachments).toEqual([
+                { filename: 'invite.ics', contentType: 'text/calendar', size: 32 },
+            ])
+            expect(globals[ATTACHMENTS_OMITTED]).toBe(true)
+            expect(JSON.stringify(globals)).not.toContain(content)
         })
 
         it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {

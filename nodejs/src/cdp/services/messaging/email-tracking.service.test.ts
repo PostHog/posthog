@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import supertest from 'supertest'
@@ -17,6 +17,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-to
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -44,6 +45,7 @@ describe('EmailTrackingService', () => {
         team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
+        mockInternalFetch.mockClear()
         mockProducerObserver.resetKafkaProducer()
     })
 
@@ -444,17 +446,30 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                distinctId,
+                captureEngagement,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                distinctId?: string
+                captureEngagement?: boolean
             }): Promise<supertest.Response> => {
-                // Third arg opts into the versioned payload, which `generate` won't emit by default
-                // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
+                // The last two args opt into the versioned and capture-choice payloads, which `generate`
+                // won't emit by default until their rollouts finish (see EMIT_* in tracking-code.ts).
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    {
+                        functionId,
+                        id: invocationId,
+                        teamId: team.id,
+                        parentRunId,
+                        workflowVersion,
+                        distinctId,
+                        captureEngagement,
+                    },
                     false,
-                    workflowVersion !== undefined
+                    workflowVersion !== undefined,
+                    captureEngagement !== undefined
                 )
                 const sesRecord = {
                     eventType: 'Bounce',
@@ -561,6 +576,39 @@ describe('EmailTrackingService', () => {
                     ).toEqual(['email_bounced', 'email_bounced_hard'])
                 })
             })
+
+            it.each([
+                { captureEngagement: true, teamCaptures: false, captured: 1 },
+                { captureEngagement: false, teamCaptures: true, captured: 0 },
+                { captureEngagement: undefined, teamCaptures: true, captured: 1 },
+            ])(
+                "follows the code's capture choice $captureEngagement over the team switch $teamCaptures",
+                async ({ captureEngagement, teamCaptures, captured }) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                         VALUES ($1, $2, 'off', '', '', 0)`,
+                        [team.id, teamCaptures],
+                        'test-set-engagement-capture'
+                    )
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+
+                    const res = await postBounce({ functionId: hogFlow.id, distinctId: 'user-1', captureEngagement })
+                    expect(res.status).toBe(200)
+
+                    const capturedEvents = mockInternalFetch.mock.calls.map(
+                        ([, options]) => parseJSON(String(options?.body)).event
+                    )
+                    expect(capturedEvents.filter((event) => event === '$workflows_email_bounced')).toHaveLength(
+                        captured
+                    )
+                }
+            )
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {
                 const hogFlow = await insertHogFlow(
