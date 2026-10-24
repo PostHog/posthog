@@ -1,7 +1,7 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import ClassVar, Union, cast
 
@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -823,6 +824,33 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "clickhouse": "Int64",
                         "schema_valid": True,
                     },
+                    "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "snapchat_campaigns": DataConfig(
+                csv_filename="test/snapchat_ads/campaigns.csv",
+                table_name="snapchatads_campaigns",
+                platform="Snapchat Ads",
+                source_type="SnapchatAds",
+                bucket_suffix="snapchat_campaigns",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "snapchat_campaign_stats_daily": DataConfig(
+                csv_filename="test/snapchat_ads/campaign_stats_daily.csv",
+                table_name="snapchatads_campaign_stats_daily",
+                platform="Snapchat Ads",
+                source_type="SnapchatAds",
+                bucket_suffix="snapchat_campaign_stats_daily",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "start_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "end_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "swipes": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
@@ -2233,6 +2261,43 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[3] for row in results]
         assert all(source == "pinterest" for source in sources), "All sources should be 'pinterest'"
+
+    def test_snapchat_ads_offset_start_time_reaches_live_and_precomputed_costs(self):
+        campaign_info = self._setup_csv_table("snapchat_campaigns")
+        stats_info = self._setup_csv_table("snapchat_campaign_stats_daily")
+        config = SnapchatAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="SnapchatAds",
+            source_id="snapchat_ads",
+        )
+        adapter = SnapchatAdsAdapter(config=config, context=self.context)
+
+        query = adapter.build_query()
+        assert query is not None
+        live_rows = self._execute_query_and_validate(query)
+        assert sorted((row[2], float(row[4]), float(row[5]), float(row[6])) for row in live_rows) == [
+            ("snap-c-1", 2500.0, 50.0, 30.0),
+            ("snap-c-2", 2000.0, 40.0, 20.0),
+        ]
+
+        mat = adapter.build_materialization_query("snapchat_ads")
+        assert mat is not None
+        mat_query = replace_placeholders(
+            mat,
+            {"time_window_min": ast.Constant(value="2024-01-01"), "time_window_max": ast.Constant(value="2025-01-01")},
+        )
+        result = execute_hogql_query(mat_query.to_hogql(), self.team)
+        columns = list(result.columns or [])
+        mat_rows = sorted(
+            (row[columns.index("campaign_id")], row[columns.index("cost_date")], float(row[columns.index("cost")]))
+            for row in result.results or []
+        )
+        assert mat_rows == [
+            ("snap-c-1", date(2024, 1, 1), 12.5),
+            ("snap-c-1", date(2024, 1, 2), 17.5),
+            ("snap-c-2", date(2024, 3, 10), 20.0),
+        ]
 
     def test_multi_adapter_union_with_real_data(self):
         bigquery_info = self._setup_csv_table("bigquery")
