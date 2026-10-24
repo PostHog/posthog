@@ -2848,6 +2848,8 @@ export interface DataWarehouseSourceUsage {
     source_type?: string
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean
 }
 
 export interface AnalyticsQueryResponseBase {
