@@ -3,12 +3,11 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { ChartDisplayType } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
 
 export function ShowPieTotalFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

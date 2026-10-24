@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function ShowLegendFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
