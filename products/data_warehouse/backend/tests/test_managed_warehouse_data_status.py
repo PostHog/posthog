@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 import time_machine
@@ -151,26 +151,39 @@ class TestDatasetStatus(SimpleTestCase):
         assert status["readiness_state"] == "up_to_date"
         assert status["completed_partitions"] == 4
 
-    def test_persons_history_is_a_single_full_export(self) -> None:
-        partitions = [self._partition(partition_key="1", granularity=Granularity.FULL, dataset="persons")]
+    @parameterized.expand([("persons",), ("groups",)])
+    def test_history_is_a_single_full_export(self, dataset: Literal["persons", "groups"]) -> None:
+        partitions = [
+            self._partition(partition_key="1", granularity=Granularity.FULL, dataset=dataset),
+            self._partition(partition_key="1_2026-07-12", granularity=Granularity.DAY, dataset=dataset),
+        ]
 
-        status = dataset_status(dataset="persons", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(dataset=dataset, backfill=self._backfill(), partitions=partitions)
 
         assert status["total_partitions"] == 1
+        assert status["completed_partitions"] == 1
         assert status["readiness_state"] == "up_to_date"
+        if dataset == "groups":
+            assert status["detail"] == "Historical group data is loaded."
 
-    def test_failed_partition_needs_attention_and_names_itself(self) -> None:
+    @parameterized.expand([("events", Granularity.MONTH), ("persons", Granularity.FULL), ("groups", Granularity.FULL)])
+    def test_failed_partition_needs_attention_and_names_itself(
+        self, dataset: Literal["events", "persons", "groups"], historical_granularity: str
+    ) -> None:
         partitions = [
-            self._partition(partition_key="1_2026-03", granularity=Granularity.MONTH),
+            self._partition(partition_key="1", granularity=historical_granularity, dataset=dataset),
             self._partition(
-                partition_key="1_2026-04", granularity=Granularity.MONTH, lifecycle_state=LifecycleState.FAILED
+                partition_key="1_2026-04-01",
+                granularity=Granularity.DAY,
+                lifecycle_state=LifecycleState.FAILED,
+                dataset=dataset,
             ),
         ]
 
-        status = dataset_status(dataset="events", backfill=self._backfill(), partitions=partitions)
+        status = dataset_status(dataset=dataset, backfill=self._backfill(), partitions=partitions)
 
         assert status["readiness_state"] == "needs_attention"
-        assert status["current_partition"] == "1_2026-04"
+        assert status["current_partition"] == "1_2026-04-01"
 
     def test_unknown_history_range_is_still_waiting(self) -> None:
         # The scheduler caches earliest_event_date on first sight; until then there is no denominator.

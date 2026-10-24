@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -13,8 +14,10 @@ from rest_framework.response import Response
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.views.data_warehouse import _pipeline_stats_cache_key
+from products.managed_warehouse.backend import cp_teams
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -38,6 +41,68 @@ class TestDataWarehouseAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{path}")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([("running", "backfilling"), ("failed", "needs_attention"), ("completed", "up_to_date")])
+    @time_machine.travel("2026-07-13", tick=False)
+    def test_groups_progress_contributes_to_overall_readiness(self, lifecycle_state: str, expected_state: str) -> None:
+        cp_teams.clear_cache()
+        self.addCleanup(cp_teams.clear_cache)
+        membership = {
+            "team_id": self.team.id,
+            "org_id": str(self.organization.id),
+            "schema_name": "example",
+            "enabled": True,
+            "backfill_enabled": True,
+            "events_table_name": None,
+            "persons_table_name": None,
+            "schema_data_imports_name": None,
+            "earliest_event_date": "2026-06-01",
+        }
+        for dataset, key, granularity, state in [
+            ("events", f"{self.team.id}_2026-06", "month", "completed"),
+            ("persons", str(self.team.id), "full", "completed"),
+            ("groups", str(self.team.id), "full", lifecycle_state),
+        ]:
+            ManagedWarehouseBackfillPartition.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                environment_id=self.team.id,
+                dataset=dataset,
+                partition_key=key,
+                granularity=granularity,
+                lifecycle_state=state,
+                run_id="example-run",
+                started_at=timezone.now(),
+            )
+        ManagedWarehouseBackfillPartition.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            environment_id=self.team.id + 1,
+            dataset="groups",
+            partition_key="another-environment",
+            granularity="full",
+            lifecycle_state="failed",
+            run_id="other-run",
+            started_at=timezone.now(),
+        )
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.managed_warehouse.backend.cp_teams._fetch_org_rows",
+                return_value=[membership],
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-data-status/")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["groups"]["readiness_state"] == expected_state
+        assert body["groups"]["total_partitions"] == 1
+        assert body["groups"]["completed_partitions"] == (1 if lifecycle_state == "completed" else 0)
+        assert body["overall_readiness_state"] == expected_state
+        assert body["events"]["readiness_state"] == "up_to_date"
+        assert body["persons"]["readiness_state"] == "up_to_date"
 
     @parameterized.expand(
         [
