@@ -13,7 +13,9 @@ See [`harness/README.md`](harness/README.md) for how that works internally.
 The harness also hosts non-sandboxed suite kinds — see [Suite kinds](#suite-kinds).
 A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, AI gateway, or MCP server.
 
-Two other docs sit next to this one:
+Start with the [/writing-evals skill](../../../.agents/skills/writing-evals/SKILL.md) for the first run, case authoring, and result interpretation.
+
+These references provide more detail:
 
 - [`../evals/AGENTS.md`](../evals/AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
 - [`harness/AGENTS.md`](harness/AGENTS.md) lists the invariants to preserve when changing the harness itself.
@@ -271,7 +273,7 @@ An unchanged image passes the check in under a second, and even a rebuild is mos
 Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.
 A new Funnel takes up to a few minutes before all of its public relays serve it, so Modal setup waits for them before the first case starts.
 Eval sandboxes run in the dedicated `posthog-sandbox-evals` Modal app, separate from production and local development sandboxes.
-The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
+The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
 The first modal run pays a one-time remote image build; later runs reuse the cached image until the skills or build context change.
 
 Modal prerequisites, all checked by preflight before anything boots:
@@ -334,7 +336,7 @@ The harness boots the union of what the selected suites require, and a suite tha
 
 ## Adding an eval suite
 
-The `/writing-evals` skill ([.agents/skills/writing-evals](../../../../.agents/skills/writing-evals/SKILL.md)) covers the full authoring workflow — cases, seeders, synthesizers, scorer patterns, and verification.
+The [/writing-evals skill](../../../.agents/skills/writing-evals/SKILL.md) covers cases, data setup, scorers, and checks.
 The short version:
 
 There is no registry. Suites are discovered by convention from two root sets:
