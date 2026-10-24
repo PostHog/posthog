@@ -177,7 +177,7 @@ class TestSelectRepartitionTarget:
                 {"partition_mode": "md5", "partition_count": 4, "partitioning_keys": ["id"]},
                 {"0": 5000, "1": 5000},
                 1000,
-                {"partition_mode": "md5", "partition_count": 10},
+                {"partition_mode": "md5", "partition_count": 17},
             ),
             (
                 "md5_within_budget_noop",
@@ -302,7 +302,7 @@ class TestSelectRepartitionTarget:
                 {
                     "partition_mode": "md5",
                     "partition_keys": ["subscription_id", "valid_from"],
-                    "partition_count": 5,
+                    "partition_count": 9,
                 },
             ),
             # A date-typed key caps at `day`, so it reaches the same fallback one tier earlier.
@@ -317,7 +317,7 @@ class TestSelectRepartitionTarget:
                 },
                 {"2024-01-01": 5000},
                 1000,
-                {"partition_mode": "md5", "partition_keys": ["id"], "partition_count": 5},
+                {"partition_mode": "md5", "partition_keys": ["id"], "partition_count": 9},
             ),
             (
                 "unpartitioned_with_keys_enables_partitioning",
@@ -325,7 +325,7 @@ class TestSelectRepartitionTarget:
                 {None: 5000},
                 1000,
                 # The sized count is what makes md5 reachable when auto-detection finds nothing else.
-                {"partition_mode": None, "partition_keys": ["id"], "partition_count": 5},
+                {"partition_mode": None, "partition_keys": ["id"], "partition_count": 9},
             ),
             (
                 "unpartitioned_without_keys_noop",
@@ -375,12 +375,28 @@ class TestSelectRepartitionTarget:
         # Largest partition is over budget but total/target rounds below the current count: the count
         # must still grow, or the repartition would be a no-op that never relieves the pressure.
         target, _reason = select_repartition_target(
-            _schema(partition_mode="md5", partition_count=8),
+            _schema(partition_mode="md5", partition_count=10),
             {"0": 5000, "1": 100},
             1000,
         )
         assert target is not None
-        assert target.partition_count == 9
+        assert target.partition_count == 11
+
+    def test_md5_repartition_leaves_room_for_growth(self):
+        budget = 500_000_000
+        schema = _schema(partition_mode="md5", partition_count=64, partitioning_keys=["id"])
+        over_budget: dict[str | None, int] = {str(i): budget + 1 for i in range(64)}
+        target, _reason = select_repartition_target(schema, over_budget, budget)
+        assert target is not None and target.partition_count is not None
+        count = target.partition_count
+
+        # Buckets land up to 5% uneven, then the table grows 1% a day for two weeks.
+        mean_bucket = 64 * (budget + 1) / count
+        grown: dict[str | None, int] = {
+            str(i): int(mean_bucket * (1.05 if i == 0 else 0.98) * 1.01**14) for i in range(count)
+        }
+        schema.partition_count = count
+        assert select_repartition_target(schema, grown, budget) == (None, "within_budget")
 
 
 class TestSelectCoarsenTarget:
