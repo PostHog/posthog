@@ -9,7 +9,12 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ReviewerEdit, SuggestedReviewerEntry, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    PROwnerAssignment,
+    ReviewerEdit,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
 from products.signals.backend.report_assignments import claim_report
 from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
@@ -43,12 +48,30 @@ class TestReportPRAssignment:
 
     def github(self) -> MagicMock:
         github = _open_pr_github()
+        assignee_state: list[str] = []
+        github.assignee_state = assignee_state
+        github.get_pull_request.side_effect = lambda *_args: {
+            "success": True,
+            "state": "open",
+            "draft": False,
+            "merged": False,
+            "assignees": list(assignee_state),
+            "requested_reviewers": [],
+        }
         github.was_ever_unassigned.return_value = _NOT_UNASSIGNED
         github.is_assignable.return_value = {"success": True, "assignable": True}
-        github.add_pull_request_assignees.side_effect = lambda _repo, _number, logins: {
-            "success": True,
-            "assignees": logins,
-        }
+        github.get_collaborator_permission.return_value = "write"
+
+        def add_assignees(_repo, _number, logins):
+            assignee_state[:] = list(dict.fromkeys([*assignee_state, *logins]))
+            return {"success": True, "assignees": list(assignee_state)}
+
+        def remove_assignees(_repo, _number, logins):
+            assignee_state[:] = [login for login in assignee_state if login not in logins]
+            return {"success": True, "assignees": list(assignee_state)}
+
+        github.add_pull_request_assignees.side_effect = add_assignees
+        github.remove_pull_request_assignees.side_effect = remove_assignees
         return github
 
     def assign(self, report: SignalReport, github: MagicMock) -> list[str]:
@@ -130,14 +153,14 @@ class TestReportPRAssignment:
         report = _make_report(team, [] if protection == "empty" else ["selected"])
         github = self.github()
         if protection == "assigned":
-            github.get_pull_request.return_value["assignees"] = ["manual-owner"]
+            github.assignee_state[:] = ["manual-owner"]
         elif protection == "unassigned":
             github.was_ever_unassigned.return_value = {"success": True, "unassigned": True}
         elif protection == "history-unavailable":
             github.was_ever_unassigned.return_value = {"success": False}
         elif protection == "needs-review":
             report.artefacts.filter(type="suggested_reviewers").update(actor_kind="user", created_by=reviewer)
-            github.get_pull_request.return_value["assignees"] = ["selected"]
+            github.assignee_state[:] = ["selected"]
 
         assert self.assign(report, github) == []
         github.add_pull_request_assignees.assert_not_called()
@@ -197,7 +220,7 @@ class TestReportPRAssignment:
             elif change == "preference":
                 SignalUserAutonomyConfig.objects.filter(user=selected).update(github_assign_on_pull_request=False)
             elif change == "github":
-                github.get_pull_request.return_value["assignees"] = ["manual-owner"]
+                github.assignee_state[:] = ["manual-owner"]
             return {"success": True, "assignable": True}
 
         github.is_assignable.side_effect = check
@@ -221,10 +244,14 @@ class TestReportPRAssignment:
         selected = _make_reviewer(org, "selected", opted_in=True)
         report = _make_report(team, ["selected"])
         github = self.github()
-        github.add_pull_request_assignees.side_effect = [
-            {"success": False, "status_code": 503},
-            {"success": True, "assignees": ["selected"]},
-        ]
+        add_assignees = github.add_pull_request_assignees.side_effect
+
+        def fail_once(repository: str, number: int, logins: list[str]) -> dict[str, object]:
+            if github.add_pull_request_assignees.call_count == 1:
+                return {"success": False, "status_code": 503}
+            return add_assignees(repository, number, logins)
+
+        github.add_pull_request_assignees.side_effect = fail_once
 
         assert self.assign(report, github) == []
 
@@ -232,3 +259,69 @@ class TestReportPRAssignment:
 
         assert self.assign(report, github) == (["selected"] if opted_in else [])
         assert github.add_pull_request_assignees.call_count == (2 if opted_in else 1)
+
+    @pytest.mark.parametrize("next_reviewers", [["second", "opted-out", "replacement"], ["opted-out"], []])
+    def test_report_assignment_replaces_only_the_recorded_automatic_owner(
+        self, org_and_team: tuple[Organization, Team], next_reviewers: list[str]
+    ) -> None:
+        org, team = org_and_team
+        for login in ["first", "second", "replacement"]:
+            _make_reviewer(org, login, opted_in=True)
+        _make_reviewer(org, "opted-out", opted_in=False)
+        report = _make_report(team, ["first", "second"])
+        github = self.github()
+
+        assert self.assign(report, github) == ["first"]
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type="suggested_reviewers",
+            content=json.dumps([{"github_login": login} for login in next_reviewers]),
+        )
+        expected = ["second"] if "second" in next_reviewers else []
+        assert self.assign(report, github) == expected
+        assert github.assignee_state == expected
+
+        assignment = PROwnerAssignment.model_validate_json(
+            report.artefacts.filter(type="pr_owner_assignment").latest("created_at").content
+        )
+        assert [owner.login for owner in assignment.owners] == expected
+        assert assignment.replaced_logins == ("first",)
+        assert all(owner.proof is not None for owner in assignment.owners)
+        github.remove_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["first"])
+
+    @pytest.mark.parametrize("manual_state", [[], ["first", "manual-owner"]])
+    def test_manual_assignment_changes_block_report_reassessment(self, org_and_team, manual_state):
+        org, team = org_and_team
+        for login in ["first", "replacement"]:
+            _make_reviewer(org, login, opted_in=True)
+        report = _make_report(team, ["first"])
+        github = self.github()
+
+        assert self.assign(report, github) == ["first"]
+        github.assignee_state[:] = manual_state
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type="suggested_reviewers",
+            content=json.dumps([{"github_login": "replacement"}]),
+        )
+
+        assert self.assign(report, github) == []
+        assert report.artefacts.filter(type="pr_owner_assignment").count() == 1
+        github.remove_pull_request_assignees.assert_not_called()
+
+    def test_linked_report_owner_must_match_the_stable_github_identity(self, org_and_team):
+        org, team = org_and_team
+        selected = _make_reviewer(org, "selected", opted_in=True)
+        report = _make_report(team, ["selected"])
+        github = self.github()
+        github.get_collaborator_permission.return_value = "none"
+
+        assert self.assign(report, github) == []
+        github.get_collaborator_permission.assert_called_once_with(
+            "PostHog/posthog",
+            "selected",
+            expected_user_id=int(selected.social_auth.get(provider="github").uid),
+        )
+        github.add_pull_request_assignees.assert_not_called()
