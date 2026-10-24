@@ -41,11 +41,12 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType }
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
+import { DashboardTileGroupTabs } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupTabs'
 import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
-import type { DashboardSection } from 'products/dashboards/frontend/dashboardTileSections'
+import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from 'products/dashboards/frontend/useTileGroupDrag'
 
@@ -123,6 +124,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tileGroupSectionLayouts,
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
+        activeTileGroupTab,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -139,6 +141,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         setDashboardEditing,
         toggleTileGroup,
+        selectTileGroupTab,
         updateTileGroupSectionLayout,
         moveTileToSection,
     } = useActions(dashboardLogic)
@@ -208,6 +211,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const showBands = tileGroupSections.length > 0
+    const activeTabIndex = tileGroupSections.findIndex((section) => getSectionGroupKey(section) === activeTileGroupTab)
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
             layoutEditMode,
@@ -310,9 +314,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             enabled: canEditDashboard && layoutEditMode && !isMobileView,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
-            bounded: !showBands,
+            bounded: !showBands || activeTabIndex >= 0,
         }),
-        [canEditDashboard, layoutEditMode, isMobileView, showBands]
+        [canEditDashboard, layoutEditMode, isMobileView, showBands, activeTabIndex]
     )
     const {
         draggingTileId,
@@ -323,7 +327,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         trackTileDrag,
         finishTileDrag,
     } = useTileGroupDrag({
-        enabled: dragConfig.enabled && showBands,
+        // A tab shows one group, so there is no other band to drop a tile into.
+        enabled: dragConfig.enabled && showBands && activeTabIndex < 0,
         sections: tileGroupSections,
         rowHeight,
         margin,
@@ -763,14 +768,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         onDragStop: handleDragStop,
     }
 
-    const renderSection = (section: DashboardSection, index: number): JSX.Element => {
+    const renderSectionGrid = (section: DashboardSection, index: number): JSX.Element => {
         const sectionLayouts = tileGroupSectionLayouts[index]
-        const isLastSection = index === tileGroupSections.length - 1 && !showTakeOutDropZone
+        const isLastSection = activeTabIndex >= 0 || (index === tileGroupSections.length - 1 && !showTakeOutDropZone)
         const isDraggingOutOfSection =
             !!dropTargetKey && section.tiles.some((tile) => tile.id.toString() === draggingTileId)
         // One empty row below the tiles gives a dragged tile somewhere to land.
         const sectionRows = Math.max(0, ...(sectionLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
-        const grid = (
+        return (
             <div
                 className="relative"
                 data-dashboard-section-grid={section.key}
@@ -804,20 +809,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </ReactGridLayout>
             </div>
         )
-
-        return (
-            <DashboardTileSectionBand
-                key={section.key}
-                section={section}
-                isFirst={index === 0}
-                isDropTarget={dropTargetKey === section.key}
-                collapsedTileGroupKeys={collapsedTileGroupKeys}
-                onToggleTileGroup={toggleTileGroup}
-            >
-                {grid}
-            </DashboardTileSectionBand>
-        )
     }
+
+    const renderSection = (section: DashboardSection, index: number): JSX.Element => (
+        <DashboardTileSectionBand
+            key={section.key}
+            section={section}
+            isFirst={index === 0}
+            isDropTarget={dropTargetKey === section.key}
+            collapsedTileGroupKeys={collapsedTileGroupKeys}
+            onToggleTileGroup={toggleTileGroup}
+        >
+            {renderSectionGrid(section, index)}
+        </DashboardTileSectionBand>
+    )
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -827,7 +832,18 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     resize tiles.
                 </LemonBanner>
             )}
-            {gridWidth > 0 && showBands && (
+            {gridWidth > 0 && activeTabIndex >= 0 && (
+                <div className={clsx(showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
+                    <DashboardTileGroupTabs
+                        sections={tileGroupSections}
+                        activeSectionKey={tileGroupSections[activeTabIndex].key}
+                        onSelect={selectTileGroupTab}
+                    >
+                        {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
+                    </DashboardTileGroupTabs>
+                </div>
+            )}
+            {gridWidth > 0 && showBands && activeTabIndex < 0 && (
                 <div className={clsx('flex flex-col gap-4', showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
                     {tileGroupSections.map(renderSection)}
                     {showTakeOutDropZone && (

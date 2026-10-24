@@ -962,6 +962,43 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
+            it.each([
+                {
+                    name: 'the viewer opens it',
+                    open: () => logic.actions.selectTileGroupTab('group-target'),
+                    beforeMount: () => {},
+                    ungroupedLoads: 1,
+                },
+                {
+                    name: 'a link names it',
+                    open: () => {},
+                    beforeMount: () => router.actions.push('/dashboard/5', { tab: 'group-target' }),
+                    ungroupedLoads: 0,
+                },
+            ])('shows tabs one at a time and loads a tab when $name', async ({ open, beforeMount, ungroupedLoads }) => {
+                groupTiles({ target: { collapsed: false } })
+                dashboards[5] = {
+                    ...dashboards[5],
+                    customization: { group_display: 'tabs' },
+                    tiles: dashboards[5].tiles.map((tile, index) =>
+                        index === 1 ? { ...tile, group_key: null } : tile
+                    ),
+                }
+                const ungrouped = dashboards[5].tiles[1].insight!.short_id
+                beforeMount()
+                await mountDashboard()
+                await expectLogic(logic, open).toFinishAllListeners()
+
+                expect(logic.values.tileGroupSections.map((section) => section.key)).toEqual([
+                    'tiles-ungrouped',
+                    'group-target',
+                ])
+                expect(logic.values.activeTileGroupTab).toEqual('target')
+                expect(router.values.searchParams.tab).toEqual('group-target')
+                expect(loads(target)).toHaveLength(1)
+                expect(loads(ungrouped)).toHaveLength(ungroupedLoads)
+            })
+
             it('loads a widget in a closed group on open', async () => {
                 groupTiles({ target: { collapsed: true } })
                 dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
