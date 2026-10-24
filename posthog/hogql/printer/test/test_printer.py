@@ -3144,6 +3144,12 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand([("count(DISTINCT)", "count"), ("countOrNull(DISTINCT )", "countOrNull")])
+    def test_distinct_aggregation_without_arguments(self, expr: str, name: str):
+        with self.assertRaises(QueryError) as context:
+            self._expr(expr)
+        self.assertEqual(str(context.exception), f"Aggregation '{name}' with DISTINCT requires at least one argument")
+
     def test_count_distinct_function(self):
         self.assertEqual(
             self._select("SELECT countDistinct(event) as count FROM events"),
