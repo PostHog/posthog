@@ -4,8 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
-from products.dashboards.backend.customization import stored_groups, template_customization
+from products.dashboards.backend.customization import stored_groups
 
 
 class TestStoredGroups(SimpleTestCase):
@@ -58,12 +57,3 @@ class TestStoredGroups(SimpleTestCase):
     @parameterized.expand(cases)
     def test_reads_stored_groups(self, _name: str, customization: Any, expected: dict) -> None:
         assert stored_groups(customization) == expected
-
-    def test_template_customization_keeps_dashboard_group_limits(self) -> None:
-        groups = {f"group-{index}": {"title": "Title"} for index in range(MAX_GROUPS + 1)}
-        groups["k" * (MAX_GROUP_KEY_LENGTH + 1)] = {"title": "Long key"}
-
-        customization = template_customization({"tile_spacing": "tight", "groups": groups})
-
-        assert customization["tile_spacing"] == "tight"
-        assert list(customization["groups"]) == [f"group-{index}" for index in range(MAX_GROUPS)]

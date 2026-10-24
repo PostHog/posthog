@@ -143,7 +143,6 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
-    MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
     MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
@@ -154,9 +153,11 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.customization import (
     normalize_dashboard_customization,
-    normalized_group_key,
     stored_customization,
     stored_groups,
+    validate_template_groups,
+    validated_group_key,
+    validated_group_keys,
     without_default_settings,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
@@ -244,22 +245,6 @@ def _with_group_titles(customization: dict[str, Any], titles: dict[str, str] | N
     if len(groups) > MAX_GROUPS:
         raise serializers.ValidationError({"group_titles": f"A dashboard can have at most {MAX_GROUPS} groups."})
     return _with_groups(customization, groups)
-
-
-def _validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
-    if len(value) > MAX_GROUPS:
-        raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUPS} groups.")
-    normalized: dict[str, T] = {}
-    for key, item in value.items():
-        group_key = normalized_group_key(key)
-        if not group_key:
-            raise serializers.ValidationError("Group keys can't be empty.")
-        if len(group_key) > MAX_GROUP_KEY_LENGTH:
-            raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
-        if group_key in normalized:
-            raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
-        normalized[group_key] = item
-    return normalized
 
 
 class _GroupDictField(serializers.DictField):
@@ -1483,10 +1468,10 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     def validate_groups(self, value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]] | None:
         if value is None:
             return None
-        return {key: without_default_settings(group) for key, group in _validated_group_keys(value).items()}
+        return {key: without_default_settings(group) for key, group in validated_group_keys(value).items()}
 
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
-        return None if value is None else _validated_group_keys(value)
+        return None if value is None else validated_group_keys(value)
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -2367,7 +2352,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _validated_tile_marking(tile_fields: dict) -> dict:
         marking: dict = {}
         if "group_key" in tile_fields:
-            marking["group_key"] = DashboardSerializer._validated_group_key(tile_fields["group_key"])
+            marking["group_key"] = validated_group_key(tile_fields["group_key"])
         if "badge" in tile_fields:
             if tile_fields["badge"] not in (None, *DashboardTileBadge.values):
                 raise serializers.ValidationError(
@@ -2375,22 +2360,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
             marking["badge"] = tile_fields["badge"]
         return marking
-
-    @staticmethod
-    def _validated_group_key(group_key: Any) -> str | None:
-        if group_key is None:
-            return None
-        if not isinstance(group_key, str):
-            raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
-        try:
-            group_key = normalized_group_key(group_key)
-        except serializers.ValidationError as error:
-            raise serializers.ValidationError({"group_key": error.detail}) from error
-        if len(group_key) > MAX_GROUP_KEY_LENGTH:
-            raise serializers.ValidationError(
-                {"group_key": f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters."}
-            )
-        return group_key or None
 
     @staticmethod
     def _validate_tiles_before_saving(instance: Dashboard, tiles: list[dict]) -> None:
@@ -4183,6 +4152,8 @@ class DashboardsViewSet(
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        template_body = request.data["template"]
+        validate_template_groups(template_body.get("customization"), template_body.get("tiles"))
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
             created_by=cast(User, request.user),
@@ -4190,7 +4161,7 @@ class DashboardsViewSet(
         )
 
         try:
-            dashboard_template = dashboard_template_from_creation_payload(request.data["template"])
+            dashboard_template = dashboard_template_from_creation_payload(template_body)
             creation_context = request.data.get("creation_context")
             create_from_template(
                 dashboard,
@@ -4199,7 +4170,6 @@ class DashboardsViewSet(
                 user_access_control=UserAccessControl(user=cast(User, request.user), team=self.team),
             )
 
-            template_body = request.data["template"]
             raw_scope = template_body.get("scope")
             if raw_scope is None or raw_scope == "":
                 template_scope_props: dict[str, str | None] = {"template_scope": None}

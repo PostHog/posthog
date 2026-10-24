@@ -55,6 +55,7 @@ from products.dashboards.backend.api.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -3802,17 +3803,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         assert dashboard["customization"] == expected_customization
 
-    def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
+    @parameterized.expand(
+        [
+            ("oversized_agent_context", {"agent_context": "x" * 10_001}, None),
+            ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None),
+            ("too_many_groups", {}, {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}),
+            ("long_group_key", {}, {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}),
+        ]
+    )
+    def test_create_from_template_json_rejects_invalid_template(
+        self, _name: str, tile_fields: dict, customization: dict | None
+    ) -> None:
         template: dict = {
             **valid_template,
-            "tiles": [
-                {
-                    "type": "TEXT",
-                    "body": "hello world",
-                    "agent_context": "x" * 10_001,
-                    "layouts": {},
-                }
-            ],
+            "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}, **tile_fields}],
+            "customization": customization,
         }
         dashboard_count = Dashboard.objects.count()
         text_count = Text.objects.count()

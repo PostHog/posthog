@@ -29,6 +29,56 @@ def stored_group_key(group_key: Any) -> str | None:
     return group_key if group_key and len(group_key) <= MAX_GROUP_KEY_LENGTH else None
 
 
+def validated_group_key(group_key: Any) -> str | None:
+    if group_key is None:
+        return None
+    if not isinstance(group_key, str):
+        raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
+    try:
+        group_key = normalized_group_key(group_key)
+    except serializers.ValidationError as error:
+        raise serializers.ValidationError({"group_key": error.detail}) from error
+    if len(group_key) > MAX_GROUP_KEY_LENGTH:
+        raise serializers.ValidationError(
+            {"group_key": f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters."}
+        )
+    return group_key or None
+
+
+def validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
+    if len(value) > MAX_GROUPS:
+        raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUPS} groups.")
+    normalized: dict[str, T] = {}
+    for key, item in value.items():
+        group_key = normalized_group_key(key)
+        if not group_key:
+            raise serializers.ValidationError("Group keys can't be empty.")
+        if len(group_key) > MAX_GROUP_KEY_LENGTH:
+            raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
+        if group_key in normalized:
+            raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
+        normalized[group_key] = item
+    return normalized
+
+
+def validate_template_groups(customization: Any, tiles: Any) -> None:
+    """Reject template groups that a dashboard made from the template could not hold."""
+    if isinstance(customization, dict):
+        groups = customization.get("groups") if isinstance(customization.get("groups"), dict) else {}
+        titles = customization.get("group_titles") if isinstance(customization.get("group_titles"), dict) else {}
+        try:
+            validated_group_keys({**groups, **titles})
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"customization": error.detail}) from error
+    for tile in tiles if isinstance(tiles, list) else []:
+        if not isinstance(tile, dict):
+            continue
+        try:
+            validated_group_key(tile.get("group_key"))
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"tiles": error.detail["group_key"]}) from error
+
+
 _NO_DEFAULT = object()
 
 
@@ -81,13 +131,4 @@ def stored_customization(customization: Any) -> dict[str, Any]:
     groups = stored_groups(customization)
     if groups:
         stored["groups"] = groups
-    return stored
-
-
-def template_customization(customization: Any) -> dict[str, Any]:
-    # A dashboard rejects group writes past these limits, so a template must not create one that breaks them.
-    stored = stored_customization(customization)
-    groups = [(key, group) for key, group in stored.pop("groups", {}).items() if len(key) <= MAX_GROUP_KEY_LENGTH]
-    if groups:
-        stored["groups"] = dict(groups[:MAX_GROUPS])
     return stored

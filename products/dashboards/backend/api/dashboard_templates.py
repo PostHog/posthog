@@ -34,6 +34,7 @@ from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.api.dashboard import DashboardCustomizationSerializer
+from products.dashboards.backend.customization import validate_template_groups
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
@@ -309,6 +310,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     )
                 attrs["scope"] = requested_scope
 
+        validate_template_groups(attrs.get("customization"), attrs.get("tiles"))
         self._validate_unique_organization_template_name(attrs)
         return attrs
 
