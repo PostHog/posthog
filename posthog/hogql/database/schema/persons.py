@@ -185,12 +185,14 @@ def select_from_persons_table(
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
         # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
+        # A JOIN written in the query also filters or multiplies rows after deduplication.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
+            and node.select_from.next_join is None
             and not node.group_by  # TODO: support group_by
             and node.limit
             and not node.where
