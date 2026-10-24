@@ -158,6 +158,17 @@ def _scope_to_revalidation(query: Any) -> Any:
     return scoped
 
 
+def _revalidation_query(*, team: Team, query: Any) -> Any:
+    """The query the revalidation task rebuilds, which also keys its debounce slot.
+
+    The events table the stale read resolved is pinned, so the task, which runs without the reader's cookie, rebuilds
+    from the same table, and each table gets its own slot.
+    """
+    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
+    return _scope_to_revalidation(query.model_copy(update={"modifiers": modifiers}))
+
+
 def is_on_demand_revalidation() -> bool:
     """True inside the Celery revalidation task, which a user read can trigger.
 
@@ -179,9 +190,7 @@ def enqueue_stale_revalidation(*, team: Team, query: Any) -> None:
         revalidate_marketing_analytics_precompute,
     )
 
-    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
-    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
-    query = _scope_to_revalidation(query.model_copy(update={"modifiers": modifiers}))
+    query = _revalidation_query(team=team, query=query)
     claimed = False
     debounce_key: str | None = None
     try:
