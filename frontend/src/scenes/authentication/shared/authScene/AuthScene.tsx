@@ -13,7 +13,7 @@ import { Typewriter } from './Typewriter'
 
 export function AuthScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
     return (
-        <AuthSceneBackdrop className="relative h-screen overflow-x-hidden overflow-y-auto">
+        <AuthSceneBackdrop className="relative h-dvh overflow-x-hidden overflow-y-auto">
             <div className="hidden sm:block">
                 <Typewriter lines={notes} />
             </div>
