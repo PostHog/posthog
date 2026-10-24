@@ -54,21 +54,24 @@ export function ScoutWriteScopesPicker({
                     {rows
                         .filter((row) => row.group === group)
                         .map((row) => (
-                            <div key={row.scope} className="flex items-center justify-between gap-3">
-                                <div className="flex min-w-0 flex-col">
-                                    <span className={compact ? 'text-xs text-default' : 'text-sm text-default'}>
-                                        {row.label}
-                                    </span>
-                                    <span className="text-[11.5px] text-muted">{row.description}</span>
-                                </div>
-                                <LemonSwitch
-                                    size="small"
-                                    checked={selectedScopes.includes(row.scope)}
-                                    disabledReason={disabledReason}
-                                    onChange={(checked) => toggleScope(row.scope, checked)}
-                                    aria-label={`Let this scout write ${row.label.toLowerCase()}`}
-                                />
-                            </div>
+                            <LemonSwitch
+                                key={row.scope}
+                                size="small"
+                                className="w-full gap-3"
+                                labelClassName="flex min-w-0 flex-col font-normal leading-normal"
+                                label={
+                                    <>
+                                        <span className={compact ? 'text-xs text-default' : 'text-sm text-default'}>
+                                            {row.label}
+                                        </span>
+                                        <span className="text-[11.5px] text-muted">{row.description}</span>
+                                    </>
+                                }
+                                checked={selectedScopes.includes(row.scope)}
+                                disabledReason={disabledReason}
+                                onChange={(checked) => toggleScope(row.scope, checked)}
+                                aria-label={`Let this scout write ${row.label.toLowerCase()}`}
+                            />
                         ))}
                 </div>
             ))}
