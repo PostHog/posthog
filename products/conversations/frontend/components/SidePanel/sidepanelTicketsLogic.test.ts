@@ -508,6 +508,53 @@ describe('sidepanelTicketsLogic', () => {
         })
     })
 
+    // A dropped connection fails the tickets and messages loads together, and again when the tab
+    // wakes, so a toast per failure told someone who just asked for help that support was down.
+    it.each([
+        ['shows one toast for a run of failures while online', true, 1],
+        ['shows no toast while offline', false, 0],
+    ])('when loads fail, %s and reloads once back online', async (_case, online, expectedToasts) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(online)
+        try {
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const ticket = { id: 't1', status: 'open', created_at: '2026-07-13T00:00:00Z' } as ConversationTicket
+            await expectLogic(logic, () => logic.actions.setCurrentTicket(ticket)).toFinishAllListeners()
+            const getTickets = jest.fn().mockRejectedValue(new Error('Unable to reach the server'))
+            ;(posthog as any).conversations.getTickets = getTickets
+            ;(posthog as any).conversations.getMessages = jest
+                .fn()
+                .mockRejectedValue(new Error('Unable to reach the server'))
+            ;(posthog.capture as jest.Mock).mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadTickets()
+                logic.actions.loadMessages('t1')
+                logic.actions.loadTickets()
+            }).toFinishAllListeners()
+
+            expect(errorToast).toHaveBeenCalledTimes(expectedToasts)
+            // Still recorded every time, so the failure rate stays measurable
+            const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === 'support widget load failed'
+            )
+            expect(loadFailures).toHaveLength(3)
+            expect(loadFailures[0][1]).toMatchObject({ browser_online: online })
+
+            onLine.mockReturnValue(true)
+            getTickets.mockClear()
+            window.dispatchEvent(new Event('online'))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(getTickets).toHaveBeenCalledTimes(1)
+        } finally {
+            onLine.mockRestore()
+            errorToast.mockRestore()
+        }
+    })
+
     // ticketsLoading drives a full-list spinner. Polls reuse loadTickets, so only the first
     // successful fetch may raise it, including a 0-ticket result that would otherwise flash
     // the spinner over the empty state on every refresh.
