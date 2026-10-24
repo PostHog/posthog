@@ -6,14 +6,14 @@ gives the priority order. The EU instance gives the priority order without evalu
 
 The merge key lets a client merge rows from different rankers without the raw score. It is the score
 decile then the priority rank, so it never says more about the score than one decimal place. Each
-head ranker sorts by the same decile, so the row order does not say more either. Keep
-`score_decile` and `inbox_merge_key` in step.
+head ranker sorts by the same decile, so the row order does not say more either. The database
+computes the decile with `score_decile`, and `inbox_merge_key` reads that value.
 """
 
 from typing import Literal, get_args
 
-from django.db.models import Case, F, FloatField, Value, When
-from django.db.models.functions import Floor
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import Expression, FloatField, Func, IntegerField, Value
 
 import structlog
 import posthoganalytics
@@ -68,23 +68,18 @@ def resolve_recommended_ranker(team: Team, user: User) -> InboxRanker:
     return "priority"
 
 
-def score_decile(field: str) -> Case:
-    """The SQL form of the decile in `inbox_merge_key`. NULL stays NULL."""
-    return Case(
-        When(**{f"{field}__isnull": True}, then=Value(None)),
-        When(**{f"{field}__lt": 0}, then=Value(0.0)),
-        When(**{f"{field}__gte": (_DECILES - 1) / _DECILES}, then=Value(float(_DECILES - 1))),
-        default=Floor(F(field) * _DECILES),
-        output_field=FloatField(),
-    )
+def score_decile(score: Expression) -> Func:
+    """The score decile, 0 to 9. A score below 0 gives 0, a score of 0.9 or more gives 9, and NULL stays NULL.
+
+    `width_bucket` reads the score once. A CASE repeats the score in each branch, so when the score is a
+    correlated subquery, Postgres runs the subquery once per branch.
+    """
+    thresholds = Value([float(bound) for bound in range(1, _DECILES)], output_field=ArrayField(FloatField()))
+    return Func(score * _DECILES, thresholds, function="width_bucket", output_field=IntegerField())
 
 
-def inbox_merge_key(score: float | None, priority_rank: int | None) -> int:
+def inbox_merge_key(decile: int | None, priority_rank: int | None) -> int:
     """Lower keys rank first. A report without a score sorts after every scored report."""
-    if score is None:
-        decile_rank = _DECILES
-    else:
-        decile = min(max(int(score * _DECILES), 0), _DECILES - 1)
-        decile_rank = _DECILES - 1 - decile
+    decile_rank = _DECILES if decile is None else _DECILES - 1 - decile
     priority = _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
     return decile_rank * _PRIORITY_SLOTS + priority
