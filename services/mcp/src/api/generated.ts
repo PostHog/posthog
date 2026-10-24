@@ -5422,6 +5422,7 @@ export namespace Schemas {
      * * `customer_analytics` - Customer Analytics
      * * `inbox` - Inbox
      * * `canvases` - Canvases
+     * * `support` - Support
      */
     export type ActivitySummaryProductEnum = typeof ActivitySummaryProductEnum[keyof typeof ActivitySummaryProductEnum];
 
@@ -5454,6 +5455,7 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
       Inbox: 'inbox',
       Canvases: 'canvases',
+      Support: 'support',
     } as const;
 
     export interface ActivitySummaryPageVisits {
@@ -5487,7 +5489,8 @@ export namespace Schemas {
        * * `revenue_analytics` - Revenue Analytics
        * * `customer_analytics` - Customer Analytics
        * * `inbox` - Inbox
-       * * `canvases` - Canvases */
+       * * `canvases` - Canvases
+       * * `support` - Support */
       product: ActivitySummaryProductEnum;
       /** The number of distinct days the user opened its pages. */
       open_days: number;

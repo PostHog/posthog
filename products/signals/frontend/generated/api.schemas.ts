@@ -126,6 +126,7 @@ export interface ActivitySummaryWatchedObjectApi {
  * * `customer_analytics` - Customer Analytics
  * * `inbox` - Inbox
  * * `canvases` - Canvases
+ * * `support` - Support
  */
 export type ActivitySummaryProductEnumApi =
     (typeof ActivitySummaryProductEnumApi)[keyof typeof ActivitySummaryProductEnumApi]
@@ -158,6 +159,7 @@ export const ActivitySummaryProductEnumApi = {
     CustomerAnalytics: 'customer_analytics',
     Inbox: 'inbox',
     Canvases: 'canvases',
+    Support: 'support',
 } as const
 
 export interface ActivitySummaryPageVisitsApi {
@@ -191,7 +193,8 @@ export interface ActivitySummaryPageVisitsApi {
      * * `revenue_analytics` - Revenue Analytics
      * * `customer_analytics` - Customer Analytics
      * * `inbox` - Inbox
-     * * `canvases` - Canvases */
+     * * `canvases` - Canvases
+     * * `support` - Support */
     product: ActivitySummaryProductEnumApi
     /** The number of distinct days the user opened its pages. */
     open_days: number
