@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type CSSProperties, useRef } from 'react'
+import { type CSSProperties, useCallback, useMemo, useRef } from 'react'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -7,16 +7,19 @@ import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/res
 import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
 import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
+import type { SpanInspectorTab } from 'products/tracing/frontend/types'
 
 import type { TraceDialogSource } from '../TraceDialog/traceDialogLogic'
 import { TraceDialogSpanTree } from '../TraceDialog/TraceDialogSpanTree'
-import { traceViewLogic } from './traceViewLogic'
+import { type TraceOperationsScope, traceViewLogic, type TraceViewSurface } from './traceViewLogic'
 
 // Below this the attribute tables stop being readable, so a drag can't crush the inspector.
 const MIN_INSPECTOR_WIDTH = 320
 
 export interface TraceViewProps {
     traceId: string
+    /** Where the view sits, for analytics. */
+    surface: TraceViewSurface
     inspectorOpen: boolean
     sessionId: string | null
     showErrorsTab: boolean
@@ -28,6 +31,8 @@ export interface TraceViewProps {
     /** Spans are still loading, so the inspector holds off on what it reads from them. */
     resolving?: boolean
     hasMoreSpans?: boolean
+    /** The loaded spans are not the whole trace, and the view cannot load the rest. */
+    spansPartial?: boolean
     loadingMoreSpans?: boolean
     onLoadMoreSpans?: () => void
 }
@@ -35,6 +40,7 @@ export interface TraceViewProps {
 /** The span tree beside the inspector for the selected span. Mount it inside a `BindLogic` for `traceViewLogic`. */
 export function TraceView({
     traceId,
+    surface,
     inspectorOpen,
     sessionId,
     showErrorsTab,
@@ -44,6 +50,7 @@ export function TraceView({
     showFilterActions = false,
     resolving = false,
     hasMoreSpans,
+    spansPartial,
     loadingMoreSpans,
     onLoadMoreSpans,
 }: TraceViewProps): JSX.Element {
@@ -56,9 +63,51 @@ export function TraceView({
         persistent: true,
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
-    const { selectedSpan, missingParentSpanId, serviceColorMap, summary, activeInspectorTab } =
-        useValues(traceViewLogic)
-    const { setInspectorTab } = useActions(traceViewLogic)
+    const {
+        selectedSpan,
+        missingParentSpanId,
+        serviceColorMap,
+        summary,
+        activeInspectorTab,
+        operationSpans,
+        highlightedOperationKey,
+        operationsTabEnabled,
+    } = useValues(traceViewLogic)
+    const { setInspectorTab, highlightOperation } = useActions(traceViewLogic)
+    // A click on the tab already shown still records the person's pick. Nothing on screen changes, so it passes
+    // no surface and sends no event.
+    const onSelectTab = useCallback(
+        (tab: SpanInspectorTab, changesShownTab: boolean): void =>
+            setInspectorTab(tab, changesShownTab ? surface : undefined),
+        [setInspectorTab, surface]
+    )
+    const onHighlightOperation = useCallback(
+        (operationKey: string | null, scope: TraceOperationsScope): void =>
+            highlightOperation(operationKey, surface, scope),
+        [highlightOperation, surface]
+    )
+    // Without real spans the tab would only show an empty table, so the inspector leaves it out, as it does while
+    // the tab's flag is off. A resize drag re-renders this component on every mousemove, and stable values keep
+    // the memoized table from rendering again for it.
+    const operations = useMemo(
+        () =>
+            operationsTabEnabled && operationSpans.length > 0
+                ? {
+                      spans: operationSpans,
+                      highlightedOperationKey,
+                      onHighlightOperation,
+                      partial: !!hasMoreSpans || !!spansPartial,
+                  }
+                : undefined,
+        [
+            operationsTabEnabled,
+            operationSpans,
+            highlightedOperationKey,
+            onHighlightOperation,
+            hasMoreSpans,
+            spansPartial,
+        ]
+    )
 
     return (
         <div className="@container/trace-dialog flex flex-1 min-h-0">
@@ -70,6 +119,7 @@ export function TraceView({
                         hasMore={hasMoreSpans}
                         loadingMore={loadingMoreSpans}
                         onLoadMore={onLoadMoreSpans}
+                        showOperationHighlight={inspectorOpen}
                     />
                 </div>
                 {inspectorOpen && (missingParentSpanId || selectedSpan) && (
@@ -104,8 +154,9 @@ export function TraceView({
                                     errorsScope={errorsScope}
                                     resolving={resolving}
                                     tab={activeInspectorTab}
-                                    onSelectTab={setInspectorTab}
+                                    onSelectTab={onSelectTab}
                                     showFilterActions={showFilterActions}
+                                    operations={operations}
                                 />
                             ) : null}
                         </div>
