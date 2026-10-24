@@ -4,6 +4,10 @@
         "mcp_hosts": {
             "description": "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.",
             "type": "string"
+        },
+        "posthog_tools": {
+            "description": "Comma-separated PostHog MCP tool names to describe in full (e.g. 'feature-flag-get-definition'). Without it, the 'posthog' provider lists every tool with a one-line summary.",
+            "type": "string"
         }
     },
     "type": "object"
