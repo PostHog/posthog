@@ -401,6 +401,46 @@ describe('LemonInputSelect', () => {
         expect(screen.queryByText('Zucchini')).not.toBeInTheDocument()
     })
 
+    it.each([
+        {
+            name: 'every option without a search',
+            search: '',
+            button: 'Select all',
+            expected: ['apple', 'apricot', 'zucchini'],
+        },
+        {
+            name: 'only the matching options during a search',
+            search: 'ap',
+            button: 'Select all matching',
+            expected: ['apple', 'apricot'],
+        },
+    ])('multiple-select mode: select all picks $name', async ({ search, button, expected }) => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="multiple"
+                bulkActions="select-and-clear-all"
+                options={[
+                    { key: 'apple', label: 'Apple' },
+                    { key: 'apricot', label: 'Apricot' },
+                    { key: 'zucchini', label: 'Zucchini' },
+                ]}
+                value={[]}
+                onChange={onChange}
+            />
+        )
+
+        const input = await openDropdown(container)
+        if (search) {
+            await userEvent.type(input, search)
+        }
+
+        await userEvent.click((await findDropdownButtonByText(button))!)
+
+        expect(onChange).toHaveBeenLastCalledWith(expected)
+    })
+
     it('multiple-select mode: clicking option matching search text does not toggle it off', async () => {
         const onChange = jest.fn()
 

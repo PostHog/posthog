@@ -470,7 +470,14 @@ export function PropertyValue({
             : null
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
-    const titleNode = suggestionsLabel ? (
+    const allowCustomValues = staticValues ? true : (propertyOptions?.allowCustomValues ?? true)
+    const pasteHint =
+        isMultiSelect && allowCustomValues && !isUserAgentProperty ? (
+            <span className="block text-xs font-normal text-secondary">
+                Paste a comma-separated list to add many values at once
+            </span>
+        ) : null
+    const suggestionsTitle = suggestionsLabel ? (
         <span className="flex justify-between items-center gap-4">
             {suggestionsLabel}
             {!staticValues && (
@@ -494,7 +501,14 @@ export function PropertyValue({
                 />
             )}
         </span>
-    ) : undefined
+    ) : null
+    const titleNode =
+        suggestionsTitle || pasteHint ? (
+            <>
+                {suggestionsTitle}
+                {pasteHint}
+            </>
+        ) : undefined
 
     return (
         <div>
@@ -504,8 +518,9 @@ export function PropertyValue({
                 loading={!staticValues && (propertyOptions?.status === 'loading' || isRefreshing)}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
+                bulkActions="select-and-clear-all"
                 singleValueAsSnack
-                allowCustomValues={staticValues ? true : (propertyOptions?.allowCustomValues ?? true)}
+                allowCustomValues={allowCustomValues}
                 inputTransform={
                     shouldRestrictToNumericInput
                         ? (input: string) => {
@@ -539,6 +554,8 @@ export function PropertyValue({
                             from_suggestion: fromSuggestion,
                             options_count: displayOptions.length,
                             had_search_input: currentSearchInput.current !== '',
+                            bulk: newValues.length > 1,
+                            added_count: newValues.length,
                         })
                     }
                     // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
