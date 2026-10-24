@@ -46,8 +46,11 @@ export const canvasConnectorProviderSchema = z.union([
         .regex(/^mcp:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i),
 ])
 
+// PostHog's own MCP tools run with the viewer's session, so `posthog` is callable but has nothing to connect.
+export const CANVAS_POSTHOG_PROVIDER = 'posthog'
+
 export const canvasConnectorCallInputSchema = z.object({
-    provider: canvasConnectorProviderSchema,
+    provider: z.union([canvasConnectorProviderSchema, z.literal(CANVAS_POSTHOG_PROVIDER)]),
     tool: z.string().min(1).max(200),
     arguments: z.record(z.string().max(128), z.unknown()).default({}),
     refresh: z.number().int().min(30).max(86_400).optional(),

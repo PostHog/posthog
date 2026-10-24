@@ -1,4 +1,5 @@
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
 
@@ -6,7 +7,7 @@ import requests
 
 from posthog.models import User
 
-from ..facade.contracts import ExecResult, ExecTool, McpServerError
+from ..facade.contracts import CallToolInput, ExecResult, ExecTool, McpServerError, ToolCallResult
 from .tokens import WebMCPTokenIssuer
 
 # The stateless MCP dialect needs no handshake, so each proxied call is one HTTP request.
@@ -26,6 +27,19 @@ def get_mcp_server_url() -> str | None:
     return url
 
 
+def _required_mcp_server_url() -> str:
+    url = get_mcp_server_url()
+    if url is None:
+        raise McpServerError("WebMCP is not available on this instance")
+    return url
+
+
+def _with_query(url: str, params: dict[str, str]) -> str:
+    parts = urlsplit(url)
+    query = "&".join(part for part in (parts.query, urlencode(params)) if part)
+    return urlunsplit(parts._replace(query=query))
+
+
 class McpServerClient:
     """Talks to the PostHog MCP server in single-`exec` mode, for one user and team.
 
@@ -43,16 +57,33 @@ class McpServerClient:
     - The MCP server must allow CORS from every app origin, and each region has its own MCP host.
     """
 
-    def __init__(self, *, url: str, token: str) -> None:
+    def __init__(
+        self,
+        *,
+        url: str,
+        token: str,
+        mode: Literal["cli", "tools"] = "cli",
+        consumer: str = "webmcp",
+        project_id: int | None = None,
+    ) -> None:
         self._url = url
         self._token = token
+        self._mode = mode
+        self._consumer = consumer
+        self._project_id = project_id
 
     @classmethod
     def for_user(cls, user: User, team_id: int) -> "McpServerClient":
-        url = get_mcp_server_url()
-        if url is None:
-            raise McpServerError("WebMCP is not available on this instance")
-        return cls(url=url, token=WebMCPTokenIssuer.for_instance().get_or_mint(user, team_id))
+        return cls(url=_required_mcp_server_url(), token=WebMCPTokenIssuer.for_instance().get_or_mint(user, team_id))
+
+    @classmethod
+    def for_tool_call(cls, user: User, input: CallToolInput) -> "McpServerClient":
+        """A client in per-tool mode that sees only `input.tool_name`, with a token that holds only `input.scopes`."""
+        token = WebMCPTokenIssuer.for_instance().get_or_mint(user, input.team_id, scopes=input.scopes)
+        # The `tools` allowlist hides every other tool from this session. The token's scopes are what the API
+        # enforces, so the allowlist narrows what the MCP server offers rather than what the token can do.
+        url = _with_query(_required_mcp_server_url(), {"tools": input.tool_name})
+        return cls(url=url, token=token, mode="tools", consumer=input.consumer, project_id=input.team_id)
 
     def get_exec_tool(self) -> ExecTool:
         result = self._request("tools/list", {})
@@ -75,6 +106,15 @@ class McpServerClient:
             is_error=result.get("isError") is True,
         )
 
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> ToolCallResult:
+        result = self._request("tools/call", {"name": name, "arguments": arguments}, name=name)
+        content = result.get("content")
+        return ToolCallResult(
+            content=[block for block in content if isinstance(block, dict)] if isinstance(content, list) else [],
+            structured_content=result.get("structuredContent"),
+            is_error=result.get("isError") is True,
+        )
+
     def _request(self, method: str, params: dict[str, Any], *, name: str | None = None) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self._token}",
@@ -82,10 +122,13 @@ class McpServerClient:
             "Accept": "application/json, text/event-stream",
             "MCP-Protocol-Version": PROTOCOL_VERSION,
             "Mcp-Method": method,
-            # CLI mode makes the MCP server advertise only the single `exec` tool, which WebMCP registers as its one tool.
-            "x-posthog-mcp-mode": "cli",
-            "x-posthog-mcp-consumer": "webmcp",
+            # CLI mode advertises only the single `exec` tool, which WebMCP registers as its one tool.
+            # Tools mode advertises each tool by name, for a caller that calls one tool directly.
+            "x-posthog-mcp-mode": self._mode,
+            "x-posthog-mcp-consumer": self._consumer,
         }
+        if self._project_id is not None:
+            headers["x-posthog-project-id"] = str(self._project_id)
         if name is not None:
             headers["Mcp-Name"] = name
         body = {

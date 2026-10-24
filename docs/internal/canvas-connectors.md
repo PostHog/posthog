@@ -2,6 +2,8 @@
 
 Canvases can read third-party data with the current viewer's connection. Calls require the `canvas-connectors` team feature flag. The flag fails closed.
 
+Canvases can also call PostHog's own MCP tools as the viewer through the `posthog` provider. This provider also requires the `canvas-posthog-tools` team feature flag, which fails closed too. See [PostHog provider](#posthog-provider).
+
 ## PR card actions
 
 From a user click, `ph.navigate.toNewTask({ prompt, repository })` opens a task form in a new tab.
@@ -39,11 +41,11 @@ Declare each provider and tool in the source project's capabilities:
 }
 ```
 
-A canvas with connectors cannot declare shared state. This rule applies to the whole project, including calls in different files. The call and state endpoints also reject this combination on existing versions.
+A canvas with connectors cannot declare shared state. This rule applies to the whole project, including calls in different files. The call and state endpoints also reject this combination on existing versions. The rule includes the `posthog` provider: object access control can give two viewers of one project different PostHog data, so shared state could pass one viewer's data to another.
 
 ## Catalog
 
-`GET /api/projects/{project_id}/canvases/connectors/` lists native tools, argument schemas, connection status, and connection paths. The optional `mcp_hosts` query parameter is a comma-separated list of server hosts.
+`GET /api/projects/{project_id}/canvases/connectors/` lists native tools, argument schemas, connection status, and connection paths. The optional `mcp_hosts` query parameter is a comma-separated list of server hosts. When the `canvas-posthog-tools` flag is on, the response also lists the `posthog` provider with every callable PostHog MCP tool, its summary, and `is_read_only`. The optional `posthog_tools` query parameter is a comma-separated list of tool names; the listed tools then carry their full descriptions.
 
 The `canvas-connectors-retrieve` MCP tool exposes this catalog to authors. The catalog does not call the upstream tools. Sandbox authors receive only static native tool schemas, with `connected: null`. This response does not read personal connections or MCP installations, even when `mcp_hosts` is set. Viewer calls still include connection status. Sandbox credentials cannot execute connector tools.
 
@@ -55,11 +57,11 @@ The `canvas-connectors-retrieve` MCP tool exposes this catalog to authors. The c
 { "provider": "github", "tool": "list_pull_requests", "arguments": { "repository": "example/app", "state": "open" } }
 ```
 
-Scoped credentials need both `canvas:write` and `user:read`. A canvas-only credential cannot spend a personal integration credential. Sandbox credentials cannot call connectors.
+Scoped credentials need both `canvas:write` and `user:read`. A canvas-only credential cannot spend a personal integration credential. A `posthog` call also needs every scope the tool requires, so a scoped credential cannot reach a resource through a canvas that it cannot reach directly. Sandbox credentials cannot call connectors.
 
 The endpoint checks channel access, the feature flag, and the current version's declared provider and tool. It limits requests per viewer and canvas. The activity log records the provider, tool, and outcome, but not arguments or results.
 
-Responses contain `status`, `result`, `detail`, `truncated`, `connect_path`, and the host-only `approval_token`. Status values are `ok`, `not_connected`, `needs_reauth`, `needs_approval`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
+Responses contain `status`, `result`, `detail`, `truncated`, `connect_path`, `confirmation`, and the host-only `approval_token`. Status values are `ok`, `not_connected`, `needs_reauth`, `needs_approval`, `blocked`, `tool_missing`, `write_blocked`, and `upstream_error`. Invalid arguments return HTTP 400. Access and capability failures return HTTP 403.
 
 For `needs_approval`, the server issues a random, single-use `approval_token`. It expires after 15 minutes and is bound to the team, viewer, connection, server URL, canvas version, tool, and exact arguments. The host shows the Quill permission dialog, then submits this token only after the viewer approves. The server consumes it before running the call. A missing, expired, changed, or reused token cannot approve a call. The old `approved` boolean is not accepted as approval.
 
@@ -73,9 +75,22 @@ Results are limited to 256 KiB. Large results become a bounded `preview` with `t
 
 - `github` exposes `list_pull_requests`, `search_pull_requests`, `get_pull_request_snapshot`, `get_pull_request_checks`, `search_issues`, and `get_file_contents`. Use `owner/name` to select a repository without ambiguity. A bare name uses the connection's account. Calls try the viewer's connections, newest first, until one can read the repository. Rate-limit failures stop retries.
 - `mcp:<host>` uses the viewer's personal installation, or the team's shared installation if no personal one exists. It never uses a teammate's personal installation. Existing MCP policy, credential checks, and audit rules apply.
+- `posthog` runs PostHog's own MCP tools. See [PostHog provider](#posthog-provider).
 - MCP connector tools must declare `readOnlyHint: true` and start with a recognized read verb: `get`, `list`, `search`, `fetch`, `read`, `find`, `query`, `count`, or `describe`. Write verbs, destructive hints, and an explicit `readOnlyHint: false` block the call. Unknown operations are blocked. An upstream `readOnlyHint: true` alone cannot grant access. These checks cannot prove that an arbitrary upstream tool has no side effects; connect only trusted servers.
 
 When a connection is missing or needs authorization, `connect_path` identifies the settings page. The host must validate the provider before navigation and require a user action.
+
+## PostHog provider
+
+`posthog` exposes the tools in the committed MCP tool catalogue (`services/mcp/schema/`), with the same names and arguments as the PostHog MCP server. Validation rejects unknown tools, tools replaced by a successor, and tools that need `organization:*` scopes, because the call token is pinned to one project.
+
+Each call runs on the PostHog MCP server as the viewer. The backend mints a short-lived OAuth access token for the viewer through the WebMCP token issuer, pinned to the canvas's project. The token holds `user:read`, `project:read`, and the tool's required scopes, and nothing else. The issuer refuses a scope outside the WebMCP application's ceiling, and the call returns `blocked`. The request pins the project with `x-posthog-project-id` and limits the session to the one tool with the `tools` parameter. The API applies the viewer's own membership and object access to every request the tool makes. The endpoint refuses `posthog` calls from impersonated sessions.
+
+Read-only tools run directly. A tool that writes returns `needs_approval` with a `confirmation` object (`title`, `destructive`) and a host-only `approval_token`, through the same single-use approval binding as MCP store tools. The binding covers the viewer, team, tool, exact arguments, and canvas version. The web host asks for the approval only when the call started from a user action. It shows the tool, its arguments, and a warning for destructive tools, and submits the token only after the viewer confirms. Writes skip the host read cache, and a successful write clears cached `posthog` reads.
+
+Results are `{ content, structured_content, is_error }`, bounded to 256 KiB like other connector results. A tool that refuses the call, such as a version conflict, returns `ok` with `is_error: true`.
+
+The capability widening of a draft lists newly declared tools in `connectors_added`, and `write_tools` names the ones that can change data.
 
 ## GitHub pull request reads
 

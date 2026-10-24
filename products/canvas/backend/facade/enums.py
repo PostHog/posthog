@@ -17,6 +17,7 @@ class ConnectorCallStatus(LabeledStrEnum):
 class ConnectorKind(LabeledStrEnum):
     NATIVE = "native"
     MCP = "mcp"
+    POSTHOG = "posthog"
 
 
 class CanvasAccess(LabeledStrEnum):

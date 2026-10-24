@@ -23,7 +23,12 @@ import { userLogic } from 'scenes/userLogic'
 import type { TeamPublicType, TeamType, UserType } from '../../../../frontend/src/types'
 import { CANVAS_EVENTS, canvasErrorType } from '../canvasAnalytics'
 import { canvasesReportErrorCreate } from '../generated/api'
-import { CanvasActionConfirmation, CanvasConnectorPermissionRequest, CanvasDataBridge } from './canvasDataBridge'
+import {
+    CanvasActionConfirmation,
+    CanvasConnectorPermissionRequest,
+    CanvasDataBridge,
+    CanvasPostHogWriteConfirmation,
+} from './canvasDataBridge'
 import { CanvasNavIntent, isSafeGitHubPullRequestUrl } from './canvasProtocol'
 
 export interface CanvasHostLogicProps {
@@ -38,6 +43,7 @@ export type CanvasHostPrompt =
     | { kind: 'connector'; id: string; request: CanvasConnectorPermissionRequest }
     | { kind: 'agent-request'; id: string; prompt: string }
     | { kind: 'action'; id: string; request: CanvasActionConfirmation }
+    | { kind: 'posthog-write'; id: string; request: CanvasPostHogWriteConfirmation }
     | { kind: 'external-link'; id: string; url: string }
 
 type CanvasHostPromptInput = CanvasHostPrompt extends infer P
@@ -265,6 +271,7 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 confirmAction: (request) => cache.requestPrompt({ kind: 'action', request }),
                 confirmAgentRequest: (prompt) => cache.requestPrompt({ kind: 'agent-request', prompt }),
                 requestConnectorPermission: (request) => cache.requestPrompt({ kind: 'connector', request }),
+                confirmPostHogWrite: (request) => cache.requestPrompt({ kind: 'posthog-write', request }),
                 hasUserActivation: canvasHasUserActivation,
             }
         )

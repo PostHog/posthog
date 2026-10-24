@@ -3,12 +3,13 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import serializers, status
 
+from posthog.models import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -24,6 +25,12 @@ from products.canvas.backend.models import Canvas, CanvasState
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.tasks.backend.models import Task
+from products.webmcp.backend.tests.test_logic import create_webmcp_app, mcp_response
+
+_FLAG_READ = "feature-flag-get-definition"
+_FLAG_WRITE = "feature-flag-set-release-condition-rollout"
+_POSTHOG_CONNECTORS = [{"provider": "posthog", "tools": [_FLAG_READ, _FLAG_WRITE]}]
+_MCP_OK = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{}"}], "isError": False}}
 
 _GITHUB_PR = {
     "number": 7,
@@ -355,6 +362,140 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
             "connect_path": "/settings/mcp-servers",
             "tools": [],
         }
+
+    def _enable_posthog_tools(self, ceiling: list[str] | None = None) -> MagicMock:
+        """Turn the provider on and route the MCP server to a mock. Returns the mocked `requests.post`."""
+        enabled = patch("products.canvas.backend.presentation.views.canvas_posthog_tools_enabled", return_value=True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
+        app = create_webmcp_app(
+            scopes=ceiling or ["user:read", "project:read", "feature_flag:read", "feature_flag:write"]
+        )
+        cimd = patch("products.webmcp.backend.logic.tokens.get_or_create_cimd_application", return_value=app)
+        cimd.start()
+        self.addCleanup(cimd.stop)
+        server = override_settings(MCP_SERVER_URL="https://mcp.example.com/mcp")
+        server.enable()
+        self.addCleanup(server.disable)
+        post = patch("products.webmcp.backend.logic.mcp_server.requests.post", return_value=mcp_response(200, _MCP_OK))
+        self.addCleanup(post.stop)
+        return post.start()
+
+    def test_posthog_read_runs_as_the_viewer_with_only_the_tools_scopes(self) -> None:
+        post = self._enable_posthog_tools()
+        canvas_id = self._connectors_canvas(_POSTHOG_CONNECTORS)
+
+        response = self._call(canvas_id, provider="posthog", tool=_FLAG_READ, id=7)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "ok"
+        assert response.json()["result"] == {
+            "content": [{"type": "text", "text": "{}"}],
+            "structured_content": None,
+            "is_error": False,
+        }
+        post.assert_called_once()
+        url, kwargs = post.call_args.args[0], post.call_args.kwargs
+        assert url == f"https://mcp.example.com/mcp?tools={_FLAG_READ}"
+        assert kwargs["json"]["params"]["name"] == _FLAG_READ
+        assert kwargs["json"]["params"]["arguments"] == {"id": 7}
+        assert kwargs["headers"]["x-posthog-project-id"] == str(self.team.id)
+        assert kwargs["headers"]["x-posthog-mcp-mode"] == "tools"
+        token = OAuthAccessToken.objects.get(token=kwargs["headers"]["Authorization"].removeprefix("Bearer "))
+        assert token.user_id == self.user.id
+        assert token.scoped_teams == [self.team.id]
+        assert token.scope == "feature_flag:read project:read user:read"
+
+    def test_posthog_write_needs_a_single_use_approval_for_the_exact_arguments(self) -> None:
+        post = self._enable_posthog_tools()
+        canvas_id = self._connectors_canvas(_POSTHOG_CONNECTORS)
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/connectors/call/"
+        payload = {
+            "provider": "posthog",
+            "tool": _FLAG_WRITE,
+            "arguments": {"id": 7, "condition_index": 0, "rollout_percentage": 50, "version": 3},
+        }
+
+        pending = self.client.post(url, payload, format="json").json()
+        assert pending["status"] == "needs_approval"
+        assert pending["confirmation"] == {"title": "Set feature flag release condition rollout", "destructive": False}
+        token = pending["approval_token"]
+        assert token
+        changed = {**payload, "arguments": {**payload["arguments"], "rollout_percentage": 100}}
+        assert self.client.post(url, {**changed, "approval_token": token}, format="json").json()["status"] == "blocked"
+        post.assert_not_called()
+
+        allowed = self.client.post(url, {**payload, "approval_token": token}, format="json").json()
+        assert allowed["status"] == "ok"
+        assert allowed["approval_token"] is None
+        assert self.client.post(url, {**payload, "approval_token": token}, format="json").json()["status"] == "blocked"
+        post.assert_called_once()
+        bearer = post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        assert OAuthAccessToken.objects.get(token=bearer).scope == "feature_flag:write project:read user:read"
+
+    def test_posthog_tool_outside_the_webmcp_ceiling_is_blocked_without_a_call(self) -> None:
+        post = self._enable_posthog_tools(ceiling=["user:read", "project:read"])
+        canvas_id = self._connectors_canvas(_POSTHOG_CONNECTORS)
+
+        response = self._call(canvas_id, provider="posthog", tool=_FLAG_READ, id=7)
+
+        assert response.json()["status"] == "blocked"
+        assert "feature_flag:read" in response.json()["detail"]
+        post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_off", "canvas_posthog_tools_enabled", False),
+            ("impersonated_session", "is_impersonated", True),
+        ]
+    )
+    def test_posthog_calls_are_refused_before_any_call(self, _name: str, target: str, value: bool) -> None:
+        post = self._enable_posthog_tools()
+        canvas_id = self._connectors_canvas(_POSTHOG_CONNECTORS)
+
+        with patch(f"products.canvas.backend.presentation.views.{target}", return_value=value):
+            response = self._call(canvas_id, provider="posthog", tool=_FLAG_READ, id=7)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("canvas_scopes_only", ["canvas:write", "user:read"], 403),
+            ("tool_scope", ["canvas:write", "user:read", "feature_flag:read"], 200),
+        ]
+    )
+    def test_scoped_keys_need_the_posthog_tools_scopes(self, _name, scopes, expected_status) -> None:
+        post = self._enable_posthog_tools()
+        canvas_id = self._connectors_canvas(_POSTHOG_CONNECTORS)
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-posthog-tools", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self._call(canvas_id, provider="posthog", tool=_FLAG_READ, id=7)
+
+        assert response.status_code == expected_status
+        assert post.called is (expected_status == 200)
+
+    def test_catalog_lists_posthog_tools_only_when_enabled(self) -> None:
+        catalog_url = f"/api/projects/{self.team.id}/canvases/connectors/"
+        assert "posthog" not in [entry["provider"] for entry in self.client.get(catalog_url).json()["connectors"]]
+
+        self._enable_posthog_tools()
+        connectors = {entry["provider"]: entry for entry in self.client.get(catalog_url).json()["connectors"]}
+        tools = {tool["name"]: tool for tool in connectors["posthog"]["tools"]}
+        assert tools[_FLAG_READ]["is_read_only"] is True
+        assert tools[_FLAG_WRITE]["is_read_only"] is False
+        assert "organizations-get" not in tools
+        assert "notebooks-create" not in tools
+
+        detailed = self.client.get(catalog_url, {"posthog_tools": _FLAG_WRITE}).json()["connectors"]
+        posthog = next(entry for entry in detailed if entry["provider"] == "posthog")
+        assert [tool["name"] for tool in posthog["tools"]] == [_FLAG_WRITE]
+        assert "version" in posthog["tools"][0]["usage"]
 
     @parameterized.expand([("canvas_only", ["canvas:write"], 403), ("user_scope", ["canvas:write", "user:read"], 200)])
     @patch("products.canvas.backend.connectors.UserGitHubIntegration.api_request", return_value=_github_response())

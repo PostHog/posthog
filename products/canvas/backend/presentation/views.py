@@ -33,14 +33,17 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
+    POSTHOG_PROVIDER,
     apply_layout_ops,
     apply_source_edits,
     canvas_actions_disabled,
     canvas_connectors_enabled,
+    canvas_posthog_tools_enabled,
     connector_listings,
     create_canvas_sandbox_document_url,
     has_errors,
     native_connector_listings,
+    posthog_connector_listing,
     render_canvas_artifact,
     render_canvas_sandbox_document,
     subtract_preexisting_diagnostics,
@@ -397,13 +400,25 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         return super().get_throttles()
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # Invoking a verb writes the target resource, so a scoped credential
-        # must hold that resource's scope — canvas:write alone is not consent
-        # to create tasks or annotations.
-        if getattr(view, "action", None) != "invoke_action":
+        action_name = getattr(view, "action", None)
+        if action_name not in ("invoke_action", "call_connector"):
             return None
-        verb = request.data.get("verb") if isinstance(request.data, dict) else None
-        return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
+        data = request.data if isinstance(request.data, dict) else {}
+        if action_name == "invoke_action":
+            # Invoking a verb writes the target resource, so a scoped credential
+            # must hold that resource's scope — canvas:write alone is not consent
+            # to create tasks or annotations.
+            verb = data.get("verb")
+            return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
+        # A connector call spends the viewer's personal credentials, so canvas:write alone is not enough.
+        required = ["canvas:write", "user:read"]
+        # A PostHog tool call mints a token with the tool's scopes, so a scoped
+        # credential must already hold them, or a canvas:write key could reach
+        # feature flags or any other resource through a canvas.
+        tool = data.get("tool")
+        if data.get("provider") == POSTHOG_PROVIDER and isinstance(tool, str):
+            required += canvas_api.posthog_tool_required_scopes(tool)
+        return required
 
     # Content writes. Every member who can see a canvas in a public space may
     # publish a new version of it; a canvas in a personal space is only visible
@@ -1863,7 +1878,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                     "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every "
                     "server the caller has connected in the MCP store."
                 ),
-            )
+            ),
+            OpenApiParameter(
+                "posthog_tools",
+                OpenApiTypes.STR,
+                required=False,
+                description=(
+                    "Comma-separated PostHog MCP tool names to describe in full (e.g. "
+                    "'feature-flag-get-definition'). Without it, the 'posthog' provider lists every tool with "
+                    "a one-line summary."
+                ),
+            ),
         ],
         responses={
             200: CanvasConnectorsResponseSerializer,
@@ -1886,6 +1911,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         raw_hosts = request.query_params.get("mcp_hosts")
         mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
         listings = native_connector_listings() if user is None else connector_listings(self.team_id, user.id, mcp_hosts)
+        if canvas_posthog_tools_enabled(self.team.uuid):
+            raw_tools = request.query_params.get("posthog_tools")
+            posthog_tools = [tool.strip() for tool in raw_tools.split(",") if tool.strip()] if raw_tools else None
+            listings = [*listings, posthog_connector_listing(posthog_tools)]
         return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
 
     @extend_schema(
@@ -1896,11 +1925,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(description="The arguments failed the tool's schema."),
             403: OpenApiResponse(
                 description="The provider or tool is not declared in the canvas's capabilities, connectors are "
-                "not enabled for the team, or the caller is a sandbox."
+                "not enabled for the team, the caller is a sandbox, or a 'posthog' call comes from an "
+                "impersonated session."
             ),
         },
     )
-    @action(methods=["POST"], detail=True, url_path="connectors/call", required_scopes=["canvas:write", "user:read"])
+    # Scopes come from dangerously_get_required_scopes, because a 'posthog' call needs its tool's scopes too.
+    @action(methods=["POST"], detail=True, url_path="connectors/call")
     def call_connector(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Call one declared connector tool as the viewer.
 
@@ -1923,6 +1954,19 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         payload.is_valid(raise_exception=True)
         provider = payload.validated_data["provider"]
         tool = payload.validated_data["tool"]
+        if provider == POSTHOG_PROVIDER:
+            if not canvas_posthog_tools_enabled(self.team.uuid):
+                return Response(
+                    {"detail": "PostHog tools in canvases are not enabled for this team."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            # The call mints a token for the user, which would carry their access past the
+            # restrictions of an impersonated session.
+            if is_impersonated(request):
+                return Response(
+                    {"detail": "PostHog tools in canvases are not available in an impersonated session."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         try:
             result = canvas_api.call_connector(
                 self.team_id,

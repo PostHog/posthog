@@ -215,7 +215,8 @@ That field is the only valid link to a canvas — never construct one yourself; 
   behavior, and the confirmation copy it warrants) before wiring it.
 
 - **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any
-  MCP store server) with the VIEWER's own connection at view time. Never call GitHub, Calendly,
+  MCP store server) with the VIEWER's own connection at view time, or call PostHog's own MCP
+  tools as the viewer with provider `posthog` (writes need a click and the viewer's confirmation). Never call GitHub, Calendly,
   or another service yourself and paste the result into the source: that snapshot is stale on
   publish and shows every viewer the author's data. Declare each provider and tool in
   `capabilities.connectors`; discover them with the `canvas-connectors-retrieve` tool. See

@@ -594,7 +594,7 @@ export interface CanvasConnectorCallApi {
 }
 
 /**
- * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+ * Tool output. Native tools return their documented shape; MCP and 'posthog' tools return {content, structured_content, is_error}.
  * @nullable
  */
 export type CanvasConnectorCallResultApiResult = { [key: string]: unknown } | null
@@ -623,6 +623,16 @@ export const ConnectorCallStatusEnumApi = {
 } as const
 
 /**
+ * What the host shows the viewer before it approves one call of a tool that writes.
+ */
+export interface CanvasConnectorConfirmationApi {
+    /** Readable name of the tool, e.g. 'Set feature flag release condition rollout'. */
+    title: string
+    /** True when the tool can delete or overwrite data. The host shows a stronger warning. */
+    destructive: boolean
+}
+
+/**
  * Result of one connector call. `status` is 'ok' when `result` holds the tool's output.
  */
 export interface CanvasConnectorCallResultApi {
@@ -643,7 +653,7 @@ export interface CanvasConnectorCallResultApi {
      * * `upstream_error` - Upstream Error */
     status: ConnectorCallStatusEnumApi
     /**
-     * Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.
+     * Tool output. Native tools return their documented shape; MCP and 'posthog' tools return {content, structured_content, is_error}.
      * @nullable
      */
     result: CanvasConnectorCallResultApiResult
@@ -656,6 +666,8 @@ export interface CanvasConnectorCallResultApi {
      * @nullable
      */
     connect_path: string | null
+    /** Set with 'needs_approval' for a 'posthog' tool that writes: what the host shows before the viewer confirms. */
+    confirmation: CanvasConnectorConfirmationApi | null
 }
 
 /**
@@ -752,12 +764,12 @@ export interface CanvasNetworkCapabilitiesApi {
  */
 export interface CanvasConnectorDeclarationApi {
     /**
-     * Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
+     * Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
      * @maxLength 300
      */
     provider: string
     /**
-     * Tool names the canvas may call on this provider. Read-only tools only.
+     * Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes.
      * @minItems 1
      * @maxItems 64
      * @items.maxLength 200
@@ -769,7 +781,7 @@ export interface CanvasCapabilitiesApi {
     posthog: CanvasPostHogCapabilitiesApi
     network: CanvasNetworkCapabilitiesApi
     /**
-     * Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.
+     * Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.
      * @maxItems 20
      */
     connectors?: CanvasConnectorDeclarationApi[]
@@ -823,6 +835,29 @@ export interface CanvasSourceDraftApi {
 }
 
 /**
+ * One provider a draft newly declares, with the tools that can change data called out.
+ */
+export interface CanvasConnectorGrantApi {
+    /**
+     * Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.
+     * @maxLength 300
+     */
+    provider: string
+    /**
+     * Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes.
+     * @minItems 1
+     * @maxItems 64
+     * @items.maxLength 200
+     */
+    tools: string[]
+    /**
+     * The newly declared tools that can change data. The viewer confirms each call of these.
+     * @items.maxLength 200
+     */
+    write_tools: string[]
+}
+
+/**
  * How a draft's declared capabilities grow the current head's. A head that
  * predates the capabilities snapshot reports every declaration as an addition.
  */
@@ -843,8 +878,8 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
-    /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
-    connectors_added: CanvasConnectorDeclarationApi[]
+    /** Connector providers and tools the draft newly declares it may call via ph.connectors. write_tools lists the ones that can change data. */
+    connectors_added: CanvasConnectorGrantApi[]
 }
 
 /**
@@ -1776,12 +1811,14 @@ export interface CanvasActionsResponseApi {
 /**
  * * `native` - Native
  * * `mcp` - Mcp
+ * * `posthog` - Posthog
  */
 export type ConnectorKindEnumApi = (typeof ConnectorKindEnumApi)[keyof typeof ConnectorKindEnumApi]
 
 export const ConnectorKindEnumApi = {
     Native: 'native',
     Mcp: 'mcp',
+    Posthog: 'posthog',
 } as const
 
 /**
@@ -1797,7 +1834,7 @@ export interface CanvasConnectorToolApi {
     name: string
     /** One line naming what the tool reads. */
     summary: string
-    /** True when the tool only reads. Canvases may call read-only tools. */
+    /** True when the tool only reads. On 'posthog', a canvas may also call tools that write, and the viewer confirms each such call. Other providers allow read-only tools only. */
     is_read_only: boolean
     /** JSON Schema of the tool's arguments object. */
     input_schema: CanvasConnectorToolApiInputSchema
@@ -1809,14 +1846,15 @@ export interface CanvasConnectorToolApi {
  * One connector provider, with the caller's connection state and the tools it exposes.
  */
 export interface CanvasConnectorApi {
-    /** Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'. */
+    /** Provider id to declare and call, e.g. 'github', 'posthog', or 'mcp:mcp.calendly.com'. */
     provider: string
     /** Display name of the provider. */
     display_name: string
-    /** 'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.
+    /** 'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation; 'posthog' runs PostHog's own MCP tools with the viewer's PostHog permissions.
      *
      * * `native` - Native
-     * * `mcp` - Mcp */
+     * * `mcp` - Mcp
+     * * `posthog` - Posthog */
     kind: ConnectorKindEnumApi
     /**
      * True when the caller has a usable connection. Null in the static catalog returned to sandbox authors.
@@ -2063,4 +2101,8 @@ export type CanvasesConnectorsRetrieveParams = {
      * Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store.
      */
     mcp_hosts?: string
+    /**
+     * Comma-separated PostHog MCP tool names to describe in full (e.g. 'feature-flag-get-definition'). Without it, the 'posthog' provider lists every tool with a one-line summary.
+     */
+    posthog_tools?: string
 }

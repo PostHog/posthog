@@ -51,3 +51,24 @@ export const StartTask: Story = {
         await screen.findByRole('dialog', { name: 'Let this canvas make this change?' })
     },
 }
+
+export const ChangePostHogData: Story = {
+    play: async () => {
+        await waitFor(() => {
+            if (!canvasHostLogic.findMounted(props)) {
+                throw new Error('Canvas host is not mounted yet')
+            }
+        })
+        canvasHostLogic(props).actions.enqueuePrompt({
+            kind: 'posthog-write',
+            id: 'example-posthog-write',
+            request: {
+                tool: 'feature-flag-set-release-condition-rollout',
+                title: 'Set feature flag release condition rollout',
+                destructive: false,
+                arguments: { id: 42, condition_index: 0, rollout_percentage: 50, version: 7 },
+            },
+        })
+        await screen.findByRole('dialog', { name: 'Let this canvas change data in PostHog?' })
+    },
+}

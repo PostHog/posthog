@@ -50,24 +50,41 @@ class TestWebMCPTokenIssuer(BaseTest):
 
     @parameterized.expand(
         [
-            ("other_team", "other_team", timedelta(hours=1), None),
-            ("near_expiry", "same_team", timedelta(minutes=5), None),
-            ("impersonated", "same_team", timedelta(hours=1), "impersonator"),
+            ("other_team", "other_team", timedelta(hours=1), None, "insight:read insight:write", None),
+            ("near_expiry", "same_team", timedelta(minutes=5), None, "insight:read insight:write", None),
+            ("impersonated", "same_team", timedelta(hours=1), "impersonator", "insight:read insight:write", None),
+            ("narrower_token_for_full_ceiling", "same_team", timedelta(hours=1), None, "insight:read", None),
+            (
+                "wider_token_for_narrow_scopes",
+                "same_team",
+                timedelta(hours=1),
+                None,
+                "insight:read insight:write",
+                ["insight:read"],
+            ),
         ]
     )
-    def test_does_not_reuse_token(self, _name: str, team: str, expires_in: timedelta, impersonator: str | None) -> None:
+    def test_does_not_reuse_token(
+        self,
+        _name: str,
+        team: str,
+        expires_in: timedelta,
+        impersonator: str | None,
+        existing_scope: str,
+        requested_scopes: list[str] | None,
+    ) -> None:
         other_team = Team.objects.create(organization=self.organization)
         existing = OAuthAccessToken.objects.create(
             user=self.user,
             application=self.app,
             token="pha_existing_webmcp_token",
             expires=timezone.now() + expires_in,
-            scope="insight:read",
+            scope=existing_scope,
             scoped_teams=[other_team.id if team == "other_team" else self.team.id],
             impersonated_by=User.objects.create(email="staff@example.com") if impersonator else None,
         )
 
-        minted = self.issuer.get_or_mint(self.user, self.team.id)
+        minted = self.issuer.get_or_mint(self.user, self.team.id, scopes=requested_scopes)
 
         assert minted != existing.token
         assert OAuthAccessToken.objects.get(token=minted).scoped_teams == [self.team.id]

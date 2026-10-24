@@ -6,7 +6,7 @@ dependencies, size limits, runtime safety, declared capabilities) and presents
 pre-relational single-file canvases as a synthetic project until their next
 real publish.
 
-Everything here is pure — no I/O beyond the contract manifest, no ORM — so it
+Everything here is pure — no I/O beyond the contract manifest and the committed MCP tool catalogue, no ORM — so it
 can be exercised without a database and shared with the build worker.
 """
 
@@ -21,8 +21,10 @@ from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.connectors import (
     MCP_PROVIDER_PREFIX,
     NATIVE_CONNECTORS,
+    POSTHOG_PROVIDER,
     is_known_provider,
     mcp_provider_host,
+    posthog_tool_declaration_errors,
     unregistered_native_tools,
 )
 from products.canvas.backend.contract import (
@@ -358,7 +360,7 @@ def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
 
 
 def _validate_connector_declarations(declared: Any) -> list[dict[str, Any]]:
-    """Check capabilities.connectors: known providers, registered native tools, public MCP hosts."""
+    """Check capabilities.connectors: known providers, registered native and PostHog tools, public MCP hosts."""
     diagnostics: list[dict[str, Any]] = []
     if not isinstance(declared, list):
         return [diagnostic("error", "invalid_connector_declaration", "capabilities.connectors must be a list")]
@@ -381,6 +383,7 @@ def _validate_connector_declarations(declared: Any) -> list[dict[str, Any]]:
                     "connector_provider_unknown",
                     f'capabilities.connectors names unknown provider "{provider}" — use one of '
                     + ", ".join(sorted(NATIVE_CONNECTORS))
+                    + f', "{POSTHOG_PROVIDER}" for PostHog\'s own MCP tools'
                     + f', or "{MCP_PROVIDER_PREFIX}<server host>" for an MCP store server',
                 )
             )
@@ -394,6 +397,18 @@ def _validate_connector_declarations(declared: Any) -> list[dict[str, Any]]:
                     f'connector provider "{provider}" must name a public server host, e.g. "mcp:mcp.example.com"',
                 )
             )
+            continue
+        if provider == POSTHOG_PROVIDER:
+            errors = posthog_tool_declaration_errors([tool for tool in tools if isinstance(tool, str)])
+            if errors:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "connector_tool_not_registered",
+                        f"capabilities.connectors declares PostHog tools a canvas cannot call: {'; '.join(errors)} — "
+                        "list callable tools with canvas-connectors-retrieve",
+                    )
+                )
             continue
         unregistered = unregistered_native_tools(provider, [tool for tool in tools if isinstance(tool, str)])
         if unregistered:

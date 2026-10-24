@@ -105,7 +105,7 @@ export type CanvasConnectorCallStatus =
 
 export interface CanvasConnectorCallResult {
     status: CanvasConnectorCallStatus
-    /** The tool output when status is "ok"; MCP tools return { content, structured_content, is_error }. */
+    /** The tool output when status is "ok"; MCP and "posthog" tools return { content, structured_content, is_error }. */
     result: Record<string, unknown> | null
     /** Human-readable explanation for a non-ok status. */
     detail: string
@@ -122,10 +122,12 @@ export interface CanvasConnectorCallOptions {
 
 export interface CanvasConnectors {
     /**
-     * Read live third-party data with the viewer's own connection. `provider` is
-     * "github" or "mcp:<server host>"; declare every provider and tool in
-     * `capabilities.connectors`. Never rejects for a missing connection: check
-     * `status` and offer `connect(provider)`.
+     * Read live data with the viewer's own connection. `provider` is "github",
+     * "mcp:<server host>", or "posthog" for PostHog's own MCP tools; declare every
+     * provider and tool in `capabilities.connectors`. Never rejects for a missing
+     * connection: check `status` and offer `connect(provider)`. A "posthog" tool that
+     * writes needs a click and the viewer's confirmation, and rejects when the viewer
+     * cancels.
      */
     call(
         provider: string,
