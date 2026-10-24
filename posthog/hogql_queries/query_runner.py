@@ -194,9 +194,12 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    EVENTS_ROUTE_MODIFIER_KEYS,
     events_route_cache_modifiers,
+    events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
+    native_events_async_enabled,
     new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
@@ -389,15 +392,18 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
-# Modes that never enqueue an async calculation. The async worker does not keep the native cluster
-# route, so a native cluster query must not run in any other mode.
-NATIVE_EVENTS_CLUSTER_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
     {
         ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     }
 )
+
+
+def native_route_can_run(execution_mode: ExecutionMode) -> bool:
+    return execution_mode in NEVER_ENQUEUED_EXECUTION_MODES or native_events_async_enabled()
+
 
 NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
     HogQLQuery,
@@ -423,7 +429,8 @@ NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
 )
 
 NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR = (
-    "Native cluster comparisons require synchronous execution. Use refresh=blocking or force_blocking with async=false."
+    "Native cluster comparisons require synchronous execution until async support is enabled. "
+    "Use refresh=blocking or force_blocking with async=false."
 )
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
@@ -1994,7 +2001,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
-        self._modifiers_override_provided = modifiers is not None
+        self._modifiers_override = modifiers
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -2011,6 +2018,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(query, self.query_type)
 
         _modifiers = modifiers or extract_modifiers(query)
+        self._explicit_events_route = events_route_is_explicit(None, _modifiers)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         if self.modifiers.useNewEventsSchema is None:
             self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
@@ -2047,6 +2055,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
         for child in self._child_runners():
             child.set_user(self.user)
+
+    @property
+    def _modifiers_override_provided(self) -> bool:
+        return self._modifiers_override is not None
+
+    def _should_pin_events_route(self) -> bool:
+        """The worker must rebuild the request's resolved events route and cache payload.
+
+        A legacy query with no route choice stays unpinned, so its payload stays identical to what workers
+        without native routing expect.
+        """
+        return self._reads_events_route() and bool(self.modifiers.useNewEventsSchema or self._explicit_events_route)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2168,12 +2188,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
-    def _query_json_with_events_schema(self) -> dict[str, Any]:
+    def _override_affects_events_route(self) -> bool:
+        if self._modifiers_override is None:
+            return False
+        if self._modifiers_override.model_fields_set & set(EVENTS_ROUTE_MODIFIER_KEYS):
+            return True
+        query_modifiers = query_node_modifiers(self.query)
+        return query_modifiers is not None and any(
+            getattr(query_modifiers, key) is not None for key in EVENTS_ROUTE_MODIFIER_KEYS
+        )
+
+    def _async_task_payload(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
         query_json = self.query.model_dump()
-        # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
-        if self.modifiers.useNewEventsSchema and self._reads_events_route():
-            return with_pinned_events_route(query_json, self.modifiers)
-        return query_json
+        if not self._override_affects_events_route():
+            if self._should_pin_events_route():
+                query_json = with_pinned_events_route(query_json, self.modifiers)
+            return query_json, None
+        # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
+        source: dict[str, Any] | None = query_json
+        while isinstance(source, dict):
+            if "modifiers" in source:
+                source["modifiers"] = self.modifiers.model_dump()
+            source = source.get("source")
+        return query_json, {"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
 
     def enqueue_async_calculation(
         self,
@@ -2183,8 +2220,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
-        query_modifiers = query_node_modifiers(self.query)
-        if self.modifiers.useNewEventsCluster or (query_modifiers and query_modifiers.useNewEventsCluster):
+        if self.modifiers.useNewEventsCluster and not native_route_can_run(ExecutionMode.CALCULATE_ASYNC_ALWAYS):
             raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         posthoganalytics.capture(
@@ -2207,14 +2243,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
-
+        query_json, runner_state = self._async_task_payload()
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self._query_json_with_events_schema(),
+            query_json=query_json,
+            runner_state=runner_state,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
@@ -2496,7 +2533,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if self.modifiers.useNewEventsCluster:
             if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
                 raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
-            if execution_mode not in NATIVE_EVENTS_CLUSTER_EXECUTION_MODES:
+            if not native_route_can_run(execution_mode):
                 raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         # Set user for access control during query execution. Some subclasses

@@ -5,10 +5,14 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+import structlog
+
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+logger = structlog.get_logger(__name__)
 
 
 # TODO: Remove the per-query rollout option, and the route helpers in this block, after the events cluster
@@ -99,6 +103,25 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         _query_host.reset(token)
 
 
+def events_route_is_explicit(team_modifiers: dict[str, Any] | None, modifiers: "HogQLQueryModifiers | None") -> bool:
+    """Whether the query or its project chose the events route, instead of leaving it to the rollout settings.
+
+    A project's stored modifiers can choose the events table, but never the cluster.
+    """
+    if modifiers is not None and any(getattr(modifiers, key) is not None for key in EVENTS_ROUTE_MODIFIER_KEYS):
+        return True
+    return isinstance(team_modifiers, dict) and team_modifiers.get("useNewEventsSchema") is not None
+
+
+def get_new_events_cluster_host_or_none() -> str | None:
+    """The native events host, or None when it is not set or its setting cannot be read."""
+    try:
+        return get_new_events_cluster_host()
+    except Exception:
+        logger.exception("Failed to resolve the native events cluster host")
+        return None
+
+
 def get_events_route() -> "HogQLQueryModifiers | None":
     """The events cluster and table of the query run in progress, or None outside a query run."""
     return _query_route.get()
@@ -125,12 +148,22 @@ def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers 
 
     if modifiers is None or not modifiers.useNewEventsCluster:
         return False
+    if reason := native_events_cluster_ineligibility(team_id):
+        raise ExposedHogQLError(reason)
+    return True
+
+
+def native_events_async_enabled() -> bool:
+    return get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_ASYNC") is True
+
+
+def native_events_cluster_ineligibility(team_id: int | None) -> str | None:
     if not get_new_events_cluster_host():
-        raise ExposedHogQLError("The native events cluster host is not configured.")
+        return "The native events cluster host is not configured."
     allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_TEAMS")
     if not isinstance(allowed, list) or any(type(value) is not int for value in allowed) or team_id not in allowed:
-        raise ExposedHogQLError("This project is not enabled for native events cluster queries.")
-    return True
+        return "This project is not enabled for native events cluster queries."
+    return None
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:

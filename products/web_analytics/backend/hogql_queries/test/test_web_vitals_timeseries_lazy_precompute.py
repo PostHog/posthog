@@ -27,8 +27,6 @@ from posthog.schema import (
     WebVitalsQuery,
 )
 
-from posthog.hogql.errors import ExposedHogQLError
-
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries
@@ -79,26 +77,25 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 
 
 class TestVitalsTimeseriesGate(APIBaseTest):
-    @parameterized.expand([(None,), (False,)])
+    @parameterized.expand([(False,), (None,)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_async_guard_follows_the_wrapper_choice_over_a_native_source(self, wrapper: bool | None) -> None:
+    def test_async_native_source_preserves_constructor_override(self, override: bool | None) -> None:
         query = _vitals_query(
-            modifiers=HogQLQueryModifiers(useNewEventsCluster=wrapper) if wrapper is not None else None,
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=False),
             source_overrides={"modifiers": HogQLQueryModifiers(useNewEventsCluster=True)},
         )
+        original_payload = query.model_dump()
         runner = WebVitalsQueryRunner(
-            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=False)
+            query=query, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsCluster=override)
         )
         original = runner.query
         with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
-            if wrapper is None:
-                with self.assertRaisesRegex(ExposedHogQLError, "synchronous execution"):
-                    runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
-                enqueue.assert_not_called()
-            else:
-                runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
-                enqueue.assert_called_once()
+            runner.enqueue_async_calculation(cache_manager=MagicMock(), user=self.user)
         self.assertIs(runner.query, original)
+        worker = WebVitalsQueryRunner(query=enqueue.call_args.kwargs["query_json"], team=self.team)
+        self.assertIs(worker.modifiers.useNewEventsCluster, override)
+        self.assertIs(worker.modifiers.useNewEventsSchema, False)
+        self.assertEqual(query.model_dump(), original_payload)
 
     @parameterized.expand([(path, outer) for path in ("runner", "source_fallback") for outer in (False, True)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)

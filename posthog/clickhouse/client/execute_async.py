@@ -1,6 +1,6 @@
 import uuid
 import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import orjson as json
 import structlog
@@ -9,7 +9,7 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
-from posthog.schema import ClickhouseQueryProgress, QueryScanSummary, QueryStatus
+from posthog.schema import ClickhouseQueryProgress, HogQLQueryModifiers, QueryScanSummary, QueryStatus
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+_RUNNER_STATE_TAG = "_async_query_runner"
 
 CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
 
@@ -217,6 +219,21 @@ def _query_scan_from_error(err: Exception) -> Optional[QueryScanSummary]:
         return None
 
 
+def pack_runner_state(query_tags: dict[str, Any], runner_state: Optional[dict]) -> dict[str, Any]:
+    if runner_state is None:
+        return query_tags
+    # Existing workers accept arbitrary query tags but reject new task kwargs and query-schema fields.
+    return {**query_tags, "query": {_RUNNER_STATE_TAG: runner_state}}
+
+
+def unpack_runner_state(query_tags: dict[str, Any], query_json: dict) -> tuple[dict[str, Any], Optional[dict]]:
+    queued_query = query_tags.get("query")
+    runner_state = queued_query.get(_RUNNER_STATE_TAG) if isinstance(queued_query, dict) else None
+    if runner_state is None:
+        return query_tags, None
+    return {**query_tags, "query": query_json}, runner_state
+
+
 def execute_process_query(
     team_id: int,
     user_id: Optional[int],
@@ -226,6 +243,7 @@ def execute_process_query(
     is_query_service: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    runner_state: Optional[dict] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -275,9 +293,14 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
+        modifiers = None
+        if runner_state is not None:
+            modifiers = HogQLQueryModifiers.model_validate(runner_state["modifiers"])
+            query_json = runner_state["query"]
         results = process_query_dict(
             team=team,
             query_json=query_json,
+            modifiers=modifiers,
             limit_context=limit_context,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             query_id=query_id,
@@ -377,6 +400,7 @@ def enqueue_process_query_task(
     is_posthog_ai: bool = False,
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
+    runner_state: Optional[dict] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -433,7 +457,7 @@ def enqueue_process_query_task(
         dashboard_id=dashboard_id,
         labels=labels,
     )
-    query_tags = get_query_tags().model_dump()
+    query_tags = pack_runner_state(get_query_tags().model_dump(), runner_state)
     manager.store_query_status(query_status)
 
     if cache_key:

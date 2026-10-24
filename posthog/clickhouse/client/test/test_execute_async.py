@@ -429,7 +429,20 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     @snapshot_clickhouse_queries
     def test_async_query_client(self):
         query = build_query("SELECT 1+1")
-        query_id = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True).id
+        unpacked: list[tuple[dict, dict | None]] = []
+        unpack = client.unpack_runner_state
+
+        def record(query_tags: dict, query_json: dict) -> tuple[dict, dict | None]:
+            unpacked.append(unpack(query_tags, query_json))
+            return unpacked[-1]
+
+        with patch("posthog.clickhouse.client.execute_async.unpack_runner_state", side_effect=record):
+            query_id = client.enqueue_process_query_task(
+                self.team, self.user.id, query, _test_only_bypass_celery=True
+            ).id
+        [(query_tags, runner_state)] = unpacked
+        self.assertIsNone(runner_state)
+        self.assertNotIn("_async_query_runner", query_tags.get("query") or {})
         result = client.get_query_status(self.team.id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
@@ -438,6 +451,19 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
+
+    def test_async_query_client_rebuilds_the_runner_from_its_state(self):
+        query = build_query("SELECT 1+1")
+        query["modifiers"] = {"sessionTableVersion": "v2"}
+        runner_state = {"query": query.copy(), "modifiers": {"sessionTableVersion": "v1"}}
+        query_id = client.enqueue_process_query_task(
+            self.team, self.user.id, query, runner_state=runner_state, _test_only_bypass_celery=True
+        ).id
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
+        assert result.results is not None
+        self.assertEqual(result.results["results"], [[2]])
+        self.assertEqual(result.results["modifiers"]["sessionTableVersion"], "v1")
 
     def test_async_query_posthog_ai_limit(self):
         query = build_query("SELECT arrayJoin(range(1, 100001))")

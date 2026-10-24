@@ -23,6 +23,7 @@ from posthog.schema import (
     HogQLMetadataResponse,
     HogQLNotice,
     HogQLQuery,
+    HogQLQueryModifiers,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
@@ -352,6 +353,7 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters_json: Optional[dict] = ...,
     variables_override_json: Optional[dict] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -374,6 +376,7 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters_json: Optional[dict] = ...,
     variables_override_json: Optional[dict] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -395,6 +398,7 @@ def process_query_dict(
     team: Team,
     query_json: dict,
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters_json: Optional[dict] = None,
     variables_override_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
@@ -448,6 +452,7 @@ def process_query_dict(
     return process_query_model(
         team,
         model.root,
+        modifiers=modifiers,
         dashboard_filters=dashboard_filters,
         variables_override=variables_override,
         limit_context=limit_context,
@@ -540,6 +545,7 @@ def process_query_model(
     team: Team,
     query: BaseModel,
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters: Optional[DashboardFilter] = ...,
     variables_override: Optional[list[HogQLVariable]] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -562,6 +568,7 @@ def process_query_model(
     team: Team,
     query: BaseModel,
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters: Optional[DashboardFilter] = ...,
     variables_override: Optional[list[HogQLVariable]] = ...,
     limit_context: Optional[LimitContext] = ...,
@@ -583,6 +590,7 @@ def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
+    modifiers: Optional[HogQLQueryModifiers] = None,
     dashboard_filters: Optional[DashboardFilter] = None,
     variables_override: Optional[list[HogQLVariable]] = None,
     limit_context: Optional[LimitContext] = None,
@@ -670,7 +678,12 @@ def process_query_model(
         return process_database_schema_query(team, query, user=user)
 
     query_runner = get_query_runner_or_none(
-        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+        query,
+        team,
+        modifiers=modifiers,
+        limit_context=limit_context,
+        user=user,
+        user_access_control=user_access_control,
     )
     if query_runner is not None:  # Query runner available - it will handle execution as well as caching
         return _run_query_runner(
@@ -694,6 +707,7 @@ def process_query_model(
         return process_query_model(
             team,
             unwrapped_source(query, query.source),
+            modifiers=modifiers,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,

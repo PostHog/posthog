@@ -73,6 +73,8 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
+CLUSTER_PINNED_WORKLOADS = frozenset({Workload.LOGS, Workload.NEW_EVENTS_CLUSTER})
+
 # As of CH 22.8 - more algorithms have been added on newer versions
 CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
     "default",
@@ -446,16 +448,14 @@ def sync_execute(
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
     # synchronous counterpart would.
-    # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
-    # only place the logs tables exist, so overriding it would send the query to a cluster
-    # that cannot answer it.
+    # Cluster-pinned workloads must keep their host because their tables live outside the main cluster.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
-        if workload != Workload.LOGS:
+        if workload not in CLUSTER_PINNED_WORKLOADS:
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
+    if tags.workload == Workload.ENDPOINTS and workload not in CLUSTER_PINNED_WORKLOADS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:

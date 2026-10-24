@@ -475,7 +475,9 @@ def process_query_task(
     Once complete save results to redis
     """
     from posthog.clickhouse.client import execute_process_query
+    from posthog.clickhouse.client.execute_async import unpack_runner_state
 
+    query_tags, runner_state = unpack_runner_state(query_tags, query_json)
     existing_query_tags = get_query_tags()
     all_query_tags = {**query_tags, **existing_query_tags.model_dump(exclude_unset=True)}
     tag_queries(**all_query_tags)
@@ -493,6 +495,7 @@ def process_query_task(
             is_query_service=is_query_service,
             analytics_props=analytics_props,
             sharing_configuration_id=sharing_configuration_id,
+            runner_state=runner_state,
         )
     except ClickHouseAtCapacity as exc:
         # A remote capacity failure can arrive after other shards have done expensive work.
