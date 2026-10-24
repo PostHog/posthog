@@ -38,6 +38,10 @@ The same notes appear in the PostHog app on the imported workflow, and `workflow
 
 Customer.io segments do not import. An automation triggered by a segment imports with an empty trigger and a `needs_input` note. If the user already has a PostHog cohort that matches a segment, pass `segment_cohorts: {"<segment id>": <cohort id>}` and the import uses it for that segment's triggers and conditions. A cohort trigger needs a realtime cohort.
 
+## Push notifications
+
+Push steps import as `unsupported` notes, and device tokens never move with the import. If the user sends push from Customer.io, tell them that a device reaches PostHog only when its app registers it with the PostHog SDK, or when they import their exported device tokens into a PostHog push channel. That token import is a separate step the user starts, because tokens are people data.
+
 ## Re-running
 
 Importing an automation again updates its draft in place, so you can re-run after fixing something in Customer.io. A workflow that someone already enabled is never changed: its result is `skipped`.
