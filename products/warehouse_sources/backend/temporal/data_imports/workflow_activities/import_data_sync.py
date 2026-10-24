@@ -26,7 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
@@ -291,6 +291,10 @@ if TYPE_CHECKING:
 # after the conversion shipped, the swap costs ~3s a run against a listing of ~0.5s per 100-row
 # page, putting break-even near 700 rows. This floor sits above it with margin.
 MIN_WAREHOUSE_PARENT_ROWS = 1_000
+
+# The longest server-provided delay that the next import attempt waits for. Anthropic's Claude Code
+# report asks for about an hour. The cap stops a wrong header from pushing a run back by days.
+MAX_SERVER_RETRY_DELAY = dt.timedelta(hours=2)
 
 
 def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
@@ -1127,6 +1131,14 @@ async def _handle_import_error(
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        if error.retry_after:
+            # The server said when a retry can succeed. Temporal waits that long before the next
+            # attempt, so a rate limit window longer than the client's wait limit holds no worker.
+            raise NonReportableApplicationError(
+                error_msg,
+                type=RESTClientRetryableError.__name__,
+                next_retry_delay=min(dt.timedelta(seconds=error.retry_after), MAX_SERVER_RETRY_DELAY),
+            ) from error
         raise error
 
     # The web pods and the data-import workers deploy separately, so a table that ships in one
