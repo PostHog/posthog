@@ -1,4 +1,5 @@
 from datetime import timedelta
+from email import message_from_bytes
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -2077,6 +2078,20 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_renders_markdown_without_rich_content(self, mock_send_mime: MagicMock):
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        self._run_reply(ticket, content="See [the docs](https://example.com/docs).\nSecond line\n\nNew paragraph")
+
+        message = message_from_bytes(mock_send_mime.call_args.args[1])
+        html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
+        html = html_part.get_payload(decode=True).decode()
+        assert '<a href="https://example.com/docs"' in html and ">the docs</a>" in html
+        assert "<br" in html
+        assert html.count("<p>") == 2
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):
