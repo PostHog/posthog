@@ -57,6 +57,24 @@ const activitySummaryVersionsList = (): ToolBase<
     },
 })
 
+const InboxRankingHeadsListSchema = () => z.object({})
+
+const inboxRankingHeadsList = (): ToolBase<
+    ReturnType<typeof InboxRankingHeadsListSchema>,
+    Schemas.RankingHeadsResponse
+> => ({
+    name: 'inbox-ranking-heads-list',
+    schema: InboxRankingHeadsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRankingHeadsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RankingHeadsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/ranking_heads/`,
+        })
+        return result
+    },
+})
+
 const InboxReportActionsListSchema = () => {
     const SignalsReportsActionsListParams = orvalSchemas.SignalsReportsActionsListParams()
     return z.preprocess(
@@ -703,24 +721,6 @@ const inboxReportsMerge = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${params.id}`)
-    },
-})
-
-const InboxRankingHeadsListSchema = () => z.object({})
-
-const inboxRankingHeadsList = (): ToolBase<
-    ReturnType<typeof InboxRankingHeadsListSchema>,
-    Schemas.RankingHeadsResponse
-> => ({
-    name: 'inbox-ranking-heads-list',
-    schema: InboxRankingHeadsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRankingHeadsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.RankingHeadsResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/ranking_heads/`,
-        })
-        return result
     },
 })
 
@@ -3343,6 +3343,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
     'activity-summary-versions-list': activitySummaryVersionsList,
+    'inbox-ranking-heads-list': inboxRankingHeadsList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,
@@ -3361,7 +3362,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
-    'inbox-ranking-heads-list': inboxRankingHeadsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
