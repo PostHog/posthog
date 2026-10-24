@@ -803,6 +803,12 @@
             "label": "Anomaly scoring profile",
             "type": "String"
         },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fetched the full history of the series, and `score` scored the bucket on stored history. Empty when scoring fetches the full history on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
+            "type": "String"
+        },
         "$anomaly_score": {
             "description": "Score from 0 to 1. It ranks buckets within one series only, so never compare or average it across series. Empty while the series warms up.",
             "label": "Anomaly score",
@@ -4743,6 +4749,12 @@
             "description": "Name of the scoring profile that produced the score.",
             "examples": ["default-v1"],
             "label": "Anomaly scoring profile",
+            "type": "String"
+        },
+        "$anomaly_run": {
+            "description": "How the bucket was scored. `train` fetched the full history of the series, and `score` scored the bucket on stored history. Empty when scoring fetches the full history on every run.",
+            "examples": ["train", "score"],
+            "label": "Anomaly scoring run",
             "type": "String"
         },
         "$anomaly_score": {
