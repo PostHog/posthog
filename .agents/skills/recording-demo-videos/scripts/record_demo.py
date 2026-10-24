@@ -18,9 +18,12 @@ import base64
 import shutil
 import asyncio
 import hashlib
+import argparse
+import platform
 import tempfile
 import subprocess
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +71,8 @@ STICKER_POSITIONS = {
     "top-right": "right:56px;top:96px",
     "top-left": "left:56px;top:96px",
 }
+STATIC_FFMPEG_URL = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-{arch}-static.tar.xz"
+STATIC_FFMPEG_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
 FALLBACK_COLORS = {
     "cobalt": "#0457FF",
     "tangerine": "#FF5C1C",
@@ -341,17 +346,20 @@ class Voiceover:
     so recording again with the same script costs no credits.
     """
 
-    def __init__(self, config: dict[str, Any], lines: dict[str, str], workdir: Path) -> None:
+    def __init__(self, config: dict[str, Any], lines: dict[str, str]) -> None:
         self.config = {**DEFAULT_VOICEOVER, **config}
         self.lines = {key: text for key, text in lines.items() if text.strip()}
         self.clips: dict[str, tuple[Path, float]] = {}
-        if self.lines:
-            self._prepare(workdir)
 
-    def _prepare(self, workdir: Path) -> None:
+    @property
+    def script(self) -> str:
+        return "\n\n".join(self.lines.values())
+
+    def cut(self, workdir: Path) -> None:
+        if not self.lines:
+            return
         keys = list(self.lines)
-        text = "\n\n".join(self.lines[key] for key in keys)
-        mp3, alignment = self._take(text)
+        mp3, alignment = self.take()
         chars = alignment["characters"]
         starts, ends = alignment["character_start_times_seconds"], alignment["character_end_times_seconds"]
         spoken = "".join(chars)
@@ -382,7 +390,8 @@ class Voiceover:
             )
             self.clips[key] = (clip, finish - begin)
 
-    def _take(self, text: str) -> tuple[Path, dict[str, Any]]:
+    def take(self) -> tuple[Path, dict[str, Any]]:
+        text = self.script
         key = hashlib.sha256(json.dumps([text, self.config], sort_keys=True).encode()).hexdigest()[:20]
         mp3, timing = VOICE_CACHE / f"{key}.mp3", VOICE_CACHE / f"{key}.json"
         if mp3.exists() and timing.exists():
@@ -419,9 +428,29 @@ def spoken_lines(storyboard: dict[str, Any], variables: "Vars") -> dict[str, str
     return {key: variables.shown(text) for key, text in lines.items()}
 
 
+@dataclass(frozen=True)
+class Resume:
+    """Where a take starts: the page to load first, if the first step has none, then the steps to run."""
+
+    page: dict[str, Any] | None
+    steps: list[tuple[int, dict[str, Any]]]
+
+
+def resume_plan(steps: list[dict[str, Any]], from_step: int) -> Resume:
+    if not 0 <= from_step < len(steps):
+        raise SystemExit(f"--from-step {from_step} is out of range. The storyboard has {len(steps)} steps, from 0.")
+    page = None
+    if from_step and "goto" not in steps[from_step]:
+        earlier = [step for step in steps[:from_step] if "goto" in step]
+        if earlier:
+            page = {key: earlier[-1][key] for key in ("goto", "wait_for") if key in earlier[-1]}
+    return Resume(page, list(enumerate(steps))[from_step:])
+
+
 class Recorder:
-    def __init__(self, storyboard: dict[str, Any], brand: Brand, variables: Vars) -> None:
+    def __init__(self, storyboard: dict[str, Any], brand: Brand, variables: Vars, resume: Resume) -> None:
         self.sb = storyboard
+        self.resume = resume
         self.brand = brand
         self.vars = variables
         self.base_url = storyboard.get("base_url", "http://localhost:8010").rstrip("/")
@@ -713,7 +742,8 @@ class Recorder:
         video_dir = Path(tempfile.mkdtemp(prefix="demo-video-"))
         log: dict[str, Any] = {"output": str(output)}
         if "voiceover" in self.sb:
-            self.voice = Voiceover(self.sb["voiceover"], spoken_lines(self.sb, self.vars), video_dir)
+            self.voice = Voiceover(self.sb["voiceover"], spoken_lines(self.sb, self.vars))
+            self.voice.cut(video_dir)
         if any("sticker" in step for step in self.sb["steps"]):
             self.pop = pop_sound(video_dir)
         async with async_playwright() as p:
@@ -740,9 +770,12 @@ class Recorder:
             page = await context.new_page()
             self.t0 = time.monotonic()
             try:
-                if "title" in self.sb:
+                if "title" in self.sb and self.resume.steps[0][0] == 0:
                     await self.card(page, self.sb["title"], "title")
-                for index, step in enumerate(self.sb["steps"]):
+                if self.resume.page:
+                    await self.waited(self.load(page, self.resume.page), keep=0)
+                    await self.restore_cursor(page)
+                for index, step in self.resume.steps:
                     log["step"] = index
                     await self.step(page, step, f"step{index}")
                 await self.caption(page, "")
@@ -875,6 +908,7 @@ def encode(
     )  # fmt: skip
     if not sounds and music is None:
         return
+    length = duration_of(silent)
     inputs: list[str] = []
     chains: list[str] = []
     for index, (at, path) in enumerate(sounds, start=1):
@@ -885,7 +919,6 @@ def encode(
         mix = "".join(f"[s{i}]" for i in range(1, len(sounds) + 1))
         chains.append(f"{mix}amix=inputs={len(sounds)}:normalize=0:dropout_transition=0[front]")
     if music is not None:
-        length = duration_of(silent)
         inputs += ["-stream_loop", "-1", "-i", str(music_track(music, length, base))]
         volume = music.get("volume", DEFAULT_MUSIC_VOLUME)
         fade_out = max(length - 2.5, 0)
@@ -903,14 +936,14 @@ def encode(
     else:
         chains.append("[front]anull[mixed]")
     # -16 LUFS, the usual level for web video, so it plays as loud as other videos in Slack or Loom.
-    # apad keeps the audio running to the end of the video, so -shortest never cuts the video short.
-    chains.append("[mixed]loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]")
+    # The audio is padded and trimmed to the video's length. An unbounded apad with -shortest hangs some ffmpeg builds.
+    chains.append(f"[mixed]loudnorm=I=-16:TP=-1.5:LRA=11,apad=whole_dur={length:.3f},atrim=0:{length:.3f}[aout]")
     graph = ";".join(chains)
     subprocess.run(
         [
             "ffmpeg", "-y", "-loglevel", "error", "-i", str(silent), *inputs,
             "-filter_complex", graph, "-map", "0:v", "-map", "[aout]",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", str(output),
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(output),
         ],
         check=True,
     )  # fmt: skip
@@ -953,25 +986,75 @@ def without_elevenlabs(storyboard: dict[str, Any]) -> tuple[dict[str, Any], list
     return {name: value for name, value in storyboard.items() if name not in skipped}, skipped
 
 
-def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit(__doc__)
-    if not shutil.which("ffmpeg"):
-        raise SystemExit("ffmpeg is missing. Install it first (apt-get install -y ffmpeg, or brew install ffmpeg).")
-    storyboard_path = Path(sys.argv[1]).resolve()
+def static_ffmpeg_url(machine: str) -> str | None:
+    arch = STATIC_FFMPEG_ARCH.get(machine.lower())
+    return STATIC_FFMPEG_URL.format(arch=arch) if arch else None
+
+
+def ffmpeg_missing() -> str:
+    machine = platform.machine()
+    url = static_ffmpeg_url(machine)
+    static = f"Without a package manager, fetch the {machine} static build: {url}" if url else ""
+    return f"ffmpeg is missing. Install it first (apt-get install -y ffmpeg, or brew install ffmpeg). {static}".strip()
+
+
+def run_preflight(command: str, values: dict[str, str]) -> None:
+    """The storyboard's own check that the seeded data is still there, before the take records anything."""
+    result = subprocess.run(command, shell=True, env=values, capture_output=True, text=True)
+    if result.returncode != 0:
+        output = (result.stdout + result.stderr).strip()[-2000:]
+        raise SystemExit(f"Preflight failed with exit code {result.returncode}: {command}\n{output}")
+
+
+def write_voice_only(storyboard: dict[str, Any], variables: Vars, output: Path) -> None:
+    if "voiceover" not in storyboard:
+        raise SystemExit("--voice-only needs a voiceover in the storyboard.")
+    mp3, _ = Voiceover(storyboard["voiceover"], spoken_lines(storyboard, variables)).take()
+    shutil.copy(mp3, output.with_suffix(".voice.mp3"))
+    sys.stdout.write(f"{output.with_suffix('.voice.mp3')}\n")
+
+
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("storyboard", type=Path)
+    parser.add_argument(
+        "--from-step",
+        type=int,
+        default=0,
+        help="Start the take at this step, from 0, and write <output>.from-N.mp4. For fixing a late step.",
+    )
+    parser.add_argument(
+        "--voice-only", action="store_true", help="Write the narration to <output>.voice.mp3, without recording."
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    storyboard_path = args.storyboard.resolve()
     storyboard = json.loads(storyboard_path.read_text())
+    output = (storyboard_path.parent / storyboard.get("output", "demo.mp4")).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    values = {**os.environ, **{name: str(value) for name, value in storyboard.get("vars", {}).items()}}
+    variables = Vars(values, storyboard.get("secrets", []))
+    if args.voice_only:
+        write_voice_only(storyboard, variables, output)
+        return
+    if not shutil.which("ffmpeg"):
+        raise SystemExit(ffmpeg_missing())
+    resume = resume_plan(storyboard["steps"], args.from_step)
+    if args.from_step:
+        output = output.with_name(f"{output.stem}.from-{args.from_step}{output.suffix}")
+    if "preflight" in storyboard:
+        run_preflight(storyboard["preflight"], values)
     skipped: list[str] = []
     if not os.environ.get("ELEVENLABS_API_KEY"):
         storyboard, skipped = without_elevenlabs(storyboard)
     repo_root = Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     )
-    output = (storyboard_path.parent / storyboard.get("output", "demo.mp4")).resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    values = {**os.environ, **storyboard.get("vars", {})}
-    variables = Vars(values, storyboard.get("secrets", []))
     brand = Brand(repo_root)
-    recorder = Recorder(storyboard, brand, variables)
+    recorder = Recorder(storyboard, brand, variables, resume)
     recorder.base = storyboard_path.parent
     log = asyncio.run(recorder.run(output))
     if skipped:

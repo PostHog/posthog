@@ -1,7 +1,7 @@
 # Seeding, resetting and checking the demo
 
 A demo needs data the flow can act on, the same starting point for every take, and proof that the flow works before the camera rolls.
-Write three small scripts for each demo: seed, reset, and check.
+Write four small scripts for each demo: seed, reset, check, and preflight.
 Keep them outside the repo, for example in a `demo/` folder next to the storyboard.
 
 ## What the flow needs
@@ -79,6 +79,25 @@ A failure is faster to find in a terminal than in a video.
 - Open each page the storyboard visits, and check that the content each `wait_for` waits on appears.
 
 When the recorder fails on a step, the log names it and `<output>.error.png` shows the screen. Fix the step, reset, and record again.
+
+## Preflight
+
+Data can go away between takes: a sandbox restarts, or a cleanup job deletes demo objects.
+A take that finds out at its last step has spent the whole take.
+The preflight asserts the seeded state in seconds, and the storyboard runs it before every take:
+
+```json
+{ "preflight": "DEBUG=1 python manage.py shell < demo/preflight.py" }
+```
+
+Assert each thing the storyboard depends on, and exit with a line that names what is missing, such as `sys.exit(f"template {template_id} is gone")`:
+
+- every object the storyboard names by `${NAME}`, by its id
+- the gates: the flags and settings the flow needs
+- the processes the proof needs, such as the workers and MailDev
+
+The command runs from where you run the recorder, with the storyboard's `vars` in its environment, so `${TEMPLATE}` in the storyboard is `os.environ["TEMPLATE"]` in the script.
+Keep it read-only. Seeding and resetting stay with their own scripts.
 
 ## Example
 

@@ -23,12 +23,21 @@ A step can also zoom in on the button it clicks or on the detail it proves.
 A voiceover can read the captions, a music bed can sit under it, and a step can pop in a hedgehog sticker with a short sound.
 
 Use [qa-frontend](../qa-frontend/SKILL.md) instead for a reel: a short animated WebP of one interaction, made from stills, for a PR description.
-For a narrated or musical promo video, see [hogreel](references/branding.md#promo-videos).
 For a raw take with no captions or narration, frame-perfect at 60 fps, PostHog staff can use `recording-web-demos` from the team skills store (`skill-get` in the PostHog MCP). It steps the page clock frame by frame, so it never judders.
 
 ## Workflow
 
-### 1. Get the stack ready
+### 1. Settle the brief
+
+Settle three things with the developer before you record, render or write a storyboard:
+
+- **Promo or demo.** A demo shows the real app working, from the first click to the proof. A promo sells the feature: it leads with the payoff, rides on music and pace, and can leave the app behind. "A video for the launch" can mean either, so ask. This recorder makes demos. For a promo, start from [hogreel](references/branding.md#promo-videos).
+- **A style reference**: a file or a URL of a video the developer wants this one to feel like. Match its pace, tone and framing.
+- **Music**: yes or no, and the mood when yes.
+
+When the developer wants variants to choose from, make a **style board** for each one instead of a full video: two stills, about ten seconds of motion, and two voice lines. The developer picks from the boards, and only the winner gets a full render.
+
+### 2. Get the stack ready
 
 The stack must be up and serving the code you want to show.
 Start it with `hogli start -y -d` and `hogli wait`, or follow `/run-posthog`.
@@ -37,9 +46,10 @@ For example, workflow runs and email sends need the CDP workflow workers, which 
 [references/troubleshooting.md](references/troubleshooting.md) lists the ones that caught us.
 
 The recorder needs `ffmpeg` and the repo's Python environment, which has Playwright.
+Without `apt` or `brew`, fetch the static ffmpeg build the recorder's error names. It matches the machine's architecture.
 It reads the brand assets from `frontend/node_modules/@posthog/brand`, so run `pnpm install` first if that directory is missing.
 
-### 2. Seed the data the demo needs
+### 3. Seed the data the demo needs
 
 Record in a local demo workspace, never in a workspace with real data, because the video can end up in a public PR.
 `python manage.py setup_dev --no-data` creates one with the `test@posthog.com` user.
@@ -50,10 +60,11 @@ Use reserved domains (`example.com`) or a domain you control for addresses, and 
 Some flows validate a domain, for example the email sender refuses a domain without mail servers, so check what the flow accepts.
 
 Each take changes state: it creates objects, sends emails, and bumps versions.
-Write three small scripts for the demo: seed the starting state, reset it before every take, and check that the flow works once before the first take.
+Write small scripts for the demo: seed the starting state, reset it before every take, check that the flow works once before the first take, and a fast preflight that asserts the seeded data is still there.
+The storyboard's `preflight` runs that assert before every take, so a take with missing data stops before it records.
 [references/seeding.md](references/seeding.md) shows how to work out what the flow needs and how to write each script.
 
-### 3. Write the storyboard
+### 4. Write the storyboard
 
 A storyboard is a JSON file: optional title and end cards, then a list of steps.
 Each step can navigate, click, type, wait, show a caption, or show an HTTP request as a terminal card and send it.
@@ -88,7 +99,16 @@ Without the key, the recorder leaves out the voiceover and generated music and r
 The log lists what it left out under `skipped_without_elevenlabs_key`. Tell the developer, and point them to [references/troubleshooting.md](references/troubleshooting.md#elevenlabs-calls-fail) to set the key.
 Settle the captions in a silent take first, because every changed line costs credits.
 
-### 4. Record
+### 5. Get the cut approved
+
+Before the full take, send the developer a voice-only cut and three stills, and wait for a yes:
+
+- **Voice-only cut**: `--voice-only` writes the narration to `<output>.voice.mp3` without recording. Skip it when the video has no voiceover.
+- **Three stills**: the title card and two key beats, with their captions. Take them from a silent take of just those steps, cut down from the storyboard.
+
+Change the brief or the storyboard until the developer approves both. A style board is the same check for each variant.
+
+### 6. Record
 
 From the root of the checkout:
 
@@ -99,8 +119,10 @@ uv run python .agents/skills/recording-demo-videos/scripts/record_demo.py path/t
 The script logs in, loads every page once to warm the dev server, then records.
 It writes `<output>.mp4`, `<output>.sheet.png` and `<output>.log.json` next to the storyboard.
 When a step fails, it writes `<output>.error.png` and exits non-zero. The log names the step.
+To fix a late step, rehearse from it with `--from-step N`: the take starts at step N, on the page of the last `goto` before it, and writes `<output>.from-N.mp4`.
+When the step works, reset and record the whole take.
 
-### 5. Review, then record again
+### 7. Review, then record again
 
 Read the contact sheet before you share anything.
 Most first takes need another one. Look for:
@@ -114,7 +136,7 @@ Most first takes need another one. Look for:
 
 Reset the data, then record again. Read individual frames with ffmpeg when the sheet is too small to judge.
 
-### 6. Share
+### 8. Share
 
 In a PostHog Desktop or cloud task, upload the MP4 as a task artifact.
 For a PR, upload it with `hogli pr:upload-video` and paste the markdown it prints.
@@ -123,6 +145,6 @@ PR assets are public forever, so check the frames for private data before every 
 ## References
 
 - [references/seeding.md](references/seeding.md): working out what a flow needs, and the seed, reset and check scripts.
-- [references/storyboard.md](references/storyboard.md): the storyboard format, targets, variables and secrets, voiceover, music, and a full example.
+- [references/storyboard.md](references/storyboard.md): the storyboard format, targets, variables and secrets, preflight, voiceover, music, and a full example.
 - [references/branding.md](references/branding.md): where the brand assets come from, the rules for the logo, colors, type and hedgehogs, and hogreel.
 - [references/troubleshooting.md](references/troubleshooting.md): failures we hit while recording, and their fixes.
