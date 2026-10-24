@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+invocation_dir="$PWD"
+cd "$repo_root"
+exec "$repo_root/.codex/with-flox" env EVAL_ENVIRONMENT_INVOCATION_DIR="$invocation_dir" python -m products.posthog_ai.eval_harness.environment prepare "$@"
