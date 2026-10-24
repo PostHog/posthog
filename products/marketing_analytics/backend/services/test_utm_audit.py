@@ -544,12 +544,13 @@ class TestCrossReferenceFieldPreferences:
         assert meta.has_utm_events is True
         assert meta.event_count == 20
 
-    def test_campaign_id_with_aliases_fallback(self):
+    @parameterized.expand([("keyed_by_name", "brand_campaign"), ("keyed_by_id", "abc123")])
+    def test_campaign_id_with_aliases(self, _name, alias_key):
         campaigns = [Campaign("brand_campaign", "abc123", "google", 500.0, 100, 5000)]
         utm_events = {("partner_q1", "google"): 30}
         mappings = TeamMappings(
             source_to_integration={},
-            campaign_aliases={"brand_campaign": {"partner_q1"}},
+            campaign_aliases={alias_key: {"partner_q1"}},
             field_preferences={"google": "campaign_id"},
         )
 

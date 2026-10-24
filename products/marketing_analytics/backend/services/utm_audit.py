@@ -36,6 +36,7 @@ from products.marketing_analytics.backend.services.utm_matching import (
     build_campaign_lookup,
     build_known_sources,
     build_source_lookup,
+    campaign_alias_keys,
     get_match_field,
     get_match_value,
     load_team_mappings,
@@ -301,7 +302,7 @@ def _compute_campaign_stats(
     match_display = campaign.campaign_id if match_field == "campaign_id" else campaign.campaign_name
 
     matching_keys = {match_value}
-    matching_keys.update(mappings.campaign_aliases.get(campaign_name_lower, set()))
+    matching_keys.update(campaign_alias_keys(campaign, mappings))
 
     source_counts: dict[str, int] = {}
     for key in matching_keys:
