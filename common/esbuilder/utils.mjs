@@ -536,8 +536,10 @@ let buildsInProgress = 0
 // disposes its context before releasing the lock (see runBuild), so the next heavy build reuses
 // the freed memory instead of stacking on top of it. Dev is unaffected: it keeps contexts alive
 // for incremental watch rebuilds and isn't memory-constrained.
+// onBuildComplete runs after the lock is released, so heavy post-build work there must take the
+// lock too. The lock is not reentrant: fn must never call runExclusiveHeavy, or it waits forever.
 let heavyBuildChain = Promise.resolve()
-function runExclusiveHeavy(fn) {
+export function runExclusiveHeavy(fn) {
     const result = heavyBuildChain.then(fn)
     heavyBuildChain = result.then(
         () => {},
