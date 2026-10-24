@@ -1236,10 +1236,10 @@ class NewEventsSchemaCookieMiddleware:
     start one.
     """
 
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
-    def __call__(self, request: HttpRequest):
+    def __call__(self, request: HttpRequest) -> HttpResponse:
         if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
             return self.get_response(request)
         user = cast(User, request.user)

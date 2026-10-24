@@ -111,21 +111,27 @@ class TestSecretSettingsCoverage(unittest.TestCase):
         self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
-class TestHostSettingValidation(SimpleTestCase):
+class TestEventsClusterSettingsValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("native.example.com", True),
-            ("localhost", True),
-            ("", True),
-            ("https://native.example.com", False),
-            ("native.example.com:8443", False),
-            ("native.example.com/path", False),
-            (True, False),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com", True),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "localhost", True),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", True),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "https://native.example.com", False),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com:8443", False),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com/path", False),
+            ("CLICKHOUSE_NATIVE_EVENTS_HOST", True, False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", " 2, 44 ,123 ", True),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2;44", False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "team 2", False),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", [2], False),
         ]
     )
-    def test_host_setting_accepts_hostnames_only(self, value: object, valid: bool) -> None:
+    def test_events_cluster_settings_accept_valid_values_only(self, key: str, value: object, valid: bool) -> None:
         serializer = InstanceSettingsSerializer(
-            instance=InstanceSettingHelper(key="CLICKHOUSE_NATIVE_EVENTS_HOST"), data={"value": value}, partial=True
+            instance=InstanceSettingHelper(key=key), data={"value": value}, partial=True
         )
         self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 

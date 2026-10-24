@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +19,10 @@ from posthog.clickhouse.workload import Workload
 from posthog.models import Organization, Team, User
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, events_read_http_url
 from posthog.models.instance_setting import override_instance_config
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.models import Insight
 
 SQL_ON_EVENTS: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events"}
 SQL_ON_NO_TABLE: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT 1 AS n"}
@@ -138,9 +144,11 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
         self.user.save()
         if impersonating:
             customer = User.objects.create_and_join(self.organization, "customer@example.com", None)
+            # The login-as admin view reads a form post, and this client sends JSON unless told otherwise.
             self.client.post(
                 reverse("loginas-user-login", kwargs={"user_id": customer.id}),
                 data={"read_only": "false", "reason": "Checking the native table"},
+                format="multipart",
                 follow=True,
             )
             self.assertEqual(self.client.get("/api/users/@me").json()["email"], customer.email)
@@ -149,3 +157,33 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
         execute = self._post_query(SQL_ON_EVENTS, modifiers)
         self.assertEqual("events_json" in execute.call_args.args[0], events_json)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, events_json)
+
+    def test_the_cookie_reaches_a_streamed_dashboards_cache_lookup(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        self.client.cookies[NEW_EVENTS_SCHEMA_COOKIE] = "1"
+        insight = Insight.objects.create(
+            team=self.team, filters={}, query={"kind": "DataVisualizationNode", "source": SQL_ON_EVENTS}
+        )
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        with patch("posthog.hogql.query.sync_execute", return_value=([(1,)], [("n", "UInt64")])) as execute:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/?refresh=force_blocking"
+            )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIn("events_json", execute.call_args.args[0])
+
+        # The stream only reads the cache, so a hit here means the switch reached the lookup's cache key.
+        self.assertIsNotNone(self._streamed_tile_result(dashboard.id))
+        self.client.cookies[NEW_EVENTS_SCHEMA_COOKIE] = "0"
+        self.assertIsNone(self._streamed_tile_result(dashboard.id))
+
+    def _streamed_tile_result(self, dashboard_id: int) -> object:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+        self.assertEqual(response.status_code, 200)
+        content = b"".join(response.streaming_content).decode()
+        metadata = next(
+            line[6:] for line in content.split("\n") if line.startswith("data: ") and '"type":"metadata"' in line
+        )
+        return json.loads(metadata)["dashboard"]["tiles"][0]["insight"]["result"]

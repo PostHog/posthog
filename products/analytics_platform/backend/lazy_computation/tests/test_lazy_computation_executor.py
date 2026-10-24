@@ -22,6 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.workload import Workload
+from posthog.models.event.new_events_schema import new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
@@ -3976,3 +3977,32 @@ class TestInsertsFollowTheEventsRoute(BaseTest):
                 )
         assert "events_json" in execute.call_args.args[0]
         assert execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_a_switched_persons_build_gets_a_job_of_its_own(self) -> None:
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as execute,
+        ):
+            legacy = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                ttl_seconds=7 * 24 * 60 * 60,
+            )
+            assert "events_json" not in execute.call_args.args[0]
+            with new_events_schema_for_request():
+                native = ensure_precomputed(
+                    team=self.team,
+                    insert_query=self.INSERT_QUERY,
+                    time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                    time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                    ttl_seconds=7 * 24 * 60 * 60,
+                )
+            assert "events_json" in execute.call_args.args[0]
+        # The two builds read different tables, so neither may be served the other's rows.
+        assert set(legacy.job_ids).isdisjoint(native.job_ids)
