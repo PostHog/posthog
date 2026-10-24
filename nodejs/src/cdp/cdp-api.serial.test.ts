@@ -2146,6 +2146,10 @@ describe('CDP API', () => {
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
         })
 
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it('queues one run on the email fast lane with the recipient and the data', async () => {
             const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
             const queuedBefore = await outcomeCount('queued')
@@ -2261,6 +2265,47 @@ describe('CDP API', () => {
             expect(res.status).toEqual(429)
             expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [
+                'email sending is suspended for the project',
+                'sending_suspended',
+                () =>
+                    jest
+                        .spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension')
+                        .mockResolvedValueOnce('staff'),
+            ],
+            [
+                "the transactional email's sending is paused",
+                'sending_paused',
+                () =>
+                    jest
+                        .spyOn(api['hogFlowManager'], 'getHogFlow')
+                        .mockResolvedValueOnce({ ...hogFlow, email_sending_paused_at: Date.now() }),
+            ],
+            [
+                'the recipient is suppressed',
+                'recipient_suppressed',
+                () => jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValueOnce(true),
+            ],
+        ] as const)('refuses a send the email worker would skip because %s', async (_desc, code, refuse) => {
+            refuse()
+            const refusedBefore = await outcomeCount(code)
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+
+            const refused = await send(hogFlow.id, headers, keyed)
+
+            expect(refused.status).toEqual(422)
+            expect(refused.body).toEqual({ error: code })
+            expect(await outcomeCount(code)).toEqual(refusedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+            const retry = await send(hogFlow.id, headers, keyed)
+
+            expect(retry.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         it.each([
