@@ -26,6 +26,7 @@ from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
 
@@ -44,7 +45,7 @@ from posthog.middleware import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_invite import InviteExpiredException, OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.run_mode import derive_run_mode
@@ -2505,6 +2506,18 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 AuthFailed(_social_auth_backend(), "access_blocked"),
                 "/login?error_code=access_blocked",
             ),
+            (
+                "expired_invite",
+                "/complete/google-oauth2/",
+                InviteExpiredException(),
+                "/login?error_code=invalid_invite",
+            ),
+            (
+                "invite_for_another_email",
+                "/complete/google-oauth2/",
+                ValidationError("This invite is intended for another email address.", code="invalid_recipient"),
+                "/login?error_code=invite_email_mismatch",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
@@ -2532,6 +2545,11 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "auth_failed_on_login_path",
                 "/login/saml/",
                 AuthFailed(_social_auth_backend(), "SAML not configured for this user."),
+            ),
+            (
+                "other_invite_rejection_on_complete",
+                "/complete/google-oauth2/",
+                ValidationError("You already are a member of this organization.", code="user_already_member"),
             ),
         ]
     )
