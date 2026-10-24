@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { updateViewLabel } from 'scenes/data-warehouse/editor/updateViewLabel'
+
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailQueryEditorActions({ id }: { id: string }): JSX.Element | null {
     const { queryEditorState, effectiveTab } = useValues(nodeDetailSceneLogic({ id }))
     const { discardQueryEditorChanges, updateViewFromQueryEditor } = useActions(nodeDetailSceneLogic({ id }))
 
-    if (!queryEditorState || effectiveTab !== 'query') {
+    // Nothing to save means nothing to offer: the save bar over the editor carries both actions
+    // once an edit exists, so an always-present pair of disabled buttons here is just noise.
+    if (!queryEditorState || effectiveTab !== 'query' || !queryEditorState.hasChanges) {
         return null
     }
 
@@ -31,7 +35,7 @@ export function NodeDetailQueryEditorActions({ id }: { id: string }): JSX.Elemen
                 loading={queryEditorState.updateLoading}
                 data-attr="node-detail-update-view"
             >
-                {queryEditorState.isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                {updateViewLabel(queryEditorState.isMaterializedView)}
             </LemonButton>
         </>
     )

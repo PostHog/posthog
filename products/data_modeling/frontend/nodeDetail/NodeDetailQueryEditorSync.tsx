@@ -3,22 +3,16 @@ import { useEffect } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { useDiscardEditingView } from 'scenes/data-warehouse/editor/useDiscardEditingView'
 import { useUpdateEditingView } from 'scenes/data-warehouse/editor/useUpdateEditingView'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function NodeDetailQueryEditorSync({ id }: { id: string }): null {
     const { disabledReason, loading, isMaterializedView } = useUpdateEditingView()
+    const { disabledReason: discardDisabledReason } = useDiscardEditingView()
     const { hasEditorChanges } = useValues(sqlEditorLogic)
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { setQueryEditorState } = useActions(nodeDetailSceneLogic({ id }))
-
-    const discardDisabledReason = updatingDataWarehouseSavedQuery
-        ? 'Wait for the current operation to finish'
-        : !hasEditorChanges
-          ? 'No changes to discard'
-          : undefined
 
     useEffect(() => {
         setQueryEditorState({
@@ -26,8 +20,9 @@ export function NodeDetailQueryEditorSync({ id }: { id: string }): null {
             updateLoading: loading,
             discardDisabledReason,
             isMaterializedView,
+            hasChanges: hasEditorChanges,
         })
-    }, [disabledReason, loading, discardDisabledReason, isMaterializedView, setQueryEditorState])
+    }, [disabledReason, loading, discardDisabledReason, isMaterializedView, hasEditorChanges, setQueryEditorState])
 
     useOnMountEffect(() => () => setQueryEditorState(null))
 

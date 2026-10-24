@@ -19,6 +19,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import { updateViewLabel } from './updateViewLabel'
 
 export interface QuillSQLEditorSecondarySaveMenuItem extends SaveAsMenuItem {
     onClick: () => void
@@ -190,7 +191,7 @@ export function QuillSQLEditorSceneActions({
                                     disabledReason={editingViewDisabledReason}
                                 >
                                     {!editingViewLoading && <IconDownload />}
-                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                    {updateViewLabel(isMaterializedView)}
                                 </Button>
                             </AccessControlAction>
                             {saveOptionsTrigger()}
