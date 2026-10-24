@@ -73,6 +73,11 @@ const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
 const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 const LONG_RUNNING_API_PATH = /\/(query|run_insights|mcp_tools\/execute_sql)\/$|\/(max_tools|autoresearch)\//
 
+// Token introspection blocks the auth step of an OAuth session and only reads the token
+// state. A short deadline with one repeat ends a stalled check in about 30 seconds.
+const INTROSPECTION_TIMEOUT_MS = 15_000
+const INTROSPECTION_TIMEOUT_RETRIES = 1
+
 function apiRequestTimeoutMs(url: string): number {
     return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
 }
@@ -638,18 +643,24 @@ export class ApiClient {
     }
 
     /** Pass `idempotent` for a non-GET request that has no upstream effect, so
-     *  a transport fault retries it like a safe method. */
+     *  a transport fault retries it like a safe method. Pass `timeoutMs` to replace
+     *  the default per-attempt deadline, and `timeoutRetries` to repeat a safe
+     *  request that hits that deadline. */
     private async fetchJson<T>(
         url: string,
         options?: RequestInit,
-        { idempotent = false }: { idempotent?: boolean } = {}
+        {
+            idempotent = false,
+            timeoutMs = apiRequestTimeoutMs(url),
+            timeoutRetries = 0,
+        }: { idempotent?: boolean; timeoutMs?: number; timeoutRetries?: number } = {}
     ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
-        const timeoutMs = apiRequestTimeoutMs(url)
+        let deadlineRetries = 0
 
         for (;;) {
             let response: Response
@@ -669,6 +680,16 @@ export class ApiClient {
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
+                // Only this attempt's own deadline counts. A caller signal that aborted
+                // means the caller gave up, so a repeat would serve nobody.
+                const hitDeadline = deadline.signal.aborted && !options?.signal?.aborted
+                if (hitDeadline && isSafeMethod && deadlineRetries < timeoutRetries) {
+                    deadlineRetries++
+                    console.warn(
+                        `[API] No response on ${method} ${url} within ${Math.round(timeoutMs / 1000)}s. Retrying (attempt ${deadlineRetries}/${timeoutRetries})`
+                    )
+                    continue
+                }
                 const canRetry =
                     !signal.aborted &&
                     !isAbortError(error) &&
@@ -682,7 +703,7 @@ export class ApiClient {
                         error: new PostHogTransportError({
                             url,
                             method,
-                            attempts: transportRetries + 1,
+                            attempts: transportRetries + deadlineRetries + 1,
                             retryable: isSafeMethod,
                             cause: error,
                         }),
@@ -816,7 +837,11 @@ export class ApiClient {
                             Authorization: `Bearer ${token}`,
                         },
                     },
-                    { idempotent: true }
+                    {
+                        idempotent: true,
+                        timeoutMs: INTROSPECTION_TIMEOUT_MS,
+                        timeoutRetries: INTROSPECTION_TIMEOUT_RETRIES,
+                    }
                 )
             },
         }
