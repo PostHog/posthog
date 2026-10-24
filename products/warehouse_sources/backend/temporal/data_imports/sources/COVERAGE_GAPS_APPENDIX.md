@@ -7770,13 +7770,14 @@ Today (11): `account_growth_items`, `activities`, `companies`, `contacts`, `cust
 
 Diffed against: <https://www.membrain.com/developers/api-documentation>
 
-- [ ] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
-- [ ] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
+- [x] `Sales processes (GET /API/v2/salesProcesses/)` — resolve opportunity process and stage IDs, including stage order and process-specific fields (high)
+- [x] `Prospecting processes (GET /API/v2/prospectingProcesses/)` — resolve prospect process and stage IDs for conversion analysis (high)
 - [x] `Account Growth processes (GET /API/v2/accountGrowthProcesses/)` — resolve account-growth process and stage IDs for expansion analysis (high)
 - [x] `Ticket processes (GET /API/v2/ticketProcesses/)` — resolve ticket process and stage IDs for support workflow analysis (high)
 - [x] `Currencies (GET /API/v2/currencies/)` — resolve ValueCurrencyId and supply exchange rates for comparable pipeline values (high)
-- [ ] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
+- [x] `Labels (GET /API/v2/labels/)` — resolve LabelIds on companies and contacts for consistent segmentation (high)
 - [x] `Activity types (GET /API/v2/activityTypes/)` — resolve ActivityTypeId and provide the complete activity taxonomy (high)
+- [x] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (high)
 - [ ] `Process Container Contacts (GET /API/v2/processContainerContacts/)` — connect contacts to sales processes and their stakeholder roles (medium)
 - [ ] `Opportunity Products (GET /API/v2/opportunityProducts/)` — join products to opportunities for product-level pipeline and revenue analysis (medium)
 - [ ] `Orders and Order Rows (GET /API/v2/orders/; GET /API/v2/orderRows/)` — measure booked sales and item-level amounts against opportunities and products (medium)
