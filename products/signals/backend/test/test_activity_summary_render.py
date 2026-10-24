@@ -11,9 +11,8 @@ from parameterized import parameterized
 
 from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.prompt import (
-    MAX_PRODUCT_CHARS,
+    MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
-    MAX_TOPIC_CHARS,
     MalformedSummaryError,
     normalize_summary,
     summary_text,
@@ -680,9 +679,39 @@ def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() 
 PREVIOUS = {
     "profile": "## Funnels\n- Builds the signup funnel.",
     "headline": "Builds the signup funnel.",
-    "focus_areas": [],
-    "products": ["product_analytics"],
+    "themes": [
+        {"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o9"], "last_seen": "2026-10-16"}
+    ],
+    "modes": ["building"],
     "recent_shift": "Moved from flags to funnels.",
+}
+COMPUTED = {
+    "schema_version": 1,
+    "owned": [
+        {
+            "ref": "o1",
+            "type": "insight",
+            "id": "12",
+            "name": "Signup funnel",
+            "edit_days": 3,
+            "last_at": "2026-10-16",
+            "created": True,
+        }
+    ],
+    "watched": [
+        {
+            "ref": "o2",
+            "type": "dashboard",
+            "id": "34",
+            "name": "Growth overview",
+            "open_days": 4,
+            "last_at": "2026-10-17",
+            "not_theirs": True,
+        }
+    ],
+    "pages": [{"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-18"}],
+    "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
+    "task_count": 0,
 }
 PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
 
@@ -692,7 +721,7 @@ PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas
         (
             "with a previous summary",
             PREVIOUS,
-            ["## Funnels\\n- Builds the signup funnel.", "Builds the signup funnel."],
+            ["## Funnels\\n- Builds the signup funnel.", "Builds the signup funnel.", '"label": "Signup funnel"'],
         ),
         ("with a summary from before profiles", PREVIOUS_BEFORE_PROFILES, ['"headline": "Builds the signup funnel."']),
         ("cold start", None, ["Previous summary:\nNone"]),
@@ -703,9 +732,32 @@ def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
 ) -> None:
     message = user_message("- 2026-10-17 Build a funnel", previous, datetime.date(2026, 10, 18))
     assert message.startswith("Today is 2026-10-18.")
-    assert message.endswith("Recent activity:\n- 2026-10-17 Build a funnel")
+    assert message.endswith("Objects and pages:\nNone\n\nRecent activity:\n- 2026-10-17 Build a funnel")
     assert all(text in message for text in expected)
     assert "Moved from flags" not in message
+    assert "o9" not in message
+
+
+def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> None:
+    message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=COMPUTED)
+    assert (
+        "Objects and pages:\n"
+        "Products they work in: Product analytics\n"
+        "Products they only visit: Session replay\n"
+        '- o1 insight "Signup funnel": edited on 3 days, last 2026-10-16, created\n'
+        '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
+        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n\n"
+    ) in message
+
+
+def _theme(label: str | None = "Signup funnel", refs: list[Any] | None = None, **overrides: Any) -> dict[str, Any]:
+    return {
+        "label": label,
+        "mode": "building",
+        "strength": "high",
+        "refs": ["o1"] if refs is None else refs,
+        **overrides,
+    }
 
 
 def _answer(**overrides: Any) -> str:
@@ -713,8 +765,8 @@ def _answer(**overrides: Any) -> str:
         {
             "profile": "## Funnels\n- Builds the signup funnel.",
             "headline": "Builds the signup funnel.",
-            "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-17"}],
-            "products": ["product_analytics"],
+            "themes": [_theme()],
+            "modes": ["building"],
             "recent_shift": "Moved from flags to funnels.",
             **overrides,
         }
@@ -739,47 +791,54 @@ def _answer(**overrides: Any) -> str:
             {"profile": "## Funnels\n" + " ".join(["word"] * 1197) + "…"},
         ),
         (
-            "at most six focus areas, an unknown strength is low and a bad date is null",
-            _answer(focus_areas=[{"topic": f"t{i}", "strength": "huge", "last_seen": "soon"} for i in range(8)]),
+            "a theme keeps only known refs, once each, and its last_seen is the last day of its refs",
+            _answer(themes=[_theme(refs=["o1", "o7", "p1", "o1", 3])]),
             False,
-            {"focus_areas": [{"topic": f"t{i}", "strength": "low", "last_seen": None} for i in range(6)]},
+            {"themes": [{**_theme(refs=["o1", "p1"]), "last_seen": "2026-10-18"}]},
         ),
         (
-            "a focus area without a topic is dropped",
-            _answer(focus_areas=[{"strength": "high"}]),
+            "a theme with no known ref or no label is dropped",
+            _answer(themes=[_theme("Unknown", refs=["o7"]), _theme("No refs", refs=[]), _theme(None)]),
             False,
-            {"focus_areas": []},
+            {"themes": []},
         ),
         (
-            "topic, product and recent_shift are cut at a word boundary inside their caps",
-            _answer(
-                focus_areas=[{"topic": "adoption " * 50, "strength": "high", "last_seen": "2026-10-17"}],
-                products=["analytics " * 50],
-                recent_shift="shift " * 400,
-            ),
-            True,
+            "at most six themes, an unknown mode is null and an unknown strength is low",
+            _answer(themes=[_theme(f"t{i}", mode="leading", strength="huge") for i in range(8)]),
+            False,
             {
-                "focus_areas": [
-                    {
-                        "topic": " ".join(["adoption"] * ((MAX_TOPIC_CHARS - 1) // 9)) + "…",
-                        "strength": "high",
-                        "last_seen": "2026-10-17",
-                    }
-                ],
-                "products": [" ".join(["analytics"] * ((MAX_PRODUCT_CHARS - 1) // 10)) + "…"],
-                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
+                "themes": [
+                    {"label": f"t{i}", "mode": None, "strength": "low", "refs": ["o1"], "last_seen": "2026-10-16"}
+                    for i in range(6)
+                ]
             },
         ),
         (
-            "one long word is cut and marked",
-            _answer(products=["p" * 500]),
+            "modes keep only known modes, once each",
+            _answer(modes=["Building", "leading", "building", "monitoring"]),
             False,
-            {"products": ["p" * (MAX_PRODUCT_CHARS - 1) + "…"]},
+            {"modes": ["building", "monitoring"]},
+        ),
+        (
+            "label and recent_shift are cut at a word boundary inside their caps",
+            _answer(themes=[_theme("adoption " * 50)], recent_shift="shift " * 400),
+            True,
+            {
+                "themes": [
+                    {
+                        **_theme(" ".join(["adoption"] * ((MAX_LABEL_CHARS - 1) // 9)) + "…"),
+                        "last_seen": "2026-10-16",
+                    }
+                ],
+                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
+            },
         ),
     ]
 )
 def test_normalize_summary(_name: str, content: str, had_previous: bool, expected: dict[str, Any]) -> None:
-    assert normalize_summary(content, had_previous_summary=had_previous).items() >= expected.items()
+    summary = normalize_summary(content, had_previous_summary=had_previous, computed=COMPUTED)
+    assert summary.items() >= expected.items()
+    assert "products" not in summary
 
 
 @parameterized.expand(
@@ -796,19 +855,13 @@ def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str |
         normalize_summary(content, had_previous_summary=False)
 
 
-def test_summary_text_is_deterministic_and_keeps_the_focus_order() -> None:
+def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
     summary = normalize_summary(
-        _answer(
-            focus_areas=[
-                {"topic": "b", "strength": "high", "last_seen": ""},
-                {"topic": "a", "strength": "low", "last_seen": ""},
-            ]
-        ),
-        had_previous_summary=False,
+        _answer(themes=[_theme("b"), _theme("a", refs=["o2"])]), had_previous_summary=False, computed=COMPUTED
     )
     reloaded = json.loads(json.dumps(summary, sort_keys=True))
-    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nFocus areas: b; a"
-    assert summary_text({**summary, "focus_areas": []}) == "Builds the signup funnel."
+    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nThemes: b; a"
+    assert summary_text({**summary, "themes": []}) == "Builds the signup funnel."
 
 
 _PRICES = SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5)
@@ -939,6 +992,6 @@ def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
     )
 
     user_turn = llm.requests[0]["messages"][1]["content"]
-    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nRecent activity:", 1)[0])
+    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nObjects and pages:", 1)[0])
     assert len(previous["profile"]) <= 500
     assert previous["profile"].startswith("## Funnels\nBuilds the signup funnel.")
