@@ -1,5 +1,7 @@
 import datetime as dt
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
@@ -65,6 +67,35 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
         )
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["results"]
+
+    @parameterized.expand(
+        [
+            ("relative_start_offset_end", "sparkline", "UTC", "-5m", "offset"),
+            ("relative_start_naive_end_non_utc_team", "sparkline", "America/Los_Angeles", "-5m", "naive"),
+            ("heatmap_naive_end_non_utc_team", "latency-heatmap", "America/Los_Angeles", "-5m", "naive"),
+            ("absolute_start_second_holds_spans", "sparkline", "UTC", "2026-06-02T08:00:00Z", "2026-06-02T07:30:00Z"),
+        ]
+    )
+    def test_window_that_ends_before_it_starts_is_empty_not_an_error(
+        self, _name: str, endpoint: str, team_timezone: str, date_from: str, date_to: str
+    ):
+        self.team.timezone = team_timezone
+        self.team.save()
+        if date_to in ("offset", "naive"):
+            stale_date_to = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+            if date_to == "naive":
+                stale_date_to = stale_date_to.replace(tzinfo=None)
+            date_to = stale_date_to.isoformat()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/{endpoint}/",
+            {"query": {"dateRange": {"date_from": date_from, "date_to": date_to}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        results = response.json()["results"]
+        self.assertIsInstance(results, list)
+        self.assertEqual(sum(row["count"] for row in results), 0)
 
     def test_returns_zero_filled_time_series_of_span_counts(self):
         rows = self._sparkline()

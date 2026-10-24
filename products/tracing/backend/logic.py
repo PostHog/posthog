@@ -297,6 +297,8 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         # A lookup by trace id alone has no date bound. `to_query` finds its rows through a projection instead.
         if not self._unbounded_trace_lookup:
+            if self.query_date_range.date_to() <= self.query_date_range.date_from():
+                exprs.append(ast.Constant(value=False))
             exprs.append(
                 parse_expr(
                     TIME_BUCKET_DATE_RANGE_WHERE,
@@ -359,12 +361,14 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
+        now = dt.datetime.now()
         qdr = QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
             interval_count=2,
-            now=dt.datetime.now(),
+            now=now,
+            timezone_info=ZoneInfo("UTC"),
         )
 
         _step = (qdr.date_to() - qdr.date_from()) / 50
@@ -389,15 +393,22 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             interval_type = IntervalType.MINUTE
             interval_count //= 60
 
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=interval_type,
-            interval_count=int(interval_count),
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
-            exact_timerange=True,
-        )
+        def exact_range(date_range: DateRange | None) -> QueryDateRange:
+            return QueryDateRange(
+                date_range=date_range,
+                team=self.team,
+                interval=interval_type,
+                interval_count=int(interval_count),
+                now=now,
+                timezone_info=ZoneInfo("UTC"),
+                exact_timerange=True,
+            )
+
+        date_range = exact_range(self.query.dateRange)
+        date_from = date_range.date_from()
+        if date_range.date_to() < date_from:
+            return exact_range(DateRange(date_from=date_from.isoformat(), date_to=date_from.isoformat()))
+        return date_range
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
