@@ -28,6 +28,8 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.aeo.backend.presentation.views.AEOPromptViewSet",
+    # Returns one bounded object (capped at SERVICES_LIMIT services), not a page of rows.
+    "products.apm.backend.presentation.views.ServicesHealthViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
