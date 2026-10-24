@@ -1,8 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { dragRectToLabelRange, isInPlotArea } from '../interaction'
+import { dragRectToLabelRange, isInPlotArea, SINGLE_LABEL_MIN_DRAG_PX } from '../interaction'
 import type { LabelPosition } from '../interaction'
-import type { AreaSelectData, ChartDimensions, ChartScales, DateRangeZoomData, DragRect } from '../types'
+import type {
+    AreaSelectData,
+    ChartDimensions,
+    ChartScales,
+    DateRangeZoomData,
+    DragRect,
+    PixelRangeSelectData,
+} from '../types'
 import { useLatest } from './useLatest'
 
 // Movement (px) required before a mousedown becomes a drag rather than a click.
@@ -14,6 +21,9 @@ interface UseDragToZoomOptions {
      *  the completed gesture reports the y pixel span alongside the label range. Takes
      *  precedence over `onDateRangeZoom` when both are set. */
     onAreaSelect?: (data: AreaSelectData) => void
+    /** x-only drag that reports the clamped pixel span instead of a label range, for continuous x
+     *  axes. Ranks below `onAreaSelect` and above `onDateRangeZoom`. */
+    onPixelRangeSelect?: (data: PixelRangeSelectData) => void
     scales: ChartScales | null
     dimensions: ChartDimensions | null
     labels: string[]
@@ -42,6 +52,7 @@ interface UseDragToZoomResult {
 export function useDragToZoom({
     onDateRangeZoom,
     onAreaSelect,
+    onPixelRangeSelect,
     scales,
     dimensions,
     labels,
@@ -58,6 +69,8 @@ export function useDragToZoom({
     const labelPositionsRef = useLatest(labelPositions)
     const onDateRangeZoomRef = useLatest(onDateRangeZoom)
     const onAreaSelectRef = useLatest(onAreaSelect)
+    const onPixelRangeSelectRef = useLatest(onPixelRangeSelect)
+    const dimensionsRef = useLatest(dimensions)
     const onDragActivateRef = useLatest(onDragActivate)
     // Stable across renders — flips only when the consumer adds/removes the callback, like zoomEnabled.
     const trackY = !!onAreaSelect
@@ -69,8 +82,21 @@ export function useDragToZoom({
                 return
             }
             if (origin.active) {
-                const range = dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
-                if (range) {
+                const plot = dimensionsRef.current
+                const pixelSelect = !onAreaSelectRef.current && onPixelRangeSelectRef.current
+                const range = pixelSelect
+                    ? null
+                    : dragRectToLabelRange({ x0: origin.x, x1: mouseX }, labelPositionsRef.current)
+                if (pixelSelect && plot) {
+                    const clamp = (x: number): number =>
+                        Math.min(Math.max(x, plot.plotLeft), plot.plotLeft + plot.plotWidth)
+                    const xPixel0 = clamp(Math.min(origin.x, mouseX))
+                    const xPixel1 = clamp(Math.max(origin.x, mouseX))
+                    // Same floor as a single-label zoom, so vertical wobble during a click selects nothing.
+                    if (xPixel1 - xPixel0 >= SINGLE_LABEL_MIN_DRAG_PX) {
+                        pixelSelect({ xPixel0, xPixel1 })
+                    }
+                } else if (range) {
                     const currentLabels = labelsRef.current
                     const labelRange = {
                         startLabel: currentLabels[range.startIndex],
@@ -107,13 +133,13 @@ export function useDragToZoom({
             dragOriginRef.current = null
             setDragRect(null)
         },
-        [labelPositionsRef, labelsRef, onDateRangeZoomRef, onAreaSelectRef]
+        [labelPositionsRef, labelsRef, onDateRangeZoomRef, onAreaSelectRef, onPixelRangeSelectRef, dimensionsRef]
     )
 
     // Global mouseup catches gestures that end outside the chart wrapper. Gate on a stable
     // boolean rather than the callback identities so an inline-arrow prop (the common case)
     // doesn't re-subscribe this window listener on every parent render.
-    const zoomEnabled = (!!onDateRangeZoom || !!onAreaSelect) && interactionAxis === 'x'
+    const zoomEnabled = (!!onDateRangeZoom || !!onAreaSelect || !!onPixelRangeSelect) && interactionAxis === 'x'
     useEffect(() => {
         if (!zoomEnabled) {
             return
@@ -128,8 +154,25 @@ export function useDragToZoom({
             const mouseY = rect ? e.clientY - rect.top : 0
             completeDrag(mouseX, mouseY)
         }
+        // Escape abandons the gesture; the trailing mouseup then finds no origin and fires nothing.
+        // Captured and stopped, so the same key press doesn't also close a dialog around the chart.
+        const keyHandler = (e: KeyboardEvent): void => {
+            if (e.key !== 'Escape' || !dragOriginRef.current?.active) {
+                return
+            }
+            e.preventDefault()
+            e.stopPropagation()
+            dragOriginRef.current = null
+            setDragRect(null)
+            // The release still fires a click; swallow it so it can't pin or click a point.
+            dragJustCompletedRef.current = true
+        }
         window.addEventListener('mouseup', handler)
-        return () => window.removeEventListener('mouseup', handler)
+        window.addEventListener('keydown', keyHandler, true)
+        return () => {
+            window.removeEventListener('mouseup', handler)
+            window.removeEventListener('keydown', keyHandler, true)
+        }
     }, [zoomEnabled, wrapperRef, completeDrag])
 
     useEffect(
@@ -143,6 +186,7 @@ export function useDragToZoom({
 
     const onMouseDown = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
+            dragJustCompletedRef.current = false
             if (!zoomEnabled || !scales || !dimensions || e.button !== 0) {
                 return
             }

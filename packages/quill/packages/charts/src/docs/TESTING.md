@@ -54,6 +54,7 @@ chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the rende
 chart.clickLegendItem('A', { additive: true }) // click a legend row, additive toggles instead of isolating
 chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
 chart.sankeyColumnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
+chart.histogramMarkerLabels() // ['p50 34.5ms', 'p99 1.7s'] Histogram marker labels, left to right
 ```
 
 For interactions, use the module-level helpers:

@@ -22,6 +22,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `ScatterChart`         | Two continuous numeric axes — one marker per `{ x, y }` point; takes `points`, not `labels`                                                 |
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |
+| `Histogram`            | Distributions with real bin edges — `bins: { start, end, count }[]` on a linear or log axis. Use `BarChart` for categories                  |
 | `SankeyChart`          | Flow between stages (tool call journeys, user paths) — `nodes` + `links` keyed by id, no `series`; the graph must be acyclic                |
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |

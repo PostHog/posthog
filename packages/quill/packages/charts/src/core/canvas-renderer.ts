@@ -1511,8 +1511,8 @@ export function composeDrawHoverWithCrosshair(
 // Drag-selection band styling. Intentionally a fixed accent rather than a theme token: there's no
 // selection color in the design tokens yet, and the band is a transient interaction affordance, not
 // chart data. Add a `--color-graph-selection-*` token and thread it through here if it needs theming.
-const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
-const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
+export const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
+export const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
 const SELECTION_LINE_WIDTH = 1
 
 export function drawSelectionRect(
