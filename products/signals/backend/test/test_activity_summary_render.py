@@ -9,6 +9,7 @@ import pytest
 from openai import APIConnectionError
 from parameterized import parameterized
 
+from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.prompt import (
     MAX_PRODUCT_CHARS,
     MAX_RECENT_SHIFT_CHARS,
@@ -67,9 +68,19 @@ def _change(
     days_ago: float = 1,
     intent: str | None = None,
     item_id: str | None = None,
+    credential_type: str | None = None,
+    short_id: str | None = None,
 ) -> ActivityItem:
     return ActivityItem(
-        at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent, item_id=item_id
+        at=_at(days_ago),
+        scope=scope,
+        activity=activity,
+        name=name,
+        client=client,
+        intent=intent,
+        item_id=item_id,
+        credential_type=credential_type,
+        short_id=short_id,
     )
 
 
@@ -120,6 +131,29 @@ def test_task_units(_name: str, task: TaskItem, expected: str | None, expected_d
     assert dict(drops) == expected_drops
 
 
+@parameterized.expand(
+    [
+        ("a goal on a few days is kept on each day", 3, 3, {}),
+        ("a goal on most days is a scheduled job", 4, 1, {Drop.REPEATED_TASK: 3}),
+    ]
+)
+def test_a_goal_repeated_on_many_days_collapses_to_one_line(
+    _name: str, days: int, expected_lines: int, expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    tasks = [
+        _task("digest", summary=f"Goal: post the digest of {10 + day} new signups.", days_ago=1 + day)
+        for day in range(days)
+    ]
+
+    units = task_units(tasks, drops)
+
+    assert len(units) == expected_lines
+    if expected_drops:
+        assert units[0].text == f"- 2026-10-18 post the digest of 10 new signups. (x{days})"
+    assert dict(drops) == expected_drops
+
+
 def test_templated_task_titles_collapse_to_one_line_with_a_count() -> None:
     tasks = [_task(f"Fix failing CI checks in PR #{number}", days_ago=number) for number in (1, 2, 3)]
     units = task_units(tasks, Counter())
@@ -150,6 +184,113 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
         Drop.AUTO_NAMED_OBJECT: 1,
         Drop.UNNAMED_OBJECT: 1,
     }
+
+
+def _bulk(count: int, spacing_days: float, intent: str | None = None) -> list[ActivityItem]:
+    return [
+        _change(
+            "KnowledgeSource",
+            "updated",
+            f"Account {n} docs",
+            days_ago=1 - n * spacing_days,
+            item_id=str(n),
+            intent=intent if n == count - 1 else None,
+        )
+        for n in range(count)
+    ]
+
+
+@parameterized.expand(
+    [
+        (
+            "a scout config that onboarding created is dropped",
+            [_change("SignalScoutConfig", "created", "signals-scout-error-tracking")],
+            [],
+            {Drop.ONBOARDING_SCOUT_CONFIG: 1},
+        ),
+        (
+            "a scout config the person named is kept",
+            [_change("SignalScoutConfig", "created", "checkout-watch")],
+            ['- 2026-10-18 created SignalScoutConfig "checkout-watch"'],
+            {},
+        ),
+        (
+            "a personal API key change is dropped",
+            [_change("PersonalAPIKey", "created", "CI deploy key")],
+            [],
+            {Drop.API_KEY_CHANGE: 1},
+        ),
+        (
+            "an integration with a key-like name is kept",
+            [_change("Integration", "created", "CI deploy key")],
+            ['- 2026-10-18 created Integration "CI deploy key"'],
+            {},
+        ),
+        (
+            "an annotation written through a personal API key is dropped",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="personal_api_key")],
+            [],
+            {Drop.API_KEY_ANNOTATION: 1},
+        ),
+        (
+            "an annotation written in the app is kept",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="session")],
+            ['- 2026-10-18 created Annotation "Deploy v1.4.2"'],
+            {},
+        ),
+        (
+            "repeated team settings updates without an intent are dropped",
+            [
+                _change("Team", "updated", "Default project", days_ago=1),
+                _change("Team", "updated", "Default project", days_ago=2),
+            ],
+            [],
+            {Drop.TEAM_SETTINGS: 2},
+        ),
+        (
+            "one team settings update is kept",
+            [_change("Team", "updated", "Default project")],
+            ['- 2026-10-18 updated Team "Default project"'],
+            {},
+        ),
+        (
+            "a bulk update with no intent is dropped",
+            _bulk(12, 0.001),
+            [],
+            {Drop.BULK_SAME_TYPE: 12},
+        ),
+        (
+            "a bulk update with an intent collapses to one line",
+            _bulk(12, 0.001, intent="Sync the account docs"),
+            ["- 2026-10-18 updated 12 knowledge sources (agent: Sync the account docs)"],
+            {Drop.BULK_SAME_TYPE: 11},
+        ),
+        (
+            "updates spread over the day are kept one per object",
+            _bulk(10, 0.05),
+            [f'- 2026-10-1{8 if n < 10 else 9} updated KnowledgeSource "Account {n} docs"' for n in range(10)],
+            {},
+        ),
+        (
+            "a ticket burst collapses to one line with a count",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(3)],
+            ["- 2026-10-18 updated 3 support tickets"],
+            {Drop.TICKET_BURST: 2},
+        ),
+        (
+            "two ticket updates are kept one per ticket",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(2)],
+            ['- 2026-10-18 updated Ticket "Ticket #0"', '- 2026-10-18 updated Ticket "Ticket #1"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_drop_automated_activity(
+    _name: str, items: list[ActivityItem], expected: list[str], expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    assert [unit.text for unit in activity_units(items, drops)] == expected
+    assert dict(drops) == expected_drops
 
 
 @parameterized.expand(
@@ -404,6 +545,89 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
     assert dict(drops) == {Drop.GENERIC_SCENE: 2, Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
 
 
+def test_compute_fields_split_owned_watched_and_visited() -> None:
+    activity = (
+        [_change("FeatureFlag", "updated", "new-checkout", days_ago=day, item_id="7") for day in (1, 2, 3)]
+        + [
+            _change("Dashboard", "created", "Growth overview", days_ago=2, item_id="9"),
+            _change("Insight", "updated", "Signup funnel", client="scout:product-analytics", item_id="1"),
+            _change("PersonalAPIKey", "created", "CI deploy key", item_id="k1"),
+            _change("Insight", "updated", "Weekly signups", item_id="42", short_id="abc"),
+        ]
+        + [_change("Ticket", "updated", f"Ticket #{n}", item_id=f"t{n}") for n in (1, 2, 3)]
+    )
+    views = [
+        _view("insight", "abc", "Weekly signups", days=4, not_theirs=True),
+        _view("insight", "def", "Churn by plan", days=2),
+        _view("scene", "Replay", days=1),
+    ]
+    tasks = [_task("why", summary="Goal: find why signups dropped.", tags=("Product analytics",))]
+
+    computed = compute_fields(tasks, activity, views).as_json()
+
+    assert computed == {
+        "schema_version": 1,
+        "owned": [
+            {
+                "ref": "o1",
+                "type": "feature_flag",
+                "id": "7",
+                "name": "new-checkout",
+                "edit_days": 3,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            {
+                "ref": "o2",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "edit_days": 1,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            *(
+                {
+                    "ref": f"o{n + 2}",
+                    "type": "ticket",
+                    "id": f"t{n}",
+                    "name": f"Ticket #{n}",
+                    "edit_days": 1,
+                    "last_at": "2026-10-18",
+                    "created": False,
+                }
+                for n in (1, 2, 3)
+            ),
+            {
+                "ref": "o6",
+                "type": "dashboard",
+                "id": "9",
+                "name": "Growth overview",
+                "edit_days": 1,
+                "last_at": "2026-10-17",
+                "created": True,
+            },
+        ],
+        "watched": [
+            {
+                "ref": "o2",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "open_days": 4,
+                "last_at": "2026-10-18",
+                "not_theirs": True,
+            }
+        ],
+        "pages": [{"ref": "p1", "product": "session_replay", "open_days": 1, "last_at": "2026-10-18"}],
+        "products": {
+            "works_in": ["feature_flags", "product_analytics", "dashboards", "support"],
+            "visits": ["session_replay"],
+        },
+        "task_count": 1,
+    }
+
+
 @parameterized.expand(
     [
         ("default limits", DEFAULT_LIMITS),
@@ -423,7 +647,7 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
 def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str, limits: RenderLimits) -> None:
     runaway = "word " * 2000
     tasks = [
-        _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
+        _task(runaway, summary=f"{'x' * day}{'y' * n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
         for day in range(28)
         for n in range(20)
     ]
