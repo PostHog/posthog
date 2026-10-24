@@ -37,11 +37,14 @@ export function PlayerSidebar({
     const { setTab } = useActions(playerSidebarLogic)
     const {
         sidebarOpen,
+        debugMode,
         preferredSidebarStacking,
         isVerticallyStacked: preferredVertical,
     } = useValues(playerSettingsLogic)
     const isVerticallyStacked = stacking ? stacking === SessionRecordingSidebarStacking.Vertical : preferredVertical
-    const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
+    const { setSidebarOpen, setDebugMode, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
+    const open = tabs ? debugMode : sidebarOpen
+    const setOpen = tabs ? setDebugMode : setSidebarOpen
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -55,7 +58,7 @@ export function PlayerSidebar({
         persistPrefix: '2025-12-29',
         closeThreshold: 100,
         placement: isVerticallyStacked ? 'top' : 'left',
-        onToggleClosed: (shouldBeClosed) => setSidebarOpen(!shouldBeClosed),
+        onToggleClosed: (shouldBeClosed) => setOpen(!shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -88,14 +91,11 @@ export function PlayerSidebar({
 
     return (
         <div
-            className={clsx(
-                'SessionRecordingPlayer__sidebar',
-                !sidebarOpen && 'SessionRecordingPlayer__sidebar--collapsed'
-            )}
+            className={clsx('SessionRecordingPlayer__sidebar', !open && 'SessionRecordingPlayer__sidebar--collapsed')}
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                !sidebarOpen
+                !open
                     ? {}
                     : isVerticallyStacked
                       ? { height: desiredSize ?? undefined, minHeight: 210 }
@@ -104,12 +104,12 @@ export function PlayerSidebar({
         >
             <Resizer
                 logicKey={logicKey}
-                placement={sidebarOpen && isVerticallyStacked ? 'top' : 'left'}
+                placement={open && isVerticallyStacked ? 'top' : 'left'}
                 containerRef={ref}
                 closeThreshold={100}
                 offset="0.25rem"
             />
-            {sidebarOpen && tabs && (
+            {open && tabs && (
                 <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex flex-col flex-1 min-h-0 h-full">
                         <DebugTabBar tabs={sidebarTabs} activeTab={debugTab} onChange={setTab}>
@@ -126,7 +126,7 @@ export function PlayerSidebar({
                                 data-attr="player-sidebar-close"
                                 size="small"
                                 icon={<IconX />}
-                                onClick={() => setSidebarOpen(false)}
+                                onClick={() => setDebugMode(false)}
                                 tooltip="Close sidebar"
                                 aria-label="Close sidebar"
                                 className="rounded-none"
@@ -138,7 +138,7 @@ export function PlayerSidebar({
                     </div>
                 </div>
             )}
-            {sidebarOpen && !tabs && (
+            {open && !tabs && (
                 <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />

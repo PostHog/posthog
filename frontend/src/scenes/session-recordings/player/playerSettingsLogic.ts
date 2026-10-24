@@ -64,6 +64,9 @@ export interface playerSettingsLogicActions {
     setAutoplayDirection: (autoplayDirection: AutoplayDirection) => {
         autoplayDirection: AutoplayDirection
     }
+    setDebugMode: (open: boolean) => {
+        open: boolean
+    }
     setHideViewedRecordings: (hideViewedRecordings: HideViewedRecordingsOptions) => {
         hideViewedRecordings: HideViewedRecordingsOptions
     }
@@ -160,6 +163,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setSidebarOpen: (open: boolean) => ({ open }),
+        setDebugMode: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
@@ -266,13 +270,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         ],
         watchDebugDock: ['right' as WatchDebugDock, { persist: true }, { setWatchDebugDock: (_, { dock }) => dock }],
         // Starts closed for everyone, whatever the legacy sidebar preference was.
-        debugModePreference: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
+        debugModePreference: [false, { persist: true }, { setDebugMode: (_, { open }) => open }],
         debugHintDismissed: [
             false,
             { persist: true },
             {
                 dismissDebugHint: () => true,
-                setSidebarOpen: (state, { open }) => state || open,
+                setDebugMode: (state, { open }) => state || open,
             },
         ],
         watchPanelOpenSections: [
@@ -407,8 +411,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
     })),
 
-    actionToUrl(() => ({
-        setSidebarOpen: ({ open }) => {
+    actionToUrl(() => {
+        const withInspectorParam = ({
+            open,
+        }: {
+            open: boolean
+        }): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             return [
                 currentLocation.pathname,
@@ -418,6 +426,10 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 },
                 currentLocation.hashParams,
             ]
-        },
-    })),
+        }
+        return {
+            setSidebarOpen: withInspectorParam,
+            setDebugMode: withInspectorParam,
+        }
+    }),
 ])

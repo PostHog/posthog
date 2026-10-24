@@ -32,7 +32,8 @@ export function ReplayListHeader({
             return
         }
         const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') {
+            // An open dialog or menu owns Escape.
+            if (event.key === 'Escape' && !document.querySelector('.LemonModal, .Popover')) {
                 setSelectMode(false)
             }
         }
