@@ -24,6 +24,23 @@ _FORMAT_LABELS = {
     "Delta": "Delta",
     "DeltaS3Wrapper": "Delta",
 }
+# Mirrors ClickHouse's chooseCompressionMethod.
+_COMPRESSION_BY_EXTENSION = {
+    "gz": "gzip",
+    "gzip": "gzip",
+    "deflate": "deflate",
+    "br": "br",
+    "brotli": "br",
+    "xz": "xz",
+    "lzma": "xz",
+    "zst": "zstd",
+    "zstd": "zstd",
+    "lz4": "lz4",
+    "bz2": "bz2",
+    "snappy": "snappy",
+}
+_URL_GLOB_CHARACTERS = frozenset("*?{}")
+_BROTLI_FILE_NAME_RE = re.compile(r"\.(?:br|brotli)(?![\w.-])", re.IGNORECASE)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,6 +123,14 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
     )
 
 
+def compression_for_url_pattern(url: str) -> str | None:
+    """None when the pattern can match files with different extensions."""
+    _, dot, extension = url.rsplit("/", 1)[-1].rpartition(".")
+    if _URL_GLOB_CHARACTERS.intersection(extension):
+        return None
+    return _COMPRESSION_BY_EXTENSION.get(extension.lower(), "none") if dot else "none"
+
+
 def build_function_call(
     url: str,
     format: str,
@@ -115,7 +140,13 @@ def build_function_call(
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
+    compression: Optional[str] = None,
 ) -> str:
+    if _BROTLI_FILE_NAME_RE.search(url.rsplit("/", 1)[-1]):
+        raise ExposedHogQLError(
+            "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
+        )
+
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
@@ -222,8 +253,9 @@ def build_function_call(
         escaped_access_key = add_param(access_key)
         escaped_access_secret = add_param(access_secret)
         escaped_format = add_param(format, False)
+        escaped_compression = add_param(compression, False) if compression else "'auto'"
 
-        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, 'auto'"
+        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, {escaped_compression}"
 
         if structure:
             escaped_structure = add_param(structure, False)
@@ -252,6 +284,12 @@ def build_function_call(
 
     if structure:
         expr += f", {escaped_structure}"
+    elif compression:
+        # s3() only reads the codec after a structure argument.
+        expr += ", 'auto'"
+
+    if compression:
+        expr += f", {add_param(compression, False)}"
 
     return return_expr(expr)
 
