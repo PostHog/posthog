@@ -22,7 +22,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
@@ -301,13 +300,11 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         runner = ExperimentQueryRunner(query=query, team=self.team, max_threads=max_threads)
-        with patch(
-            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query",
-            side_effect=execute_hogql_query,
-        ) as spy_select:
+        with patch("posthog.hogql.query.sync_execute", side_effect=sync_execute) as spy_select:
             insert_settings = self._spy_insert_settings_by_table(runner.calculate)
 
-        assert spy_select.call_args.kwargs["settings"].max_threads == max_threads
+        expected_select_settings = {"max_threads": max_threads} if max_threads is not None else None
+        assert spy_select.call_args.kwargs.get("settings") == expected_select_settings
         assert set(insert_settings) == {
             "experiment_exposures_preaggregated",
             "experiment_metric_events_preaggregated",
