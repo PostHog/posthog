@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, timedelta
@@ -166,6 +167,8 @@ from products.signals.backend.ranking.inbox_sort import (
     resolve_recommended_ranker,
     score_decile,
 )
+from products.signals.backend.ranking.public_heads import PUBLIC_HEAD_NAMES
+from products.signals.backend.ranking.served_heads import served_heads
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -243,6 +246,8 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateResponseSerializer,
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
+    RankingHeadsResponseSerializer,
+    RankingStatus,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -1294,6 +1299,29 @@ class SignalReportViewSet(
         "ranking_dismiss_lowvalue": "dismiss_lowvalue",
     }
 
+    @extend_schema(
+        responses={200: RankingHeadsResponseSerializer},
+        summary="List the ranking model's public heads",
+        description=(
+            "What each public head of the served ranking model predicts, with its horizon, cohort, base rate and "
+            "readability from the model that scored this project's reports. Users who cannot see the ranking "
+            "model get status not_available and no heads."
+        ),
+        operation_id="signals_reports_ranking_heads_list",
+    )
+    @action(
+        detail=False, methods=["get"], url_path="ranking_heads", required_scopes=["task:read"], pagination_class=None
+    )
+    def ranking_heads(self, request: Request, **kwargs) -> Response:
+        if not self._can_view_inbox_ranking:
+            status_value, model, heads = RankingStatus.NOT_AVAILABLE, None, []
+        else:
+            model, heads = served_heads(self.team_id)
+            status_value = RankingStatus.SCORED if model is not None else RankingStatus.UNSCORED
+        return Response(
+            RankingHeadsResponseSerializer({"status": status_value.value, "model": model, "heads": heads}).data
+        )
+
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
     @action(detail=False, methods=["post"], required_scopes=["task:read"])
     def read_state(self, request, **kwargs):
@@ -1383,6 +1411,7 @@ class SignalReportViewSet(
             qs = self._apply_signal_report_priority_filter(qs)
         if self.action == "list":
             qs = self._annotate_signal_report_ranking(qs)
+            qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         if self.action != "bulk_state":
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
@@ -1955,61 +1984,105 @@ class SignalReportViewSet(
         # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
         # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
         # the heads the ordering names are annotated, because each one is a correlated subquery.
-        # A value that is not a JSON number reads as NULL, so one bad row cannot fail the list.
-        # The guard is in the CASE, not the filter: the latest artefact decides, as it does for the
-        # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
-        # A stale score (the report was edited after the text it scored) also sorts as unscored.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
             if annotation not in ordered_fields:
                 continue
-            content = Cast(F("content"), output_field=JSONField())
-            served_key = Func(
-                content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField()
-            )
-            latest_score = Subquery(
-                annotate_stale_score(
-                    SignalReportArtefact.objects.filter(
-                        report_id=OuterRef("id"),
-                        type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-                    ).order_by("-created_at")
-                )
-                .annotate(
-                    _score=Case(
-                        When(
-                            content__startswith="{",
-                            then=Func(
-                                content,
-                                Value("results"),
-                                served_key,
-                                Value("scores"),
-                                Value(head),
-                                function="jsonb_extract_path",
-                                output_field=JSONField(),
-                            ),
-                        ),
-                        default=Value(None),
-                        output_field=JSONField(),
-                    ),
-                )
-                .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
-                .annotate(
-                    _score_value=Case(
-                        When(
-                            _score_type="number",
-                            _score_is_stale=False,
-                            then=Cast(F("_score"), output_field=FloatField()),
-                        ),
-                        default=Value(None),
-                        output_field=FloatField(),
-                    )
-                )
-                .values("_score_value")[:1],
-                output_field=FloatField(),
-            )
-            queryset = queryset.annotate(**{annotation: latest_score})
+            queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
         return queryset
+
+    @staticmethod
+    def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
+        # The served model's value for one head from the latest ranking_score artefact, as
+        # `results -> <served_key> -> <key> -> <head>`. A value that is not a JSON number reads as NULL,
+        # so one bad row cannot fail the list. The guard is in the CASE, not the filter: the latest
+        # artefact decides, as it does for the `ranking` field, so a bad latest row makes the report
+        # unscored rather than older-scored. A stale score (the report was edited after the text it
+        # scored) also reads as NULL.
+        content = Cast(F("content"), output_field=JSONField())
+        served_key = Func(content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField())
+        return Subquery(
+            annotate_stale_score(
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"),
+                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                ).order_by("-created_at")
+            )
+            .annotate(
+                _score=Case(
+                    When(
+                        content__startswith="{",
+                        then=Func(
+                            content,
+                            Value("results"),
+                            served_key,
+                            Value(key),
+                            Value(head),
+                            function="jsonb_extract_path",
+                            output_field=JSONField(),
+                        ),
+                    ),
+                    default=Value(None),
+                    output_field=JSONField(),
+                ),
+            )
+            .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
+            .annotate(
+                _score_value=Case(
+                    When(
+                        _score_type="number",
+                        _score_is_stale=False,
+                        then=Cast(F("_score"), output_field=FloatField()),
+                    ),
+                    default=Value(None),
+                    output_field=FloatField(),
+                )
+            )
+            .values("_score_value")[:1],
+            output_field=FloatField(),
+        )
+
+    def _apply_signal_report_ranking_filters(self, queryset):
+        # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
+        # unscored and stale reports drop out of every ranking filter.
+        for param, key in (("ranking_min_lift", "lifts"), ("ranking_min_probability", "scores")):
+            minimums = self._parse_ranking_minimums(param)
+            if not minimums:
+                continue
+            for head, minimum in minimums.items():
+                annotation = f"ranking_filter_{key}_{head}"
+                queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, key)}).filter(
+                    **{f"{annotation}__gte": minimum}
+                )
+        return queryset
+
+    def _parse_ranking_minimums(self, param: str) -> dict[str, float]:
+        raw = self.request.query_params.get(param)
+        if raw is None or not raw.strip():
+            return {}
+        if not self._can_view_inbox_ranking:
+            # The serializer hides ranking scores from these users, and the filter would leak them.
+            raise serializers.ValidationError({param: f"Filtering by {param} is not available to you."})
+        valid = ", ".join(PUBLIC_HEAD_NAMES)
+        minimums: dict[str, float] = {}
+        for pair in raw.split(","):
+            head, sep, value = pair.strip().partition(":")
+            head = head.strip()
+            if head not in PUBLIC_HEAD_NAMES:
+                raise serializers.ValidationError({param: f"Unknown head {head!r}. Valid heads: {valid}."})
+            try:
+                minimum = float(value) if sep else math.nan
+            except ValueError:
+                minimum = math.nan
+            if not math.isfinite(minimum) or minimum < 0:
+                raise serializers.ValidationError(
+                    {
+                        param: f"Use <head>:<number> pairs with a number of 0 or more, e.g. fixed:2. Valid heads: {valid}."
+                    }
+                )
+            minimums[head] = minimum
+        return minimums
 
     def _needs_priority_annotation(self) -> bool:
         # The priority value is a correlated subquery too, and the serializer renders priority from
@@ -2591,6 +2664,30 @@ class SignalReportViewSet(
                     "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
+                ),
+            ),
+            OpenApiParameter(
+                name="ranking_min_lift",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated <head>:<lift> pairs, e.g. fixed:2,open:1.5. Keeps reports whose served ranking "
+                    "lift is at least the value for every named head. Heads: open, action, fixed. Read "
+                    "inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. "
+                    "Needs staff or the inbox model sort rollout: other users get a 400."
+                ),
+            ),
+            OpenApiParameter(
+                name="ranking_min_probability",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated <head>:<probability> pairs, e.g. fixed:0.3. Keeps reports whose served ranking "
+                    "probability is at least the value for every named head. Heads: open, action, fixed. Read "
+                    "inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. "
+                    "Needs staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
             OpenApiParameter(

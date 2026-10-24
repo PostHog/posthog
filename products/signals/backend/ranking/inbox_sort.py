@@ -23,13 +23,14 @@ from posthog.models.user import User
 from posthog.utils import get_instance_region
 
 from products.signals.backend.models import AutonomyPriority
+from products.signals.backend.ranking.public_heads import PublicHeadName
 
 logger = structlog.get_logger(__name__)
 
 RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
 
-InboxRanker = Literal["priority", "open", "action", "fixed"]
-HeadRanker = Literal["open", "action", "fixed"]
+HeadRanker = PublicHeadName
+InboxRanker = Literal["priority", HeadRanker]
 
 HEAD_RANKERS: tuple[HeadRanker, ...] = get_args(HeadRanker)
 

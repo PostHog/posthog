@@ -602,6 +602,8 @@ const inboxReportsList = (): ToolBase<
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
+                ranking_min_lift: params.ranking_min_lift,
+                ranking_min_probability: params.ranking_min_probability,
                 scope: params.scope,
                 scout: params.scout,
                 scout_prefix: params.scout_prefix,
@@ -649,6 +651,7 @@ const inboxReportsList = (): ToolBase<
                     'tracker_issue_error',
                     'work_state',
                     'assignee',
+                    'ranking',
                     'created_at',
                     'updated_at',
                 ])
@@ -700,6 +703,24 @@ const inboxReportsMerge = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxRankingHeadsListSchema = () => z.object({})
+
+const inboxRankingHeadsList = (): ToolBase<
+    ReturnType<typeof InboxRankingHeadsListSchema>,
+    Schemas.RankingHeadsResponse
+> => ({
+    name: 'inbox-ranking-heads-list',
+    schema: InboxRankingHeadsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRankingHeadsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RankingHeadsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/ranking_heads/`,
+        })
+        return result
     },
 })
 
@@ -3340,6 +3361,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
+    'inbox-ranking-heads-list': inboxRankingHeadsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,

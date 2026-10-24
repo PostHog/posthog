@@ -436,15 +436,13 @@ describe('ReportCard', () => {
         const report = makeReport('r-2', {
             metrics: [makeMetric()],
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41, action: 0.062 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['action', 'fixed'],
-                stale: false,
+                heads: [
+                    { head: 'action', probability: 0.062, lift: null, readable: true },
+                    { head: 'fixed', probability: 0.41, lift: 2.7, readable: true },
+                ],
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -464,15 +462,10 @@ describe('ReportCard', () => {
 
         const stale = makeReport('r-2', {
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['fixed'],
-                stale: true,
+                heads: [{ head: 'fixed', probability: 0.41, lift: 2.7, readable: true }],
             },
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)

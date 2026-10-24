@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 71 enabled ops
+ * PostHog API - MCP 72 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -271,6 +271,18 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
+        ),
+    ranking_min_lift: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated <head>:<lift> pairs, e.g. fixed:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+        ),
+    ranking_min_probability: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated <head>:<probability> pairs, e.g. fixed:0.3. Keeps reports whose served ranking probability is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     scope: zod
         .string()
@@ -1225,6 +1237,18 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
         .max(signalsReportsBulkStateCreateBodyIdsMax)
         .describe(
             'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.'
+        ),
+})
+
+/**
+ * What each public head of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no heads.
+ * @summary List the ranking model's public heads
+ */
+export const SignalsReportsRankingHeadsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

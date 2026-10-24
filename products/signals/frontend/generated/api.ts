@@ -49,6 +49,7 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RankingHeadsResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
@@ -1459,6 +1460,24 @@ export const signalsReportsPrCiStatuses = async (
     options?: RequestInit
 ): Promise<PullRequestCiStatusesResponseApi> => {
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRankingHeadsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/ranking_heads/`
+}
+
+/**
+ * What each public head of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no heads.
+ * @summary List the ranking model's public heads
+ */
+export const signalsReportsRankingHeadsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RankingHeadsResponseApi> => {
+    return apiMutator<RankingHeadsResponseApi>(getSignalsReportsRankingHeadsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

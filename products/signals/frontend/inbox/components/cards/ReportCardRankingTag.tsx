@@ -1,12 +1,16 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { useCallback } from 'react'
 
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { INBOX_RANKING_SCORES, InboxRankingScore, rankingScoreForField } from '../../filterOptions'
 import { captureInboxRankingDetailsViewed } from '../../inboxAnalytics'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
+import { rankingPrediction } from '../../utils/reportOrdering'
 import {
     formatRankingLift,
     formatRankingLiftComparison,
@@ -27,23 +31,31 @@ const STRENGTH_TAG_TYPES: Record<RankingStrength, LemonTagType> = {
 }
 
 function rankingLift(ranking: Ranking, head: string): number | null {
-    const lift = ranking.lifts?.[head]
+    const lift = rankingPrediction(ranking, head)?.lift
     return typeof lift === 'number' && Number.isFinite(lift) ? lift : null
 }
 
-/** Raw probabilities and the model version come only to staff. Other users get lifts alone. */
-function rankingProbability(ranking: Ranking, head: string): number | null {
-    const probability = ranking.scores[head]
+/** The inbox shows raw probabilities and the model key to staff only. Other users see lifts alone. */
+function rankingProbability(ranking: Ranking, head: string, isStaff: boolean): number | null {
+    const probability = isStaff ? rankingPrediction(ranking, head)?.probability : undefined
     return typeof probability === 'number' ? probability : null
 }
 
-function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: InboxRankingScore }): JSX.Element {
+function RankingHoverCard({
+    ranking,
+    active,
+    isStaff,
+}: {
+    ranking: Ranking
+    active: InboxRankingScore
+    isStaff: boolean
+}): JSX.Element {
     const lift = rankingLift(ranking, active.head)
     const others = INBOX_RANKING_SCORES.filter(
         (score) =>
             score !== active &&
-            ranking.readable_heads.includes(score.head) &&
-            (rankingLift(ranking, score.head) !== null || rankingProbability(ranking, score.head) !== null)
+            rankingPrediction(ranking, score.head)?.readable &&
+            (rankingLift(ranking, score.head) !== null || rankingProbability(ranking, score.head, isStaff) !== null)
     )
     return (
         <div className="flex max-w-96 min-w-80 flex-col gap-2 text-xs">
@@ -62,7 +74,7 @@ function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: Inbox
             <div className="flex flex-col gap-1">
                 {[active, ...others].map((score) => {
                     const scoreLift = rankingLift(ranking, score.head)
-                    const probability = rankingProbability(ranking, score.head)
+                    const probability = rankingProbability(ranking, score.head, isStaff)
                     return (
                         <div
                             key={score.head}
@@ -90,10 +102,8 @@ function RankingHoverCard({ ranking, active }: { ranking: Ranking; active: Inbox
             <div className="opacity-70">
                 Very likely means 2x the average or more. The model estimates this from past reports.
             </div>
-            {ranking.model_name && (
-                <div className="border-t border-primary pt-1 font-mono opacity-70">
-                    {ranking.model_name}@{ranking.model_version}
-                </div>
+            {isStaff && ranking.model && (
+                <div className="border-t border-primary pt-1 font-mono opacity-70">{ranking.model}</div>
             )}
         </div>
     )
@@ -111,10 +121,19 @@ export function ReportCardRankingTag({
     sortField: InboxRankingSortField
 }): JSX.Element {
     const score = rankingScoreForField(sortField)
+    const isStaff = useValues(userLogic).user?.is_staff ?? false
     const ranking = report.ranking
     const lift = ranking ? rankingLift(ranking, score.head) : null
-    const probability = ranking ? rankingProbability(ranking, score.head) : null
-    const state = !ranking || (lift === null && probability === null) ? 'unscored' : ranking.stale ? 'stale' : 'scored'
+    const probability = ranking ? rankingProbability(ranking, score.head, isStaff) : null
+    const state =
+        !ranking ||
+        ranking.status === 'unscored' ||
+        ranking.status === 'not_available' ||
+        (lift === null && probability === null)
+            ? 'unscored'
+            : ranking.status === 'stale'
+              ? 'stale'
+              : 'scored'
     const strength = lift !== null ? rankingStrength(lift) : null
     // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
     const onOpen = useCallback(
@@ -153,7 +172,11 @@ export function ReportCardRankingTag({
         )
     }
     return (
-        <Tooltip title={<RankingHoverCard ranking={ranking} active={score} />} onOpen={onOpen} openOnClick>
+        <Tooltip
+            title={<RankingHoverCard ranking={ranking} active={score} isStaff={isStaff} />}
+            onOpen={onOpen}
+            openOnClick
+        >
             <LemonTag
                 size="small"
                 type={strength ? STRENGTH_TAG_TYPES[strength] : 'default'}

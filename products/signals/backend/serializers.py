@@ -97,6 +97,7 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
+from .ranking.public_heads import PUBLIC_HEAD_NAMES
 from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -1214,44 +1215,108 @@ class ReportSourceSuggestionSerializer(serializers.Serializer):
     )
 
 
+class RankingStatus(TextChoices):
+    SCORED = "scored", "scored"
+    STALE = "stale", "stale"
+    UNSCORED = "unscored", "unscored"
+    NOT_AVAILABLE = "not_available", "not_available"
+
+
+class ReportRankingHeadSerializer(serializers.Serializer):
+    head = serializers.ChoiceField(
+        choices=PUBLIC_HEAD_NAMES,
+        help_text="Outcome the model predicts. Read inbox-ranking-heads-list for what each head means.",
+    )
+    probability = serializers.FloatField(
+        help_text="The model's calibrated probability that the outcome happens within the head's horizon."
+    )
+    lift = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The probability divided by the head's base rate. 1.0 is an average report, 2.7 means 2.7x as likely "
+            "as the average report. Compare lifts across heads, not raw probabilities. Null when the model has "
+            "no saved base rate for the head."
+        ),
+    )
+    readable = serializers.BooleanField(
+        help_text="True when the training run could read the head's holdout AUC. Treat other heads with caution."
+    )
+
+
 class ReportRankingSerializer(serializers.Serializer):
-    served_key = serializers.CharField(
+    status = serializers.ChoiceField(
+        choices=RankingStatus.choices,
         help_text=(
-            "Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users."
-        )
-    )
-    model_name = serializers.CharField(help_text="Feature family of the served model. Empty for non-staff users.")
-    model_version = serializers.CharField(
-        help_text="Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users."
-    )
-    manifest_version = serializers.CharField(
-        help_text="Version of the serving manifest that chose the model. Empty for non-staff users."
-    )
-    scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
-    scores = serializers.DictField(
-        child=serializers.FloatField(),
-        help_text=(
-            "Outcome head name to its calibrated probability. Empty when the served model skipped the report, "
-            "and always empty for non-staff users."
+            "scored: the heads describe the current text. stale: the title or summary changed after the text the "
+            "model read, so the heads describe the old text and the model sorts and filters treat the report as "
+            "unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low "
+            "score. not_available: you cannot see the ranking model's output, so every other field is empty."
         ),
     )
-    lifts = serializers.DictField(
-        child=serializers.FloatField(),
+    model = serializers.CharField(
+        allow_null=True,
         help_text=(
-            "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means "
-            "2.7x as likely as the average report. A head without a saved base rate has no entry."
+            "Key of the served model that wrote the score, as `<model_name>@<model_version>`. "
+            "Do not compare predictions from different keys."
         ),
     )
-    readable_heads = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
-    )
-    stale = serializers.BooleanField(
+    scored_at = serializers.DateTimeField(allow_null=True, help_text="When the scoring sweep scored the report.")
+    heads = ReportRankingHeadSerializer(
+        many=True,
         help_text=(
-            "True when the report's title or summary was edited after the text this score read. The score "
-            "describes the old text: the inbox hides its lift and the model sort treats the report as unscored."
+            "The served model's predictions, one per public head that it scored. A prediction says what may "
+            "happen, never what did: the report's status and its PR fields say whether it was resolved or fixed."
         ),
     )
+
+
+class RankingHeadInfoSerializer(serializers.Serializer):
+    head = serializers.ChoiceField(choices=PUBLIC_HEAD_NAMES, help_text="Name of the head in the `ranking` field.")
+    label = serializers.CharField(help_text="Short label the inbox shows for the head.")
+    description = serializers.CharField(help_text="What the head predicts, in one sentence.")
+    horizon_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Days after scoring within which the outcome counts. Null when the served model did not save it.",
+    )
+    cohort = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the report set the head was trained on. Null when the served model did not save it.",
+    )
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The head's base rate: a report's lift is its probability divided by this value. "
+            "Null when the served model has no saved base rate for the head."
+        ),
+    )
+    readable = serializers.BooleanField(
+        help_text="True when the training run could read the head's holdout AUC. Treat other heads with caution."
+    )
+
+
+class RankingHeadsResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=[RankingStatus.SCORED.value, RankingStatus.UNSCORED.value, RankingStatus.NOT_AVAILABLE.value],
+        help_text=(
+            "scored: the served model has scored reports in this project. unscored: no readable score yet. "
+            "not_available: you cannot see the ranking model's output."
+        ),
+    )
+    model = serializers.CharField(
+        allow_null=True,
+        help_text="Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.",
+    )
+    heads = RankingHeadInfoSerializer(many=True, help_text="One entry per public head, in the inbox order.")
+
+
+def _ranking_payload(
+    status: RankingStatus,
+    *,
+    model: str | None = None,
+    scored_at: datetime | None = None,
+    heads: list[dict] | None = None,
+) -> dict:
+    return {"status": status.value, "model": model, "scored_at": scored_at, "heads": heads or []}
 
 
 class SignalReportPriorityUpdateSerializer(serializers.Serializer):
@@ -1537,8 +1602,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     ranking = serializers.SerializerMethodField(
         help_text=(
-            "The served model's score from the latest ranking score artefact. Null for users who are neither "
-            "staff nor in the inbox model sort rollout, and null when the report has no score."
+            "The served ranking model's predictions from the latest ranking score artefact. Its status says "
+            "whether the report is scored, stale or unscored, or that the user cannot see the ranking model."
         ),
     )
     source_suggestion = serializers.SerializerMethodField(
@@ -1814,14 +1879,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
 
-    @extend_schema_field(ReportRankingSerializer(allow_null=True))
-    def get_ranking(self, obj: SignalReport) -> dict | None:
+    @extend_schema_field(ReportRankingSerializer)
+    def get_ranking(self, obj: SignalReport) -> dict:
         request = self.context.get("request")
-        if request is None:
-            return None
         can_view = self.context.get("can_view_inbox_ranking")
-        if not (can_view() if can_view is not None else request.user.is_staff):
-            return None
+        if request is None or not (can_view() if can_view is not None else request.user.is_staff):
+            return _ranking_payload(RankingStatus.NOT_AVAILABLE)
 
         from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
             head_lifts,
@@ -1838,7 +1901,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 .first()
             )
         if art is None:
-            return None
+            return _ranking_payload(RankingStatus.UNSCORED)
         prefetched_edits = getattr(obj, "prefetched_latest_edit_artefacts", None)
         if prefetched_edits is not None:
             latest_edit_at = prefetched_edits[0].created_at if prefetched_edits else None
@@ -1852,27 +1915,32 @@ class SignalReportSerializer(serializers.ModelSerializer):
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
-            heads = readable_head_names(served.metadata)
-            if not all(isinstance(head, str) and head for head in heads):
+            readable_heads = readable_head_names(served.metadata)
+            if not all(isinstance(head, str) and head for head in readable_heads):
                 raise ValueError("readable head names must be non-empty strings")
-            readable_heads = sorted(heads)
             # A score written before lifts were stored carries the metadata to compute them.
             lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
             logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
-            return None
-        is_staff = request.user.is_staff
-        return {
-            "served_key": score.served_key if is_staff else "",
-            "model_name": served.model_name if is_staff else "",
-            "model_version": served.model_version if is_staff else "",
-            "manifest_version": score.manifest_version if is_staff else "",
-            "scored_at": score.scored_at,
-            "scores": served.scores if is_staff else {},
-            "lifts": lifts,
-            "readable_heads": readable_heads,
-            "stale": is_stale_score(score, latest_edit_at),
-        }
+            return _ranking_payload(RankingStatus.UNSCORED)
+        heads = [
+            {
+                "head": head,
+                "probability": served.scores[head],
+                "lift": lifts.get(head),
+                "readable": head in readable_heads,
+            }
+            for head in PUBLIC_HEAD_NAMES
+            if head in served.scores
+        ]
+        if not heads:
+            return _ranking_payload(RankingStatus.UNSCORED)
+        return _ranking_payload(
+            RankingStatus.STALE if is_stale_score(score, latest_edit_at) else RankingStatus.SCORED,
+            model=score.served_key,
+            scored_at=score.scored_at,
+            heads=heads,
+        )
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")

@@ -1417,34 +1417,71 @@ export const SignalReportBillingExemptReasonEnumApi = {
 } as const
 
 /**
- * Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users.
+ * * `scored` - scored
+ * * `stale` - stale
+ * * `unscored` - unscored
+ * * `not_available` - not_available
  */
-export type ReportRankingApiScores = { [key: string]: number }
+export type RankingStatusEnumApi = (typeof RankingStatusEnumApi)[keyof typeof RankingStatusEnumApi]
+
+export const RankingStatusEnumApi = {
+    Scored: 'scored',
+    Stale: 'stale',
+    Unscored: 'unscored',
+    NotAvailable: 'not_available',
+} as const
 
 /**
- * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+ * * `open` - open
+ * * `action` - action
+ * * `fixed` - fixed
  */
-export type ReportRankingApiLifts = { [key: string]: number }
+export type HeadEnumApi = (typeof HeadEnumApi)[keyof typeof HeadEnumApi]
+
+export const HeadEnumApi = {
+    Open: 'open',
+    Action: 'action',
+    Fixed: 'fixed',
+} as const
+
+export interface ReportRankingHeadApi {
+    /** Outcome the model predicts. Read inbox-ranking-heads-list for what each head means.
+     *
+     * * `open` - open
+     * * `action` - action
+     * * `fixed` - fixed */
+    head: HeadEnumApi
+    /** The model's calibrated probability that the outcome happens within the head's horizon. */
+    probability: number
+    /**
+     * The probability divided by the head's base rate. 1.0 is an average report, 2.7 means 2.7x as likely as the average report. Compare lifts across heads, not raw probabilities. Null when the model has no saved base rate for the head.
+     * @nullable
+     */
+    lift: number | null
+    /** True when the training run could read the head's holdout AUC. Treat other heads with caution. */
+    readable: boolean
+}
 
 export interface ReportRankingApi {
-    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users. */
-    served_key: string
-    /** Feature family of the served model. Empty for non-staff users. */
-    model_name: string
-    /** Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users. */
-    model_version: string
-    /** Version of the serving manifest that chose the model. Empty for non-staff users. */
-    manifest_version: string
-    /** When the scoring sweep scored the report. */
-    scored_at: string
-    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users. */
-    scores: ReportRankingApiScores
-    /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
-    lifts: ReportRankingApiLifts
-    /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
-    readable_heads: string[]
-    /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
-    stale: boolean
+    /** scored: the heads describe the current text. stale: the title or summary changed after the text the model read, so the heads describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+     *
+     * * `scored` - scored
+     * * `stale` - stale
+     * * `unscored` - unscored
+     * * `not_available` - not_available */
+    status: RankingStatusEnumApi
+    /**
+     * Key of the served model that wrote the score, as `<model_name>@<model_version>`. Do not compare predictions from different keys.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * When the scoring sweep scored the report.
+     * @nullable
+     */
+    scored_at: string | null
+    /** The served model's predictions, one per public head that it scored. A prediction says what may happen, never what did: the report's status and its PR fields say whether it was resolved or fixed. */
+    heads: ReportRankingHeadApi[]
 }
 
 export interface ReportPlanStepApi {
@@ -1635,8 +1672,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
-    readonly ranking: ReportRankingApi | null
+    /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
+    readonly ranking: ReportRankingApi
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
     readonly plan: ReportPlanApi | null
     /**
@@ -1885,8 +1922,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
-    readonly ranking: ReportRankingApi | null
+    /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
+    readonly ranking: ReportRankingApi
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
     readonly plan: ReportPlanApi | null
 }
@@ -5079,6 +5116,66 @@ export interface PullRequestCiStatusApi {
 export interface PullRequestCiStatusesResponseApi {
     /** One entry per requested report whose CI state resolved. Reports without an open implementation pull request, and reports GitHub could not answer for, are left out. */
     readonly statuses: readonly PullRequestCiStatusApi[]
+}
+
+/**
+ * * `scored` - scored
+ * * `unscored` - unscored
+ * * `not_available` - not_available
+ */
+export type RankingHeadsResponseStatusEnumApi =
+    (typeof RankingHeadsResponseStatusEnumApi)[keyof typeof RankingHeadsResponseStatusEnumApi]
+
+export const RankingHeadsResponseStatusEnumApi = {
+    Scored: 'scored',
+    Unscored: 'unscored',
+    NotAvailable: 'not_available',
+} as const
+
+export interface RankingHeadInfoApi {
+    /** Name of the head in the `ranking` field.
+     *
+     * * `open` - open
+     * * `action` - action
+     * * `fixed` - fixed */
+    head: HeadEnumApi
+    /** Short label the inbox shows for the head. */
+    label: string
+    /** What the head predicts, in one sentence. */
+    description: string
+    /**
+     * Days after scoring within which the outcome counts. Null when the served model did not save it.
+     * @nullable
+     */
+    horizon_days: number | null
+    /**
+     * Name of the report set the head was trained on. Null when the served model did not save it.
+     * @nullable
+     */
+    cohort: string | null
+    /**
+     * The head's base rate: a report's lift is its probability divided by this value. Null when the served model has no saved base rate for the head.
+     * @nullable
+     */
+    base_rate: number | null
+    /** True when the training run could read the head's holdout AUC. Treat other heads with caution. */
+    readable: boolean
+}
+
+export interface RankingHeadsResponseApi {
+    /** scored: the served model has scored reports in this project. unscored: no readable score yet. not_available: you cannot see the ranking model's output.
+     *
+     * * `scored` - scored
+     * * `unscored` - unscored
+     * * `not_available` - not_available */
+    status: RankingHeadsResponseStatusEnumApi
+    /**
+     * Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.
+     * @nullable
+     */
+    model: string | null
+    /** One entry per public head, in the inbox order. */
+    heads: RankingHeadInfoApi[]
 }
 
 export interface ReportReadStateRequestApi {
@@ -9471,6 +9568,14 @@ export type SignalsReportsListParams = {
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
+    /**
+     * Comma-separated <head>:<lift> pairs, e.g. fixed:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_lift?: string
+    /**
+     * Comma-separated <head>:<probability> pairs, e.g. fixed:0.3. Keeps reports whose served ranking probability is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     */
+    ranking_min_probability?: string
     /**
      * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
      */
