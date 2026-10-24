@@ -3,7 +3,7 @@
 With research selection and the assignment writer enabled, the first eligible saved report
 reviewer becomes the PR's single owner. Personal preferences and GitHub access checks can
 reject a person but never select someone outside the report.
-Existing GitHub assignments and manual unassignment remain authoritative.
+Manual GitHub assignments and removals remain authoritative.
 
 Other projects retain the legacy DRI and opt-in policies. Task execution permission is
 separate from report and PR assignment. GitHub failures must not break report writes.
@@ -832,9 +832,8 @@ def _assign_report_reviewers(
 def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
     """Apply the shared report assignment, or the legacy DRI/opt-in policy, and request reviews.
 
-    Returns the assignees GitHub accepted. Never unassigns: the add-assignees endpoint is additive,
-    so a person somebody assigned by hand stays on the pull request. Returns an empty list when
-    there is nothing to do or the call failed, and raises nothing.
+    Returns newly added assignees. An empty result can also mean a recorded automatic owner
+    was cleared. Manual assignments remain authoritative.
     """
     if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
         return []
