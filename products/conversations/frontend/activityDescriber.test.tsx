@@ -136,4 +136,21 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).not.toContain('reopened')
     })
+
+    it('describes a CC edit as the addresses added and removed', () => {
+        const ccChange: ActivityChange = {
+            type: ActivityScope.TICKET,
+            action: 'changed',
+            field: 'cc_participants',
+            before: ['old@example.com', 'kept@example.com'],
+            after: ['kept@example.com', 'new@example.com'],
+        }
+        const result = ticketActivityDescriber(
+            ticketLogItem({ detail: { merge: null, trigger: null, name: 'Ticket #7', changes: [ccChange] } })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('added new@example.com to CC')
+        expect(text).toContain('removed old@example.com from CC')
+        expect(text).not.toContain('kept@example.com')
+    })
 })

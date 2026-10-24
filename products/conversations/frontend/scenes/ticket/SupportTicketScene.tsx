@@ -3,7 +3,16 @@ import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInputSelect,
+    LemonModal,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -132,6 +141,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftModeEnabled,
         replyRecipientDescription,
         snoozedUntil,
+        ccParticipants,
         emailReplyBlockedReason,
         latestAiMessage,
         latestAiDraftId,
@@ -155,6 +165,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setAssignee,
         setTags,
         setSnoozedUntil,
+        updateCcParticipants,
         sendMessage,
         updateTicket,
         loadOlderMessages,
@@ -453,25 +464,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
-                            {ticket?.channel_source === 'email' &&
-                                ticket?.cc_participants &&
-                                ticket.cc_participants.length > 0 && (
-                                    <div className="flex justify-between items-start gap-2">
-                                        <span className="text-muted-alt shrink-0">CC</span>
-                                        <span
-                                            className="text-xs truncate text-right"
-                                            title={ticket.cc_participants.join(', ')}
-                                        >
-                                            {ticket.cc_participants.join(', ')}
-                                        </span>
-                                    </div>
-                                )}
-                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                            {ticket?.channel_source === 'email' && (
                                 <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">To</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
-                                        {ticket.email_to}
-                                    </span>
+                                    <span className="text-muted-alt shrink-0 pt-1">CC</span>
+                                    <LemonInputSelect
+                                        mode="multiple"
+                                        allowCustomValues
+                                        size="small"
+                                        className="min-w-0"
+                                        value={ccParticipants}
+                                        onChange={updateCcParticipants}
+                                        placeholder="Add email address"
+                                        formatCreateLabel={(input) => `Add ${input}`}
+                                        disabledReason={sendDisabledReason}
+                                        data-attr="ticket-cc-participants"
+                                    />
                                 </div>
                             )}
                             {ticket?.channel_source === 'github' &&

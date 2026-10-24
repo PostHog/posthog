@@ -175,7 +175,7 @@ export interface Ticket {
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
-    cc_participants?: string[]
+    cc_participants?: readonly string[]
     github_repo?: string | null
     github_issue_number?: number | null
     zendesk_ticket_id?: number | null

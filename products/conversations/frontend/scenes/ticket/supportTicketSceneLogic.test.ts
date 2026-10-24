@@ -680,9 +680,34 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         ['a tags edit', () => logic.actions.setTags(['bug']), ['Tags: bug']],
         ['an assignee edit', () => logic.actions.setAssignee({ type: 'role', id: 'role-1' }), ['Assignee: updated']],
         ['a status-only edit', () => logic.actions.setStatus('pending'), []],
+        [
+            'a CC edit, lowercased and deduped',
+            () => logic.actions.updateCcParticipants(['Bob@Example.com', 'bob@example.com']),
+            ['CC: bob@example.com'],
+        ],
+        ['an invalid CC entry as nothing', () => logic.actions.updateCcParticipants(['not-an-email']), []],
     ])('unsavedTicketChanges lists %s', (_name, applyEdit, expected) => {
         applyEdit()
         expect(logic.values.unsavedTicketChanges).toEqual(expected)
+    })
+
+    // CC is the full list, so sending it on every save would drop an address that a new
+    // inbound email added after this page loaded.
+    test.each<[string, () => void, Record<string, unknown>]>([
+        [
+            'sends CC when it was edited',
+            () => logic.actions.updateCcParticipants(['bob@example.com']),
+            { cc_participants: ['bob@example.com'] },
+        ],
+        ['omits CC when only status changed', () => logic.actions.setStatus('pending'), {}],
+    ])('updateTicket %s', async (_name, applyEdit, expectedCc) => {
+        ticketUpdateMock.mockResolvedValue(loadedTicket())
+        applyEdit()
+
+        await expectLogic(logic, () => logic.actions.updateTicket()).toFinishAllListeners()
+
+        const payload = ticketUpdateMock.mock.calls[0][2]
+        expect('cc_participants' in payload ? { cc_participants: payload.cc_participants } : {}).toEqual(expectedCc)
     })
 
     // Overlapping updates must serialize: the second PATCH waits for the first and carries the

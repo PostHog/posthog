@@ -248,7 +248,8 @@ export interface TicketApi {
     readonly email_from: string | null
     /** @nullable */
     readonly email_to: string | null
-    readonly cc_participants: unknown
+    /** Email addresses copied on every reply to an email ticket. Empty for other channels. */
+    readonly cc_participants: readonly string[]
     /** @nullable */
     readonly github_repo: string | null
     /** @nullable */
@@ -361,6 +362,12 @@ export interface TicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. */
     tags?: string[]
+    /**
+     * Email addresses to copy on every later reply. Replaces the current list. Only email tickets accept this. The requester and the support inbox are dropped, because replies already go to them.
+     * @maxItems 50
+     * @items.maxLength 254
+     */
+    cc_participants?: string[]
 }
 
 /**
@@ -405,6 +412,12 @@ export interface PatchedTicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. */
     tags?: string[]
+    /**
+     * Email addresses to copy on every later reply. Replaces the current list. Only email tickets accept this. The requester and the support inbox are dropped, because replies already go to them.
+     * @maxItems 50
+     * @items.maxLength 254
+     */
+    cc_participants?: string[]
 }
 
 /**

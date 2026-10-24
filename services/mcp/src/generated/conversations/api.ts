@@ -150,6 +150,10 @@ export const ConversationsTicketsPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const conversationsTicketsPartialUpdateBodyCcParticipantsItemMax = 254
+
+export const conversationsTicketsPartialUpdateBodyCcParticipantsMax = 50
+
 export const ConversationsTicketsPartialUpdateBody = () => zod
     .object({
         status: zod
@@ -195,6 +199,13 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
         tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        cc_participants: zod
+            .array(zod.email().max(conversationsTicketsPartialUpdateBodyCcParticipantsItemMax))
+            .max(conversationsTicketsPartialUpdateBodyCcParticipantsMax)
+            .optional()
+            .describe(
+                'Email addresses to copy on every later reply. Replaces the current list. Only email tickets accept this. The requester and the support inbox are dropped, because replies already go to them.'
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
