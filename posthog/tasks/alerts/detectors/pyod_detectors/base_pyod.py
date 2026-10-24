@@ -89,7 +89,7 @@ class BasePyODDetector(BaseDetector):
     ) -> tuple[list[float | None], list[dict[str, Any]]]:
         if artifact.model_bytes is None:
             raise ValueError("The artifact has no model")
-        # Only bytes this code wrote reach here. The caller checks their hash before it loads them.
+        # nosemgrep: trailofbits.python.scikit-joblib-load.scikit-joblib-load (bytes come only from fit() via a blob whose SHA-256 the caller checked against Postgres)
         model: PyODBaseDetector = joblib.load(io.BytesIO(artifact.model_bytes))
         if rows.ndim == 1:
             rows = rows.reshape(-1, 1)

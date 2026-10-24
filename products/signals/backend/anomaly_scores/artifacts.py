@@ -15,7 +15,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
-from posthog.tasks.alerts.detectors.base import DetectorArtifact
+from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION, DetectorArtifact
 
 KEY_PREFIX = "anomaly_models"
 # A blob holds the artifacts of at most `MAX_LIMITS.max_series` series, so the cache stays small.
@@ -23,7 +23,7 @@ _MAX_CACHED_BLOBS = 256
 
 
 class ArtifactUnavailableError(Exception):
-    """The blob is missing, or its bytes do not match the stored hash. The next visit trains."""
+    """The blob is missing, its bytes do not match the stored hash, or a new release cannot read it. The next visit trains."""
 
 
 @frozen
@@ -102,11 +102,17 @@ def load_artifacts(key: str, sha256: str) -> dict[str, DetectorArtifact]:
     if hashlib.sha256(blob).hexdigest() != sha256:
         raise ArtifactUnavailableError(f"The artifact blob at {key!r} does not match its hash")
     artifacts = deserialize(blob)
+    if not all(_readable(artifact) for artifact in artifacts.values()):
+        raise ArtifactUnavailableError(f"The artifact blob at {key!r} has an older schema version")
     with _cache_lock:
         _cache[key] = (sha256, artifacts)
         while len(_cache) > _MAX_CACHED_BLOBS:
             _cache.popitem(last=False)
     return artifacts
+
+
+def _readable(artifact: DetectorArtifact) -> bool:
+    return artifact.schema_version == ARTIFACT_SCHEMA_VERSION and all(_readable(child) for child in artifact.children)
 
 
 def delete_artifacts(key: str) -> None:

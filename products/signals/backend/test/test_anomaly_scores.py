@@ -37,6 +37,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     StateIdentity,
     TrainedState,
     UnsupportedInsightError,
+    bucket_end,
     buckets_to_score,
     fetch_buckets,
     query_cost,
@@ -59,7 +60,6 @@ ZSCORE_OR_KNN = IntervalScoring(
             {"type": "knn", "threshold": 0.95},
         ],
     },
-    training_buckets=90,
 )
 
 
@@ -357,8 +357,33 @@ class TestScoreInsight(SimpleTestCase):
             )
 
         assert scores.run == ScoringRun.TRAIN
-        # The training length, one guard bucket, and the backfill cap of a first visit.
-        assert runner.call_args.kwargs["query"].dateRange.date_from == "-121d"
+        # The detector history and the backfill cap of a first visit, the same fetch as without the split.
+        assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
+
+    @parameterized.expand([(interval.value, interval) for interval in DEFAULT_PROFILE.intervals])
+    def test_a_train_step_fits_every_series_at_each_default_interval(self, _name: str, interval: IntervalType) -> None:
+        buckets = [datetime(2024, 1, 1, tzinfo=UTC)]
+        while len(buckets) < 400:
+            buckets.append(bucket_end(buckets[-1], interval))
+        result = {
+            "action": {"order": 0},
+            "label": "pageview",
+            "breakdown_value": None,
+            "days": [bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets],
+            "data": list(np.random.default_rng(5).normal(100, 10, size=len(buckets))),
+        }
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[result])
+            scores = score_insight(
+                _insight([EventsNode(event="$pageview")], interval=interval),
+                Team(timezone="UTC"),
+                now=bucket_end(buckets[-1], interval),
+                split=SplitRun(),
+            )
+
+        assert scores.run == ScoringRun.TRAIN and scores.artifacts is not None
+        assert set(scores.artifacts) == {series.series_key for series in scores.series} != set()
+        assert all(point.score is not None for point in scores.series[0].points)
 
 
 _IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")

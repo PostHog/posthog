@@ -152,7 +152,7 @@ def detector_version(scoring: IntervalScoring, *, artifacts: bool = False) -> st
     """
     behavior: dict[str, Any] = {"min_points": scoring.min_points, "detector": scoring.detector}
     if artifacts:
-        behavior["training_buckets"] = scoring.training_buckets
+        behavior["fit"] = "artifact"
     return _short_hash(behavior)
 
 
@@ -408,8 +408,8 @@ def score_with_artifact(
 def _fit(
     detector: BaseDetector, scoring: IntervalScoring, values: Sequence[float], end: int
 ) -> DetectorArtifact | None:
-    """Fit on the newest ``training_buckets`` values before ``end``, or None when they are too few."""
-    history = np.array(values[max(0, end - scoring.training_buckets) : end], dtype=float)
+    """Fit on the buckets before ``end`` that ``detect()`` reads to score ``end``, or None when they are too few."""
+    history = np.array(values[max(0, end - (history_buckets(scoring) - 1)) : end], dtype=float)
     # The scored bucket counts toward `min_points`, as in `score_series`.
     if len(history) + 1 < scoring.min_points:
         return None
@@ -497,8 +497,7 @@ def _train_step(
     """Fit each series on the history before its due buckets, and score the due buckets with the new artifact."""
     interval = scores.interval
     to_score = buckets_to_score(interval, now=now, after=after, timezone=team.timezone_info, limits=limits)
-    # One bucket more than the fit reads, as in the full fetch.
-    buckets = fetch_buckets(query, scoring, to_score, history=scoring.training_buckets + 1)
+    buckets = fetch_buckets(query, scoring, to_score)
     fetched = _fetch(insight, team, query, buckets, limits, ScoringRun.TRAIN)
     series: list[ScoredSeries] = []
     artifacts: dict[str, DetectorArtifact] = {}

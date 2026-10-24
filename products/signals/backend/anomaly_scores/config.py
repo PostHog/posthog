@@ -35,8 +35,6 @@ class IntervalScoring:
 
     min_points: int
     detector: dict[str, Any]
-    # Completed buckets that a train step fits the detector on. The scoring without the split ignores it.
-    training_buckets: int
 
 
 @frozen
@@ -66,10 +64,10 @@ def _zscore(window: int) -> dict[str, Any]:
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
     intervals={
-        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336), training_buckets=168),
-        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56), training_buckets=90),
-        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52), training_buckets=52),
-        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24), training_buckets=24),
+        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
+        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
+        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52)),
+        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24)),
     },
 )
 

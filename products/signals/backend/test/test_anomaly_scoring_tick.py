@@ -1,4 +1,6 @@
+import json
 import uuid
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -23,6 +25,7 @@ from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedE
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
+from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -565,19 +568,25 @@ class TestTrainScoreSplit(BaseTest):
         # A retrain replaces the blob and deletes the previous one.
         assert list(self.blobs) == [state.artifact_key] != [first_key]
 
-    @parameterized.expand([("corrupt", b"{}"), ("missing", None)])
-    def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(
-        self, _name: str, blob: bytes | None
-    ) -> None:
+    @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
+    def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
         insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
         trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
         trained = self._train(insight, trained_at)
-        key = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id).artifact_key
+        state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
+        key = state.artifact_key
         clear_artifact_cache()
-        if blob is None:
+        if case == "missing":
             del self.blobs[key]
+        elif case == "corrupt":
+            self.blobs[key] = b"{}"
         else:
-            self.blobs[key] = blob
+            stored = json.loads(self.blobs[key])
+            for artifact in stored["series"].values():
+                artifact["schema_version"] = ARTIFACT_SCHEMA_VERSION - 1
+            self.blobs[key] = json.dumps(stored).encode()
+            state.artifact_sha256 = hashlib.sha256(self.blobs[key]).hexdigest()
+            state.save()
         scored_at = trained_at + timedelta(days=2)
 
         result, events = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:])

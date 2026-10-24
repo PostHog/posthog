@@ -4040,11 +4040,11 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     # Stored series that the last score step did not get back. More than half of them makes the next visit train.
     missing_series = models.PositiveIntegerField(default=0)
     # Object storage key of the artifact blob. Keys are never reused, so a loaded blob can be cached by key.
-    artifact_key = models.CharField(max_length=255, default="")
+    artifact_key = models.CharField(max_length=255, default="", db_default="")
     # Checked before every load. A mismatch or a missing blob makes the next visit train.
-    artifact_sha256 = models.CharField(max_length=64, default="")
+    artifact_sha256 = models.CharField(max_length=64, default="", db_default="")
     # The series keys that the blob has an artifact for.
-    series_keys = models.JSONField(default=list)
+    series_keys = models.JSONField(default=list, db_default=[])
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -23,16 +23,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="anomalyscoringstate",
             name="artifact_key",
-            field=models.CharField(default="", max_length=255),
+            field=models.CharField(db_default="", default="", max_length=255),
         ),
         migrations.AddField(
             model_name="anomalyscoringstate",
             name="artifact_sha256",
-            field=models.CharField(default="", max_length=64),
+            field=models.CharField(db_default="", default="", max_length=64),
         ),
         migrations.AddField(
             model_name="anomalyscoringstate",
             name="series_keys",
-            field=models.JSONField(default=list),
+            field=models.JSONField(db_default=[], default=list),
         ),
     ]
