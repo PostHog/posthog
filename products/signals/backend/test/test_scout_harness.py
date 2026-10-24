@@ -68,6 +68,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
+    UPSTREAM_RETRY_DELAYS_S,
     failure_streak_pause_threshold,
 )
 from products.signals.backend.scout_harness.model_selection import ScoutModel
@@ -3000,9 +3001,22 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # produce nothing. Nothing else in the harness notices, so the breaker has to.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
 
-    async def _run_once(*, failing: bool, capture, triggered_by: str = "schedule"):
+    upstream_failure = AgentTurnFailed(
+        "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 503)",
+        category="upstream_provider_failure",
+        agent_message="API Error: 503",
+    )
+
+    async def _run_once(
+        *,
+        failing: bool,
+        capture,
+        triggered_by: str = "schedule",
+        failure: Exception | None = None,
+        upstream_retries_left: int = 0,
+    ):
         start = (
-            AsyncMock(side_effect=RuntimeError("poll_for_turn: timed out after 900s"))
+            AsyncMock(side_effect=failure or RuntimeError("poll_for_turn: timed out after 900s"))
             if failing
             else _fake_start_invoking_hook(session, result)
         )
@@ -3015,7 +3029,10 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
             _stubbed_spawn_dependencies(),
         ):
             return await arun_signals_scout(
-                team_id=ateam.id, skill_name="signals-scout-errors", triggered_by=triggered_by
+                team_id=ateam.id,
+                skill_name="signals-scout-errors",
+                triggered_by=triggered_by,
+                upstream_retries_left=upstream_retries_left,
             )
 
     def _paused_events(capture) -> list:
@@ -3027,7 +3044,9 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
         )
 
     capture = MagicMock()
-    await _run_once(failing=True, capture=capture)
+    # The last attempt of an upstream failure counts, so a long outage still feeds the breaker.
+    final_attempt = await _run_once(failing=True, capture=capture, failure=upstream_failure)
+    assert final_attempt.upstream_retry_pending is False
     config = await _reload()
     # The breaker scales with the lane's schedule, so the streak this run has to reach is
     # derived from the config rather than fixed.
@@ -3040,8 +3059,17 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     config = await _reload()
     assert config.consecutive_failure_count == 1
 
+    # An attempt the workflow retries does not count either, so one scheduled slot that hits a
+    # provider outage books one failure, not one per attempt.
+    retried = await _run_once(failing=True, capture=capture, failure=upstream_failure, upstream_retries_left=1)
+    assert retried.upstream_retry_pending is True
+    config = await _reload()
+    assert config.consecutive_failure_count == 1
+
+    # Retries are for upstream failures only: a broken run still counts with retries left.
     for _ in range(threshold - 2):
-        await _run_once(failing=True, capture=capture)
+        not_retried = await _run_once(failing=True, capture=capture, upstream_retries_left=1)
+        assert not_retried.upstream_retry_pending is False
     config = await _reload()
     assert config.consecutive_failure_count == threshold - 1
     assert config.status == SignalScoutConfig.Status.ACTIVE
@@ -4031,6 +4059,63 @@ async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered
     else:
         assert result.run_id is None
         assert result.skip_reason == "precheck_skipped"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "upstream_failures,trial_launch_id,expected_status,expected_attempts",
+    [
+        (0, None, "completed", 1),
+        (1, None, "completed", 2),
+        # The outage outlasts every retry, so the last attempt is a real failure.
+        (5, None, "failed", 3),
+        # A trial run is one slot of a comparison and is never retried.
+        (1, "launch", "failed", 1),
+    ],
+)
+async def test_workflow_retries_runs_that_fail_upstream(
+    upstream_failures, trial_launch_id, expected_status, expected_attempts
+):
+    run_inputs: list[RunSignalsScoutInput] = []
+    sleeps: list[timedelta] = []
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        run_inputs.append(input)
+        failing = len(run_inputs) <= upstream_failures
+        return RunSignalsScoutOutput(
+            run_id=str(len(run_inputs)),
+            task_run_id=None,
+            status="failed" if failing else "completed",
+            runtime_s=1.0,
+            skill_name="s",
+            skill_version=1,
+            upstream_retry_pending=failing and input.upstream_retries_left > 0,
+        )
+
+    async def sleep(duration, **kwargs):
+        sleeps.append(duration)
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.sleep", new=sleep),
+    ):
+        result = await RunSignalsScoutWorkflow().run(
+            RunSignalsScoutInput(team_id=7, skill_name="s", triggered_by="manual", trial_launch_id=trial_launch_id)
+        )
+
+    assert result.status == expected_status
+    assert result.run_id == str(expected_attempts)
+    assert [(i.upstream_retry_attempt, i.upstream_retries_left) for i in run_inputs] == [
+        (attempt, 0 if trial_launch_id else len(UPSTREAM_RETRY_DELAYS_S) - attempt)
+        for attempt in range(expected_attempts)
+    ]
+    assert sleeps == [timedelta(seconds=delay) for delay in UPSTREAM_RETRY_DELAYS_S[: expected_attempts - 1]]
 
 
 class TestScoutCosts(BaseTest):

@@ -39,6 +39,7 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
+    UPSTREAM_RETRY_DELAYS_S,
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
@@ -83,6 +84,10 @@ class RunSignalsScoutInput:
     # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
     # tick. 0 for every other trigger, so those runs start at once.
     start_delay_seconds: int = 0
+    # Set by the workflow when it retries a run that failed on a retryable upstream error. The
+    # attempt counts the earlier runs; retries left above 0 tells the runner a retry follows.
+    upstream_retry_attempt: int = 0
+    upstream_retries_left: int = 0
 
 
 @frozen
@@ -95,6 +100,7 @@ class RunSignalsScoutOutput:
     skill_version: int
     skip_reason: str | None = None
     last_message: str | None = None
+    upstream_retry_pending: bool = False
 
 
 def _to_output(result: RunResult, *, include_summary: bool = True) -> RunSignalsScoutOutput:
@@ -107,6 +113,7 @@ def _to_output(result: RunResult, *, include_summary: bool = True) -> RunSignals
         skill_version=result.skill_version,
         skip_reason=result.skip_reason,
         last_message=result.last_message if include_summary else None,
+        upstream_retry_pending=result.upstream_retry_pending,
     )
 
 
@@ -338,6 +345,8 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
+                upstream_retry_attempt=input.upstream_retry_attempt,
+                upstream_retries_left=input.upstream_retries_left,
             )
     except SkillNotFoundError:
         # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
@@ -376,7 +385,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             skill_name=input.skill_name,
             skill_version=input.skill_version or 0,
         )
-    metrics.increment_scout_run(result.status or "unknown")
+    metrics.increment_scout_run("upstream_retry" if result.upstream_retry_pending else (result.status or "unknown"))
     logger.info(
         "signals_scout activity finished",
         team_id=input.team_id,
@@ -431,16 +440,29 @@ class RunSignalsScoutWorkflow:
                 input = replace(input, precheck_rows=precheck.rows_text)
             if precheck.query_source:
                 input = replace(input, precheck_query_source=precheck.query_source)
+        # A trial run is one slot of a comparison, so it is never retried. A run on the old
+        # activity-owned resume path is not retried either: that path resumes the waiting
+        # workflow step after every attempt.
+        if (
+            input.trial_launch_id is None
+            and (managed_resume or not input.workflow_origin_key)
+            and temporalio.workflow.patched("scout-upstream-retry")
+        ):
+            input = replace(input, upstream_retries_left=len(UPSTREAM_RETRY_DELAYS_S))
         try:
-            output = await temporalio.workflow.execute_activity(
-                run_signals_scout_activity,
-                input,
-                start_to_close_timeout=timedelta(
-                    seconds=TRIAL_ACTIVITY_TIMEOUT_S if input.trial_launch_id is not None else WORKFLOW_HARD_CEILING_S
-                ),
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            output = await self._execute_run(input)
+            for attempt, delay_s in enumerate(UPSTREAM_RETRY_DELAYS_S, start=1):
+                if not output.upstream_retry_pending:
+                    break
+                await temporalio.workflow.sleep(
+                    timedelta(seconds=delay_s), summary="Wait before retrying an upstream provider failure"
+                )
+                input = replace(
+                    input,
+                    upstream_retry_attempt=attempt,
+                    upstream_retries_left=len(UPSTREAM_RETRY_DELAYS_S) - attempt,
+                )
+                output = await self._execute_run(input)
         except (ActivityError, asyncio.CancelledError) as error:
             if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
                 try:
@@ -473,6 +495,17 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _execute_run(self, input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
+        return await temporalio.workflow.execute_activity(
+            run_signals_scout_activity,
+            input,
+            start_to_close_timeout=timedelta(
+                seconds=TRIAL_ACTIVITY_TIMEOUT_S if input.trial_launch_id is not None else WORKFLOW_HARD_CEILING_S
+            ),
+            heartbeat_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
     async def _sleep_start_delay(self, input: RunSignalsScoutInput) -> bool:
         """Sleep the start delay, then return whether the config can still run.

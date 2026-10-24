@@ -186,6 +186,14 @@ def interval_runs_in_tolerance_window(interval_minutes: int) -> int:
 # rather than up to a full (possibly 30-day) interval after the underlying cause is fixed.
 AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
 
+# Backoff before each retry of a run that the agent failed with a retryable upstream error (a
+# provider outage, a dropped stream). `RunSignalsScoutWorkflow` sleeps on a durable timer, then
+# starts a new run, so each retry gets a fresh sandbox and the full runtime cap. One entry per
+# retry. Only the last attempt feeds the failure-streak breaker, so one scheduled slot still
+# counts as one failure. Keep the total short against `COORDINATOR_INTERVAL_MINUTES`: a retry that
+# overlaps the next dispatch of the lane is skipped by the single-flight guard.
+UPSTREAM_RETRY_DELAYS_S = (2 * 60, 10 * 60)
+
 # How a run was dispatched, carried on `RunSignalsScoutInput.triggered_by` and stamped onto
 # `SignalScoutRun.metadata` for anything but the schedule (absence means "schedule", matching how
 # the rest of that blob omits default-path keys). Only `schedule` failures feed the failure-streak
