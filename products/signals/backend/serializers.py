@@ -1222,6 +1222,12 @@ class RankingStatus(TextChoices):
     NOT_AVAILABLE = "not_available", "not_available"
 
 
+class RankingHeadsStatus(TextChoices):
+    SCORED = "scored", "scored"
+    UNSCORED = "unscored", "unscored"
+    NOT_AVAILABLE = "not_available", "not_available"
+
+
 class ReportRankingHeadSerializer(serializers.Serializer):
     head = serializers.ChoiceField(
         choices=PUBLIC_HEAD_NAMES,
@@ -1298,7 +1304,7 @@ class RankingHeadInfoSerializer(serializers.Serializer):
 
 class RankingHeadsResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=[RankingStatus.SCORED.value, RankingStatus.UNSCORED.value, RankingStatus.NOT_AVAILABLE.value],
+        choices=RankingHeadsStatus.choices,
         help_text=(
             "scored: the served model has scored reports in this project. unscored: no readable score yet. "
             "not_available: you cannot see the ranking model's output."

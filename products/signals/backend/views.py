@@ -248,7 +248,7 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     RankingHeadsResponseSerializer,
-    RankingStatus,
+    RankingHeadsStatus,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -1317,10 +1317,10 @@ class SignalReportViewSet(
         model: str | None = None
         heads: list[dict[str, Any]] = []
         if not self._can_view_inbox_ranking:
-            status_value = RankingStatus.NOT_AVAILABLE
+            status_value = RankingHeadsStatus.NOT_AVAILABLE
         else:
             model, heads = served_heads(self.team_id)
-            status_value = RankingStatus.SCORED if model is not None else RankingStatus.UNSCORED
+            status_value = RankingHeadsStatus.SCORED if model is not None else RankingHeadsStatus.UNSCORED
         return Response(
             RankingHeadsResponseSerializer({"status": status_value.value, "model": model, "heads": heads}).data
         )
