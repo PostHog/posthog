@@ -75,13 +75,61 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 # Friction language in the model's own prose about the session. Stems, so "retried"/"retrying",
 # "failed"/"failure", "confused"/"confusing" all hit. Known weakness, not fixable with keywords: a team
 # whose product is about errors (error tracking, debugging) matches on happy sessions too, which is why
-# friction ranks below seen-state and never reaches the top tiers. Widen with care.
+# friction only nudges the order and never names a card. Widen with care.
 _FRICTION_RE = re.compile(
     r"\b(error|errors|fail(?:ed|ing|ure|s)?|stuck|struggl\w*|confus\w*|frustrat\w*|abandon\w*|"
     r"rage.?click\w*|dead.?end\w*|broken|crash\w*|bug|bugs|retr(?:y|ied|ies|ying)|time(?:d|s)?.?out|"
     r"gave up|give up|churn\w*|unable|couldn.?t|blocked|glitch\w*|freez\w*|froze|unresponsive)\b",
     re.IGNORECASE,
 )
+# Words that rule out the friction terms after them: "no errors", "did not struggle", "without any confusion".
+# The model writes these on calm sessions all the time, and reading them as friction labelled nearly every
+# quiet session as one with errors, retries, or dead ends.
+_FRICTION_NEGATOR_RE = re.compile(
+    r"\b(no|not|never|without|nor|neither|none|zero|lack(?:s|ed|ing)?|absence|free of|"
+    r"(?:did|does|do|was|were|is|are|has|have|had)n['’]?t)\b",
+    re.IGNORECASE,
+)
+# Where a negation stops reaching: the end of a sentence or clause, or a word that turns it around, so
+# "no errors, but the upload failed" still reads as friction.
+_FRICTION_SCOPE_END_RE = re.compile(
+    r"[.;:!?]|\b(but|however|although|though|yet|except|because|due|until|then|instead|despite)\b",
+    re.IGNORECASE,
+)
+# "error-free", "bug free", "crash-free".
+_FRICTION_FREE_SUFFIX_RE = re.compile(r"[\s-]?free\b", re.IGNORECASE)
+# How many words may sit between a negator and the friction term it rules out. Enough for "did not see any
+# signs of frustration"; a list chains, so "no errors, retries, or dead ends" rules out all three.
+_FRICTION_NEGATION_WINDOW = 4
+_WORD_RE = re.compile(r"[\w'’]+")
+
+
+def _reads_as_friction(text: str) -> bool:
+    """Whether the prose names friction it did not rule out. Any one friction term outside a negation is
+    enough: "did not struggle" is not friction, "did not struggle, but the export failed" is."""
+    # Sort key: position, then scope ends before negators before terms, so a boundary at the same spot wins.
+    events = sorted(
+        [(match.start(), 0, match) for match in _FRICTION_SCOPE_END_RE.finditer(text)]
+        + [(match.start(), 1, match) for match in _FRICTION_NEGATOR_RE.finditer(text)]
+        + [(match.start(), 2, match) for match in _FRICTION_RE.finditer(text)],
+        key=lambda event: (event[0], event[1]),
+    )
+    # The end of the last negator, or of the last term it ruled out, while a negation is still in reach.
+    negated_until: int | None = None
+    for start, kind, match in events:
+        if kind == 0:
+            negated_until = None
+        elif kind == 1:
+            negated_until = match.end()
+        elif _FRICTION_FREE_SUFFIX_RE.match(text, match.end()):
+            continue
+        elif (
+            negated_until is not None and len(_WORD_RE.findall(text, negated_until, start)) <= _FRICTION_NEGATION_WINDOW
+        ):
+            negated_until = match.end()
+        else:
+            return True
+    return False
 
 
 @frozen
@@ -149,7 +197,6 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
     summary = output.get("summary")
     reasoning = output.get("reasoning")
     summary_text = " ".join(part for part in (title, summary) if isinstance(part, str))
-    prose = " ".join(part for part in (title, summary, reasoning) if isinstance(part, str))
     notability = output.get("notability")
     notability_reason = output.get("notability_reason")
     scanner_type = output.get("scanner_type") if isinstance(output.get("scanner_type"), str) else None
@@ -170,7 +217,9 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         score=float(score) if isinstance(score, int | float) else None,
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
-        friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
+        # Each part on its own, so a negation at the end of the title never reaches into the summary.
+        friction=friction_eligible
+        and any(_reads_as_friction(part) for part in (title, summary, reasoning, *tags) if isinstance(part, str)),
         # The LLM-response schema bounds this to 0-1, but a stored row (or a bool, since bool is an int
         # subclass) can carry anything, so clamp defensively — an out-of-range value would outrank its tier.
         notability=(
@@ -304,7 +353,8 @@ def _signal_strength(candidate: _Candidate) -> float:
 
 def _contributions(candidate: _Candidate, hit_strength: float) -> dict[str, float]:
     """The weighted evidence this row carries, one entry per source. `_watchability` sums these and the
-    displayed reason names the largest of them, so the order and the copy read the same numbers."""
+    displayed reason names the largest of them that a card can state, so the order and the copy read the
+    same numbers."""
     return {
         "signal": WATCH_WEIGHT_SIGNAL * _signal_strength(candidate),
         "hit": WATCH_WEIGHT_HIT * hit_strength,
@@ -324,17 +374,19 @@ def _watchability(candidate: _Candidate, hit_strength: float) -> float:
 
 
 def _strongest_reason_part(candidate: _Candidate, contributions: dict[str, float]) -> str | None:
-    """Which source the card should name, or None when the row carries no evidence at all.
+    """Which source the card should name, or None when the row carries no evidence a card can state.
 
-    The largest weighted part wins. Ties break signal, hit, notability, friction — the order the old
-    fixed ladder used — so a row with two equal parts reads the way it always did.
+    The largest weighted part wins. Ties break signal, hit, notability — the order the old fixed ladder
+    used — so a row with two equal parts reads the way it always did. Friction is never named: it is a
+    keyword match on the scan's prose, not a finding, and a card that claimed errors, retries, or dead ends
+    on a calm session sent readers to clips that showed none. It still lifts the row in the order.
     """
     parts = dict(contributions)
     # Notability below the tier threshold still adds to the score, but the card must not say the scan judged
     # the session worth watching when it did not. The old ladder held this rule; the label holds it now.
     if candidate.notability is None or candidate.notability < NOTABLE_MIN_SCORE:
         parts["notability"] = 0.0
-    winner = max(("signal", "hit", "notability", "friction"), key=lambda part: parts[part])
+    winner = max(("signal", "hit", "notability"), key=lambda part: parts[part])
     return winner if parts[winner] > 0 else None
 
 
@@ -405,7 +457,8 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
     The displayed reason names the largest weighted part of that same score, so the card explains the
     position it earned. It used to name a signal whenever the row carried one, which labelled a row as
     `signal_emitted` even when a wide outlier was the stronger evidence and made the feed read as signals
-    with a few other things in it.
+    with a few other things in it. Friction is the exception: it only orders rows, so a row with nothing but
+    friction reads as filler and pads the feed ahead of rows with nothing at all.
 
     Rows that scored on nothing are then trimmed to a floor of WATCH_FEED_MIN_ITEMS, and the signal rows
     that survive are interleaved down to WATCH_FEED_MAX_SIGNAL_SHARE of the result; see `_trim_filler` and
@@ -440,8 +493,6 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
             reason = hit
         elif strongest == "notability":
             reason = {"kind": "notable", "notability": candidate.notability}
-        elif strongest == "friction":
-            reason = {"kind": "friction"}
         elif not candidate.viewed:
             reason = {"kind": "unviewed_recent"}
         else:
