@@ -2201,7 +2201,8 @@ export namespace Schemas {
         | "TwoDimensionalHeatmap"
         | "BoxPlot"
         | "SlopeGraph"
-        | "ScatterPlot";
+        | "ScatterPlot"
+        | "BreakdownIcicle";
     export type TrendsFormulaNode = {
         custom_name?: (string | null) | undefined;
         formula: string;
