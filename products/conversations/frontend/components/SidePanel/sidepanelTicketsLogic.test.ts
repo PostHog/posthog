@@ -70,6 +70,7 @@ describe('sidepanelTicketsLogic', () => {
             kind: 'bug',
             isEmailFormOpen: true,
             message: 'It broke',
+            ticket_context: 'Project ID: 997',
             target: 'sidePanel',
         })
 
@@ -81,9 +82,19 @@ describe('sidepanelTicketsLogic', () => {
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
 
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('It broke badly', jest.fn())
+        }).toFinishAllListeners()
+        expect((posthog as any).conversations.sendMessage).toHaveBeenCalledWith(
+            'It broke badly\n\n-----\nProject ID: 997',
+            {},
+            true
+        )
+
         // Leaving the composer clears the prefill so a later blank "New ticket" starts empty
         logic.actions.setView('list')
         expect(logic.values.newTicketDraft).toBeNull()
+        expect(logic.values.newTicketContext).toBeNull()
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {
