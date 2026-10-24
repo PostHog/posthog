@@ -19,6 +19,7 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const NEIGHBOURS_URL = '/api/projects/:team_id/ai_observability/traces/:id/neighbours/'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -54,6 +55,10 @@ describe('traceViewAdapterLogic', () => {
                     return [200, traceResource]
                 },
                 [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [NEIGHBOURS_URL]: () => [
+                    200,
+                    { older: { id: 'trace-0', createdAt: '2026-09-01T10:14:00Z' }, newer: null },
+                ],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -111,12 +116,15 @@ describe('traceViewAdapterLogic', () => {
         expect(logic.values.detailData?.content.kind).not.toBe('error')
     })
 
-    it('asks for the neighbours once the trace arrives', async () => {
-        mountAt()
+    it('links the header to the neighbours from the neighbours resource, without the legacy neighbours query', async () => {
+        mountAt({ date_from: '-7d' })
 
-        await expectLogic(logic).toDispatchActions([
-            aiObservabilityTraceLogic.actionCreators.loadNeighbors('trace-1', '2026-09-01T10:15:00Z'),
-        ])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.header.olderHref).toBe(
+            '/ai-observability/traces/trace-0?date_from=-7d&timestamp=2026-09-01T10%3A14%3A00Z'
+        )
+        expect(logic.values.header.newerHref).toBeNull()
+        expect(performQuery).not.toHaveBeenCalled()
     })
 
     it('reports the reads that open the view as navigation and a click on an unread step as a selection', async () => {

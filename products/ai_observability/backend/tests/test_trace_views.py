@@ -155,6 +155,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
                 ("trace", ""),
                 ("node", f"nodes/{_encode('trace-1')}/"),
                 ("evaluations", "evaluations/"),
+                ("neighbours", "neighbours/?created_at=2026-09-01T10:00:00Z"),
             ]
         ]
     )
@@ -312,6 +313,91 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]
 
         assert (result["reasoning"], result["outcome"]) == (None, "pass")
+
+
+class TestTraceNeighboursView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/neighbours/"
+
+    def _create_traces(self, older_properties: dict[str, object] | None = None) -> None:
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "user-1",
+                    "team": self.team,
+                    "timestamp": timestamp,
+                    "properties": {"$ai_trace_id": trace_id, **properties},
+                }
+                for trace_id, timestamp, properties in [
+                    ("trace-a", T0 - timedelta(minutes=1), older_properties or {}),
+                    ("trace-b", T0, {}),
+                    ("trace-c", T0 + timedelta(minutes=1), {}),
+                ]
+            ]
+        )
+
+    def test_returns_neighbours_in_camel_case(self) -> None:
+        self._create_traces()
+
+        response = self.client.get(self._url(_encode("trace-b")), {"created_at": T0.isoformat()})
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "older": {"id": "trace-a", "createdAt": "2026-09-01T09:59:00Z"},
+            "newer": {"id": "trace-c", "createdAt": "2026-09-01T10:01:00Z"},
+        }
+
+    @parameterized.expand(
+        [
+            ("unencoded id", "trace-b", {"created_at": "2026-09-01T10:00:00Z"}),
+            ("missing created_at", _encode("trace-b"), {}),
+            ("malformed created_at", _encode("trace-b"), {"created_at": "nope"}),
+            ("created_at out of range", _encode("trace-b"), {"created_at": "0001-01-01T00:00:00Z"}),
+            (
+                "invalid regex filter",
+                _encode("trace-b"),
+                {
+                    "created_at": "2026-09-01T10:00:00Z",
+                    "properties": '[{"type": "event", "key": "plan", "operator": "regex", "value": "["}]',
+                },
+            ),
+            ("unparsable properties", _encode("trace-b"), {"created_at": "2026-09-01T10:00:00Z", "properties": "[{"}),
+            (
+                "unknown property filter",
+                _encode("trace-b"),
+                {"created_at": "2026-09-01T10:00:00Z", "properties": '[{"type": "nope"}]'},
+            ),
+            (
+                "hogql property filter",
+                _encode("trace-b"),
+                {"created_at": "2026-09-01T10:00:00Z", "properties": '[{"type": "hogql", "key": "1 = 1"}]'},
+            ),
+            (
+                "property filter type the list cannot produce",
+                _encode("trace-b"),
+                {
+                    "created_at": "2026-09-01T10:00:00Z",
+                    "properties": '[{"type": "data_warehouse", "key": "person.properties.email", "value": "a", "operator": "exact"}]',
+                },
+            ),
+        ]
+    )
+    def test_rejects_a_malformed_request(self, _name: str, segment: str, query: dict[str, str]) -> None:
+        assert self.client.get(self._url(segment), query).status_code == 400
+
+    @parameterized.expand([("customer", False, None), ("impersonated session", True, "trace-a")])
+    def test_support_traces_show_only_to_impersonated_sessions(
+        self, _name: str, impersonated: bool, expected_older: str | None
+    ) -> None:
+        self._create_traces(older_properties={"ai_support_impersonated": "true"})
+
+        with patch(
+            "products.ai_observability.backend.presentation.views.is_impersonated_session", return_value=impersonated
+        ):
+            older = self.client.get(self._url(_encode("trace-b")), {"created_at": T0.isoformat()}).json()["older"]
+
+        assert (older or {}).get("id") == expected_older
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):

@@ -138,6 +138,18 @@ class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
 
 
+class TraceNeighbour(Contract):
+    id: str
+    created_at: datetime = Field(
+        description="When the trace's first event happened, the time the traces list orders it by."
+    )
+
+
+class TraceNeighbours(Contract):
+    older: TraceNeighbour | None = Field(description="The next trace down the traces list, or null when none.")
+    newer: TraceNeighbour | None = Field(description="The next trace up the traces list, or null when none.")
+
+
 AttentionReason = Literal["errored", "silent", "worse"]
 BucketStatus = Literal["none", "dip", "normal"]
 Interval = Literal["hour", "day"]

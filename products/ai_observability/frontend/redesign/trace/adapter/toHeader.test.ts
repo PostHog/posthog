@@ -1,19 +1,12 @@
-import { TraceNeighbours, toHeader } from './toHeader'
+import { toHeader } from './toHeader'
 
 const title = { name: 'answer-billing-question', hasError: false }
-
-const noNeighbours: TraceNeighbours = {
-    olderTraceId: null,
-    olderTimestamp: null,
-    newerTraceId: null,
-    newerTimestamp: null,
-}
 
 describe('toHeader', () => {
     it('links neighbours with their timestamps and the list context, and leaves missing neighbours null', () => {
         const header = toHeader(
             title,
-            { ...noNeighbours, olderTraceId: 'trace-0', olderTimestamp: '2026-09-01T10:00:00Z' },
+            { older: { id: 'trace-0', createdAt: '2026-09-01T10:00:00Z' }, newer: null },
             { date_from: '-7d', event: 'gen-1', line: '4', back_to: 'generations' }
         )
         expect(header.olderHref).toBe(
@@ -44,6 +37,6 @@ describe('toHeader', () => {
             '/ai-observability/reviews?queue_id=queue-1',
         ],
     ])('goes back to %s', (_name, searchParams, expected) => {
-        expect(toHeader(title, noNeighbours, searchParams).backLink.href).toBe(expected)
+        expect(toHeader(title, null, searchParams).backLink.href).toBe(expected)
     })
 })

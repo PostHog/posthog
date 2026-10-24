@@ -16,6 +16,7 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesNeighboursRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
     BatchCheckRequestApi,
@@ -150,6 +151,7 @@ import type {
     TextReprResponseApi,
     TraceApi,
     TraceEvaluationResultsApi,
+    TraceNeighboursApi,
     TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
@@ -695,6 +697,41 @@ export const aiObservabilityTracesEvaluationsRetrieve = async (
     options?: RequestInit
 ): Promise<TraceEvaluationResultsApi> => {
     return apiMutator<TraceEvaluationResultsApi>(getAiObservabilityTracesEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNeighboursRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesNeighboursRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/neighbours/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/neighbours/`
+}
+
+/**
+ * The traces just older and newer than this one in the traces list's order, under the list filters the request carries (search is not applied), within 3 days of it.
+ */
+export const aiObservabilityTracesNeighboursRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesNeighboursRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNeighboursApi> => {
+    return apiMutator<TraceNeighboursApi>(getAiObservabilityTracesNeighboursRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

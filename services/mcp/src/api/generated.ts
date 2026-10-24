@@ -117948,6 +117948,19 @@ export namespace Schemas {
       results: TraceEvaluationResult[];
     }
 
+    export interface TraceNeighbour {
+      id: string;
+      /** When the trace's first event happened, the time the traces list orders it by. */
+      createdAt: string;
+    }
+
+    export interface TraceNeighbours {
+      /** The next trace down the traces list, or null when none. */
+      older: TraceNeighbour | null;
+      /** The next trace up the traces list, or null when none. */
+      newer: TraceNeighbour | null;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -126259,6 +126272,33 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNeighboursRetrieveParams = {
+    /**
+     * The trace's `createdAt` from the trace resource. With the trace id, it is the trace's position in the traces list.
+     */
+    created_at: string;
+    /**
+     * Start of the traces list's date range, relative such as `-7d` or absolute. Neighbours stay within 3 days of the trace either way.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the traces list's date range, relative or absolute.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to apply the project's test account filters. Defaults to the project's setting.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * The traces list's property filters, JSON-encoded: event, event metadata, person, session, group, cohort or element filters. A trace is a neighbour when any of its events matches them.
+     * @minLength 1
+     */
+    properties?: string;
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {

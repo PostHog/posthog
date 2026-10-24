@@ -1,4 +1,5 @@
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -11,11 +12,12 @@ import { initKeaTests } from '~/test/init'
 
 import type { TraceTimelineRowApi } from '../../generated/api.schemas'
 import { decodeIdSegment, makeEvaluationResult, makeNodeDetail, makeTraceResource } from './adapter/testFixtures'
-import { traceViewLogic } from './traceViewLogic'
+import { toNeighbourParams, traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const NEIGHBOURS_URL = '/api/projects/:team_id/ai_observability/traces/:id/neighbours/'
 const EXPIRED_ROW: TraceTimelineRowApi = {
     id: 'expired-1',
     kind: 'span',
@@ -74,6 +76,7 @@ describe('traceViewLogic', () => {
                     return [200, makeTraceResource({ name: null })]
                 },
                 [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [NEIGHBOURS_URL]: () => [200, { older: null, newer: null }],
             },
         })
         initKeaTests()
@@ -173,6 +176,59 @@ describe('traceViewLogic', () => {
             expect(report).toHaveBeenCalledTimes(reported ? 1 : 0)
         }
     )
+
+    it('reads the neighbours once the trace arrives, from its createdAt and the list filters in the URL', async () => {
+        const filters = [{ key: 'plan', value: 'pro', operator: 'exact', type: 'event' }]
+        router.actions.push('/traces/trace-1', { date_from: '-7d', filter_test_accounts: 'true', filters })
+        const traceAnswer = deferred()
+        let neighboursQuery: URLSearchParams | null = null
+        let neighboursReadBeforeTrace = false
+        let traceAnswered = false
+        const neighbours = { older: { id: 'trace-0', createdAt: '2026-09-01T10:14:00Z' }, newer: null }
+        useMocks({
+            get: {
+                [TRACE_URL]: async () => {
+                    await traceAnswer.promise
+                    traceAnswered = true
+                    return [200, makeTraceResource()]
+                },
+                [NEIGHBOURS_URL]: ({ request }) => {
+                    neighboursReadBeforeTrace = !traceAnswered
+                    neighboursQuery = new URL(request.url).searchParams
+                    return [200, neighbours]
+                },
+            },
+        })
+        const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
+        logic.mount()
+        traceAnswer.resolve()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ neighbours })
+        expect(neighboursReadBeforeTrace).toBe(false)
+        expect(Object.fromEntries(neighboursQuery!)).toEqual({
+            created_at: '2026-09-01T10:15:00Z',
+            date_from: '-7d',
+            filter_test_accounts: 'true',
+            properties: JSON.stringify(filters),
+        })
+    })
+
+    it.each([
+        ['on', { filter_test_accounts: 'true' }, true],
+        ['off', {}, false],
+    ])('sends the list test-account filter as %s', (_name, searchParams, expected) => {
+        expect(toNeighbourParams(searchParams, '2026-09-01T10:15:00Z').filter_test_accounts).toBe(expected)
+    })
+
+    it('keeps the view ready, without a toast, when the neighbours read fails', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        useMocks({ get: { [NEIGHBOURS_URL]: () => [500, { detail: 'nope' }] } })
+
+        const logic = await mountedLogic()
+
+        expect(logic.values).toMatchObject({ status: 'ready', neighbours: null })
+        expect(toast).not.toHaveBeenCalled()
+    })
 
     it('loads the thread nodes once the trace arrives', async () => {
         const logic = await mountedLogic()

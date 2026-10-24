@@ -1,5 +1,7 @@
 from collections.abc import Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+
+from posthog.schema import AnyPropertyFilterDiscriminated
 
 from posthog.schema import HogQLPropertyFilter
 
@@ -19,9 +21,11 @@ from ..logic.evaluations.score_distribution import load_score_distribution, scor
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.neighbour_queries import is_usable_anchor, load_neighbours
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
+from ..logic.traces.trace_listing import TraceFilters, TracePosition
 from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
@@ -55,6 +59,10 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def is_usable_neighbour_anchor(created_at: datetime) -> bool:
+    return is_usable_anchor(created_at)
 
 
 def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> contracts.Trace:
@@ -222,6 +230,40 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
     )
+
+
+def get_trace_neighbours(
+    team: Team,
+    user: User | None,
+    trace_id: str,
+    created_at: datetime,
+    *,
+    date_from: str | None,
+    date_to: str | None,
+    properties: Sequence[AnyPropertyFilterDiscriminated],
+    filter_test_accounts: bool,
+    include_support_traces: bool,
+) -> contracts.TraceNeighbours:
+    neighbours = load_neighbours(
+        team,
+        user,
+        TracePosition(trace_id=trace_id, first_timestamp=created_at),
+        TraceFilters(
+            date_from=date_from,
+            date_to=date_to,
+            properties=tuple(properties),
+            filter_test_accounts=filter_test_accounts,
+            include_support_traces=include_support_traces,
+        ),
+        datetime.now(UTC),
+    )
+    return contracts.TraceNeighbours(older=_to_neighbour(neighbours.older), newer=_to_neighbour(neighbours.newer))
+
+
+def _to_neighbour(position: TracePosition | None) -> contracts.TraceNeighbour | None:
+    if position is None:
+        return None
+    return contracts.TraceNeighbour(id=position.trace_id, created_at=position.first_timestamp)
 
 
 def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
