@@ -1298,6 +1298,19 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
         assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
 
+    def test_remove_pull_request_assignees_deletes_from_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"assignees": [{"login": "bob"}]}
+
+        with patch.object(github, "_installation_authenticated_delete", return_value=response) as mock_delete:
+            result = github.remove_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+
+        assert result == {"success": True, "assignees": ["bob"]}
+        assert mock_delete.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_delete.call_args.kwargs["json_body"] == {"assignees": ["alice"]}
+
     @parameterized.expand(
         [
             ("empty", []),

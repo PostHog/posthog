@@ -256,6 +256,19 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
+    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
+    # cannot prevent them from starting paid scout work.
+    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="report_check_execution_disabled",
+        )
+
     # Skip the run when the team is over its self-driving credits quota or its daily report limit,
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
     # drops them while either limit binds. The quota side reads `self_driving_quota_gate` rather

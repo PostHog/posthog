@@ -18,10 +18,10 @@ This reservation does not add qualified names to existing models or require a na
 
 ## Model materialization usage
 
-The Models **Usage** tab shows bytes read, CPU time, and run counts for ClickHouse materializations over 7, 30, or 90 complete UTC days.
+The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
 The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
 Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
-It does not include managed warehouse or legacy Duckgres runs.
+The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
 
 A daily partitioned Dagster job, `model_job_usage_job`, collects usage from the regional query log archive at 03:00 UTC for the previous day.
 It stores totals on `DataModelingJob`, keeping usage reads independent of query-log retention and leaving the streaming materialization path unchanged.

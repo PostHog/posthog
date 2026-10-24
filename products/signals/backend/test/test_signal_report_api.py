@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 import pytest
@@ -875,6 +875,7 @@ class TestSignalReportListAPI(APIBaseTest):
         heads: list[dict] | None = None,
         lifts: dict[str, float] | None = None,
         embedding_inserted_at: datetime | None = None,
+        extra_metadata: dict | None = None,
     ) -> SignalReportArtefact:
         served = RankingModelResult(
             model_name="report_embeddings",
@@ -885,7 +886,10 @@ class TestSignalReportListAPI(APIBaseTest):
             status="scored",
             scores=scores or {"open": 0.5, "merged": 0.2},
             lifts=lifts or {},
-            metadata={"heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
+            metadata={
+                "heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}],
+                **(extra_metadata or {}),
+            },
         )
         challenger = RankingModelResult(
             model_name="report_tabular",
@@ -908,29 +912,34 @@ class TestSignalReportListAPI(APIBaseTest):
             team=self.team, report=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE, content=content
         )
 
+    _RANKING_NOT_AVAILABLE: dict[str, Any] = {
+        "status": "not_available",
+        "model": None,
+        "scored_at": None,
+        "predictions": [],
+    }
+    _RANKING_UNSCORED: dict[str, Any] = {"status": "unscored", "model": None, "scored_at": None, "predictions": []}
+
     @parameterized.expand(
         [
             (
-                "staff_sees_the_served_result",
+                "staff_sees_the_public_outcomes_of_the_served_result",
                 True,
+                None,
                 None,
                 None,
                 {"open": 2.5},
                 {
-                    "served_key": "report_embeddings@2026-09-01",
-                    "model_name": "report_embeddings",
-                    "model_version": "2026-09-01",
-                    "manifest_version": "manifest",
+                    "status": "scored",
+                    "model": "report_embeddings@2026-09-01",
                     "scored_at": "2026-09-20T12:00:00Z",
-                    "scores": {"open": 0.5, "merged": 0.2},
-                    "lifts": {"open": 2.5},
-                    "readable_heads": ["open"],
-                    "stale": False,
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": 2.5, "readable": True}],
                 },
             ),
             (
                 "legacy_score_without_lifts_computes_them_from_the_metadata",
                 True,
+                None,
                 None,
                 [
                     {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
@@ -938,36 +947,55 @@ class TestSignalReportListAPI(APIBaseTest):
                 ],
                 None,
                 {
-                    "served_key": "report_embeddings@2026-09-01",
-                    "model_name": "report_embeddings",
-                    "model_version": "2026-09-01",
-                    "manifest_version": "manifest",
+                    "status": "scored",
+                    "model": "report_embeddings@2026-09-01",
                     "scored_at": "2026-09-20T12:00:00Z",
-                    "scores": {"open": 0.5, "merged": 0.2},
-                    "lifts": {"open": 2.0},
-                    "readable_heads": ["open"],
-                    "stale": False,
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": 2.0, "readable": True}],
                 },
             ),
-            ("non_staff_sees_nothing", False, None, None, None, None),
-            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None, None),
-            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None, None),
+            ("non_staff_without_the_flag_is_not_available", False, None, None, None, None, _RANKING_NOT_AVAILABLE),
+            (
+                "invalid_content_reads_as_unscored",
+                True,
+                '{"served_key": "missing"}',
+                None,
+                None,
+                None,
+                _RANKING_UNSCORED,
+            ),
+            (
+                "null_readable_head_keeps_the_score_with_no_readable_head",
+                True,
+                None,
+                None,
+                [{"head": None, "readable": True}],
+                None,
+                {
+                    "status": "scored",
+                    "model": "report_embeddings@2026-09-01",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": None, "readable": False}],
+                },
+            ),
+            ("only_internal_heads_read_as_unscored", True, None, {"merged": 0.2}, None, None, _RANKING_UNSCORED),
         ]
     )
-    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, lifts, expected):
+    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, scores, heads, lifts, expected):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
         stale = self._ranking_score_artefact(report, scores={"open": 0.9})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
-        self._ranking_score_artefact(report, content=content, heads=heads, lifts=lifts)
+        self._ranking_score_artefact(report, content=content, scores=scores, heads=heads, lifts=lifts)
         unscored = self._create_report(title="Unscored")
 
         list_response = self.client.get(self._list_url())
         assert list_response.status_code == status.HTTP_200_OK
         rows = {row["id"]: row for row in list_response.json()["results"]}
         assert rows[str(report.id)]["ranking"] == expected
-        assert rows[str(unscored.id)]["ranking"] is None
+        assert rows[str(unscored.id)]["ranking"] == (
+            self._RANKING_UNSCORED if is_staff else self._RANKING_NOT_AVAILABLE
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
@@ -980,7 +1008,7 @@ class TestSignalReportListAPI(APIBaseTest):
             ("flag_error_fails_closed", RuntimeError("flags unavailable"), status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_model_sort_flag_opens_lifts_but_not_raw_scores_to_non_staff(self, _name, flag, expected_status):
+    def test_model_sort_flag_opens_the_ranking_to_non_staff(self, _name, flag, expected_status):
         self.user.is_staff = False
         self.user.save()
         high = self._create_report(title="High")
@@ -996,24 +1024,154 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_status != status.HTTP_200_OK:
             assert response.json()["attr"] == "ordering"
-            assert detail.json()["ranking"] is None
+            assert detail.json()["ranking"] == self._RANKING_NOT_AVAILABLE
             return
         rows = response.json()["results"]
         assert [row["id"] for row in rows] == [str(high.id), str(low.id)]
         assert detail.json()["ranking"] == rows[0]["ranking"]
         assert rows[0]["ranking"] == {
-            "served_key": "",
-            "model_name": "",
-            "model_version": "",
-            "manifest_version": "",
+            "status": "scored",
+            "model": "report_embeddings@2026-09-01",
             "scored_at": "2026-09-20T12:00:00Z",
-            "scores": {},
-            "lifts": {"open": 3.2},
-            "readable_heads": ["open"],
-            "stale": False,
+            "predictions": [{"outcome": "open", "probability": 0.8123, "lift": 3.2, "readable": True}],
         }
-        for raw_score in ("0.1234", "0.8123", "report_embeddings"):
-            assert raw_score not in response.content.decode()
+        assert "manifest" not in json.dumps(rows[0]["ranking"])
+
+    @parameterized.expand([("web", False, 0.8123, 3.2678), ("mcp", True, 0.81, 3.3)])
+    def test_ranking_values_round_for_agents_only(self, _name, via_mcp, probability, lift):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, scores={"fixed": 0.8123}, lifts={"fixed": 3.2678})
+
+        with patch("products.signals.backend.serializers.is_mcp_request", return_value=via_mcp):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["predictions"] == [
+            {"outcome": "fix", "probability": probability, "lift": lift, "readable": False}
+        ]
+
+    @parameterized.expand(
+        [
+            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high"]),
+            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid"]),
+            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid"]),
+            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high"]),
+            (
+                "repeated_head_probability_keeps_the_strictest",
+                {"ranking_min_probability": "fix:0.5,fix:0.2"},
+                ["high"],
+            ),
+        ]
+    )
+    def test_ranking_filters_keep_scored_reports_at_or_above_every_minimum(self, _name, query, expected):
+        self.user.is_staff = True
+        self.user.save()
+        reports = {name: self._create_report(title=name) for name in ("high", "mid", "low", "stale", "unscored")}
+        self._ranking_score_artefact(
+            reports["high"], scores={"fixed": 0.6, "open": 0.5}, lifts={"fixed": 3.0, "open": 1.0}
+        )
+        self._ranking_score_artefact(
+            reports["mid"], scores={"fixed": 0.3, "open": 0.9}, lifts={"fixed": 1.5, "open": 2.0}
+        )
+        self._ranking_score_artefact(
+            reports["low"], scores={"fixed": 0.1, "open": 0.1}, lifts={"fixed": 0.5, "open": 0.5}
+        )
+        self._ranking_score_artefact(
+            reports["stale"], scores={"fixed": 0.9, "open": 0.9}, lifts={"fixed": 4.0, "open": 4.0}
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=reports["stale"],
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "stale"}),
+        )
+
+        response = self.client.get(self._list_url(status="ready", **query))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["title"] for row in response.json()["results"]) == sorted(expected)
+
+    def test_ranking_filter_match_shows_as_scored_despite_bad_readable_metadata(self):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, scores={"fixed": 0.6}, heads=[{"head": None, "readable": True}])
+
+        response = self.client.get(self._list_url(status="ready", ranking_min_probability="fix:0.5"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == [str(report.id)]
+        assert rows[0]["ranking"]["status"] == "scored"
+
+    @parameterized.expand(
+        [
+            ("internal_head", True, {"ranking_min_lift": "pr_merged:2"}, "ranking_min_lift"),
+            ("malformed_value", True, {"ranking_min_probability": "fix:high"}, "ranking_min_probability"),
+            ("missing_value", True, {"ranking_min_lift": "fix"}, "ranking_min_lift"),
+            ("model_head_name", True, {"ranking_min_lift": "fixed:2"}, "ranking_min_lift"),
+            ("no_access", False, {"ranking_min_lift": "fix:2"}, "ranking_min_lift"),
+        ]
+    )
+    def test_ranking_filters_reject_bad_input_and_users_without_access(self, _name, is_staff, query, attr):
+        self.user.is_staff = is_staff
+        self.user.save()
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
+            response = self.client.get(self._list_url(**query))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+
+    @parameterized.expand(
+        [
+            (
+                "with_recipe",
+                {"recipe": {"heads": {"fixed": {"horizon_days": 30, "cohort": "actioned"}}}},
+                30,
+                "actioned",
+            ),
+            ("without_recipe", {}, None, None),
+        ]
+    )
+    def test_ranking_outcomes_reads_the_served_model_of_the_latest_score(self, _name, extra_metadata, horizon, cohort):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(
+            report,
+            scores={"fixed": 0.4},
+            heads=[{"head": "fixed", "readable": True, "refit_classification_threshold": 0.2}],
+            extra_metadata=extra_metadata,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_outcomes/")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == "scored"
+        assert body["model"] == "report_embeddings@2026-09-01"
+        assert [entry["outcome"] for entry in body["outcomes"]] == ["open", "action", "fix"]
+        assert body["outcomes"][2] | {"description": None} == {
+            "outcome": "fix",
+            "label": "Fix",
+            "description": None,
+            "horizon_days": horizon,
+            "cohort": cohort,
+            "base_rate": 0.2,
+            "readable": True,
+        }
+        assert body["outcomes"][0]["base_rate"] is None
+        assert body["outcomes"][0]["readable"] is False
+
+    @parameterized.expand([("no_access", False, "not_available"), ("no_score_yet", True, "unscored")])
+    def test_ranking_outcomes_without_a_readable_model(self, _name, is_staff, expected_status):
+        self.user.is_staff = is_staff
+        self.user.save()
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_outcomes/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": expected_status, "model": None, "outcomes": []}
 
     @parameterized.expand(
         [
@@ -1052,15 +1210,15 @@ class TestSignalReportListAPI(APIBaseTest):
         assert list_response.status_code == status.HTTP_200_OK
         rows = list_response.json()["results"]
         by_id = {row["id"]: row for row in rows}
-        assert by_id[str(edited.id)]["ranking"]["stale"] is expected_stale
-        assert by_id[str(other.id)]["ranking"]["stale"] is False
+        assert by_id[str(edited.id)]["ranking"]["status"] == ("stale" if expected_stale else "scored")
+        assert by_id[str(other.id)]["ranking"]["status"] == "scored"
         ids = [row["id"] for row in rows]
         expected_order = [str(other.id), str(edited.id)] if expected_stale else [str(edited.id), str(other.id)]
         assert ids == expected_order
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["ranking"]["stale"] is expected_stale
+        assert response.json()["ranking"]["status"] == ("stale" if expected_stale else "scored")
 
     def test_patch_response_marks_the_score_stale(self):
         self.user.is_staff = True
@@ -1072,7 +1230,7 @@ class TestSignalReportListAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/signals/reports/{report.id}/", data={"title": "New title"}, format="json"
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["ranking"]["stale"] is True
+        assert response.json()["ranking"]["status"] == "stale"
 
     @parameterized.expand([("staff", True, ["ranking_score"]), ("non_staff", False, [])])
     def test_artefact_routes_show_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
@@ -1563,8 +1721,8 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(no_priority.id), 65),
         ]
 
-    @parameterized.expand([("open",), ("action",), ("fixed",)])
-    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, head):
+    @parameterized.expand([("open", "open"), ("action", "action"), ("fix", "fixed")])
+    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, outcome, head):
         self.user.is_staff = False
         self.user.save()
         low_p0 = self._create_report(title="Low P0")
@@ -1599,14 +1757,14 @@ class TestSignalReportListAPI(APIBaseTest):
         )
 
         with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=head
+            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=outcome
         ) as get_flag:
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
-        assert body["ranker"] == head
+        assert body["ranker"] == outcome
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
             (str(same_decile_p0.id), 6),
             (str(high_p3.id), 9),
@@ -1614,7 +1772,7 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(stale_p0.id), 60),
             (str(unscored_p1.id), 61),
         ]
-        assert all(r["ranking"] is None for r in body["results"])
+        assert all(r["ranking"]["status"] == "not_available" for r in body["results"])
         for raw_score in ("0.1234", "0.8123", "0.8765", "0.9876"):
             assert raw_score not in response.content.decode()
 
