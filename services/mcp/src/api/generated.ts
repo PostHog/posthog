@@ -28654,6 +28654,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = typeof TileGroupDisplayEnum[keyof typeof TileGroupDisplayEnum];
+
+
+    export const TileGroupDisplayEnum = {
+      Sections: 'sections',
+      Tabs: 'tabs',
+    } as const;
+
+    /**
      * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
      */
     export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
@@ -28678,6 +28690,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
       groups?: DashboardCustomizationGroups;
       /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
@@ -28767,6 +28784,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /**
          * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
          * @nullable
@@ -87747,6 +87769,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /**
          * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
          * @nullable
