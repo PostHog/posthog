@@ -22,6 +22,7 @@
         "clean": "rm -rf dist/*",
         "typescript:compile": "tsc -b && tsc-alias",
         "typescript:compile-cleanup": "[ -d dist/src ] && mv dist/src/* dist/ || true",
+        "cdp:template-shadow-diff": "bin/cdp-template-shadow-diff.sh",
         "typescript:check": "tsc --noEmit -p .",
         "typescript:check:tsgo": "tsgo --noEmit -p .",
         "lint": "eslint . && oxlint -c .oxlintrc.nodejs.json .",
