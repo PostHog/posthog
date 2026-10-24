@@ -1371,6 +1371,7 @@ def _prepare_review_prompt(
         dig_deeper=bool(same_turn_findings),
         blind_spot_check=blind_spot_check,
         wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
+        merge_base_sha=snapshot.merge_base_sha,
     )
 
 
@@ -1907,10 +1908,17 @@ async def load_validation_skill_activity(input: LoadValidationInput) -> LoadedVa
     )
 
 
-def _load_validation_context(
-    team_id: int, report_id: str, head_sha: str, chunk_id: int
-) -> tuple[Chunk, PRMetadata, list[PRFile]] | None:
-    """The chunk + PR metadata + files a chunk's issues are validated against, or None if missing."""
+@frozen
+class _ValidationContext:
+    """What a chunk's issues are validated against."""
+
+    chunk: Chunk
+    pr_metadata: PRMetadata
+    pr_files: list[PRFile]
+    merge_base_sha: str | None
+
+
+def _load_validation_context(team_id: int, report_id: str, head_sha: str, chunk_id: int) -> _ValidationContext | None:
     chunks = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha)
     snapshot = load_pr_snapshot(
         team_id=team_id, report_id=report_id, head_sha=head_sha, review_design=REVIEW_DESIGN_PIPELINE
@@ -1920,7 +1928,12 @@ def _load_validation_context(
     chunk = next((c for c in chunks.chunks if c.chunk_id == chunk_id), None)
     if chunk is None:
         return None
-    return chunk, snapshot.pr_metadata, snapshot.pr_files
+    return _ValidationContext(
+        chunk=chunk,
+        pr_metadata=snapshot.pr_metadata,
+        pr_files=snapshot.pr_files,
+        merge_base_sha=snapshot.merge_base_sha,
+    )
 
 
 @activity.defn
@@ -1951,7 +1964,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     )
     if context is None:
         raise ApplicationError("PR snapshot or chunk set missing for validation", non_retryable=True)
-    chunk, pr_metadata, pr_files = context
+    chunk, pr_metadata, pr_files = context.chunk, context.pr_metadata, context.pr_files
 
     validated = len(done)
     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
@@ -1976,6 +1989,8 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                                 skill_version=input.skill_version,
                                 pr_metadata=pr_metadata,
                                 pr_files=issue_files,
+                                changed_filenames=[f.filename for f in pr_files],
+                                merge_base_sha=context.merge_base_sha,
                             ),
                             system_prompt=VALIDATION_SYSTEM_PROMPT,
                             model_to_validate=IssueValidation,

@@ -19,6 +19,7 @@ products/
     __init__.py             # allows imports like products.<product>.backend.*
     manifest.tsx            # describes the product's features
     package.json            # defines the product package in Turborepo
+    REVIEW.md               # optional: how the automated reviewer should review this area (see below)
     backend/                # Django app
       __init__.py
       apps.py
@@ -55,6 +56,23 @@ products/
 ```
 
 Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this structure.
+
+### `REVIEW.md`: instructions for the automated reviewer
+
+A `REVIEW.md` tells PostHog Review how to review the directory it sits in.
+It is reviewer-facing, unlike `AGENTS.md`, which guides the agent that writes the code.
+The reviewer reads every `REVIEW.md` between a changed file and the repository root, nearest first, so a product can keep one at its root and a narrower one in a subtree.
+The owners in the area's `owners.yaml` maintain it, and the reviewer never follows a copy the pull request under review adds or changes.
+
+Keep it short and concrete. A good one holds four things:
+
+- what failure looks like in this area, so the reviewer knows which classes of bug matter here
+- paths to skip, such as generated code, fixtures, or experiment logs
+- a cap on minor findings
+- the evidence a finding needs, such as a file and line in the changed code rather than a guess from a name
+
+A `REVIEW.md` narrows a review. It cannot lower the evidence bar of the review perspectives or the validation criteria, and it cannot silence a security or data-loss finding.
+[`products/review_hog/REVIEW.md`](review_hog/REVIEW.md) is the reference example.
 
 ## Backend conventions
 
