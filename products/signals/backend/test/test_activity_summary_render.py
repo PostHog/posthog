@@ -742,15 +742,15 @@ def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> 
     message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=COMPUTED)
     assert (
         "Objects and pages:\n"
+        "Products they work in: Product analytics\n"
+        "Products they only visit: Session replay\n"
         '- o1 insight "Signup funnel": edited on 3 days, last 2026-10-16, created\n'
         '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
-        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n"
-        "Products they work in: Product analytics\n"
-        "Products they only visit: Session replay\n\n"
+        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n\n"
     ) in message
 
 
-def _theme(label: str = "Signup funnel", refs: list[Any] | None = None, **overrides: Any) -> dict[str, Any]:
+def _theme(label: str | None = "Signup funnel", refs: list[Any] | None = None, **overrides: Any) -> dict[str, Any]:
     return {
         "label": label,
         "mode": "building",

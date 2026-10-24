@@ -21,6 +21,9 @@ MAX_THEMES = 6
 MAX_LABEL_CHARS = 60
 MAX_RECENT_SHIFT_CHARS = 300
 MAX_HEADLINE_CHARS = 600
+# The computed block sits outside the render budget, so it has its own caps. `max_update_cost_usd` counts them.
+COMPUTED_LINE_CHARS = 200
+COMPUTED_MAX_CHARS = 8000
 STRENGTHS = ("high", "medium", "low")
 DEFAULT_STRENGTH = "low"
 # Strings a model writes in place of a JSON null.
@@ -157,10 +160,16 @@ def _product_label(key: str) -> str:
 
 
 def computed_lines(computed: Mapping[str, Any] | None) -> str:
-    """The computed lists of `computed.py` with their refs, one line per object or product page."""
+    """The computed lists of `computed.py` with their refs, at most `COMPUTED_MAX_CHARS` long.
+
+    The products come first, then one line per object or product page, so a cut drops the least used ones."""
     if not computed:
         return "None"
     lines: list[str] = []
+    products = computed.get("products", {})
+    for title, key in (("Products they work in", "works_in"), ("Products they only visit", "visits")):
+        if names := [_product_label(product) for product in products.get(key, [])]:
+            lines.append(f"{title}: {', '.join(names)}")
     for item in computed.get("owned", []):
         created = ", created" if item["created"] else ""
         lines.append(
@@ -175,11 +184,14 @@ def computed_lines(computed: Mapping[str, Any] | None) -> str:
         lines.append(
             f"- {item['ref']} {_product_label(item['product'])} pages: opened on {item['open_days']} days, last {item['last_at']}"
         )
-    products = computed.get("products", {})
-    for title, key in (("Products they work in", "works_in"), ("Products they only visit", "visits")):
-        if names := [_product_label(product) for product in products.get(key, [])]:
-            lines.append(f"{title}: {', '.join(names)}")
-    return "\n".join(lines) or "None"
+    kept: list[str] = []
+    chars = 0
+    for line in (cap_line(line, COMPUTED_LINE_CHARS) for line in lines):
+        if chars + len(line) + 1 > COMPUTED_MAX_CHARS:
+            break
+        kept.append(line)
+        chars += len(line) + 1
+    return "\n".join(kept) or "None"
 
 
 def user_message(
