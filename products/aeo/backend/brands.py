@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.utils import timezone
 
 import tldextract
+
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.facade.contracts import (
     BRAND_NAME_MAX_LENGTH,
@@ -37,6 +41,8 @@ PUBLISHER_DOMAINS = frozenset(
         "news.ycombinator.com",
     }
 )
+# A run finishes within a day; the bound lets the lookup use the (team_id, created_at) index.
+_RUN_LOOKBACK = dt.timedelta(days=2)
 # Offline: the bundled public suffix list, so a sync never fetches anything.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
@@ -72,9 +78,11 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     Only inserts: name, kind, status and aliases of existing brands belong to people, and citation counts are
     computed when they are read, so nothing here goes stale.
     """
+    # bulk_create skips the save() that rewrites a child environment to its parent, so resolve it here.
+    team_id = resolve_effective_team_id(team_id)
     cited = (
-        AEOCitationCheck.objects.for_team(team_id)
-        .filter(run_id=run_id, check_failed=False)
+        AEOCitationCheck.objects.for_team(team_id, canonical=True)
+        .filter(created_at__gte=timezone.now() - _RUN_LOOKBACK, run_id=run_id, check_failed=False)
         .values_list("cited_urls", flat=True)
     )
     domains = {
@@ -83,7 +91,9 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
         for url in cited_urls or []
         if isinstance(url, str) and (domain := registrable_domain(url))
     }
-    known = set(AEOBrand.objects.for_team(team_id).filter(domain__in=domains).values_list("domain", flat=True))
+    known = set(
+        AEOBrand.objects.for_team(team_id, canonical=True).filter(domain__in=domains).values_list("domain", flat=True)
+    )
     own_domains = {domain for target in settings.AEO_TARGET_DOMAINS if (domain := registrable_domain(f"//{target}"))}
     new_brands = []
     for domain in sorted(domains - known):
@@ -99,5 +109,5 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
             )
         )
     # A concurrent sync may insert the same domain first; its row wins.
-    AEOBrand.objects.for_team(team_id).bulk_create(new_brands, ignore_conflicts=True)
+    AEOBrand.objects.for_team(team_id, canonical=True).bulk_create(new_brands, ignore_conflicts=True)
     return BrandSyncResult(domains=len(domains), created=len(new_brands))

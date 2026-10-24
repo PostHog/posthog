@@ -45,7 +45,6 @@ export namespace Schemas {
 
     /**
      * * `citations` - Citations
-     * * `memory` - Memory
      * * `manual` - Manual
      */
     export type BrandSourceEnum = typeof BrandSourceEnum[keyof typeof BrandSourceEnum];
@@ -53,7 +52,6 @@ export namespace Schemas {
 
     export const BrandSourceEnum = {
       Citations: 'citations',
-      Memory: 'memory',
       Manual: 'manual',
     } as const;
 
@@ -77,10 +75,9 @@ export namespace Schemas {
        * * `confirmed` - Confirmed
        * * `ignored` - Ignored */
       status: BrandStatusEnum;
-      /** How the brand entered the catalog: 'citations', 'memory' or 'manual'.
+      /** How the brand entered the catalog: 'citations' or 'manual'.
        *
        * * `citations` - Citations
-       * * `memory` - Memory
        * * `manual` - Manual */
       source: BrandSourceEnum;
       /** Other names for the brand, used to find it in answer text. */

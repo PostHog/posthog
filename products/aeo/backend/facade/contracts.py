@@ -181,7 +181,6 @@ class BrandStatus(LabeledStrEnum):
 
 class BrandSource(LabeledStrEnum):
     CITATIONS = "citations", "Citations"
-    MEMORY = "memory", "Memory"
     MANUAL = "manual", "Manual"
 
 

@@ -37,14 +37,12 @@ export const BrandStatusEnumApi = {
 
 /**
  * * `citations` - Citations
- * * `memory` - Memory
  * * `manual` - Manual
  */
 export type BrandSourceEnumApi = (typeof BrandSourceEnumApi)[keyof typeof BrandSourceEnumApi]
 
 export const BrandSourceEnumApi = {
     Citations: 'citations',
-    Memory: 'memory',
     Manual: 'manual',
 } as const
 
@@ -68,10 +66,9 @@ export interface AEOBrandApi {
      * * `confirmed` - Confirmed
      * * `ignored` - Ignored */
     status: BrandStatusEnumApi
-    /** How the brand entered the catalog: 'citations', 'memory' or 'manual'.
+    /** How the brand entered the catalog: 'citations' or 'manual'.
      *
      * * `citations` - Citations
-     * * `memory` - Memory
      * * `manual` - Manual */
     source: BrandSourceEnumApi
     /** Other names for the brand, used to find it in answer text. */

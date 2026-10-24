@@ -196,16 +196,23 @@ def get_brand(team_id: int, brand_id: str) -> Brand:
 
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
+    # Only the fields sent are written, so two people editing different fields do not undo each other.
+    changed: list[str] = []
     if change.name is not None:
         brand.name = change.name
+        changed.append("name")
     if change.kind is not None:
         brand.kind = change.kind
+        changed.append("kind")
     if change.status is not None:
         brand.status = change.status
+        changed.append("status")
     if change.aliases is not None:
         # Order kept and duplicates dropped, so the mention regex gets each name once.
         brand.aliases = list(dict.fromkeys(alias.strip() for alias in change.aliases if alias.strip()))
-    brand.save(update_fields=["name", "kind", "status", "aliases", "updated_at"])
+        changed.append("aliases")
+    if changed:
+        brand.save(update_fields=[*changed, "updated_at"])
     return _to_brand(brand)
 
 

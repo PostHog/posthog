@@ -290,7 +290,7 @@ class AEOBrandSerializer(DataclassSerializer):
             "status": {
                 "help_text": "'suggested' (added from citations, not reviewed), 'confirmed' or 'ignored'. Only people change it."
             },
-            "source": {"help_text": "How the brand entered the catalog: 'citations', 'memory' or 'manual'."},
+            "source": {"help_text": "How the brand entered the catalog: 'citations' or 'manual'."},
             "aliases": {"help_text": "Other names for the brand, used to find it in answer text."},
             "created_at": {"help_text": "When the brand entered the catalog."},
             "updated_at": {"help_text": "When a person last changed the brand."},

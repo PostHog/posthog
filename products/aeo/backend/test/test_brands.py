@@ -7,6 +7,8 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
+
 from products.aeo.backend.brands import registrable_domain, sync_brands_from_run
 from products.aeo.backend.facade.contracts import BrandKind, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
@@ -81,6 +83,17 @@ class TestSyncBrandsFromRun(BaseTest):
             },
             "statsig.com": {"name": "Statsig", "kind": BrandKind.UNKNOWN, "status": BrandStatus.SUGGESTED},
         }
+
+    def test_run_synced_through_a_child_environment_lands_on_the_parent_catalog(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
+        run_id = str(uuid.uuid4())
+        self._check(run_id, ["https://amplitude.com/a"])
+
+        sync_brands_from_run(child.id, run_id)
+
+        assert list(AEOBrand.objects.for_team(child.id).values_list("domain", "team_id")) == [
+            ("amplitude.com", self.team.id)
+        ]
 
     @parameterized.expand(
         [

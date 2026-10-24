@@ -295,7 +295,8 @@ class TestAEOPromptAPI(APIBaseTest):
         amplitude_id = self._brand(self.team, "amplitude.com")
         self._brand(self.team, "reddit.com", kind="publisher")
 
-        listed = self.client.get(url).json()
+        first_page = self.client.get(f"{url}?limit=2").json()
+        second_page = self.client.get(f"{url}?limit=2&offset=2").json()
         response = self.client.patch(
             f"{url}{amplitude_id}/",
             {
@@ -306,7 +307,12 @@ class TestAEOPromptAPI(APIBaseTest):
             format="json",
         )
 
-        assert [brand["domain"] for brand in listed["results"]] == ["amplitude.com", "reddit.com", "statsig.com"]
+        assert first_page["count"] == 3
+        assert [brand["domain"] for brand in first_page["results"] + second_page["results"]] == [
+            "amplitude.com",
+            "reddit.com",
+            "statsig.com",
+        ]
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert {key: response.json()[key] for key in ("kind", "status", "aliases")} == {
             "kind": "competitor",
