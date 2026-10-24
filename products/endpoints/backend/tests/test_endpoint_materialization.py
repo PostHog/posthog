@@ -1,4 +1,5 @@
 from datetime import timedelta
+from io import StringIO
 from typing import Any
 
 import pytest
@@ -6,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -26,7 +28,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    get_declared_target,
+    set_declared_target,
+)
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -215,6 +221,70 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(
             DataWarehouseSavedQuery.objects.filter(team=self.team, name=f"{endpoint.name}_v{version.version}").exists()
         )
+
+    def test_refused_freshness_change_keeps_the_previous_freshness(self):
+        endpoint = create_endpoint_with_version(
+            name="refused_freshness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 86400},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            side_effect=UnsatisfiableFrequencyError("15min is finer than the 24h upstream source"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"data_freshness_seconds": 900},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        assert version.saved_query is not None
+        self.assertEqual(version.data_freshness_seconds, 86400)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=version.saved_query)), timedelta(hours=24))
+
+    def test_sync_freshness_targets_command_repairs_only_on_apply(self):
+        endpoint = create_endpoint_with_version(
+            name="seeded_daily_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 21600},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        # The state a tier seed leaves: the node runs daily while the version declares 6 hours.
+        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(days=1))
+
+        out = StringIO()
+        call_command("sync_endpoint_freshness_targets", stdout=out)
+        self.assertIn("node target 86400s -> declared 21600s: 1", out.getvalue())
+        node = Node.objects.get(saved_query=version.saved_query)
+        self.assertEqual(get_declared_target(node), timedelta(days=1))
+
+        call_command("sync_endpoint_freshness_targets", "--apply", stdout=StringIO())
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), timedelta(hours=6))
+
+        out = StringIO()
+        call_command("sync_endpoint_freshness_targets", stdout=out)
+        self.assertIn("0 mismatched endpoint version(s)", out.getvalue())
 
     def test_enable_fails_as_a_request_error_when_the_dag_sync_leaves_no_node(self):
         # the endpoint path swallows a dag sync failure, and scheduling then disables itself rather

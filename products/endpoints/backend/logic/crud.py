@@ -226,20 +226,23 @@ class EndpointCrudService:
                 endpoint, data, target_version, was_materialized
             )
 
-            step = "version_fields"
-            self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
+            # One transaction, so a freshness the schedule refuses is not stored on the version
+            # while the node keeps running at the old cadence.
+            with transaction.atomic():
+                step = "version_fields"
+                self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
-            step = "materialization"
-            materialization_error = self._reconcile_materialization(
-                endpoint,
-                data,
-                raw_data,
-                target_version,
-                version_targeted,
-                was_materialized=was_materialized,
-                version_was_created=version_was_created,
-                old_bucket_overrides=old_bucket_overrides,
-            )
+                step = "materialization"
+                materialization_error = self._reconcile_materialization(
+                    endpoint,
+                    data,
+                    raw_data,
+                    target_version,
+                    version_targeted,
+                    was_materialized=was_materialized,
+                    version_was_created=version_was_created,
+                    old_bucket_overrides=old_bucket_overrides,
+                )
 
             step = "tags_and_activity"
             apply_tags(endpoint, data.tags)
