@@ -63,6 +63,7 @@ For interactions, use the module-level helpers:
 - `clickAtIndex(wrapper, i, totalLabels)` — hover-then-click. Resolves after the click handler runs.
 - `dragSelection(wrapper, fromIndex, toIndex, totalLabels)` — simulates a drag-to-zoom gesture between two label indices.
 - `waitForHogChartTooltip()` — resolves with the rendered tooltip element once it mounts in the `FloatingPortal`.
+- `trackStaticRepaints(chart)` — counts static-canvas repaints from now on (`count()`, `stop()`), to assert that an interaction repaints only the hover canvas.
 
 `chart.hoverAtIndex(i)`, `chart.dragSelection(i, j)`, and `chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need `renderHogChart` — they read label count and the captured `TooltipContext` that only the library's own render wrapper sets up. For most consumer tests, DOM assertions through the accessor are enough.
 

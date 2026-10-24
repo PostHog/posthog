@@ -11,7 +11,7 @@ import type {
     ResolvedSeries,
 } from '../types'
 import { clearAndPrepare } from './clearCanvas'
-import { useLatest } from './useLatest'
+import { useCommittedRef } from './useLatest'
 
 /** A hover index this chart mirrors from elsewhere (a `ChartGroup`), read outside React state so a
  *  change repaints the hover canvas without re-rendering the chart. */
@@ -68,15 +68,22 @@ export function useHoverAnimation({
     // starts at progress 0 when something visible first appears.
     const drewVisibleRef = useRef(false)
     // Mirror everything that changes per-mousemove so the paint routine stays stable —
-    // otherwise we'd tear down and re-arm the RAF every mouse pixel.
-    const drawHoverRef = useLatest(drawHover)
-    const hoverPositionRef = useLatest(hoverPosition)
-    const seriesRef = useLatest(series)
-    const labelsRef = useLatest(labels)
-    const themeRef = useLatest(theme)
-    const dragRectRef = useLatest(dragRect)
-    const frameRef = useLatest({ overlayCtx, dimensions, scales, hoverIndex, hoverAnimationMs })
-    const externalHoverRef = useLatest(externalHover)
+    // otherwise we'd tear down and re-arm the RAF every mouse pixel. Committed refs, because a group
+    // hover calls `schedule` from another chart's commit, outside this chart's render.
+    const drawHoverRef = useCommittedRef(drawHover)
+    const hoverPositionRef = useCommittedRef(hoverPosition)
+    const seriesRef = useCommittedRef(series)
+    const labelsRef = useCommittedRef(labels)
+    const themeRef = useCommittedRef(theme)
+    const dragRectRef = useCommittedRef(dragRect)
+    const overlayCtxRef = useCommittedRef(overlayCtx)
+    const dimensionsRef = useCommittedRef(dimensions)
+    const scalesRef = useCommittedRef(scales)
+    const localIndexRef = useCommittedRef(hoverIndex)
+    const hoverAnimationMsRef = useCommittedRef(hoverAnimationMs)
+    const externalHoverRef = useCommittedRef(externalHover)
+    // The group index last written to the canvas attribute, so a repaint only touches the DOM on change.
+    const groupAttributeRef = useRef(-1)
 
     const cancel = useCallback((): void => {
         if (hoverRafRef.current != null) {
@@ -89,17 +96,24 @@ export function useHoverAnimation({
     // change. Timer is held in a ref so cancel/restart cycles resume the fade smoothly.
     const schedule = useCallback((): void => {
         cancel()
-        const { overlayCtx, dimensions, scales, hoverIndex: localIndex, hoverAnimationMs } = frameRef.current
+        const overlayCtx = overlayCtxRef.current
+        const dimensions = dimensionsRef.current
+        const scales = scalesRef.current
+        const localIndex = localIndexRef.current
+        const hoverAnimationMs = hoverAnimationMsRef.current
         if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
             return
         }
         const groupIndex = localIndex < 0 ? (externalHoverRef.current?.getIndex() ?? -1) : -1
         const hoverIndex = localIndex >= 0 ? localIndex : groupIndex
         const hoverSource = groupIndex >= 0 ? 'group' : 'pointer'
-        if (groupIndex >= 0) {
-            overlayCtx.canvas.setAttribute(GROUP_HOVER_ATTRIBUTE, String(groupIndex))
-        } else if (externalHoverRef.current) {
-            overlayCtx.canvas.removeAttribute(GROUP_HOVER_ATTRIBUTE)
+        if (groupIndex !== groupAttributeRef.current) {
+            groupAttributeRef.current = groupIndex
+            if (groupIndex >= 0) {
+                overlayCtx.canvas.setAttribute(GROUP_HOVER_ATTRIBUTE, String(groupIndex))
+            } else {
+                overlayCtx.canvas.removeAttribute(GROUP_HOVER_ATTRIBUTE)
+            }
         }
         // Restart the fade on hoverIndex change — invalidate drewVisible too so the next
         // visible frame starts at progress 0, not where the previous bar's fade left off.
@@ -153,7 +167,11 @@ export function useHoverAnimation({
         hoverRafRef.current = requestAnimationFrame(tick)
     }, [
         cancel,
-        frameRef,
+        overlayCtxRef,
+        dimensionsRef,
+        scalesRef,
+        localIndexRef,
+        hoverAnimationMsRef,
         themeRef,
         externalHoverRef,
         drawHoverRef,
@@ -187,9 +205,9 @@ export function useHoverAnimation({
                 return
             }
             lastIndex = index
-            if (frameRef.current.hoverIndex < 0) {
+            if (localIndexRef.current < 0) {
                 schedule()
             }
         })
-    }, [externalHover, schedule, frameRef])
+    }, [externalHover, schedule, localIndexRef])
 }

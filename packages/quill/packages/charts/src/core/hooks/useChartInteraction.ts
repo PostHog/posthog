@@ -106,8 +106,13 @@ interface UseChartInteractionResult<Meta> {
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     dragRect: DragRect | null
-    /** Builds the tooltip context at a label index without touching hover state. */
-    buildTooltipCtx: (index: number, position: { x: number; y: number } | null) => TooltipContext<Meta> | null
+    /** Builds the tooltip context at a label index without touching hover state. Pass `canvasBounds`
+     *  to skip the layout read, for a caller that runs during render. */
+    buildTooltipCtx: (
+        index: number,
+        position: { x: number; y: number } | null,
+        canvasBounds?: DOMRect
+    ) => TooltipContext<Meta> | null
     handlers: {
         onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -251,11 +256,15 @@ export function useChartInteraction<Meta = unknown>({
     )
 
     const buildCtxAt = useCallback(
-        (index: number, position: { x: number; y: number } | null): TooltipContext<Meta> | null => {
+        (
+            index: number,
+            position: { x: number; y: number } | null,
+            knownBounds?: DOMRect
+        ): TooltipContext<Meta> | null => {
             if (!scales) {
                 return null
             }
-            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            const canvasBounds = knownBounds ?? canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
             return buildTooltipContext(
                 index,
                 series,

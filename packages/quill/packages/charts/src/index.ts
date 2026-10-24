@@ -57,6 +57,7 @@ export { ChartGroup } from './components/ChartGroup/ChartGroup'
 export type { ChartGroupProps } from './components/ChartGroup/ChartGroup'
 export type { ChartGroupRange } from './core/chart-group'
 export type { ChartGroupTooltipMode } from './core/chart-group-context'
+export { useChartGroupHoverIndex } from './core/hooks/useChartGroupMember'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'

@@ -21,6 +21,8 @@ import type {
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
+    columnHighlightFill,
+    drawColumnHighlight,
     drawColumnHighlights,
     drawOutlinedCell,
     resolveCellStyles,
@@ -61,6 +63,7 @@ interface HeatmapPrivate {
         layout: HeatmapLayout
         cells: number[][]
         accent: string
+        columnFill: string
         maxValue: number
         colorScale: ResolvedHeatmapColorScale
         styles: HeatmapResolvedCellStyles
@@ -268,6 +271,7 @@ function HeatmapInner({
                     layout,
                     cells: grid,
                     accent,
+                    columnFill: columnHighlightFill(accent),
                     maxValue,
                     colorScale,
                     styles,
@@ -294,7 +298,7 @@ function HeatmapInner({
             return
         }
         const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
-        drawColumnHighlights(ctx, layout, priv.highlightedColumns, drawAccent)
+        drawColumnHighlights(ctx, layout, priv.highlightedColumns, priv.columnFill)
         // One ramp per accent in play, because parsing the accent per cell is the expensive part.
         const ramps = new Map<string, (t: number) => string>()
         const rampFor = (color: string): ((t: number) => string) => {
@@ -339,7 +343,7 @@ function HeatmapInner({
             if (hoverSource === 'group') {
                 ctx.save()
                 ctx.globalAlpha = hoverProgress
-                drawColumnHighlights(ctx, priv.layout, [hoverIndex], priv.accent)
+                drawColumnHighlight(ctx, priv.layout, hoverIndex, priv.columnFill)
                 ctx.restore()
                 return true
             }

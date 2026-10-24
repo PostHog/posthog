@@ -351,7 +351,8 @@ export function Chart<Meta = unknown>({
     }, [drawStatic, tickMarkCoords, theme])
 
     const group = useChartGroupMember({ enabled: syncWithGroup, labels: groupLabels ?? labels })
-    const groupZoom = group.zoom
+    // Drag-to-zoom only runs along a horizontal x axis.
+    const groupZoom = interactionAxis === 'x' ? group.zoom : null
     const zoomHandler = useMemo<((data: DateRangeZoomData) => void) | undefined>(
         () =>
             groupZoom
@@ -414,7 +415,23 @@ export function Chart<Meta = unknown>({
         baseMouseLeave()
         publishGroupHoverRef.current(-1)
     }, [baseMouseLeave, publishGroupHoverRef])
-    const handlers = useMemo(() => ({ ...interactionHandlers, onMouseLeave }), [interactionHandlers, onMouseLeave])
+    // A pinned chart ignores mousemove, so it takes the group hover back explicitly when the pointer returns.
+    const baseMouseMove = interactionHandlers.onMouseMove
+    const reclaimGroupHover = group.reclaim
+    const pinnedIndex = tooltipCtx?.isPinned ? hoverIndex : -1
+    const onMouseMove = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            baseMouseMove(e)
+            if (pinnedIndex >= 0) {
+                reclaimGroupHover(pinnedIndex)
+            }
+        },
+        [baseMouseMove, reclaimGroupHover, pinnedIndex]
+    )
+    const handlers = useMemo(
+        () => ({ ...interactionHandlers, onMouseMove, onMouseLeave }),
+        [interactionHandlers, onMouseMove, onMouseLeave]
+    )
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
@@ -549,6 +566,8 @@ export function Chart<Meta = unknown>({
                     {showTooltip && group.tooltipSource && (
                         <ChartGroupTooltip
                             source={group.tooltipSource}
+                            canvasBounds={canvasBounds}
+                            dimensions={dimensions}
                             localHoverIndex={hoverIndex}
                             buildTooltipCtx={buildTooltipCtx}
                             renderTooltip={renderTooltip}

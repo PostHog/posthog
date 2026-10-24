@@ -41,6 +41,8 @@ import type {
 } from '../../core/types'
 import { closestHoverSeriesKey } from './closest-hover-series'
 
+const GROUP_HOVER_MAX_RINGS = 12
+
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
 interface LineChartPrivate {
@@ -246,9 +248,15 @@ function LineChartInner<Meta = unknown>({
             labels: drawLabels,
             hoverIndex,
             hoverPosition,
+            hoverSource,
             theme,
         }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
+                return false
+            }
+            // A mirrored group hover has no cursor to pick one series, so it would ring every series on
+            // every fade frame. Past a handful, the crosshair alone marks the moment.
+            if (hoverSource === 'group' && coloredSeries.length > GROUP_HOVER_MAX_RINGS) {
                 return false
             }
             // Find the series whose y-pixel at the hovered index is closest to the cursor so only

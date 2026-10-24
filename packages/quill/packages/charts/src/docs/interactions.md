@@ -85,7 +85,8 @@ Filter every chart's data by `[from, to)` rather than by label, because each cha
 - A chart mounted while another is hovered picks up the hover at once. A hovered chart that unmounts clears it.
 - Hover reaches the other charts through a store outside React: each one repaints only its hover canvas, and no chart re-renders or repaints its static canvas. `syncTooltip: 'all'` re-renders one tooltip per chart for each hovered label, so it costs more.
 - `useChartHover()` reports this chart's own pointer hover only. A custom chart type sees a mirrored hover in `drawHover` as `hoverSource: 'group'` with a null `hoverPosition`, so it can highlight the whole column. `BoxPlot` draws only the crosshair there.
-- `MetricCard` follows the group hover with its headline and subtitle, after its `hoverIntentMs` dwell.
+- `MetricCard` follows the group hover with its headline and subtitle, after its `hoverIntentMs` dwell. `useChartGroupHoverIndex(labels)` gives the same index to your own DOM.
+- A mirrored line chart rings each series at the matching x, up to 12 series. Past that it draws only the crosshair.
 
 ### Opting out
 

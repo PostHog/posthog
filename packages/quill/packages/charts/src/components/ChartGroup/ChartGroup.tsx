@@ -15,11 +15,11 @@ export interface ChartGroupProps {
      *  Defaults to true. */
     syncCrosshair?: boolean
     /** `hovered` (default) shows a tooltip only on the chart under the pointer. `all` also shows
-     *  each other chart's tooltip at the matching x, which costs a re-render of every chart per
-     *  hovered label. */
+     *  each other chart's tooltip at the matching x, which re-renders and positions one tooltip per
+     *  chart for each hovered label. */
     syncTooltip?: ChartGroupTooltipMode
-    /** Turns on drag-to-zoom for every chart in the group, and fires once with the dragged range,
-     *  whichever chart the drag was on. The group does not zoom anything itself: update the range
+    /** Turns on drag-to-zoom for every time chart in the group, and fires once with the dragged
+     *  range, whichever chart the drag was on. The group does not zoom anything itself: update the range
      *  you pass to the charts. A chart's own `onDateRangeZoom` still fires too. */
     onZoom?: (range: ChartGroupRange) => void
     /** Shows a brush selection (the Heatmap's `onBrush`) as a highlighted range on every chart in
@@ -72,8 +72,14 @@ export function ChartGroup({
             return
         }
         const onKeyDown = (e: KeyboardEvent): void => {
-            // A handler that already used this Escape (closing a modal or menu) marks it prevented.
-            if (e.key !== 'Escape' || e.defaultPrevented || !store.getSelection()) {
+            // A handler that already used this Escape (closing a modal or menu) marks it prevented, and
+            // an open pinned tooltip takes the Escape before the selection does.
+            if (
+                e.key !== 'Escape' ||
+                e.defaultPrevented ||
+                !store.getSelection() ||
+                document.querySelector('.hog-charts-tooltip--pinned')
+            ) {
                 return
             }
             if (!controlledRef.current) {

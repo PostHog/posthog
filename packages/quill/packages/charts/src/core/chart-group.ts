@@ -24,6 +24,7 @@ export interface ChartGroupRange {
 /** Precomputed lookup that maps group x values onto one chart's labels. Build it once per label set. */
 export interface ChartGroupXIndex {
     labels: string[]
+    /** First index of each label. Empty on a time axis, which matches by time instead. */
     byLabel: Map<string, number>
     /** Ascending epoch milliseconds per label, or null when the labels are not all ISO times. */
     times: number[] | null
@@ -45,7 +46,14 @@ export function parseGroupTime(label: string): number | null {
         return null
     }
     const hasTime = label.length > 10
-    const normalized = hasTime && !match[1] ? `${label.replace(' ', 'T')}Z` : label.replace(' ', 'T')
+    const offset = match[1]
+    let normalized = label.replace(' ', 'T')
+    if (hasTime && !offset) {
+        normalized += 'Z'
+    } else if (offset && offset.length === 5) {
+        // `Date.parse` only guarantees the `+HH:MM` offset form, so `+HHMM` gains its colon.
+        normalized = `${normalized.slice(0, -2)}:${normalized.slice(-2)}`
+    }
     const time = Date.parse(normalized)
     return Number.isFinite(time) ? time : null
 }
@@ -72,19 +80,21 @@ function parseAscendingTimes(labels: string[]): number[] | null {
 }
 
 export function buildChartGroupXIndex(labels: string[]): ChartGroupXIndex {
-    const byLabel = new Map<string, number>()
-    labels.forEach((label, i) => {
-        if (!byLabel.has(label)) {
-            byLabel.set(label, i)
-        }
-    })
     const times = parseAscendingTimes(labels)
+    const byLabel = new Map<string, number>()
+    if (!times) {
+        for (let i = 0; i < labels.length; i++) {
+            if (!byLabel.has(labels[i])) {
+                byLabel.set(labels[i], i)
+            }
+        }
+    }
     const step = times && times.length > 1 ? median(times.slice(1).map((t, i) => t - times[i])) : 0
     return { labels, byLabel, times, step }
 }
 
-/** End (exclusive) of the bucket that starts at `index`: the next label, capped so a missing
- *  stretch of data does not stretch the bucket before it. */
+/** End (exclusive) of the bucket that starts at `index`: the next label, or one typical bucket
+ *  when missing data follows, so the gap does not stretch the bucket before it. */
 function bucketEnd(index: ChartGroupXIndex, i: number): number {
     const times = index.times as number[]
     const start = times[i]
@@ -92,7 +102,14 @@ function bucketEnd(index: ChartGroupXIndex, i: number): number {
         return start
     }
     const next = i + 1 < times.length ? times[i + 1] : Infinity
-    return Math.min(next, start + index.step * (next === Infinity ? 1 : GAP_TOLERANCE))
+    const gapBeforeNext = next - start > index.step * GAP_TOLERANCE
+    return gapBeforeNext ? start + index.step : next
+}
+
+/** End (exclusive) of the bucket at `i` in epoch milliseconds, or null on a categorical axis or a
+ *  single-label chart, where the bucket width is unknown. */
+export function chartGroupEndAt(index: ChartGroupXIndex, i: number): number | null {
+    return index.times && index.step > 0 && i >= 0 && i < index.times.length ? bucketEnd(index, i) : null
 }
 
 /** The group x value of this chart's label at `i`. */
@@ -104,7 +121,7 @@ export function chartGroupXAt(index: ChartGroupXIndex, i: number): ChartGroupX |
     if (!index.times) {
         return { label, time: null }
     }
-    return { label, time: index.times[i], end: index.step > 0 ? bucketEnd(index, i) : null }
+    return { label, time: index.times[i], end: chartGroupEndAt(index, i) }
 }
 
 /** Maps a group x value onto this chart's labels. Returns -1 when nothing here matches it.
@@ -165,7 +182,8 @@ export function chartGroupRangeAt(index: ChartGroupXIndex, startIndex: number, e
         startLabel: index.labels[lo],
         endLabel: index.labels[hi],
         from: times ? times[lo] : null,
-        to: times ? bucketEnd(index, hi) : null,
+        // A single-label chart has no bucket width, so give its range a nonzero length to overlap anything.
+        to: times ? Math.max(bucketEnd(index, hi), times[hi] + 1) : null,
     }
 }
 
@@ -184,16 +202,24 @@ export function matchChartGroupRange(
         }
         return { startIndex: Math.min(startIndex, endIndex), endIndex: Math.max(startIndex, endIndex) }
     }
-    let startIndex = -1
-    let endIndex = -1
-    for (let i = 0; i < times.length; i++) {
-        const overlaps = times[i] < range.to && Math.max(bucketEnd(index, i), times[i] + 1) > range.from
-        if (overlaps) {
-            if (startIndex < 0) {
-                startIndex = i
-            }
-            endIndex = i
+    const { from, to } = range
+    // Bucket starts and ends both ascend, so binary search finds each edge.
+    const startIndex = firstIndexWhere(times.length, (i) => Math.max(bucketEnd(index, i), times[i] + 1) > from)
+    const endIndex = firstIndexWhere(times.length, (i) => times[i] >= to) - 1
+    return startIndex <= endIndex ? { startIndex, endIndex } : null
+}
+
+/** First index in `[0, length)` where the monotonic `test` holds, or `length` when it never does. */
+function firstIndexWhere(length: number, test: (i: number) => boolean): number {
+    let lo = 0
+    let hi = length
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (test(mid)) {
+            hi = mid
+        } else {
+            lo = mid + 1
         }
     }
-    return startIndex < 0 ? null : { startIndex, endIndex }
+    return lo
 }

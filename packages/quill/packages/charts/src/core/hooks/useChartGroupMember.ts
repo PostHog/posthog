@@ -1,16 +1,16 @@
-import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useContext, useId, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 
 import {
     buildChartGroupXIndex,
+    chartGroupEndAt,
     chartGroupRangeAt,
-    chartGroupXAt,
     matchChartGroupRange,
     matchChartGroupX,
     type ChartGroupRange,
     type ChartGroupXIndex,
 } from '../chart-group'
 import { ChartGroupContext } from '../chart-group-context'
-import type { ChartGroupHover, ChartGroupStore } from '../chart-group-store'
+import type { ChartGroupStore } from '../chart-group-store'
 import type { ExternalHoverSource } from './useHoverAnimation'
 
 const NO_SELECTION = (): null => null
@@ -33,6 +33,9 @@ export interface ChartGroupMember {
     /** Shares this chart's hover index with the group; -1 clears it. Call from a layout effect, so the
      *  other charts schedule their repaint in the same frame as this one. */
     publish: (hoverIndex: number) => void
+    /** Publishes `hoverIndex` again when the group hover belongs to another chart. A pinned chart calls
+     *  it as the pointer comes back, since its hover index does not change then. */
+    reclaim: (hoverIndex: number) => void
     /** Reports a drag over `startIndex..endIndex` to the group's `onZoom`. Null when the group has none,
      *  or when this chart's labels are not times, since a zoom range is a time range. */
     zoom: ((startIndex: number, endIndex: number) => void) | null
@@ -42,14 +45,15 @@ export interface ChartGroupMember {
     selection: { startIndex: number; endIndex: number } | null
 }
 
-function createMatcher(store: ChartGroupStore, id: number, xIndex: ChartGroupXIndex): () => number {
-    let lastHover: ChartGroupHover | null = null
+function createMatcher(store: ChartGroupStore, id: string, xIndex: ChartGroupXIndex): () => number {
+    let lastVersion = -1
     let lastIndex = -1
     return () => {
         const hover = store.getHover()
-        if (hover !== lastHover) {
-            lastHover = hover
-            lastIndex = hover && hover.sourceId !== id ? matchChartGroupX(xIndex, hover.x) : -1
+        const version = hover?.version ?? -1
+        if (version !== lastVersion) {
+            lastVersion = version
+            lastIndex = hover && hover.sourceId !== id ? matchChartGroupX(xIndex, hover) : -1
         }
         return lastIndex
     }
@@ -61,12 +65,7 @@ export function useChartGroupMember({ enabled, labels }: UseChartGroupMemberOpti
     const context = useContext(ChartGroupContext)
     const group = enabled ? context : null
     const store = group?.store ?? null
-
-    const memberRef = useRef<{ store: ChartGroupStore; id: number } | null>(null)
-    if (store && memberRef.current?.store !== store) {
-        memberRef.current = { store, id: store.nextMemberId() }
-    }
-    const id = store ? (memberRef.current?.id ?? -1) : -1
+    const id = useId()
 
     // Charts outside a group skip the per-label parse.
     const xIndex = useMemo(() => (store ? buildChartGroupXIndex(labels) : NO_LABELS), [store, labels])
@@ -89,14 +88,23 @@ export function useChartGroupMember({ enabled, labels }: UseChartGroupMemberOpti
             if (!store) {
                 return
             }
-            const x = hoverIndex >= 0 ? chartGroupXAt(xIndex, hoverIndex) : null
-            if (x) {
-                store.setHover({ sourceId: id, x })
-            } else {
+            const label = hoverIndex >= 0 ? xIndex.labels[hoverIndex] : undefined
+            if (label == null) {
                 store.clearHover(id)
+                return
             }
+            store.setHover(id, label, xIndex.times?.[hoverIndex] ?? null, chartGroupEndAt(xIndex, hoverIndex))
         },
         [store, id, xIndex]
+    )
+
+    const reclaim = useCallback(
+        (hoverIndex: number): void => {
+            if (store && hoverIndex >= 0 && store.getHover()?.sourceId !== id) {
+                publish(hoverIndex)
+            }
+        },
+        [store, id, publish]
     )
 
     useLayoutEffect(() => {
@@ -136,17 +144,17 @@ export function useChartGroupMember({ enabled, labels }: UseChartGroupMemberOpti
         [groupSelection, xIndex]
     )
 
-    return { hoverSource, tooltipSource, publish, zoom, select, selection }
+    return { hoverSource, tooltipSource, publish, reclaim, zoom, select, selection }
 }
 
-/** The enclosing group's hover mapped onto `labels`, as React state that changes only when the
- *  matched index does. -1 outside a group, without labels, or when `enabled` is false. For DOM that
- *  follows the group hover, such as a stat tile's headline. */
+/** The enclosing `ChartGroup`'s hover mapped onto `labels`, as React state that changes only when the
+ *  matched index does. -1 outside a group, without labels, or when `enabled` is false. Use it for DOM
+ *  that follows the group hover, such as a stat tile's headline. */
 export function useChartGroupHoverIndex(labels: string[] | undefined, enabled = true): number {
     const context = useContext(ChartGroupContext)
     const store = enabled && labels ? (context?.store ?? null) : null
     const getIndex = useMemo(
-        () => (store && labels ? createMatcher(store, -1, buildChartGroupXIndex(labels)) : NO_INDEX),
+        () => (store && labels ? createMatcher(store, '', buildChartGroupXIndex(labels)) : NO_INDEX),
         [store, labels]
     )
     return useSyncExternalStore(store?.subscribeHover ?? NOOP_SUBSCRIBE, getIndex, NO_INDEX)

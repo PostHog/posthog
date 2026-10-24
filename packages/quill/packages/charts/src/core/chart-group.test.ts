@@ -11,6 +11,7 @@ const HOURLY = ['2024-05-01T10:00:00Z', '2024-05-01T11:00:00Z', '2024-05-01T12:0
 const FIVE_MIN = Array.from({ length: 36 }, (_, i) => new Date(Date.UTC(2024, 4, 1, 10, i * 5)).toISOString())
 // 10:00, 11:00, then nothing until 14:00, 15:00.
 const HOURLY_WITH_GAP = ['2024-05-01T10:00:00Z', '2024-05-01T11:00:00Z', '2024-05-01T14:00:00Z', '2024-05-01T15:00:00Z']
+const MONTHLY = ['2024-01-01', '2024-02-01', '2024-03-01', '2024-04-01']
 
 function xFrom(labels: string[], index: number): ChartGroupX {
     const x = chartGroupXAt(buildChartGroupXIndex(labels), index)
@@ -33,7 +34,8 @@ describe('chart group x matching', () => {
         ['before the first bucket matches nothing', HOURLY, timeX('2024-05-01T09:59:00Z'), -1],
         ['inside the last bucket still matches', HOURLY, timeX('2024-05-01T12:59:00Z'), 2],
         ['past the last bucket matches nothing', HOURLY, timeX('2024-05-01T13:00:00Z'), -1],
-        ['inside a gap in the data matches nothing', HOURLY_WITH_GAP, timeX('2024-05-01T12:30:00Z'), -1],
+        ['inside a gap in the data matches nothing', HOURLY_WITH_GAP, timeX('2024-05-01T12:15:00Z'), -1],
+        ['a long month still covers its last day', MONTHLY, timeX('2024-01-31T12:00:00Z'), 0],
         ['the bucket before a gap keeps its normal width', HOURLY_WITH_GAP, timeX('2024-05-01T11:59:00Z'), 1],
         ['a categorical label matches by string', ['Mon', 'Tue', 'Wed'], { label: 'Tue', time: null }, 1],
         ['a categorical label missing here matches nothing', ['Mon', 'Tue'], { label: 'Sun', time: null }, -1],
@@ -45,6 +47,16 @@ describe('chart group x matching', () => {
     it('parses offset-free date and date-time labels to the same instant', () => {
         const dateOnly = buildChartGroupXIndex(['2024-05-01', '2024-05-02'])
         expect(matchChartGroupX(dateOnly, xFrom(['2024-05-02T00:00:00', '2024-05-03T00:00:00'], 0))).toBe(1)
+    })
+
+    it('reads a compact +HHMM offset as the same instant as +HH:MM', () => {
+        const compact = buildChartGroupXIndex(['2024-05-01T12:00:00+0200', '2024-05-01T13:00:00+0200'])
+        expect(compact.times).toEqual([Date.parse(HOURLY[0]), Date.parse(HOURLY[1])])
+    })
+
+    it('gives a single-label range a length, so it still overlaps the other charts', () => {
+        const range = chartGroupRangeAt(buildChartGroupXIndex(['2024-05-01T11:00:00Z']), 0, 0)
+        expect(matchChartGroupRange(buildChartGroupXIndex(HOURLY), range)).toEqual({ startIndex: 1, endIndex: 1 })
     })
 
     it('a single-point chart matches a hover whose bucket contains its point', () => {
@@ -63,5 +75,11 @@ describe('chart group x matching', () => {
         })
         expect(matchChartGroupRange(buildChartGroupXIndex(FIVE_MIN), range)).toEqual({ startIndex: 12, endIndex: 23 })
         expect(matchChartGroupRange(buildChartGroupXIndex(['Mon', 'Tue']), range)).toBeNull()
+    })
+
+    it('ends the range at the last bucket before missing data, not inside the gap', () => {
+        expect(chartGroupRangeAt(buildChartGroupXIndex(HOURLY_WITH_GAP), 1, 1).to).toBe(
+            Date.parse('2024-05-01T12:00:00Z')
+        )
     })
 })
