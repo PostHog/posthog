@@ -111,6 +111,7 @@ class TestJobUsageCollector(BaseTest):
         )
         self.assertIsNotNone(measured.usage_updated_at)
         self.assertEqual(measured.updated_at, measured.usage_updated_at)
+        assert measured.updated_at is not None
         self.assertGreater(measured.updated_at, finished - timedelta(hours=1))
         self.assertIsNone(missing.read_bytes)
         self.assertIsNone(duplicate.read_bytes)
