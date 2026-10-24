@@ -25,6 +25,7 @@ import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
+import { supportLogic } from '../Support/supportLogic'
 import { healthSummaryLabel } from './healthSummaryLabel'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
@@ -32,6 +33,7 @@ import { posthogStatusLogic } from './posthogStatusLogic'
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { user } = useValues(userLogic)
@@ -124,6 +126,17 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </ButtonPrimitive>
                                     }
                                 />
+                                {isCloudOrDev && (
+                                    <Menu.Item
+                                        onClick={() => openSupportForm({ kind: 'feedback', isEmailFormOpen: true })}
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="more-menu-feedback-button">
+                                                Give feedback
+                                                <IconOpenSidebar className="size-3" />
+                                            </ButtonPrimitive>
+                                        }
+                                    />
+                                )}
                                 <Menu.Item
                                     render={(props) => (
                                         <Link
