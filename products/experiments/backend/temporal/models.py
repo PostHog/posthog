@@ -64,6 +64,9 @@ RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
 NON_RETRYABLE_ERROR_TYPES = frozenset(
     {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
 )
+# Non-retryable classes that get one offline retry when they fail on the online replicas. See
+# ONLINE_FIRST_ATTEMPT_MAX_WINDOW.
+ONLINE_RETRIABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit"})
 
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
 # attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but

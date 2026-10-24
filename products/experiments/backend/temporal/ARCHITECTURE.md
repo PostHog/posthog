@@ -285,6 +285,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
   See [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md) for the locking contract and cleanup limits.
 - **Short first attempts run online; retries and long windows run offline.** The calc activity picks the runner's workload per attempt.
   The first attempt of a metric whose scan window (`query_to` minus the experiment start date) is shorter than `ONLINE_FIRST_ATTEMPT_MAX_WINDOW` (7 days) runs with `Workload.ONLINE`.
+  A metric with CUPED also reads its lookback window before the start date, so the lookback counts toward the scan window.
   Every retry, and every first attempt over a longer window, runs with `Workload.OFFLINE`.
   The online replicas answer a short scan faster and keep it out of the offline queue.
   Retries stay offline so a capacity burst or a timeout does not repeat on the online tier, and long scans stay offline because they are the heavy ones.
@@ -298,6 +299,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
   The build inserts carry no workload, so the worker's default workload (`CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`) sends them to the offline replicas, and an online read right after an insert can miss its rows.
   In check-only mode the executor serves the ranges that are already built and reports a miss for the rest, so the runner falls back to a direct scan, which is cheap for a window under 7 days.
   The offline retries and the scheduled runs keep building.
+  Because the online attempt does not build, an `out_of_memory` or `byte_limit` failure there is not permanent: it gets one offline retry (`ONLINE_RETRIABLE_ERROR_TYPES`), which builds precompute and can pass. The same failure offline stays permanent.
 
   The workload stays set explicitly rather than left to the default. The base `QueryRunner` default is `Workload.DEFAULT`, which follows the process default (Celery pins every task to offline process-wide, and API-key traffic is forced offline). An explicit workload keeps the routing the same however the activity is invoked. The activity task queue above caps how many calc queries run at once on either tier.
 
