@@ -84,4 +84,18 @@ describe('experimentExposuresWindowLogic', () => {
             expect(mainLogic.values.exposuresAsOf).toEqual(FIRST_WINDOW)
         }
     })
+
+    it('sends a failed reload again on the next mount', async () => {
+        useMocks({ post: { '/api/environments/:team/query/:kind': () => [500, { detail: 'Unavailable' }] } })
+        await expectLogic(mainLogic, () => {
+            metricsLogic.actions.setCurrentRecalculation(run('completed', NEXT_WINDOW))
+        }).toDispatchActions(['loadExposures', 'loadExposuresFailure'])
+        expect(mainLogic.values.exposuresAsOf).toBeNull()
+
+        logic.unmount()
+        logic.mount()
+
+        await expectLogic(mainLogic).toDispatchActions(['loadExposures'])
+        expect(mainLogic.values.exposuresAsOf).toEqual(NEXT_WINDOW)
+    })
 })
