@@ -15,6 +15,13 @@ CONSTANCE_CONFIG = {
         "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
         int,
     ),
+    "WAREHOUSE_GROUP_PROPERTY_DIRECT_WRITE_ENABLED": (
+        False,
+        "Whether the warehouse person-property consumer writes group property updates to the group "
+        "directly (personhog and ClickHouse) and sends no $groupidentify event. When off, group "
+        "updates go through capture.",
+        bool,
+    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
