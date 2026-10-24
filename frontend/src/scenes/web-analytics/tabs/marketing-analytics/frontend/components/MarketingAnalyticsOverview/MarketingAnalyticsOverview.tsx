@@ -14,6 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
+import { useRefetchWhileNotReady } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 
 import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
 import { adPerformanceTrendsLogic } from 'products/marketing_analytics/frontend/adPerformanceTrendsLogic'
@@ -53,6 +54,7 @@ export function MarketingAnalyticsOverview(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
+    const { loadData } = useActions(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -70,6 +72,9 @@ export function MarketingAnalyticsOverview(props: {
     )
     const sparklineTheme = useChartTheme()
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
+    const precomputeNotReady = !responseLoading && marketingOverviewQueryResponse?.precomputeNotReady === true
+
+    useRefetchWhileNotReady(precomputeNotReady, props.query, loadData)
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -101,7 +106,7 @@ export function MarketingAnalyticsOverview(props: {
 
     // A cold precompute window comes back as an empty result, which the metric grid would render as a row
     // of blanks. Say it is still being prepared instead.
-    if (!responseLoading && marketingOverviewQueryResponse?.precomputeNotReady) {
+    if (precomputeNotReady) {
         return <MarketingAnalyticsNotReady />
     }
 
