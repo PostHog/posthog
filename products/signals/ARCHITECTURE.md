@@ -236,7 +236,11 @@ On re-promotion:
 - **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (alongside the protected `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
-#### First report email
+#### First report onboarding and email
+
+The `signals-scout-first-report` engine performs a bounded investigation of existing product or warehouse data. Its context includes configured products, observed data volumes, and accessible warehouse tables. The skill owns investigation policy and orientation; the shared prompt defers to its procedure. The skill searches across products and validates evidence before authoring at most one report, enforced by a project-scoped idempotency key. Early replay and persistence use that same key, so a saved report is returned before checking changed emission gates or repeating the safety judge.
+
+This system scout is excluded from scheduled registration and suggestions and accepts only onboarding dispatches. Its template remains visible in the Skills store like other canonical scout skills. Its structured close-out distinguishes insufficient data, no actionable finding, and incomplete execution. The engine exposes persisted state and task IDs for onboarding consumers; activation and customer progress presentation are integrated separately.
 
 Guided and quick onboarding create a `SignalFirstReportNotification` in the activation transaction, preserving the activating user for that environment. The first report that becomes `ready`, immediately actionable, and not already addressed after activation triggers a transactional email to that user's email address, tracked against their distinct ID. Control onboarding does not identify an activator and does not enroll a recipient.
 
