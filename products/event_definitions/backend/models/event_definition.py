@@ -1,5 +1,7 @@
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -64,6 +66,14 @@ class EventDefinition(Taggable, UUIDTModel):
                 condition=models.Q(enforcement_mode="reject"),
             ),
             models.Index(fields=["team_id", "name"], name="posthog_eventdef_team_name_idx"),
+            # Serves `exclude_stale` and an explicit `last_seen_at` order in the list, which otherwise read
+            # and sort every definition of a large project. It leads with the scope expression of
+            # `event_definition_proj_uniq`, so the list's project filter can seek it.
+            models.Index(
+                Coalesce("project_id", "team_id", output_field=models.BigIntegerField()),
+                F("last_seen_at").desc(nulls_last=True),
+                name="posthog_eventdef_proj_seen_idx",
+            ),
         ]
         constraints = [
             UniqueConstraintByExpression(
