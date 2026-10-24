@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable
 from datetime import timedelta
 
 import temporalio.workflow
@@ -14,6 +15,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
+        MAX_CONCURRENT_METRICS_PER_RUN,
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS,
@@ -30,6 +32,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         ExperimentMetricsRecalculationWorkflowInputs,
         ExperimentMetricToRecalculate,
         MetricOutOfTimeFailure,
+        MetricRecalculationResult,
         RecalculationProgressUpdate,
     )
     from products.experiments.backend.temporal.recalculation_activities import (
@@ -55,12 +58,10 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
     """Recalculate all metrics for an experiment on demand.
 
     Each run discovers all metrics, marks the job in_progress (which also pins the single data-window end),
-    schedules one calc activity per metric all at once, and finalizes the job status. The workflow imposes no
-    concurrency of its own, pacing is owned by the layers that actually constrain it: worker activity slots
-    (MAX_CONCURRENT_ACTIVITIES, autoscaled on task queue backlog) bound compute, and the per-org ClickHouse
-    app-query limiter bounds query fan-out. Scheduling every metric up front also keeps the task queue backlog
-    honest for the autoscaler. Per-metric progress counters and errors are folded into the calc activity
-    itself, so the workflow only writes progress at start and finish.
+    schedules one calc activity per metric with at most MAX_CONCURRENT_METRICS_PER_RUN in flight, and finalizes
+    the job status. The bound keeps one wide run from sending all of its ClickHouse queries and precompute builds
+    at once. Worker activity slots bound compute across runs. Per-metric progress counters and errors are folded
+    into the calc activity itself, so the workflow only writes progress at start and finish.
     """
 
     @staticmethod
@@ -164,30 +165,41 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
             else None
         )
-        results = await asyncio.gather(
-            *[
-                temporalio.workflow.execute_activity(
-                    calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.role,
-                    ],
-                    start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
-                    heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
-                    retry_policy=calc_retry_policy,
-                    task_queue=activity_task_queue,
-                    # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
-                    # fairness support.
-                    priority=Priority(fairness_key=inputs.fairness_key),
-                )
-                for metric in metrics
-            ],
-            return_exceptions=True,
-        )
+
+        def calculate(metric: ExperimentMetricToRecalculate) -> Awaitable[MetricRecalculationResult]:
+            return temporalio.workflow.execute_activity(
+                calculate_experiment_metric_for_recalculation,
+                args=[
+                    metric.experiment_id,
+                    metric.metric_uuid,
+                    recalculation_id,
+                    query_to,
+                    metric.role,
+                ],
+                start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
+                schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
+                retry_policy=calc_retry_policy,
+                task_queue=activity_task_queue,
+                # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
+                # fairness support.
+                priority=Priority(fairness_key=inputs.fairness_key),
+            )
+
+        calculations: list[Awaitable[MetricRecalculationResult]]
+        if temporalio.workflow.patched("recalc-per-run-bound-2026-10"):
+            # A metric acquires a slot before its activity is scheduled, so the wait for a slot does not use the
+            # metric's schedule_to_close budget.
+            slots = asyncio.Semaphore(MAX_CONCURRENT_METRICS_PER_RUN)
+
+            async def calculate_in_slot(metric: ExperimentMetricToRecalculate) -> MetricRecalculationResult:
+                async with slots:
+                    return await calculate(metric)
+
+            calculations = [calculate_in_slot(metric) for metric in metrics]
+        else:
+            calculations = [calculate(metric) for metric in metrics]
+        results = await asyncio.gather(*calculations, return_exceptions=True)
 
         out_of_time = [
             metric

@@ -35,6 +35,10 @@ METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
+# Calc activities one recalculation run keeps in flight. Each metric-event build sends several inserts to one
+# aux node, so a wide run without this bound can fill that node's query slots on its own.
+MAX_CONCURRENT_METRICS_PER_RUN = 8
+
 # Below MAX_METRIC_ATTEMPTS for errors where a retry rarely succeeds and adds ClickHouse load. At the cap the
 # activity fails the metric non-retryable, so the RetryPolicy keeps MAX_METRIC_ATTEMPTS.
 CAPACITY_MAX_METRIC_ATTEMPTS = 3
@@ -66,9 +70,10 @@ NON_RETRYABLE_ERROR_TYPES = frozenset(
 METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 
 # Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
-# activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
-# the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
-# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# activity's schedule_to_close_timeout). It keeps the longest gap between two progress stamps on the run row
+# (this budget, the failure backstop and the finish step) below the staleness TTL in recalculation.py, so a slow
+# but healthy run is never treated as stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its
+# attempts are slow.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,

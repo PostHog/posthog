@@ -11,6 +11,7 @@ import temporalio.worker
 import temporalio.workflow
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError, WorkflowHistory
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -20,6 +21,7 @@ from posthog.dataclasses import frozen
 
 from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import (
+    MAX_CONCURRENT_METRICS_PER_RUN,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS,
     METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS,
@@ -103,7 +105,13 @@ def test_in_progress_phase_ends_before_the_staleness_ttl():
     assert worst_case < _STALE_RECALC_THRESHOLD.total_seconds()
 
 
-async def _run_workflow(activities) -> dict:
+@frozen
+class _Run:
+    result: dict
+    history: WorkflowHistory
+
+
+async def _run_workflow_with_history(activities) -> _Run:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -113,12 +121,42 @@ async def _run_workflow(activities) -> dict:
             activities=activities,
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            return await env.client.execute_workflow(
+            handle = await env.client.start_workflow(
                 ExperimentMetricsRecalculationWorkflow.run,
                 ExperimentMetricsRecalculationWorkflowInputs(recalculation_id=str(uuid.uuid4())),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            return _Run(result=await handle.result(), history=await handle.fetch_history())
+
+
+async def _run_workflow(activities) -> dict:
+    return (await _run_workflow_with_history(activities)).result
+
+
+def _peak_calculations_in_flight(history: WorkflowHistory) -> int:
+    calc_event_ids: set[int] = set()
+    in_flight = peak = 0
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            if event.activity_task_scheduled_event_attributes.activity_type.name == (
+                "calculate_experiment_metric_for_recalculation"
+            ):
+                calc_event_ids.add(event.event_id)
+                in_flight += 1
+                peak = max(peak, in_flight)
+        elif event.event_type in (
+            EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
+            EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED,
+        ):
+            attributes = (
+                event.activity_task_completed_event_attributes
+                if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED
+                else event.activity_task_failed_event_attributes
+            )
+            if attributes.scheduled_event_id in calc_event_ids:
+                in_flight -= 1
+    return peak
 
 
 def _recording_calculate(calls: list[str]) -> Callable:
@@ -662,6 +700,48 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         assert run.workflow_queue_calls == ["m1"]
         assert run.activity_queue_calls == []
+        await temporalio.worker.Replayer(
+            workflows=[ExperimentMetricsRecalculationWorkflow],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ).replay_workflow(run.history)
+
+    @parameterized.expand(
+        [
+            ("bounded", True, MAX_CONCURRENT_METRICS_PER_RUN),
+            # A history recorded before the patch scheduled every metric at once and must still replay.
+            ("pre_patch_history_replays_unbounded", False, 20),
+        ]
+    )
+    async def test_fan_out_keeps_the_per_run_bound_and_a_failure_does_not_block_the_rest(
+        self, name: str, patch_on: bool, expected_peak: int
+    ):
+        metrics = [_metric(f"m{i}") for i in range(20)]
+        activities, _progress, _calls = _make_mock_activities(metrics=metrics)
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            role: str = "primary",
+        ) -> MetricRecalculationResult:
+            if metric_uuid == "m0":
+                raise ApplicationError("query is wrong", non_retryable=True)
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        original_patched = temporalio.workflow.patched
+
+        def patched(patch_id: str) -> bool:
+            if patch_id == "recalc-per-run-bound-2026-10" and not patch_on:
+                return False
+            return original_patched(patch_id)
+
+        with patch.object(temporalio.workflow, "patched", side_effect=patched):
+            run = await _run_workflow_with_history([*activities[:2], mock_calculate])
+
+        assert run.result == {"total": 20, "succeeded": 19, "failed": 1}
+        assert _peak_calculations_in_flight(run.history) == expected_peak
         await temporalio.worker.Replayer(
             workflows=[ExperimentMetricsRecalculationWorkflow],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),

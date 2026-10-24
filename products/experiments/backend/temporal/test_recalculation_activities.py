@@ -226,6 +226,7 @@ class TestRecalculationActivities(BaseTest):
 
         if expects_query_to:
             assert recalc.started_at is not None
+            assert recalc.last_progress_at == recalc.started_at
             assert recalc.total_metrics == update_kwargs["total_metrics"]
             assert recalc.metric_uuids == update_kwargs["metric_uuids"]
             assert recalc.query_to is not None
@@ -936,6 +937,45 @@ class TestCalculateActivity(BaseTest):
             assert recalc.metric_errors["m1"]["retriable"] is True
             assert [c["event"] for c in captured] == ["experiment metric error"]
             assert captured[0]["properties"]["error_type"] == "timeout"
+
+    @parameterized.expand(
+        [
+            ("success", None, False),
+            ("transient_retry", RuntimeError("transient blip"), False),
+            ("terminal_failure", ValidationError("bad hogql"), False),
+            ("out_of_time_backstop", None, True),
+        ]
+    )
+    @time_machine.travel("2026-05-29T13:00:00Z", tick=False)
+    def test_every_metric_outcome_stamps_run_progress(self, name: str, run_error: Exception | None, out_of_time: bool):
+        exp = self._experiment(flag_key=f"calc-progress-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        long_ago = timezone.now() - timedelta(hours=2)
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at=long_ago, last_progress_at=long_ago
+        )
+
+        if out_of_time:
+            _record_out_of_time(
+                MetricOutOfTimeFailure(
+                    recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", role="primary"
+                )
+            )
+        else:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                if run_error is None:
+                    mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+                else:
+                    mock_runner.return_value.run.side_effect = run_error
+                    with pytest.raises(Exception):
+                        _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+
+        recalc.refresh_from_db()
+        assert recalc.last_progress_at is not None
+        assert recalc.last_progress_at > long_ago + timedelta(hours=1)
 
     def test_late_result_after_out_of_time_failure_replaces_the_timeout(self):
         exp = self._experiment(flag_key="calc-out-of-time-late-result", metrics=[_mean_metric("m1")])

@@ -339,6 +339,7 @@ class TestRecalculationService(BaseTest):
             # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
             ("pending_stale_by_created_at", "pending", "created_at"),
             ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+            ("in_progress_without_progress_for_the_threshold", "in_progress", "last_progress_at"),
         ]
     )
     def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
@@ -349,6 +350,12 @@ class TestRecalculationService(BaseTest):
             # created_at uses auto_now_add so we have to update after create.
             stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs)
             ExperimentMetricsRecalculation.objects.filter(id=stale_row.id).update(created_at=long_ago)
+        elif stale_field == "last_progress_at":
+            stale_row = ExperimentMetricsRecalculation.objects.create(
+                **stale_kwargs,
+                started_at=long_ago,
+                last_progress_at=timezone.now() - timedelta(minutes=31),
+            )
         else:
             stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs, started_at=long_ago)
 
@@ -366,11 +373,35 @@ class TestRecalculationService(BaseTest):
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
 
-    def test_request_recalculation_does_not_recover_recent_active_row(self):
+    @parameterized.expand(
+        [
+            ("recent_pending", {"status": "pending"}),
+            # A wide run with more than MAX_CONCURRENT_METRICS_PER_RUN slow metrics can outlast the threshold
+            # from started_at while its metrics keep finishing.
+            (
+                "long_in_progress_with_recent_progress",
+                {"status": "in_progress", "started_at_minutes_ago": 120, "last_progress_at_minutes_ago": 5},
+            ),
+        ]
+    )
+    def test_request_recalculation_does_not_recover_recent_active_row(self, name: str, row: dict):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
         # status. This pins the threshold is doing real work and we aren't accidentally short-circuiting it.
-        exp = self._launched_experiment(flag_key="recent-pending")
-        recent_row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        exp = self._launched_experiment(flag_key=f"recent-{name}")
+        now = timezone.now()
+        recent_row = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=row["status"],
+            started_at=now - timedelta(minutes=row["started_at_minutes_ago"])
+            if "started_at_minutes_ago" in row
+            else None,
+            last_progress_at=(
+                now - timedelta(minutes=row["last_progress_at_minutes_ago"])
+                if "last_progress_at_minutes_ago" in row
+                else None
+            ),
+        )
         result = request_recalculation(exp, self.user, "manual")
         assert result["is_existing"] is True
         assert result["id"] == str(recent_row.id)
