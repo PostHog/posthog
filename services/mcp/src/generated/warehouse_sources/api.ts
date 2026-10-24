@@ -2330,6 +2330,12 @@ export const ExternalDataSourcesConnectLinkRetrieveParams = () => zod.object({
 })
 
 export const ExternalDataSourcesConnectLinkRetrieveQueryParams = () => zod.object({
+    migration_item_id: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret."
+        ),
     source_type: zod
         .string()
         .describe("The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot')."),

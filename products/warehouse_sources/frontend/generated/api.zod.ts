@@ -612,6 +612,35 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault = `api`
+
+export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ zod.object({
+    item_id: zod.uuid().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .uuid()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    created_via: zod
+        .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+        .describe(
+            '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
+        )
+        .default(externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
+        ),
+})
+
+/**
  * List the accounts a source's typed-in credentials can reach, in the shared
  * IntegrationAccount shape.
  *

@@ -13240,6 +13240,50 @@ export namespace Schemas {
       Agents: 'agents',
     } as const;
 
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving
+     */
+    export type ExternalDataSourceCreatedViaEnum = typeof ExternalDataSourceCreatedViaEnum[keyof typeof ExternalDataSourceCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+      Wizard: 'wizard',
+      SelfDriving: 'self_driving',
+    } as const;
+
+    export interface ApplyMigrationItem {
+      /** The migration item to create a PostHog source for. */
+      item_id: string;
+      /** Stored credential from the source connect page, for the item's PostHog source type. */
+      credential_id: string;
+      /** Table name prefix to use instead of the planned one, for example when the planned one is taken. */
+      prefix?: string;
+      /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
+      destination_ids?: string[];
+      /** Where the request came from.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp
+       * * `wizard` - wizard
+       * * `self_driving` - self_driving */
+      created_via?: ExternalDataSourceCreatedViaEnum;
+    }
+
+    export interface ApplyMigrationItemResponse {
+      /** The PostHog source created for the item. */
+      source_id: string;
+      /** Every difference from the Fivetran connection, including new ones. */
+      caveats: string[];
+    }
+
     export interface ApplyPathCleaningSuggestionResponse {
       /** Number of rules merged into the team's path_cleaning_filters. */
       applied: number;
@@ -53071,24 +53115,6 @@ export namespace Schemas {
       /** ID of the created external data source. */
       id: string;
     }
-
-    /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     * * `wizard` - wizard
-     * * `self_driving` - self_driving
-     */
-    export type ExternalDataSourceCreatedViaEnum = typeof ExternalDataSourceCreatedViaEnum[keyof typeof ExternalDataSourceCreatedViaEnum];
-
-
-    export const ExternalDataSourceCreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-      Wizard: 'wizard',
-      SelfDriving: 'self_driving',
-    } as const;
 
     /**
      * One row in `inventory.external_data_sources`.
@@ -132727,6 +132753,10 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.
+     */
+    migration_item_id?: string;
     /**
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
