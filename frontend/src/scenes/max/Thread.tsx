@@ -281,10 +281,8 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                     }
 
                     // Hide old failed attempts - only show the most recent error
-                    if (isErrorMessage(message)) {
-                        if (index < lastErrorIndex) {
-                            return null
-                        }
+                    if (isErrorMessage(message) && index < lastErrorIndex) {
+                        return null
                     }
 
                     // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
