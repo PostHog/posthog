@@ -52,12 +52,6 @@ async function sizeAudience(
     })
 }
 
-/**
- * Echo-back guard: the caller must have sized the audience with workflows-blast-radius and surfaced the
- * number to the user. We recompute it here and reject on drift or over-cap before any fan-out. The cap is
- * the per-team `limit` the blast-radius endpoint returns (HOGFLOW_BATCH_TRIGGER_LIMIT), which the batch
- * consumer also enforces — so the run is rejected here rather than silently truncated downstream.
- */
 // Evaluate with the same workspace groups tool discovery uses, so a flag that targets projects or
 // organizations agrees with whether workflows-reputation-get is listed.
 async function sendingTierRequestsEnabled(context: Context): Promise<boolean> {
@@ -69,6 +63,12 @@ async function sendingTierRequestsEnabled(context: Context): Promise<boolean> {
     )
 }
 
+/**
+ * Echo-back guard: the caller must have sized the audience with workflows-blast-radius and surfaced the
+ * number to the user. We recompute it here and reject on drift or over-cap before any fan-out. The cap is
+ * the per-team `limit` the blast-radius endpoint returns (HOGFLOW_BATCH_TRIGGER_LIMIT), which the batch
+ * consumer also enforces — so the run is rejected here rather than silently truncated downstream.
+ */
 async function assertAcknowledged(
     context: Context,
     affected: number,
