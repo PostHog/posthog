@@ -1063,6 +1063,7 @@ doesn't conflict with concurrent PRs.
 - aws_connect
 - aws_health
 - aws_rds_performance_insights
+- aws_s3_tables
 - aws_support
 - aws_trusted_advisor
 - aws_xray
@@ -1157,6 +1158,7 @@ doesn't conflict with concurrent PRs.
 - drchrono
 - dreamdata
 - dremio
+- dripify
 - dropbox
 - dubsado
 - ducklake

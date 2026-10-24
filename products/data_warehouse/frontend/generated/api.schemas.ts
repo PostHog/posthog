@@ -3809,6 +3809,8 @@ export interface CredentialApi {
  * * `CloudflareR2` - CloudflareR2
  * * `Particle` - Particle
  * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5221,6 +5223,8 @@ export const ExternalDataSourceTypeEnumApi = {
     CloudflareR2: 'CloudflareR2',
     Particle: 'Particle',
     FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
