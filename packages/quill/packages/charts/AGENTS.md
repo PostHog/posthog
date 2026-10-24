@@ -119,7 +119,7 @@ Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` 
 | [docs/legend.md](./src/docs/legend.md)             | Click model, controlled state, visibility groups, row rendering, layout caps                                                 |
 | [docs/overlays.md](./src/docs/overlays.md)         | Built-in overlays and writing a custom one                                                                                   |
 | [docs/interactions.md](./src/docs/interactions.md) | Clicks, drag-to-zoom, 2D brush, hover                                                                                        |
-| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Layers, conventions, adding a chart type                                                                                     |
+| [docs/CONTRIBUTING.md](./src/docs/CONTRIBUTING.md) | Read before changing the library: where code goes, render model, API conventions, custom chart API, adding a chart type      |
 | [docs/TESTING.md](./src/docs/TESTING.md)           | The accessor contract and test recipes                                                                                       |
 
 ## Maintenance
