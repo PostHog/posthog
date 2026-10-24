@@ -1,5 +1,7 @@
 from typing import Any, Optional, cast
+from urllib.parse import quote
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 
@@ -9,6 +11,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
@@ -60,6 +63,48 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+
+
+class DestinationConnectLinkQuerySerializer(serializers.Serializer):
+    destination_type = serializers.ChoiceField(
+        choices=ExternalDataDestination.Type.choices,
+        help_text="The destination type to connect, e.g. 'Snowflake' or 'S3'. The PostHog warehouse needs no connection.",
+    )
+    integration_kind = serializers.CharField(
+        required=False,
+        help_text=(
+            "Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' "
+            "(the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        destination_type = attrs["destination_type"]
+        if destination_type not in USER_CREATABLE_TYPES:
+            raise ValidationError(
+                {"destination_type": "The PostHog warehouse is managed for you, so it has nothing to connect."}
+            )
+        allowed_kinds = DESTINATION_INTEGRATION_KINDS[destination_type]
+        kind = attrs.get("integration_kind") or allowed_kinds[0]
+        if kind not in allowed_kinds:
+            expected = " or ".join(f"'{allowed}'" for allowed in allowed_kinds)
+            raise ValidationError(
+                {"integration_kind": f"A {destination_type} destination needs a {expected} integration."}
+            )
+        attrs["integration_kind"] = kind
+        return attrs
+
+
+class DestinationConnectLinkSerializer(serializers.Serializer):
+    destination_type = serializers.CharField(help_text="The destination type the link is for.")
+    integration_kind = serializers.CharField(help_text="The integration kind the page creates.")
+    connect_url = serializers.CharField(
+        help_text=(
+            "Full URL to share with the user. It opens the connection form for this integration kind in PostHog, "
+            "so credentials never pass through the agent or the chat."
+        )
+    )
+    instructions = serializers.CharField(help_text="Next steps for the agent to relay to the user.")
 
 
 class SyncedSourceSerializer(serializers.Serializer):
@@ -418,6 +463,17 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     # there is no single object to check specific access against here; require resource-level
     # access to `external_data_source` instead.
     requires_resource_level_access = True
+    # Token auth rejects any action missing from these lists.
+    scope_object_read_actions = ["list", "retrieve", "connect_link"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "add_sources",
+        "test_connection",
+    ]
     # `.unscoped()` is import-safe (the fail-closed manager raises on `.all()` without team
     # context); the mixin scopes every request by team_id.
     queryset = ExternalDataDestination.objects.unscoped().all()
@@ -492,6 +548,37 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             level = uac.get_user_access_level(schema.table or schema.source)
             if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
                 raise PermissionDenied("You do not have editor access to every table wired to this destination.")
+
+    @validated_request(
+        query_serializer=DestinationConnectLinkQuerySerializer,
+        responses={200: DestinationConnectLinkSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def connect_link(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Return a secure browser link where the user connects the credentials for a destination.
+
+        The page saves an integration and does not create the destination, so secrets never pass
+        through the agent. The agent then creates the destination with the new integration's id.
+        """
+        destination_type = request.validated_query_data["destination_type"]
+        kind = request.validated_query_data["integration_kind"]
+        data = {
+            "destination_type": destination_type,
+            "integration_kind": kind,
+            "connect_url": (
+                f"{settings.SITE_URL}/project/{self.team_id}/data-warehouse/connect-destination?kind={quote(kind)}"
+            ),
+            "instructions": (
+                f"Share this link with the user. They enter their {destination_type} credentials directly in "
+                "PostHog. Never ask them to paste passwords, keys or tokens into the chat. The page only saves the "
+                "connection as an integration and does not create the destination. Once the user confirms they are "
+                f"done, find the integration id with integrations-list (kind='{kind}', newest first) or use the id "
+                f"the page shows. Then call external-data-destinations-create with type='{destination_type}', a "
+                "name, that integration id, and the target config (database, schema, dataset, bucket or prefix). "
+                "Creating the destination tests the connection, so a wrong target fails at that step."
+            ),
+        }
+        return Response(DestinationConnectLinkSerializer(data).data)
 
     @extend_schema(request=AddSourcesRequestSerializer, responses={200: AddSourcesResponseSerializer})
     @action(methods=["POST"], detail=True)
