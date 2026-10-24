@@ -4,10 +4,10 @@ import re
 import json
 import uuid
 import builtins
-import contextvars
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
+from contextvars import Context, copy_context
 from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
@@ -512,7 +512,7 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
 
 
 def serialize_tile_in_request_context(
-    request_context: contextvars.Context, tile: DashboardTile, order: int, context: dict
+    request_context: Context, tile: DashboardTile, order: int, context: dict
 ) -> tuple[int, dict]:
     # A streamed response body runs after the middleware chain has returned, so the request's context variables,
     # the events table switch among them, reach a tile's queries only through a copy taken inside the view.
@@ -3268,7 +3268,7 @@ class DashboardsViewSet(
         # below runs no queries for them.
         team_configs_for_cache_key(self.team)
 
-        request_context = contextvars.copy_context()
+        request_context = copy_context()
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
