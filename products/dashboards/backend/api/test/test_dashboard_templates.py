@@ -20,7 +20,7 @@ from products.dashboards.backend.api.dashboard_templates import (
     MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
     organization_dashboard_template_limit_detail,
 )
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
@@ -1249,6 +1249,11 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
                     {"tiles": [{**variable_template["tiles"][0], "group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}]},
                     "tiles",
                 ),
+                (
+                    "long_legacy_group_title",
+                    {"customization": {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}},
+                    "customization",
+                ),
             ]
         ]
     )
@@ -1266,7 +1271,7 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert response.json()["attr"] == attr
+        assert response.json()["attr"].split("__")[0] == attr
 
     def test_non_staff_cannot_patch_global_or_feature_flag_template(self) -> None:
         global_tpl = DashboardTemplate.objects.filter(scope=DashboardTemplate.Scope.GLOBAL).first()

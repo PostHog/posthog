@@ -55,7 +55,7 @@ from products.dashboards.backend.api.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -3809,6 +3809,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None),
             ("too_many_groups", {}, {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}),
             ("long_group_key", {}, {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}),
+            ("long_legacy_group_title", {}, {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}),
         ]
     )
     def test_create_from_template_json_rejects_invalid_template(

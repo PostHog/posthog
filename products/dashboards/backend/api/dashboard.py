@@ -1366,7 +1366,7 @@ class DashboardCustomizationSerializer(serializers.Serializer):
         help_text=GROUPS_HELP_TEXT,
     )
     group_titles = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
         required=False,
         help_text=GROUP_TITLES_HELP_TEXT,
     )
@@ -4153,6 +4153,10 @@ class DashboardsViewSet(
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         template_body = request.data["template"]
+        if template_body.get("customization") is not None:
+            customization = DashboardCustomizationSerializer(data=template_body["customization"])
+            if not customization.is_valid():
+                raise serializers.ValidationError({"customization": customization.errors})
         validate_template_groups(template_body.get("customization"), template_body.get("tiles"))
         dashboard = Dashboard.objects.create(
             team_id=self.team_id,
