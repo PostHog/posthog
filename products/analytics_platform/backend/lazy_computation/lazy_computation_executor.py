@@ -17,6 +17,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
 from posthog.schema import HogQLQueryModifiers
@@ -38,6 +39,7 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -62,6 +64,12 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 # ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
 # waiting for something else, it expires and is deleted in clickhouse.
 EXPIRY_BUFFER_SECONDS = 48 * 60 * 60  # 48 hours
+
+# How long a ClickHouse row can survive past its job's expires_at plus EXPIRY_BUFFER_SECONDS. Date-typed tables
+# get one extra day (see `_get_ch_expires_at`), and the TTL drops whole daily parts only (`ttl_only_drop_parts=1`,
+# partitioned by the day of expires_at), which can take up to one more day. The retention cap subtracts this margin
+# so that the rows are gone before their window passes the events-retention floor.
+RETENTION_EXPIRY_MARGIN = timedelta(days=2)
 
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
@@ -227,6 +235,44 @@ def _get_insert_settings(
     if overrides:
         settings.update(overrides)
     return settings
+
+
+def retention_expires_at_cap(window_start: datetime, retention_months: int) -> datetime:
+    """Latest job expires_at for a window under events retention.
+
+    The ClickHouse rows of a job that expires at this cap are dropped by `window_start + retention_months`, which
+    is when the window starts to fall behind the HogQL retention floor. Calendar months match the printer's
+    `toIntervalMonth`.
+    """
+    return (
+        window_start
+        + relativedelta(months=retention_months)
+        - timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+        - RETENTION_EXPIRY_MARGIN
+    )
+
+
+def retention_build_floor(retention_months: int, now: datetime | None = None) -> datetime:
+    """First UTC day boundary whose windows can still be precomputed under events retention.
+
+    Windows from this floor on get a capped expires_at that is still in the future. Earlier windows are neither
+    built nor served from precompute, so readers must send ranges that start before the floor to the live query.
+    """
+    now = (now or django_timezone.now()).astimezone(UTC)
+    earliest = (
+        now
+        - relativedelta(months=retention_months)
+        + timedelta(seconds=EXPIRY_BUFFER_SECONDS)
+        + RETENTION_EXPIRY_MARGIN
+    )
+    floor = datetime(earliest.year, earliest.month, earliest.day, tzinfo=UTC)
+    if floor < earliest:
+        floor += timedelta(days=1)
+    # Month arithmetic clamps to the last day of short months, so subtracting and adding the same number of months
+    # does not always return to `now`. Step forward until a window at the floor gets an expiry in the future.
+    while retention_expires_at_cap(floor, retention_months) <= now:
+        floor += timedelta(days=1)
+    return floor
 
 
 def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
@@ -603,6 +649,13 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
 }
 
 
+# Tables built from data warehouse sources, not from events. Events retention does not apply to that data,
+# so the executor must not clip or cap these jobs at the events-retention floor.
+_EVENTS_RETENTION_EXEMPT_TABLES: frozenset[LazyComputationTable] = frozenset(
+    {LazyComputationTable.MARKETING_COSTS_PREAGGREGATED}
+)
+
+
 def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) -> datetime:
     """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
     assert job.expires_at is not None
@@ -899,9 +952,13 @@ def create_lazy_computation_job(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    expires_at_cap: datetime | None = None,
 ) -> PreaggregationJob | None:
     """Create a new PENDING job with expiry time, or return None when another
     PENDING row already holds the `unique_pending_job_per_range` slot.
+
+    `expires_at_cap` is a ceiling on the TTL expiry. It must apply here, before the
+    INSERT, because the ClickHouse rows take their expires_at from the job.
 
     Uses INSERT .. ON CONFLICT DO NOTHING (`ignore_conflicts`) so losing the
     race is a silent no-op rather than a logged Postgres error with a rolled-back
@@ -909,13 +966,16 @@ def create_lazy_computation_job(
     conflicts are suppressed: FK and check-constraint violations still raise
     IntegrityError to the caller.
     """
+    expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
+    if expires_at_cap is not None:
+        expires_at = min(expires_at, expires_at_cap)
     job = PreaggregationJob(
         team=team,
         query_hash=query_hash,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         status=PreaggregationJob.Status.PENDING,
-        expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
+        expires_at=expires_at,
     )
     # ignore_conflicts emits a bare ON CONFLICT DO NOTHING, which relies on the
     # partial unique index being the only realistic unique conflict on this
@@ -1085,6 +1145,10 @@ class LazyComputationExecutor:
       within the last N seconds — complete-but-stale data, returned immediately with
       `stale=True`. Must stay well under EXPIRY_BUFFER_SECONDS (48h) so the underlying
       ClickHouse rows are guaranteed to still exist.
+    - events_retention_months: The team's enforced events retention, or None. When set, the
+      executor neither builds nor requires windows before `retention_build_floor`, and caps
+      each new job's expires_at with `retention_expires_at_cap`, so no precomputed row
+      outlives the events it was built from.
     """
 
     def __init__(
@@ -1098,6 +1162,7 @@ class LazyComputationExecutor:
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
         stale_while_revalidate_seconds: float | None = None,
         run_inserts: bool = True,
+        events_retention_months: int | None = None,
     ) -> None:
         if stale_while_revalidate_seconds is not None and stale_while_revalidate_seconds >= EXPIRY_BUFFER_SECONDS:
             raise ValueError("stale_while_revalidate_seconds must be below EXPIRY_BUFFER_SECONDS")
@@ -1114,6 +1179,7 @@ class LazyComputationExecutor:
         # revalidate grace) or is told `ready=False` immediately so it can fall
         # back to a live query while something else computes in the background.
         self.run_inserts = run_inserts
+        self.events_retention_months = events_retention_months
 
     def execute(
         self,
@@ -1172,6 +1238,15 @@ class LazyComputationExecutor:
         end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
         historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
+        before_retention_floor = False
+        if self.events_retention_months is not None:
+            # Daily windows take the calendar date of `start` as given, so a non-UTC start would
+            # select a UTC window for its local date, which can sit before the floor.
+            start_utc = start.astimezone(UTC) if start.tzinfo is not None else start.replace(tzinfo=UTC)
+            start = max(start_utc, retention_build_floor(self.events_retention_months, now_utc))
+            end = end_utc
+            before_retention_floor = start >= end_utc
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome == "check_miss":
                 # Check-only misses return before any job is created or waited on,
@@ -1201,6 +1276,13 @@ class LazyComputationExecutor:
                 time_range_end=str(end),
                 time_range_days=(end - start).days,
             )
+
+        if before_retention_floor:
+            # The whole range is before the retention floor, so there is nothing to build or serve.
+            # An empty job list makes readers fall back to the live query.
+            result = LazyComputationResult(ready=True, job_ids=[])
+            _log_execution("before_retention_floor", result)
+            return result
 
         try:
             while True:
@@ -1307,6 +1389,11 @@ class LazyComputationExecutor:
                             build_range.start,
                             build_range.end,
                             self.ttl_schedule.get_ttl(build_range.start, jittered=True),
+                            expires_at_cap=(
+                                retention_expires_at_cap(build_range.start, self.events_retention_months)
+                                if self.events_retention_months is not None
+                                else None
+                            ),
                         )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
@@ -1882,6 +1969,9 @@ def ensure_precomputed(
         wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
+        events_retention_months=(
+            None if table in _EVENTS_RETENTION_EXEMPT_TABLES else events_retention_months_for_team(team, team.pk)
+        ),
     )
     result = executor.execute(
         team,

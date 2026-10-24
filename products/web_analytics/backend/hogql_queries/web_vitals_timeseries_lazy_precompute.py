@@ -32,7 +32,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     ceil_utc_day,
     floor_utc_day,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import handle_stale_served
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    range_reaches_retention_floor,
+)
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute as can_use_vitals_paths_lazy_precompute,
@@ -343,6 +346,11 @@ def execute_lazy_precomputed_vitals_timeseries(runner: "WebVitalsQueryRunner") -
         time_range_end = ceil_utc_day(cur_end_utc)
         if time_range_start >= time_range_end:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
+            return None
+        # Interval alignment can move the first bucket before `date_from`, so the shared gate
+        # on the inner runner does not cover this start.
+        if range_reaches_retention_floor(team, time_range_start):
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="retention_floor").inc()
             return None
 
         result = ensure_web_vitals_paths_precomputed(

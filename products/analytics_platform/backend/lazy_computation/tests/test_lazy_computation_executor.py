@@ -7,7 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -1289,6 +1289,48 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         )
         assert restored_result.ready is True
         assert restored_result.job_ids == [first_job_id]
+
+    @parameterized.expand(
+        [
+            ("not_enforced", False, (2, 23), (2, 27), [((2, 23), (2, 27), "band")]),
+            # Floor = ceil_day(Feb 20 12:00 + 48h + 2d) = Feb 25; its cap is Mar 25 - 4d = Mar 21.
+            ("clips_pre_floor_days_and_caps_expiry", True, (2, 23), (2, 27), [((2, 25), (2, 27), (3, 21))]),
+            ("recent_window_keeps_band_ttl", True, (3, 10), (3, 12), [((3, 10), (3, 12), "band")]),
+            ("whole_range_before_floor", True, (2, 1), (2, 20), []),
+        ]
+    )
+    def test_events_retention_bounds_job_ranges_and_expiry(
+        self,
+        _name: str,
+        enforced: bool,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        expected: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int] | str]],
+    ) -> None:
+        now = datetime(2026, 3, 20, 12, tzinfo=UTC)
+        band_ttl = 7 * 24 * 60 * 60
+        self.team.event_retention_months = 1
+        self.team.save()
+
+        def day(month_day: tuple[int, int]) -> datetime:
+            return datetime(2026, *month_day, tzinfo=UTC)
+
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced), time_machine.travel(now, tick=False):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=day(start),
+                time_range_end=day(end),
+                ttl_seconds=band_ttl,
+            )
+
+        assert result.ready is True
+        jobs = PreaggregationJob.objects.filter(id__in=result.job_ids).order_by("time_range_start")
+        assert [(j.time_range_start, j.time_range_end, j.expires_at) for j in jobs] == [
+            (day(s), day(e), day(x) if isinstance(x, tuple) else now + timedelta(seconds=band_ttl))
+            for s, e, x in expected
+        ]
+        assert PreaggregationJob.objects.filter(team=self.team).count() == len(expected)
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only

@@ -55,6 +55,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
+    ReachesRetentionFloor,
     UnsupportedFilterType,
     _oom_pin_key,
     _sticky_team_count_key,
@@ -212,6 +213,72 @@ class TestCheckCommonEligibility(BaseTest):
         prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=[prop])
+
+    @parameterized.expand(
+        [
+            # With 1-month retention at 2026-03-20 12:00 UTC, the build floor is 2026-02-25.
+            ("not_enforced", False, "2026-02-01", None, True),
+            ("current_period_reaches_floor", True, "2026-02-24", None, False),
+            ("compare_period_reaches_floor", True, "2026-03-10", "2026-02-24", False),
+            ("both_periods_after_floor", True, "2026-03-10", "2026-02-25", True),
+        ]
+    )
+    def test_range_reaching_the_retention_floor_goes_live(
+        self, _name: str, enforced: bool, date_from: str, compare_from: str | None, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+
+        def check() -> None:
+            check_common_eligibility(
+                team=self.team,
+                use_web_analytics_precompute=None,
+                conversion_goal=None,
+                sampling=None,
+                modifiers=None,
+                properties=[],
+                resolve_date_range=lambda: (
+                    datetime.fromisoformat(date_from).replace(tzinfo=UTC),
+                    datetime(2026, 3, 20, tzinfo=UTC),
+                ),
+                resolve_compare_date_from=lambda: (
+                    datetime.fromisoformat(compare_from).replace(tzinfo=UTC) if compare_from else None
+                ),
+            )
+
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=enforced
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            if eligible:
+                check()
+            else:
+                with self.assertRaises(ReachesRetentionFloor):
+                    check()
+
+    @parameterized.expand([("no_compare", False, True), ("compare_reaches_floor", True, False)])
+    def test_runner_gate_sends_a_floor_reaching_compare_period_live(
+        self, _name: str, compare: bool, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2026-03-01", date_to="2026-03-19"),
+                compareFilter=CompareFilter(compare=compare),
+                properties=[],
+            ),
+            team=self.team,
+        )
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=True
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is eligible
 
     @mock.patch(f"{_COMMON}.team_has_property_access_rules", return_value=True)
     def test_team_with_property_access_controls_falls_through_to_live(self, _mock) -> None:
