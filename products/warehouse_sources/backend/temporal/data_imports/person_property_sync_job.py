@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "The next sync will try again."
+INTERRUPTED_RUN_NEXT_STEP = "The next sync will continue from where this one stopped."
 # Three recorder attempts of up to 5 minutes each.
 RECORD_FAILED_RUN_RESERVE = timedelta(minutes=15)
 RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"
