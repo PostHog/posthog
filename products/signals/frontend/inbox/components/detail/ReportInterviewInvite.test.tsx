@@ -24,6 +24,7 @@ jest.mock('../../inboxAnalytics', () => ({
 
 describe('ReportInterviewInvite', () => {
     const user = userEvent.setup()
+    const bookingText = 'Book a 30-minute chat about Inbox'
 
     beforeEach(() => {
         localStorage.clear()
@@ -44,19 +45,20 @@ describe('ReportInterviewInvite', () => {
 
     it('shows a dismissible booking link only when the flag has a Cal.com URL', async () => {
         const { rerender } = render(<ReportInterviewInvite />)
-        expect(screen.queryByText('Tell us how you use these reports.')).not.toBeInTheDocument()
+        expect(screen.queryByText('Want some free PostHog merch?')).not.toBeInTheDocument()
 
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_INTERVIEW_INVITE], {
             [FEATURE_FLAGS.INBOX_INTERVIEW_INVITE]: true,
         })
         rerender(<ReportInterviewInvite />)
 
-        const link = await screen.findByRole('link', { name: 'Book a call' })
+        expect(await screen.findByText('Want some free PostHog merch?')).toBeInTheDocument()
+        const link = (await screen.findByText(bookingText)).closest('a')
         expect(link).toHaveAttribute('href', 'https://cal.com/example/interview')
         await waitFor(() => expect(captureInboxInterviewInvite).toHaveBeenCalledWith('shown'))
 
-        await user.click(screen.getByRole('button', { name: 'Dismiss interview invite' }))
-        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        await user.click(screen.getByLabelText('Dismiss interview invite'))
+        expect(screen.queryByText(bookingText)).not.toBeInTheDocument()
         expect(captureInboxInterviewInvite).toHaveBeenCalledWith('dismissed')
     })
 
@@ -68,7 +70,7 @@ describe('ReportInterviewInvite', () => {
 
         render(<ReportInterviewInvite />)
 
-        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        expect(screen.queryByText(bookingText)).not.toBeInTheDocument()
         expect(captureInboxInterviewInvite).not.toHaveBeenCalled()
     })
 
@@ -78,12 +80,12 @@ describe('ReportInterviewInvite', () => {
         })
 
         render(<ReportInterviewInvite />)
-        expect(await screen.findByRole('link', { name: 'Book a call' })).toBeInTheDocument()
+        expect(await screen.findByText(bookingText)).toBeInTheDocument()
         await waitFor(() => expect(captureInboxInterviewInvite).toHaveBeenCalledWith('shown'))
         cleanup()
 
         render(<ReportInterviewInvite />)
-        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        expect(screen.queryByText(bookingText)).not.toBeInTheDocument()
         expect(captureInboxInterviewInvite).toHaveBeenCalledTimes(1)
     })
 
@@ -93,10 +95,10 @@ describe('ReportInterviewInvite', () => {
         })
         render(<ReportInterviewInvite />)
 
-        await user.click(screen.getByRole('link', { name: 'Book a call' }))
+        await user.click(screen.getByText(bookingText))
 
         expect(captureInboxInterviewInvite).toHaveBeenCalledWith('clicked')
-        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        expect(screen.queryByText(bookingText)).not.toBeInTheDocument()
     })
 
     it.each([
@@ -109,7 +111,7 @@ describe('ReportInterviewInvite', () => {
 
         act(openDialog)
 
-        expect(await screen.findByRole('link', { name: 'Book a call' })).toBeInTheDocument()
+        expect(await screen.findByText(bookingText)).toBeInTheDocument()
         const dialog = screen.getByRole('dialog')
         await user.click(within(dialog).getByText('Cancel'))
         await waitFor(() => expect(dialog).not.toBeInTheDocument())
@@ -128,7 +130,7 @@ describe('ReportInterviewInvite', () => {
 
         act(openDialog)
 
-        expect(screen.queryByRole('link', { name: 'Book a call' })).not.toBeInTheDocument()
+        expect(screen.queryByText(bookingText)).not.toBeInTheDocument()
         const dialog = screen.getByRole('dialog')
         await user.click(within(dialog).getByText('Cancel'))
         await waitFor(() => expect(dialog).not.toBeInTheDocument())

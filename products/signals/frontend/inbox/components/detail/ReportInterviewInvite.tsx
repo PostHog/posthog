@@ -69,7 +69,7 @@ export function ReportInterviewInvite(): JSX.Element | null {
 
     return (
         <div className="flex max-w-96 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-tertiary">
-            <span>Tell us how you use these reports.</span>
+            <span>Want some free PostHog merch?</span>
             <LemonButton
                 type="tertiary"
                 size="xsmall"
@@ -81,7 +81,7 @@ export function ReportInterviewInvite(): JSX.Element | null {
                 }}
                 data-attr="inbox-interview-invite-book"
             >
-                Book a call
+                Book a 30-minute chat about Inbox
             </LemonButton>
             <LemonButton
                 type="tertiary"
