@@ -36,9 +36,11 @@ interface TemplateLook {
 
 const AI_COLOR: [string, string] = ['#7c3aed', '#a78bfa']
 const TICKET_COLOR: [string, string] = ['#0e7490', '#22d3ee']
+const SLACK_COLOR: [string, string] = ['#611f69', '#e8a6e0']
 
 const TEMPLATE_LOOKS: Record<string, TemplateLook> = {
-    'template-slack': { icon: <IconSlack />, color: ['#611f69', '#e8a6e0'] },
+    'template-slack': { icon: <IconSlack />, color: SLACK_COLOR },
+    'template-posthog-slack-dm-team-member': { icon: <IconSlack />, color: SLACK_COLOR },
     'template-posthog-create-task': { icon: <IconSparkles />, color: AI_COLOR },
     'template-posthog-run-scout': { icon: <IconSearch />, color: AI_COLOR },
     'template-posthog-send-ticket-message': { icon: <IconChat />, color: TICKET_COLOR },

@@ -86,6 +86,11 @@ describe('workflowStepCatalog', () => {
         ['a wait for a condition', { type: 'wait_until_condition', config: {} }, 'Wait until'],
         ['a Slack step', { type: 'function', config: { template_id: 'template-slack' } }, 'Slack'],
         [
+            'a Slack step that messages a team member',
+            { type: 'function', config: { template_id: 'template-posthog-slack-dm-team-member' } },
+            'Slack',
+        ],
+        [
             'a ticket reply',
             { type: 'function', config: { template_id: 'template-posthog-send-ticket-message' } },
             'Send message',

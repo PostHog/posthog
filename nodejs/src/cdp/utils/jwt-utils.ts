@@ -19,6 +19,8 @@ export enum PosthogJwtAudience {
     WORKFLOW_ADD_TO_STATIC_COHORT = 'posthog:workflows:add_to_static_cohort',
     // Must match PosthogJwtAudience.WORKFLOW_MESSAGE_OPT_OUT in posthog/jwt.py exactly.
     WORKFLOW_MESSAGE_OPT_OUT = 'posthog:workflows:message_opt_out',
+    // Must match PosthogJwtAudience.WORKFLOW_SLACK_DM_TEAM_MEMBER in posthog/jwt.py exactly.
+    WORKFLOW_SLACK_DM_TEAM_MEMBER = 'posthog:workflows:slack_dm_team_member',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.
     CONVERSATIONS_TICKETS = 'posthog:conversations:tickets',
     // Must match PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS in posthog/jwt.py exactly.

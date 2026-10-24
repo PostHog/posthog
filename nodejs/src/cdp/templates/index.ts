@@ -43,6 +43,7 @@ import { template as posthogAddToStaticCohortTemplate } from './_destinations/po
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
 import { template as posthogOptOutOfMessagesTemplate } from './_destinations/posthog_workflows/posthog-opt-out-of-messages.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
+import { template as posthogSlackDmTeamMemberTemplate } from './_destinations/posthog_workflows/posthog-slack-dm-team-member.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as retainTemplate } from './_destinations/retain/retain.template'
@@ -118,6 +119,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogClassifyTemplate,
     posthogAddToStaticCohortTemplate,
     posthogOptOutOfMessagesTemplate,
+    posthogSlackDmTeamMemberTemplate,
     posthogReplayVisionTemplate,
     posthogCreateAccountTemplate,
     posthogCreateCustomerTaskTemplate,
