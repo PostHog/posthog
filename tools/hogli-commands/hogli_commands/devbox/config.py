@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import json
+import fcntl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TypedDict
 
@@ -12,14 +16,21 @@ class DevboxConfig(TypedDict, total=False):
     git_email: str
     dotfiles_uri: str
     region: str
+    worktree_box_cleanup: str
 
 
-_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region")
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region", "worktree_box_cleanup")
+
+WORKTREE_BOX_CLEANUP_ACTIONS = ("stop", "delete")
 
 
 def get_config_path() -> Path:
     """Return the config path for persisted hogli devbox preferences."""
     return Path.home() / ".config" / "posthog" / "hogli_devbox.json"
+
+
+def get_worktree_boxes_path() -> Path:
+    return Path.home() / ".config" / "posthog" / "hogli_devbox_worktrees.json"
 
 
 def load_config() -> DevboxConfig:
@@ -117,3 +128,69 @@ def clear_region(config: DevboxConfig | None = None) -> DevboxConfig:
     config.pop("region", None)
     save_config(config)
     return config
+
+
+def save_worktree_box_cleanup(action: str) -> DevboxConfig:
+    config = load_config()
+    config["worktree_box_cleanup"] = action
+    save_config(config)
+    return config
+
+
+def clear_worktree_box_cleanup(config: DevboxConfig | None = None) -> DevboxConfig:
+    if config is None:
+        config = load_config()
+    config.pop("worktree_box_cleanup", None)
+    save_config(config)
+    return config
+
+
+def saved_worktree_box_cleanup() -> str | None:
+    action = load_config().get("worktree_box_cleanup")
+    return action if action in WORKTREE_BOX_CLEANUP_ACTIONS else None
+
+
+def load_worktree_boxes() -> dict[str, str]:
+    """Map each worktree path that `devbox:worktree` set up to the workspace it owns.
+
+    `worktrees:clean` acts only on boxes listed here, so a hand-made labeled box
+    that happens to share a name with a branch is never stopped or deleted.
+    """
+    try:
+        data = json.loads(get_worktree_boxes_path().read_text())
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {path: name for path, name in data.items() if isinstance(path, str) and isinstance(name, str) and name}
+
+
+@contextmanager
+def _locked_worktree_boxes() -> Iterator[None]:
+    path = get_worktree_boxes_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(f"{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _save_worktree_boxes(boxes: dict[str, str]) -> None:
+    path = get_worktree_boxes_path()
+    staging = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    staging.write_text(json.dumps(dict(sorted(boxes.items())), indent=2) + "\n")
+    staging.replace(path)
+
+
+def record_worktree_box(worktree_path: Path, workspace_name: str) -> None:
+    with _locked_worktree_boxes():
+        boxes = load_worktree_boxes()
+        boxes[str(worktree_path)] = workspace_name
+        _save_worktree_boxes(boxes)
+
+
+def forget_worktree_boxes(worktree_paths: list[Path]) -> None:
+    with _locked_worktree_boxes():
+        boxes = load_worktree_boxes()
+        remaining = {path: name for path, name in boxes.items() if path not in {str(p) for p in worktree_paths}}
+        if remaining != boxes:
+            _save_worktree_boxes(remaining)

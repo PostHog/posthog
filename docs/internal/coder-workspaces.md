@@ -63,6 +63,11 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
+**One devbox per git worktree** —
+Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
+
+`hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)

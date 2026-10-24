@@ -7,9 +7,14 @@ from pathlib import Path
 import pytest
 
 import click
+from hogli_commands import worktrees
+from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
+    WorktreeBox,
     _belongs_to_repo,
+    _boxes_of_removed_worktrees,
+    _clean_worktree_boxes,
     _collect_deps_items,
     _compute_git_state,
     _discover_root_worktrees,
@@ -17,9 +22,11 @@ from hogli_commands.worktrees import (
     _execute,
     _include_orphans,
     _is_under,
+    _match_worktree_boxes,
     _parse_cutoff,
     _reclaimed_bytes,
     _registered_worktrees,
+    _resolve_box_action,
     _resolve_orphan_policy,
     _worktree_roots,
 )
@@ -306,6 +313,115 @@ class TestOrphanPolicy:
         # --dry-run (preview) and --yes (non-interactive) can't prompt → include.
         monkeypatch.setattr("click.confirm", lambda *a, **k: pytest.fail("must not prompt"))
         assert _include_orphans("ask", [_make_worktree(tmp_path)], dry_run=dry_run, yes=yes) is True
+
+
+class TestResolveBoxAction:
+    @pytest.mark.parametrize(
+        ("flags", "saved", "mode", "expected"),
+        [
+            ((False, False, False), None, "full", None),
+            ((False, False, False), "delete", "full", "delete"),
+            ((True, False, False), "delete", "full", "stop"),
+            ((False, True, False), None, "full", "delete"),
+            ((False, False, True), "stop", "full", None),
+            ((False, False, False), "stop", "deps", None),
+        ],
+        ids=["default-off", "saved-config", "flag-beats-config", "delete-flag", "keep-beats-config", "deps-ignores"],
+    )
+    def test_flags_and_saved_config(self, monkeypatch, flags, saved, mode, expected) -> None:
+        monkeypatch.setattr(worktrees, "saved_worktree_box_cleanup", lambda: saved)
+        assert _resolve_box_action(*flags, mode) == expected
+
+    @pytest.mark.parametrize(
+        ("flags", "mode"),
+        [((True, True, False), "full"), ((True, False, False), "deps")],
+        ids=["two-flags", "deps-mode"],
+    )
+    def test_conflicting_flags_rejected(self, flags, mode) -> None:
+        with pytest.raises(click.UsageError):
+            _resolve_box_action(*flags, mode)
+
+
+class TestWorktreeBoxes:
+    @pytest.fixture
+    def registry_path(self, tmp_path, monkeypatch) -> Path:
+        path = tmp_path / "boxes.json"
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: path)
+        return path
+
+    def test_matches_only_registered_worktrees_by_resolved_path(self, tmp_path) -> None:
+        real = tmp_path / "real" / "feature"
+        real.mkdir(parents=True)
+        linked = tmp_path / "linked"
+        linked.symlink_to(tmp_path / "real")
+        unregistered = tmp_path / "other"
+        unregistered.mkdir()
+
+        registry = {str(real): "devbox-test-user-feature", str(tmp_path / "gone"): "devbox-test-user-gone"}
+
+        boxes = _match_worktree_boxes([_make_worktree(linked / "feature"), _make_worktree(unregistered)], registry)
+
+        assert boxes == [WorktreeBox(worktree_path=real.resolve(), workspace="devbox-test-user-feature")]
+        assert _boxes_of_removed_worktrees(registry) == [
+            WorktreeBox(worktree_path=tmp_path / "gone", workspace="devbox-test-user-gone")
+        ]
+
+    @pytest.mark.parametrize(
+        ("action", "status", "expected_calls"),
+        [
+            ("delete", "running", [("delete", "devbox-test-user-a")]),
+            ("stop", "running", [("stop", "devbox-test-user-a")]),
+            ("stop", "stopped", []),
+        ],
+        ids=["delete", "stop-running", "stop-already-stopped"],
+    )
+    def test_acts_on_existing_box_and_forgets_it(
+        self, tmp_path, monkeypatch, registry_path, action, status, expected_calls
+    ) -> None:
+        calls: list[tuple[str, str]] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(
+            worktrees, "fetch_user_workspaces", lambda: [{"name": "devbox-test-user-a", "status": status}]
+        )
+        monkeypatch.setattr(worktrees, "get_workspace_status", lambda ws: ws["status"])
+        monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
+        monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("stop", name)))
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", terminated.append)
+        devbox_config.record_worktree_box(tmp_path / "a", "devbox-test-user-a")
+        devbox_config.record_worktree_box(tmp_path / "b", "devbox-test-user-b")
+
+        _clean_worktree_boxes(
+            [
+                WorktreeBox(worktree_path=tmp_path / "a", workspace="devbox-test-user-a"),
+                WorktreeBox(worktree_path=tmp_path / "b", workspace="devbox-test-user-b"),
+            ],
+            action,
+        )
+
+        assert calls == expected_calls
+        assert terminated == [worktrees.mutagen.workspace_label_selector("devbox-test-user-a")]
+        assert devbox_config.load_worktree_boxes() == {}
+
+    @pytest.mark.parametrize(
+        "listed",
+        [[{"name": "devbox-test-user-a"}], None],
+        ids=["delete-fails", "listing-fails"],
+    )
+    def test_failed_box_action_keeps_registry_entry(self, tmp_path, monkeypatch, registry_path, listed) -> None:
+        def fail(name: str) -> None:
+            raise SystemExit(1)
+
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(worktrees, "fetch_user_workspaces", lambda: listed)
+        monkeypatch.setattr(worktrees, "delete_workspace", fail)
+        monkeypatch.setattr(worktrees, "extract_workspace_label", lambda name: "a")
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+        devbox_config.record_worktree_box(tmp_path / "a", "devbox-test-user-a")
+
+        _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", workspace="devbox-test-user-a")], "delete")
+
+        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): "devbox-test-user-a"}
 
 
 class TestReclaimedBytes:

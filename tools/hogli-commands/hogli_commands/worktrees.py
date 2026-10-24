@@ -37,6 +37,17 @@ from pathlib import Path
 import click
 from hogli.manifest import REPO_ROOT
 
+from .devbox import mutagen
+from .devbox.coder import (
+    delete_workspace,
+    ensure_runtime_ready,
+    extract_workspace_label,
+    fetch_user_workspaces,
+    get_workspace,
+    get_workspace_status,
+    stop_workspace,
+)
+from .devbox.config import forget_worktree_boxes, load_worktree_boxes, saved_worktree_box_cleanup
 from .doctor import _format_size
 
 
@@ -133,6 +144,12 @@ class Worktree:
         return self.dirty or self.unpushed > 0 or self.state_unknown
 
 
+@dataclass(frozen=True)
+class WorktreeBox:
+    worktree_path: Path
+    workspace: str
+
+
 @click.command(
     name="worktrees:clean",
     help="Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age",
@@ -178,6 +195,22 @@ class Worktree:
     "committed work is safe in branch refs). yes=include, no=skip, ask=prompt when any are found. "
     "Default: yes for --mode deps, ask for --mode full.",
 )
+@click.option(
+    "--stop-boxes",
+    is_flag=True,
+    help="In --mode full, also stop the devbox that `hogli devbox:worktree` set up for each removed worktree.",
+)
+@click.option(
+    "--delete-boxes",
+    is_flag=True,
+    help="In --mode full, also delete the devbox that `hogli devbox:worktree` set up for each removed worktree, "
+    "including its disk.",
+)
+@click.option(
+    "--keep-boxes",
+    is_flag=True,
+    help="Leave devboxes alone, overriding the action saved with `hogli devbox:worktree --on-clean`.",
+)
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
 def worktrees_clean(
@@ -187,6 +220,9 @@ def worktrees_clean(
     repo: str | None,
     include_dirty: bool,
     orphans: str | None,
+    stop_boxes: bool,
+    delete_boxes: bool,
+    keep_boxes: bool,
     dry_run: bool,
     yes: bool,
 ) -> None:
@@ -206,6 +242,9 @@ def worktrees_clean(
         )
 
     mode = mode.lower()
+    box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
+    if box_action:
+        _clean_boxes_of_removed_worktrees(load_worktree_boxes(), box_action, dry_run, yes)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
     repo_common = _git_common_dir(repo_root)
@@ -298,11 +337,20 @@ def worktrees_clean(
         "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
     )
 
+    boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if box_action else []
+    if boxes:
+        click.echo(f"\nWould {box_action} {len(boxes)} devbox(es) set up for these worktrees:")
+        for box in boxes:
+            click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+
     if dry_run:
         click.echo("[DRY-RUN] Nothing deleted.")
         return
 
-    if not yes and not click.confirm(f"\nProceed to {action} these {len(stale)} worktree(s)?", default=False):
+    box_prompt = f" and {box_action} {len(boxes)} devbox(es)" if boxes else ""
+    if not yes and not click.confirm(
+        f"\nProceed to {action} these {len(stale)} worktree(s){box_prompt}?", default=False
+    ):
         click.echo("Aborted.")
         return
 
@@ -314,6 +362,102 @@ def worktrees_clean(
     if failed:
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
+
+    removed_boxes = [box for box in boxes if not box.worktree_path.exists()]
+    if box_action and removed_boxes:
+        _clean_worktree_boxes(removed_boxes, box_action)
+
+
+def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:
+    if sum([stop_boxes, delete_boxes, keep_boxes]) > 1:
+        raise click.UsageError("Pass at most one of --stop-boxes, --delete-boxes, --keep-boxes.")
+    if (stop_boxes or delete_boxes) and mode != "full":
+        raise click.UsageError(
+            "--stop-boxes and --delete-boxes need --mode full, because --mode deps keeps the worktree."
+        )
+    if keep_boxes or mode != "full":
+        return None
+    if stop_boxes:
+        return "stop"
+    if delete_boxes:
+        return "delete"
+    return saved_worktree_box_cleanup()
+
+
+def _boxes_of_removed_worktrees(registry: dict[str, str]) -> list[WorktreeBox]:
+    return [
+        WorktreeBox(worktree_path=Path(path), workspace=workspace)
+        for path, workspace in registry.items()
+        if not Path(path).exists()
+    ]
+
+
+def _clean_boxes_of_removed_worktrees(registry: dict[str, str], box_action: str, dry_run: bool, yes: bool) -> None:
+    boxes = _boxes_of_removed_worktrees(registry)
+    if not boxes:
+        return
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.\n")
+        return
+    if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
+        _clean_worktree_boxes(boxes, box_action)
+    click.echo()
+
+
+def _match_worktree_boxes(worktrees: list[Worktree], registry: dict[str, str]) -> list[WorktreeBox]:
+    registry_by_path = {_resolve(Path(path)): workspace for path, workspace in registry.items()}
+    boxes: list[WorktreeBox] = []
+    for wt in worktrees:
+        resolved = _resolve(wt.path)
+        workspace = registry_by_path.get(resolved)
+        if workspace is not None:
+            boxes.append(WorktreeBox(worktree_path=resolved, workspace=workspace))
+    return boxes
+
+
+def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:
+    try:
+        ensure_runtime_ready()
+    except SystemExit:
+        names = " ".join(box.workspace for box in boxes)
+        click.echo(f"  ⚠️  could not reach Coder, so these devboxes were left as they are: {names}")
+        return
+
+    workspaces = fetch_user_workspaces()
+    if workspaces is None:
+        names = " ".join(box.workspace for box in boxes)
+        click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
+        return
+    handled: list[Path] = []
+    for box in boxes:
+        workspace = get_workspace(box.workspace, workspaces)
+        if workspace is None:
+            click.echo(f"  {box.workspace} no longer exists.")
+            handled.append(box.worktree_path)
+            continue
+        try:
+            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+        except SystemExit:
+            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+        try:
+            if box_action == "delete":
+                click.echo(f"Deleting devbox {box.workspace}...")
+                delete_workspace(box.workspace)
+            elif get_workspace_status(workspace) != "stopped":
+                click.echo(f"Stopping devbox {box.workspace}...")
+                stop_workspace(box.workspace)
+            else:
+                click.echo(f"  {box.workspace} is already stopped.")
+        except SystemExit:
+            command = "devbox:destroy" if box_action == "delete" else "devbox:stop"
+            label = extract_workspace_label(box.workspace) or ""
+            click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
+            continue
+        handled.append(box.worktree_path)
+    forget_worktree_boxes(handled)
 
 
 def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:

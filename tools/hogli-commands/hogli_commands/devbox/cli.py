@@ -95,6 +95,7 @@ from .config import (
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    clear_worktree_box_cleanup,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
@@ -347,9 +348,15 @@ def _render_sync_status(workspace_name: str) -> str:
 
 
 def _start_existing_workspace(
-    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+    name: str,
+    workspace: dict[str, Any],
+    *,
+    start_app: bool | None = None,
+    verbose: bool,
+    show_connection_info: bool = True,
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
+    print_connection_info = _print_connection_info if show_connection_info else lambda _name: None
     if start_app is not None:
         _fail(
             f"--start-app and --no-start-app only apply when a devbox is created. {_CHANGE_PARAMETER_HINT}",
@@ -359,7 +366,7 @@ def _start_existing_workspace(
     status = get_workspace_status(workspace)
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
-        _print_connection_info(name)
+        print_connection_info(name)
         return
 
     if status in PENDING_WORKSPACE_STATES:
@@ -376,14 +383,14 @@ def _start_existing_workspace(
             start_workspace(name, verbose=verbose)
         _wait_until_ready(name)
         click.echo("Started.")
-        _print_connection_info(name)
+        print_connection_info(name)
         return
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
     start_workspace(name, verbose=verbose)
     _wait_until_ready(name)
-    _print_connection_info(name)
+    print_connection_info(name)
 
 
 def _read_legacy_keychain_token() -> str | None:
@@ -1022,6 +1029,16 @@ def _reset_dotfiles() -> bool:
     return True
 
 
+def _reset_worktree_box_cleanup() -> bool:
+    config = load_config()
+    if not config.get("worktree_box_cleanup"):
+        click.echo("Nothing to clear: worktree box cleanup was not set.")
+        return False
+    clear_worktree_box_cleanup(config)
+    click.echo("Cleared worktree box cleanup. `hogli worktrees:clean` now leaves devboxes alone by default.")
+    return True
+
+
 def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     name = config.get("git_name")
     email = config.get("git_email")
@@ -1092,6 +1109,13 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+    ),
+    _ConfigItem(
+        cli_key="worktree-boxes",
+        label="Worktree box cleanup",
+        needs_secrets=False,
+        status=_field_status("worktree_box_cleanup"),
+        reset=_reset_worktree_box_cleanup,
     ),
 )
 
@@ -1467,6 +1491,28 @@ def devbox_start(
 ) -> None:
     """Start or create the remote devbox."""
     ensure_runtime_ready()
+    start_or_create_workspace(
+        workspace,
+        disk=disk,
+        template=template,
+        preset=preset,
+        region=region,
+        start_app=start_app,
+        verbose=verbose,
+    )
+
+
+def start_or_create_workspace(
+    workspace: str | None,
+    *,
+    disk: int | None = None,
+    template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
+    region: str | None = None,
+    start_app: bool | None = None,
+    verbose: bool = False,
+    show_connection_info: bool = True,
+) -> str:
     effective_region = region or _preferred_region()
     if workspace is None and region is not None:
         # An explicit --region targets that region's default directly, so it
@@ -1482,8 +1528,10 @@ def devbox_start(
     if ws is not None:
         if workspace is None and region is None:
             _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
-        return
+        _start_existing_workspace(
+            name, ws, start_app=start_app, verbose=verbose, show_connection_info=show_connection_info
+        )
+        return name
 
     config = load_config()
 
@@ -1502,7 +1550,9 @@ def devbox_start(
     )
     _wait_until_ready(name)
     click.echo("Created.")
-    _print_connection_info(name)
+    if show_connection_info:
+        _print_connection_info(name)
+    return name
 
 
 @click.command(
@@ -1823,7 +1873,7 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)

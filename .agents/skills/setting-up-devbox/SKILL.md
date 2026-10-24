@@ -1,6 +1,6 @@
 ---
 name: setting-up-devbox
-description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
+description: Starts, connects to, and troubleshoots a PostHog devbox, a remote Coder workspace for PostHog development that can also run the full stack, through `hogli devbox:*` commands. Use when asked to spin up or resume a devbox, open a shell or editor on it, run a command on it, mirror a local checkout to it (devbox:sync), hand a prompt to Claude Code on it in one step (devbox:agent), run the PostHog app on it and share a link, clone, update, share, or free disk on a devbox, store gh or Claude Code tokens for it, or diagnose a failing devbox command (tailnet, DNS, Coder CLI version, SSH). Not for running the stack on the local machine or for changing the Coder template in posthog-cloud-infra.
 ---
 
 # Setting up a PostHog devbox
@@ -90,6 +90,7 @@ Match what the user asked for:
 - **Commands from an agent:** `hogli devbox:exec`, described in [Run commands on the box](#run-commands-on-the-box).
 - **Edit locally, run on the box:** read [references/sync.md](references/sync.md) before using `hogli devbox:sync`.
 - **The running app:** follow [Run the PostHog app](#run-the-posthog-app).
+- **Hand a task to Claude Code on the box:** follow [Run an agent on the box](#run-an-agent-on-the-box).
 
 ### 5. Stop when done
 
@@ -104,6 +105,26 @@ Wrap the command in `bash -lc '...'`.
 A non-login shell doesn't reliably load the shell profile, so tools on a login-shell `PATH` such as `~/.local/bin` report "command not found".
 Put `--` between hogli's flags and the command's own.
 `devbox:exec` and `devbox:ssh` fail to connect until `devbox:setup` has written the SSH config.
+
+## Run an agent on the box
+
+`hogli devbox:agent "<prompt>"` runs steps 3 and 4 in one command, after `devbox:setup` has run once.
+It runs the reachability check, then starts or creates the box the way `devbox:start` does.
+From inside a PostHog checkout or worktree it then creates the `devbox:sync` mirror, or reuses an existing one, waits for the first sync, and reports conflicts.
+Then it stops the mirror, so the box becomes the source of truth and no live mirror fights the agent's edits.
+It launches Claude Code with the prompt in `~/posthog` on the box and returns.
+hogli adds instructions to the prompt that tell the agent to work on a new branch and to commit and push its work, because nothing syncs back.
+The agent runs in a tmux session, or under `nohup claude -p` with a log file when the box has no tmux.
+hogli prints the attach and stop commands, and the app URL when the template exposes one.
+
+- `--dry-run` prints the steps and touches nothing. Use it to confirm the target box before a first run.
+- `-n <label>` and `--region` pick the box as they do for `devbox:start`. `@user` targets are refused.
+- `--no-sync` skips the mirror, so the agent works on the box's own checkout.
+- `--live-sync` keeps the mirror running after the first sync. Edits the agent makes stay on the box, and each path it edits becomes a sync conflict that blocks later local edits to that path.
+- Stopping the mirror also ends a mirror you started earlier with `devbox:sync`. Run `hogli devbox:sync` again to restart it.
+- `--permission-mode` passes through to `claude`. Without it the agent waits at its first permission prompt until someone attaches.
+- The agent's work comes back through the branch it pushes. The mirror skips `.git`, so the box's git state stays on its own branch, and the agent's branch also carries your synced local changes.
+- A missing `CLAUDE_CODE_OAUTH_TOKEN` secret makes Claude Code ask for a login on attach. hogli warns when it is missing.
 
 ## Run the PostHog app
 
@@ -160,6 +181,25 @@ Coder runs the template's health check against the app, so read that status inst
 `hogli devbox:forward` is the alternative when the user wants `localhost`.
 It tunnels box port 8010 to `localhost:8010` and holds the terminal until stopped.
 Pass `--port 8011` when a local stack already uses 8010.
+
+## One devbox per worktree
+
+Use this when the user runs several local git worktrees and wants each one to run its stack on its own box.
+Run `hogli devbox:worktree` from inside the linked worktree, never through `devbox:exec`.
+
+```bash
+hogli devbox:worktree --dry-run                 # print the box and sync plan
+hogli devbox:worktree                           # start or create the box, then create the mirror
+hogli devbox:worktree --clone-from default -y   # create the box as a clone of a running box
+hogli devbox:worktree --on-clean stop           # save what worktrees:clean does with the box
+```
+
+- The label comes from the branch name, lowercased, with `/` and `_` turned into `-` and a leading `worktree-` dropped. Coder caps workspace names at 32 characters, so a long branch gets a shortened label with a 4-character hash. Pass `--label` to choose one.
+- hogli records the worktree path and box name in `~/.config/posthog/hogli_devbox_worktrees.json`. A re-run reuses that box, even after a branch rename, and keeps an existing mirror.
+- It refuses a derived label whose box already exists and is not recorded for this worktree, so it never takes over a box the user made by hand. Pass `--label <label>` to use that box on purpose.
+- `--clone-from` uses `devbox:clone`, so the source must be running and the clone asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `hogli worktrees:clean --mode full --stop-boxes` stops the recorded box of each worktree it removes, and `--delete-boxes` deletes it with its disk. With neither flag, it uses the action saved by `--on-clean`, and `--keep-boxes` overrides that. It acts only on boxes in the record file. `--dry-run` lists the boxes, and the confirmation prompt counts them.
+- Clear the saved action with `hogli devbox:config:rm worktree-boxes`.
 
 ## Other tasks
 
