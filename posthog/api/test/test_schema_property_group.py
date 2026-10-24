@@ -1,12 +1,14 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
 class TestSchemaPropertyGroupAPI(APIBaseTest):
-    def test_create_property_group_with_properties(self):
+    @parameterized.expand([("String",), ("Object",), ("Array",)])
+    def test_create_property_group_with_properties(self, property_type: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.project.id}/schema_property_groups/",
             {
@@ -15,7 +17,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
                 "properties": [
                     {
                         "name": "user_id",
-                        "property_type": "String",
+                        "property_type": property_type,
                         "is_required": True,
                         "description": "User ID",
                     },
@@ -38,6 +40,31 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert data["properties"][0]["is_required"] is False
         assert data["properties"][1]["name"] == "user_id"
         assert data["properties"][1]["is_required"] is True
+        assert data["properties"][1]["property_type"] == property_type
+
+    @parameterized.expand(
+        [
+            ("typescript", "any[]"),
+            ("python", "List[Any]"),
+            ("golang", "[]interface{}"),
+        ]
+    )
+    def test_array_property_generates_array_type(self, language: str, expected_type: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Basket",
+                "properties": [{"name": "items", "property_type": "Array", "is_required": True}],
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        event = EventDefinition.objects.create(team=self.team, project=self.project, name="basket_saved")
+        EventSchema.objects.create(event_definition=event, property_group_id=response.json()["id"])
+
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/{language}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert expected_type in response.json()["content"]
 
     def test_create_property_group_with_is_optional_in_types(self):
         response = self.client.post(
