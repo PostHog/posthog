@@ -13,7 +13,7 @@ from openai.lib._pydantic import to_strict_json_schema
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -67,6 +67,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     build_frozen_prompt,
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
+    unknown_placeholder_tokens,
 )
 from products.subscriptions.backend.temporal.types import safe_query_error_details
 
@@ -120,6 +121,17 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+def _reject_unknown_placeholders(hogql: str) -> None:
+    tokens = unknown_placeholder_tokens(hogql)
+    if tokens:
+        found = ", ".join(f"`{token}`" for token in tokens)
+        allowed = ", ".join(f"`{token}`" for token in WINDOW_PLACEHOLDERS[:-1]) + f" or `{WINDOW_PLACEHOLDERS[-1]}`"
+        raise QueryError(
+            f"The query uses {found}, which the report doesn't fill in. Use only {allowed} for the report window, "
+            "outside quotes. The report fills in the dates when it runs."
+        )
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
@@ -616,6 +628,7 @@ async def _run_steps(
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
             executable_hogql = window.render_window_filter(current_hogql)
             try:
+                _reject_unknown_placeholders(current_hogql)
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
                     executor.arun_format_and_capture(query),

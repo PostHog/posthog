@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -8,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
+
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
@@ -37,6 +40,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     generate_query_plan,
     get_ai_query_plan_status,
     sanitize_prompt,
+    unknown_placeholder_tokens,
     validate_stored_query_plan,
 )
 
@@ -46,6 +50,21 @@ _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 def _window(days: int = 7) -> ReportWindow:
     end = datetime.now(tz=UTC)
     return ReportWindow(start=end - timedelta(days=days), end=end)
+
+
+# Strict targets such as toDate and toDateTime64 raise on a string they can't parse, so ClickHouse
+# already rejects an invented placeholder there. Only the targets that return NULL hide it.
+_NULL_ON_FAILURE_DATE_ALIASES = sorted(
+    name
+    for name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items()
+    if meta.clickhouse_name.endswith(("OrNull", "OrZero"))
+    and re.search(r"Date|^toModifiedJulianDay", meta.clickhouse_name)
+)
+
+
+@pytest.mark.parametrize("alias", _NULL_ON_FAILURE_DATE_ALIASES)
+def test_unknown_placeholder_tokens_covers_every_null_on_failure_date_parser(alias: str) -> None:
+    assert unknown_placeholder_tokens(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == ["{{D-1}}"]
 
 
 class TestSanitizePrompt:

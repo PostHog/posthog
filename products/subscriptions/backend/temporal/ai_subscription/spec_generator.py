@@ -12,6 +12,12 @@ from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions import find_hogql_function
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
@@ -93,6 +99,17 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
+_NULL_ON_FAILURE_DATE_PARSERS = frozenset(
+    {
+        "parseDateTimeOrNull",
+        "parseDateTime64BestEffortOrNull",
+        "parseDateTime64BestEffortUSOrNull",
+        "toDateOrNull",
+        "toModifiedJulianDayOrNull",
+    }
+)
+_DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
+_BRACKETED_NAME = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 8
@@ -228,6 +245,39 @@ class ReportWindow:
             .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
             .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
         )
+
+
+class _PlaceholderTokenFinder(TraversingVisitor):
+    def __init__(self, hogql: str) -> None:
+        self.hogql = hogql
+        self.tokens: list[str] = []
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        if node.start is not None and node.end is not None:
+            self.tokens.append(self.hogql[node.start : node.end])
+
+    def visit_call(self, node: ast.Call) -> None:
+        literal = node.args[0] if node.args else None
+        function = find_hogql_function(node.name)
+        if (
+            function is not None
+            and function.clickhouse_name in _NULL_ON_FAILURE_DATE_PARSERS
+            and isinstance(literal, ast.Constant)
+            and isinstance(literal.value, str)
+        ):
+            self.tokens.extend(_DOUBLE_BRACE_TOKEN.findall(literal.value))
+            self.tokens.extend(_BRACKETED_NAME.findall(_DOUBLE_BRACE_TOKEN.sub("", literal.value)))
+        super().visit_call(node)
+
+
+def unknown_placeholder_tokens(hogql: str) -> list[str]:
+    try:
+        query = parse_select(hogql)
+    except BaseHogQLError:
+        return []
+    finder = _PlaceholderTokenFinder(hogql)
+    finder.visit(query)
+    return [token for token in dict.fromkeys(finder.tokens) if token not in WINDOW_PLACEHOLDERS]
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
