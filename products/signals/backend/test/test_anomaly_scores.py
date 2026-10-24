@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -11,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ChartDisplayType,
+    CompareFilter,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -26,6 +28,7 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
 from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
@@ -221,6 +224,19 @@ class TestScoreInsight(SimpleTestCase):
         assert named["web"] == single["web"]
         assert named["app"] != named["web"]
 
+    def test_previous_period_lines_are_not_scored_and_the_current_line_keeps_its_key(self) -> None:
+        pageview = EventsNode(event="$pageview")
+        line = self._keys(_insight([pageview]), [_result(0, "pageview")])
+        metric = self._keys(
+            _insight([pageview], trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC)),
+            [
+                {**_result(0, "pageview"), "compare_label": "current"},
+                {**_result(0, "pageview"), "compare_label": "previous"},
+            ],
+        )
+
+        assert metric == line
+
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
         limits: list[int] = []
@@ -240,6 +256,31 @@ class TestScoreInsight(SimpleTestCase):
         assert timedelta(seconds=waves * limits[0]) <= _INSIGHT_TIMEOUT - timedelta(minutes=1)
         if waves == 1:
             assert limits[0] == 150
+
+
+class TestMetricScoringQuery(BaseTest):
+    # The real runner reads team settings from the database when it builds its series.
+    @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
+    def test_metric_display_sends_one_query_per_series_without_the_previous_period(
+        self, _name: str, compare_filter: CompareFilter | None
+    ) -> None:
+        insight = _insight(
+            [EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            compareFilter=compare_filter,
+        )
+        runners: list[TrendsQueryRunner] = []
+
+        def run(runner: TrendsQueryRunner, **_kwargs: Any) -> MagicMock:
+            runners.append(runner)
+            return MagicMock(results=[])
+
+        with patch.object(TrendsQueryRunner, "run", autospec=True, side_effect=run):
+            score_insight(insight, self.team, now=datetime(2026, 1, 10, tzinfo=UTC))
+
+        assert len(runners[0].series) == 2
+        assert not (runners[0].query.compareFilter and runners[0].query.compareFilter.compare)
+        assert query_cost(insight, self.team) == len(runners[0].series)
 
 
 class TestFetchBuckets(SimpleTestCase):
