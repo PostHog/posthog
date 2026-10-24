@@ -29,7 +29,7 @@ experience in HTML/CSS/browser APIs inside it:
 - Mixing tiers is fine: a mostly static page can mount one interactive island, and a data board
   can hand a chart's `<canvas>` to imperative code while React owns the chrome.
 
-The import allowlist still applies (react, react-dom, @posthog/quill, recharts, lucide-react,
+The import allowlist still applies (react, react-dom, @posthog/quill, @posthog/quill-charts, lucide-react,
 dayjs) — browser globals (`document`, `CanvasRenderingContext2D`, `WebGLRenderingContext`,
 `requestAnimationFrame`, `IntersectionObserver`, Web Audio, etc.) need no import. Three.js and
 other npm graphics libraries are not yet loadable; write against raw WebGL or 2D canvas until the
