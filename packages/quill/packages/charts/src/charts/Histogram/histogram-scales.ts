@@ -1,3 +1,6 @@
+import { color as d3Color } from 'd3-color'
+
+import { BAR_HIGHLIGHT_DARKEN } from '../../core/canvas-renderer'
 import { resolveCssColor } from '../../core/color-utils'
 import { computeHistogramLayout } from '../../core/histogram-layout'
 import type { HistogramEdges, HistogramLayout, HistogramScaleType } from '../../core/histogram-layout'
@@ -7,14 +10,22 @@ interface HistogramChartPrivate {
     __histogram: HistogramLayout
     /** Canvas-ready series colors by series index, resolved once per layout rather than per frame. */
     __histogramColors: string[]
+    /** The same colors darkened for the hovered column, so a hover frame allocates nothing. */
+    __histogramHoverColors: string[]
 }
 
 export function readHistogramLayout(scales: ChartScales): HistogramLayout | undefined {
     return (scales._private as HistogramChartPrivate | undefined)?.__histogram
 }
 
+const NO_COLORS: string[] = []
+
 export function readHistogramColors(scales: ChartScales): string[] {
-    return (scales._private as HistogramChartPrivate | undefined)?.__histogramColors ?? []
+    return (scales._private as HistogramChartPrivate | undefined)?.__histogramColors ?? NO_COLORS
+}
+
+export function readHistogramHoverColors(scales: ChartScales): string[] {
+    return (scales._private as HistogramChartPrivate | undefined)?.__histogramHoverColors ?? NO_COLORS
 }
 
 export interface HistogramScalesInput {
@@ -33,8 +44,9 @@ export function createHistogramScales({ series, ...input }: HistogramScalesInput
     const layout = computeHistogramLayout({
         ...input,
         series: series.map((s) => ({ data: s.data, excluded: s.visibility?.excluded })),
-        pixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+        pixelRatio: input.dimensions.pixelRatio ?? 1,
     })
+    const colors = series.map((s) => resolveCssColor(s.color))
     const columnAt = (label: string): HistogramLayout['bins'][number] | undefined =>
         layout.bins[layout.columnOf[Number(label)] ?? -1]
     return {
@@ -50,7 +62,10 @@ export function createHistogramScales({ series, ...input }: HistogramScalesInput
         yTicks: () => layout.yTicks,
         _private: {
             __histogram: layout,
-            __histogramColors: series.map((s) => resolveCssColor(s.color)),
+            __histogramColors: colors,
+            __histogramHoverColors: colors.map(
+                (color) => d3Color(color)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? color
+            ),
         } satisfies HistogramChartPrivate,
     }
 }

@@ -90,6 +90,7 @@ export type {
 export { HistogramTooltip } from './charts/Histogram/HistogramTooltip'
 export type { HistogramTooltipProps } from './charts/Histogram/HistogramTooltip'
 export { estimateHistogramPercentile } from './core/histogram-layout'
+export type { HistogramEdges } from './core/histogram-layout'
 
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'
