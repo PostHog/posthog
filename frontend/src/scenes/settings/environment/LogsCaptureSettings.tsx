@@ -110,10 +110,12 @@ export function LogsPiiScrubSettings(): JSX.Element {
                 />
             </AccessControlAction>
             <p className="text-secondary text-sm max-w-200 mt-2">
-                When enabled, we scrub common sensitive patterns from the log message body before storage: email
-                addresses, Bearer-style authorization tokens, and Stripe secret key shapes. This is best-effort: values
-                that do not match these patterns, or bank card numbers, may still appear. Redaction is permanent and
-                one-way. Redacted values are replaced with {'{{REDACTED}}'}.
+                When enabled, we scrub common sensitive patterns from the log message body and from attribute values
+                before storage: email addresses, Bearer tokens, JSON web tokens, Stripe secret keys, GitHub tokens,
+                Slack tokens, and AWS access key IDs. Matching uses the shape of the value, not the attribute name, and
+                resource attributes are not scrubbed. This is best-effort: values that do not match these patterns, or
+                bank card numbers, may still appear. Redaction is permanent and one-way. Redacted values are replaced
+                with {'{{REDACTED}}'}.
             </p>
         </>
     )
