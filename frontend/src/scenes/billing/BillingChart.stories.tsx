@@ -8,6 +8,7 @@ const DATES = Array.from({ length: 30 }, (_, i) => dayjs.utc('2024-02-15').add(i
 
 const seriesFrom = (id: number, label: string, base: number, amplitude: number): BillingSeriesType => ({
     id,
+    key: label,
     label,
     dates: DATES,
     // Deterministic wave so the story stays screenshot-stable.
