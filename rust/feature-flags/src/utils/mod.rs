@@ -7,6 +7,7 @@ pub mod json_size;
 pub mod mock;
 pub mod python_truthiness;
 pub mod test_utils;
+pub mod trace_context_format;
 pub mod user_agent;
 
 #[cfg(test)]
