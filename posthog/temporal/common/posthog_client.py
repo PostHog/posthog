@@ -1,6 +1,9 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+from django.db import ProgrammingError
+
+import psycopg
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -58,10 +61,40 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
 )
 
 
+# psycopg refuses to change autocommit while a cancelled COMMIT leaves the connection ACTIVE.
+_AUTOCOMMIT_RESTORE_MARKER = "can't change 'autocommit' now"
+_MAX_CHAIN_DEPTH = 10
+
+
+def _is_cancelled_autocommit_restore(error: BaseException) -> bool:
+    """Whether `error` is the autocommit restore failure that a cancellation during COMMIT leaves behind.
+
+    `transaction.atomic` restores autocommit on exit. When Temporal cancels the activity during the
+    COMMIT, the restore raises a ProgrammingError, and the cancellation survives only in the chain.
+    Only this error follows `__context__`, so other failures raised in `except` blocks stay reportable.
+    """
+    if not (
+        isinstance(error, ProgrammingError | psycopg.ProgrammingError) and _AUTOCOMMIT_RESTORE_MARKER in str(error)
+    ):
+        return False
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    while pending and len(seen) < _MAX_CHAIN_DEPTH:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if temporalio.exceptions.is_cancelled_exception(current):
+            return True
+        pending.extend(e for e in (current.__cause__, current.__context__) if e is not None)
+    return False
+
+
 def is_expected_activity_failure(error: BaseException) -> bool:
     """Whether an activity failure is expected rather than a defect, so it must not reach error tracking.
 
-    Cancellations (worker drain, activity timeout, workflow cancellation), a cooperative worker
+    Cancellations (worker drain, activity timeout, workflow cancellation), also when one lands during
+    a COMMIT and the autocommit restore hides it, a cooperative worker
     shutdown (raised mid-activity during a deploy, always retried on a fresh worker), our own
     egress-budget backpressure (a deliberate "defer and retry later" signal that our rate limiter
     already records via record_outbound_decision), errors explicitly marked non-reportable
@@ -75,6 +108,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     """
     return (
         temporalio.exceptions.is_cancelled_exception(error)
+        or _is_cancelled_autocommit_restore(error)
         or isinstance(error, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
         or (
             isinstance(error, temporalio.exceptions.ApplicationError)
