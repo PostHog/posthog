@@ -264,15 +264,22 @@ def _never_connected(err: requests.ConnectionError) -> bool:
     return isinstance(reason, urllib3.exceptions.NewConnectionError)
 
 
-def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str | None:
-    """The message template to send this email with through Workflows, or None to send it through Customer.io."""
-    template_id = WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
+def get_workflows_template_id(
+    template_name: str, dest: dict[str, str], pinned_template_id: str | None = None
+) -> str | None:
+    """The message template to send this email with through Workflows, or None to send it through Customer.io.
+
+    A pinned template skips only the flag. The settings checks still apply, because they turn Workflows off.
+    """
+    template_id = pinned_template_id or WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
     if not template_id or not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
         return None
     if not settings.POSTHOG_HOST.startswith("https://") and not settings.DEBUG:
         # The request carries the secret key and the email's contents, such as a password reset link.
         logger.warning("email_workflows_insecure_host", template_name=template_name)
         return None
+    if pinned_template_id:
+        return pinned_template_id
     try:
         enabled = posthoganalytics.feature_enabled(
             WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG,
@@ -450,7 +457,7 @@ def _send_one(
     # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
     # change or a different error on the retry would send the same email again through Customer.io.
     pinned_template_id = _pinned_workflows_template_id(idempotency_key)
-    workflows_template_id = pinned_template_id or get_workflows_template_id(template_name, dest)
+    workflows_template_id = get_workflows_template_id(template_name, dest, pinned_template_id)
     if workflows_template_id:
         try:
             return "workflows", _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)

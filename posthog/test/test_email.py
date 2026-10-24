@@ -569,10 +569,17 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_turned_off", False, MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))),
+            (
+                "flag_turned_off",
+                False,
+                "phs_test",
+                MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"})),
+                ["workflows", "workflows"],
+            ),
             (
                 "workflows_unreachable",
                 True,
+                "phs_test",
                 requests.ConnectionError(
                     urllib3.exceptions.MaxRetryError(
                         urllib3.HTTPConnectionPool("us.posthog.com"),
@@ -580,17 +587,28 @@ class TestEmail(BaseTest):
                         urllib3.exceptions.NewConnectionError(None, "refused"),
                     )
                 ),
+                ["workflows", "workflows"],
+            ),
+            # Removing the key turns Workflows off, so a pinned retry must not post the email without it.
+            (
+                "api_key_removed",
+                True,
+                "",
+                MagicMock(status_code=200, json=MagicMock(return_value={"delivery_id": "d1"})),
+                ["workflows", "customer_io"],
             ),
         ]
     )
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.posthoganalytics.feature_enabled")
     @patch("posthog.email.requests.post")
-    def test_retry_after_an_uncertain_workflows_send_never_uses_customer_io(
+    def test_retry_after_an_uncertain_workflows_send_stays_on_workflows_while_it_is_configured(
         self,
         _name: str,
         flag_on_retry: bool,
+        api_key_on_retry: str,
         retry_response: MagicMock | Exception,
+        expected_providers: list[str],
         mock_post: MagicMock,
         mock_feature_enabled: MagicMock,
         _mock_capture: MagicMock,
@@ -613,16 +631,18 @@ class TestEmail(BaseTest):
             message.add_recipient("test@posthog.com")
             with self.assertRaises(WorkflowsEmailError):
                 message.send(send_async=False, retry=False)
-            try:
-                message.send(send_async=False, retry=False)
-            except WorkflowsEmailError:
-                pass
+            with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=api_key_on_retry):
+                try:
+                    message.send(send_async=False, retry=False)
+                except WorkflowsEmailError:
+                    pass
 
         # The first attempt may have queued the email, so Customer.io sending the retry would deliver it twice.
-        self.assertEqual(
-            [call.args[0] for call in mock_post.call_args_list],
-            ["https://us.posthog.com/api/projects/@current/messaging_templates/tmpl-1/send/"] * 2,
-        )
+        providers = [
+            "workflows" if call.args[0].startswith("https://us.posthog.com") else "customer_io"
+            for call in mock_post.call_args_list
+        ]
+        self.assertEqual(providers, expected_providers)
 
     @patch.object(_send_email, "apply_async")
     @patch("posthog.email.ph_scoped_capture")
