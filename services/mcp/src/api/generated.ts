@@ -75975,6 +75975,28 @@ export namespace Schemas {
       results: PlatformAlertConfiguration[];
     }
 
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+    }
+
+    export interface PaginatedPlaygroundChatListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PlaygroundChatList[];
+    }
+
     /**
      * * `SYSTEM` - SYSTEM
      * * `PLUGIN` - PLUGIN
@@ -92753,19 +92775,6 @@ export namespace Schemas {
       has_open_turn: boolean;
       /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
       turns: PlaygroundTurn[];
-    }
-
-    export interface PlaygroundChatList {
-      /** Playground chat id. */
-      id: string;
-      /** First question, truncated. Empty until someone asks. */
-      title: string;
-      /** When this chat was created. */
-      created_at: string;
-      /** When this chat was last asked in. */
-      updated_at: string;
-      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
-      has_open_turn: boolean;
     }
 
     /**
@@ -126798,6 +126807,17 @@ export namespace Schemas {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
+    };
+
+    export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BusinessKnowledgeRepositoriesFileRetrieveParams = {

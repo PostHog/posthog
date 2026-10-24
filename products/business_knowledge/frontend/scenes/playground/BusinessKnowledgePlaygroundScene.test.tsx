@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -49,6 +49,10 @@ const playgroundValues = {
     chatId: 'chat-1',
     chatSearch: '',
     chatsLoading: false,
+    chatsError: null,
+    nextChatsOffset: null,
+    loadingMoreChats: false,
+    moreChatsError: null,
     chats: [listedChat],
     chatGroups: [{ label: 'Today', chats: [listedChat] }],
     deletingChatId: null,
@@ -94,6 +98,7 @@ describe('BusinessKnowledgePlaygroundScene', () => {
             newChat: jest.fn(),
             deleteChat: jest.fn(),
             setChatSearch: jest.fn(),
+            loadMoreChats: jest.fn(),
         })
     })
 
@@ -122,5 +127,50 @@ describe('BusinessKnowledgePlaygroundScene', () => {
         expect(document.querySelector('[data-slot="composer-root"]')).toBeInTheDocument()
         expect(document.querySelector('[data-slot="composer-frame"]')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="business-knowledge-playground-ask"]')).toBeInTheDocument()
+    })
+
+    it('lets people load older chats when another page exists', () => {
+        const loadMoreChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({ ...playgroundValues, nextChatsOffset: 1 })
+        jest.mocked(useActions).mockReturnValue({ loadMoreChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        fireEvent.click(screen.getByText('Load more chats'))
+        expect(
+            document.querySelector('[data-attr="business-knowledge-playground-load-more-chats"]')
+        ).toBeInTheDocument()
+        expect(loadMoreChats).toHaveBeenCalledTimes(1)
+    })
+
+    it('offers a retry when the first chat list request fails', () => {
+        const loadChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({
+            ...playgroundValues,
+            chats: [],
+            chatGroups: [],
+            chatsError: "Couldn't load chats. Try again.",
+        })
+        jest.mocked(useActions).mockReturnValue({ loadChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load chats. Try again.")
+        expect(screen.queryByText('No chats yet')).not.toBeInTheDocument()
+        fireEvent.click(screen.getByText('Retry'))
+        expect(loadChats).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a non-blocking retry when a populated chat list fails to refresh', () => {
+        const loadChats = jest.fn()
+        jest.mocked(useValues).mockReturnValue({
+            ...playgroundValues,
+            chatsError: "Couldn't load chats. Try again.",
+        })
+        jest.mocked(useActions).mockReturnValue({ loadChats })
+        render(<BusinessKnowledgePlaygroundScene />)
+
+        expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load chats. Try again.")
+        expect(document.querySelector('[data-attr="business-knowledge-playground-open-chat"]')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Retry'))
+        expect(loadChats).toHaveBeenCalledTimes(1)
     })
 })
