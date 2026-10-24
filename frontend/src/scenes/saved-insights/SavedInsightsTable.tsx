@@ -9,6 +9,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -18,6 +19,7 @@ import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './InsightIcon'
+import { SavedInsightListItem } from './savedInsightsLogic'
 
 interface SavedInsightsTableProps {
     isSelected?: (insight: InsightModel) => boolean
@@ -43,11 +45,12 @@ export function SavedInsightsTable({
         insightsPerPage,
         hasFilteredUI,
         hasLoadedInsights,
+        searchMatchCounts,
     } = useValues(addSavedInsightsModalLogic)
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const columns: LemonTableColumns<InsightModel> = [
+    const columns: LemonTableColumns<SavedInsightListItem> = [
         {
             key: 'id',
             width: 32,
@@ -64,10 +67,19 @@ export function SavedInsightsTable({
                 const displayName = name || summarizeInsight(insight.query)
                 return (
                     <div className="flex flex-col gap-1 min-w-0 max-w-[300px] overflow-hidden">
-                        <div className="flex min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-1 min-w-0 overflow-hidden">
                             <Tooltip title={displayName}>
                                 <span className="block truncate max-w-full">{name || <i>{displayName}</i>}</span>
                             </Tooltip>
+                            {insight.search_match_type === 'similar' && (
+                                <span className="ml-auto shrink-0">
+                                    <Tooltip title="Not an exact match for your search, but a close one">
+                                        <LemonTag type="muted" size="small">
+                                            similar
+                                        </LemonTag>
+                                    </Tooltip>
+                                </span>
+                            )}
                         </div>
                         {insight.description && (
                             <Tooltip title={insight.description}>
@@ -80,14 +92,14 @@ export function SavedInsightsTable({
         },
         {
             title: 'Tags',
-            dataIndex: 'tags' as keyof InsightModel,
+            dataIndex: 'tags' as keyof SavedInsightListItem,
             key: 'tags',
             width: 0,
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={tags} staticOnly />
             },
         },
-        createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
+        createdByColumn() as LemonTableColumn<SavedInsightListItem, keyof SavedInsightListItem | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -104,7 +116,7 @@ export function SavedInsightsTable({
                   {
                       key: 'status',
                       width: 32,
-                      render: function renderStatus(_: unknown, insight: InsightModel) {
+                      render: function renderStatus(_: unknown, insight: SavedInsightListItem) {
                           return isSelected(insight) ? (
                               <div className="group/status relative flex items-center justify-center">
                                   <IconCheck className="text-success text-xl transition-opacity duration-150 group-hover/status:opacity-0" />
@@ -124,6 +136,9 @@ export function SavedInsightsTable({
         (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
         (filters.tags?.length ?? 0) > 0
     const hasFilters = !!filters.search || hasNonSearchFilters
+    // The API returns similar matches only when no insight matches the search exactly.
+    const showsOnlySimilarMatches =
+        !!filters.search && !insightsLoading && searchMatchCounts.exact === 0 && searchMatchCounts.similar > 0
 
     return (
         <div className="saved-insights">
@@ -151,6 +166,11 @@ export function SavedInsightsTable({
                 </>
             ) : (
                 <div className="overflow-x-hidden">
+                    {showsOnlySimilarMatches && (
+                        <p className="text-secondary text-sm mb-2">
+                            No insights match "{filters.search}" exactly. These are the closest matches.
+                        </p>
+                    )}
                     <LemonTable
                         dataSource={filterFn ? insights.results.filter(filterFn) : insights.results}
                         columns={columns}

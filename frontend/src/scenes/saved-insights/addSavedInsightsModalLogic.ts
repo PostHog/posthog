@@ -22,7 +22,7 @@ import type { InsightModel } from '~/types'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
 import type { UserType } from '../../types'
-import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
+import { SavedInsightFilters, SavedInsightListItem, cleanFilters } from './savedInsightsLogic'
 
 interface InsightListParams {
     order: string
@@ -40,6 +40,11 @@ interface InsightListParams {
 }
 
 export const INSIGHTS_PER_PAGE = 15
+
+export interface SearchMatchCounts {
+    exact: number
+    similar: number
+}
 
 /**
  * Tell the user a membership update failed, and rethrow only what is worth filing. The listener has
@@ -77,12 +82,13 @@ export interface addSavedInsightsModalLogicValues {
     hasSmartDefaults: boolean
     insights: {
         count: number
-        results: InsightModel<Node<Record<string, any>>>[]
+        results: SavedInsightListItem[]
     }
     insightsLoading: boolean
     insightsPerPage: number
     modalPage: number
     rawModalFilters: Partial<SavedInsightFilters> | null
+    searchMatchCounts: SearchMatchCounts
     sorting: Sorting | null
     userInsights: {
         count: number
@@ -115,7 +121,7 @@ export interface addSavedInsightsModalLogicActions {
     loadInsightsSuccess: (
         insights: {
             count: number
-            results: InsightModel<Node<Record<string, any>>>[]
+            results: SavedInsightListItem[]
         },
         payload?: {
             value: true
@@ -123,7 +129,7 @@ export interface addSavedInsightsModalLogicActions {
     ) => {
         insights: {
             count: number
-            results: InsightModel<Node<Record<string, any>>>[]
+            results: SavedInsightListItem[]
         }
         payload?: {
             value: true
@@ -183,7 +189,8 @@ export interface addSavedInsightsModalLogicMeta {
         filters: (rawModalFilters: Partial<SavedInsightFilters> | null) => SavedInsightFilters
         hasFilteredUI: (featureFlags: FeatureFlagsSet) => boolean
         hasSmartDefaults: (featureFlags: FeatureFlagsSet) => boolean
-        count: (insights: { count: number; results: InsightModel<Node<Record<string, any>>>[] }) => number
+        count: (insights: { count: number; results: SavedInsightListItem[] }) => number
+        searchMatchCounts: (insights: { count: number; results: SavedInsightListItem[] }) => SearchMatchCounts
         sorting: (filters: SavedInsightFilters) => Sorting | null
         modalPage: (filters: SavedInsightFilters) => number
     }
@@ -222,7 +229,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     }),
     loaders(({ values }) => ({
         insights: {
-            __default: { results: [] as InsightModel[], count: 0 },
+            __default: { results: [] as SavedInsightListItem[], count: 0 },
             loadInsights: async (_, breakpoint) => {
                 await breakpoint(300)
 
@@ -338,12 +345,13 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS] === 'smart-filtered',
         ],
         insightsPerPage: [() => [], (): number => INSIGHTS_PER_PAGE],
-        count: [
+        count: [(s) => [s.insights], (insights: { count: number; results: SavedInsightListItem[] }) => insights.count],
+        searchMatchCounts: [
             (s) => [s.insights],
-            (insights: {
-                count: number
-                results: InsightModel<import('../../queries/schema').Node<Record<string, any>>>[]
-            }) => insights.count,
+            (insights: { count: number; results: SavedInsightListItem[] }): SearchMatchCounts => ({
+                exact: insights.results.filter((insight) => insight.search_match_type === 'exact').length,
+                similar: insights.results.filter((insight) => insight.search_match_type === 'similar').length,
+            }),
         ],
         sorting: [
             (s) => [s.filters],
@@ -370,8 +378,12 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
             if (newFilters.search !== undefined && newFilters.search !== oldFilters.search) {
                 await breakpoint(1000)
+                // The counts are null when the results for this term are still loading.
+                const searchMatchCounts = values.insightsLoading ? null : values.searchMatchCounts
                 posthog.capture('insight dashboard modal searched', {
                     search_term: newFilters.search,
+                    exact_match_count: searchMatchCounts?.exact ?? null,
+                    similar_match_count: searchMatchCounts?.similar ?? null,
                 })
             }
         },
