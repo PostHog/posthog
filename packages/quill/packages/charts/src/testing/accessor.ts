@@ -61,6 +61,13 @@ interface LegendItemSummary {
     secondaryLabel: string | null
 }
 
+interface GaugeSummary {
+    value: string
+    label: string | null
+    min: string | null
+    max: string | null
+}
+
 export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
@@ -103,6 +110,9 @@ export interface HogChart<Meta = unknown> {
     sankeyNodeLabels(): string[]
     /** Column headers rendered by a Sankey chart, left to right. */
     sankeyColumnLabels(): string[]
+    /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+     *  hidden, for example when the min and max labels would overlap. */
+    gauge(): GaugeSummary | null
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -260,6 +270,12 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
+        gauge: () => {
+            const text = (attr: string): string | null =>
+                wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${attr}"]`)?.textContent ?? null
+            const value = text('value')
+            return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+        },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
