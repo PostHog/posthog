@@ -339,7 +339,15 @@ If no saved recipient qualifies, the PR remains unassigned.
 The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
 The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
 
-The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
+A transient GitHub failure during first assignment, or a first write whose outcome is unknown, retries up to five times.
+The normal delays are 1, 2, 4, 8, and 15 minutes. A longer GitHub rate-limit delay takes precedence.
+Every attempt rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls.
+An uncertain write that reached GitHub appears as an assignment with an unknown source, so the worker does not repeat it.
+Successful first assignments record owner provenance for later reassessment.
+A permanent GitHub response, a closed pull request, a manual or unknown-source assignment, and a disabled flag end the attempt without retry.
+Safe assignment skips still allow review requests under the current review policy. Review requests, later owner reassessment, and legacy assignment policies remain best effort.
+Enabling a flag later does not replay suppressed work; the next pull request event queues a fresh attempt.
+
 Queued work and retries use the current personal setting.
 Each successful automatic assignment records its owner and origin. A later reviewer edit, claim, or verified PR refresh can reassess that owner.
 The worker replaces owners only when GitHub's current assignees exactly match its latest record; extra assignees, manual removal, and unknown-origin assignments remain authoritative.
