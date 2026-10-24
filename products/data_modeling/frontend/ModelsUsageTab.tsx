@@ -37,8 +37,14 @@ import type { DateMappingOption } from '~/types'
 
 import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
+import { ModelsByStatusDialog } from './ModelsByStatusDialog'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
-import { MATERIALIZATION_ENGINE_LABELS, MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
+import {
+    MATERIALIZATION_ENGINE_LABELS,
+    MaterializedViewOption,
+    modelStatusLabel,
+    modelsUsageLogic,
+} from './modelsUsageLogic'
 
 const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
     key: `Last ${days} complete days`,
@@ -84,7 +90,7 @@ export function ModelsUsageTab({
         selectedEngine,
         selectedSavedQueryId,
     } = useValues(modelsUsageLogic)
-    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryId } =
+    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryId, setSelectedStatusBreakdown } =
         useActions(modelsUsageLogic)
     const viewFilterRef = useRef<HTMLButtonElement>(null)
     const viewOptions = useMemo(() => [ALL_VIEWS, ...materializedViewOptions], [materializedViewOptions])
@@ -216,7 +222,7 @@ export function ModelsUsageTab({
                 <div className="flex justify-center py-16">
                     <Spinner />
                 </div>
-            ) : usage.overview.runs === 0 ? (
+            ) : usage.overview.runs === 0 && statusChartLabels.length === 0 ? (
                 <Card size="sm">
                     <CardContent>
                         <Text variant="muted">
@@ -226,7 +232,16 @@ export function ModelsUsageTab({
                 </Card>
             ) : (
                 <div className="relative space-y-4" aria-busy={usageLoading}>
-                    {usage.overview.measured_runs < usage.overview.runs ? (
+                    {usage.overview.runs === 0 ? (
+                        <Card size="sm">
+                            <CardContent>
+                                <Text variant="muted">
+                                    No finished materialization runs match these filters. The status chart includes
+                                    current and skipped runs.
+                                </Text>
+                            </CardContent>
+                        </Card>
+                    ) : usage.overview.measured_runs < usage.overview.runs ? (
                         <Card size="sm">
                             <CardContent>
                                 <Text variant="muted">
@@ -238,25 +253,27 @@ export function ModelsUsageTab({
                             </CardContent>
                         </Card>
                     ) : null}
-                    <div className="grid grid-cols-1 gap-4 @min-[36rem]/main-content:grid-cols-3">
-                        <MetricTile
-                            title="Bytes read"
-                            value={
-                                usage.overview.read_bytes === null
-                                    ? 'Not measured'
-                                    : humanizeBytes(usage.overview.read_bytes)
-                            }
-                        />
-                        <MetricTile
-                            title="CPU time"
-                            value={
-                                usage.overview.cpu_microseconds === null
-                                    ? 'Not measured'
-                                    : humanFriendlyDuration(usage.overview.cpu_microseconds / 1_000_000)
-                            }
-                        />
-                        <MetricTile title="Runs" value={humanFriendlyNumber(usage.overview.runs)} />
-                    </div>
+                    {usage.overview.runs > 0 ? (
+                        <div className="grid grid-cols-1 gap-4 @min-[36rem]/main-content:grid-cols-3">
+                            <MetricTile
+                                title="Bytes read"
+                                value={
+                                    usage.overview.read_bytes === null
+                                        ? 'Not measured'
+                                        : humanizeBytes(usage.overview.read_bytes)
+                                }
+                            />
+                            <MetricTile
+                                title="CPU time"
+                                value={
+                                    usage.overview.cpu_microseconds === null
+                                        ? 'Not measured'
+                                        : humanFriendlyDuration(usage.overview.cpu_microseconds / 1_000_000)
+                                }
+                            />
+                            <MetricTile title="Runs" value={humanFriendlyNumber(usage.overview.runs)} />
+                        </div>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-4 @min-[64rem]/main-content:grid-cols-2">
                         {usage.overview.measured_runs > 0 ? (
                             <Card size="sm" className="min-w-0">
@@ -290,6 +307,7 @@ export function ModelsUsageTab({
                                     <CardDescription>
                                         Latest run for each model and engine in the selected complete-day range.
                                         {statusChartSeries.length > 1 ? ' Bars are stacked by engine.' : ''}
+                                        {' Select a bar to see its models.'}
                                     </CardDescription>
                                 </CardHeader>
                                 <CardContent>
@@ -299,6 +317,19 @@ export function ModelsUsageTab({
                                             labels={statusChartLabels}
                                             theme={theme}
                                             config={statusChartConfig}
+                                            onPointClick={({ series, label }) => {
+                                                const breakdown = usage.status_breakdown.find(
+                                                    (item) =>
+                                                        item.engine === series.key &&
+                                                        modelStatusLabel(item.status) === label
+                                                )
+                                                if (breakdown) {
+                                                    setSelectedStatusBreakdown({
+                                                        engine: breakdown.engine,
+                                                        status: breakdown.status,
+                                                    })
+                                                }
+                                            }}
                                         />
                                     </div>
                                 </CardContent>
@@ -315,6 +346,7 @@ export function ModelsUsageTab({
             )}
 
             <MaterializationJobsTable savedQueryIdToNodeId={savedQueryIdToNodeId} />
+            <ModelsByStatusDialog savedQueryIdToNodeId={savedQueryIdToNodeId} />
         </div>
     )
 }

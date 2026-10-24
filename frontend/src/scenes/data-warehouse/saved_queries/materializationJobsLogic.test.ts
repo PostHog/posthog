@@ -206,6 +206,35 @@ describe('materializationJobsLogic', () => {
         expect(logic.values.dataModelingJobs).toEqual({ count: 0, results: [] })
     })
 
+    it('refreshes the selected managed warehouse history during status refreshes and polling', async () => {
+        jest.useFakeTimers()
+        const managedRequests: URLSearchParams[] = []
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = (req) => {
+            const params = new URL(req.request.url).searchParams
+            if (params.get('engine') === 'managed_warehouse') {
+                managedRequests.push(params)
+            }
+            return [200, { count: 0, results: [] }]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.setSelectedRunHistoryEngine(DataModelingJobsListEngine.ManagedWarehouse)
+        await jest.advanceTimersByTimeAsync(0)
+        const requestsAfterSelection = managedRequests.length
+
+        logic.actions.refreshMaterialization()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(managedRequests).toHaveLength(requestsAfterSelection + 1)
+
+        logic.actions.scheduleJobsRefresh(100)
+        await jest.advanceTimersByTimeAsync(100)
+        expect(managedRequests).toHaveLength(requestsAfterSelection + 2)
+    })
+
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
         const mocks = apiMocks({ isMaterialized: true })
         const requests: string[] = []

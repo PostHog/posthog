@@ -78,7 +78,9 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         }
         base = {"team": self.team, "saved_query": model, "status": "Completed", "last_run_at": finished}
         DataModelingJob.objects.create(**base, **measured)
-        DataModelingJob.objects.create(**{**base, "status": "Failed", "last_run_at": finished + timedelta(seconds=1)})
+        DataModelingJob.objects.create(
+            **{**base, "status": "Failed", "last_run_at": finished + timedelta(seconds=1)}, error="Query failed"
+        )
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
         managed = DataModelingJob.objects.create(
             **{**base, "engine": "managed_warehouse"}, read_bytes=4096, usage_updated_at=finished
@@ -106,7 +108,24 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(data["trends"][-1]["engines"][0]["engine"], "clickhouse")
         self.assertEqual(data["models"][0]["name"], "daily_orders")
         self.assertEqual(data["count"], 1)
-        self.assertEqual(data["status_breakdown"], [{"engine": "clickhouse", "status": "Failed", "models": 1}])
+        self.assertEqual(
+            data["status_breakdown"],
+            [
+                {
+                    "engine": "clickhouse",
+                    "status": "Failed",
+                    "count": 1,
+                    "models": [
+                        {
+                            "saved_query_id": str(model.id),
+                            "name": "daily_orders",
+                            "deleted": False,
+                            "error": "Query failed",
+                        }
+                    ],
+                }
+            ],
+        )
 
         combined = self.client.get(
             f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "all"}
@@ -125,8 +144,32 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(
             combined["status_breakdown"],
             [
-                {"engine": "clickhouse", "status": "Failed", "models": 1},
-                {"engine": "managed_warehouse", "status": "Completed", "models": 1},
+                {
+                    "engine": "clickhouse",
+                    "status": "Failed",
+                    "count": 1,
+                    "models": [
+                        {
+                            "saved_query_id": str(model.id),
+                            "name": "daily_orders",
+                            "deleted": False,
+                            "error": "Query failed",
+                        }
+                    ],
+                },
+                {
+                    "engine": "managed_warehouse",
+                    "status": "Completed",
+                    "count": 1,
+                    "models": [
+                        {
+                            "saved_query_id": str(model.id),
+                            "name": "daily_orders",
+                            "deleted": False,
+                            "error": None,
+                        }
+                    ],
+                },
             ],
         )
 
@@ -144,6 +187,24 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(filtered["count"], 1)
         invalid = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 91})
         self.assertEqual(invalid.status_code, 400)
+
+    def test_status_breakdown_includes_a_model_without_finished_runs(self) -> None:
+        model = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="running_model", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=model,
+            status="Running",
+            last_run_at=datetime(2026, 10, 15, 20, tzinfo=UTC),
+        )
+
+        data = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7}).json()
+
+        self.assertEqual(data["overview"]["runs"], 0)
+        self.assertEqual(data["status_breakdown"][0]["status"], "Running")
+        self.assertEqual(data["status_breakdown"][0]["count"], 1)
+        self.assertEqual(data["status_breakdown"][0]["models"][0]["name"], "running_model")
 
     def test_model_breakdown_paginates_without_changing_totals(self) -> None:
         finished = datetime(2026, 10, 15, 20, tzinfo=UTC)
@@ -236,5 +297,11 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(data["overview"]["runs"], 1)
         self.assertEqual(data["trends"][-1]["read_bytes"], 100)
         self.assertEqual(data["count"], 1)
-        self.assertEqual(data["status_breakdown"], [{"engine": "clickhouse", "status": "Completed", "models": 1}])
+        self.assertEqual(
+            [(group["engine"], group["status"], group["count"]) for group in data["status_breakdown"]],
+            [("clickhouse", "Completed", 1)],
+        )
+        self.assertEqual(
+            [model["saved_query_id"] for model in data["status_breakdown"][0]["models"]], [str(visible.id)]
+        )
         self.assertEqual([row["saved_query_id"] for row in data["models"]], [str(visible.id)])

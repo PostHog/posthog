@@ -98,10 +98,18 @@ class ModelUsageRowSerializer(ModelUsageTotalsSerializer):
     engines = ModelUsageEngineSerializer(many=True, help_text="Usage totals for each selected engine.")
 
 
+class ModelStatusModelSerializer(serializers.Serializer):
+    saved_query_id = serializers.UUIDField(help_text="Model ID.")
+    name = serializers.CharField(help_text="Model name.")
+    deleted = serializers.BooleanField(help_text="Whether this model has been deleted.")
+    error = serializers.CharField(allow_null=True, help_text="Error from the latest run, if present.")
+
+
 class ModelStatusBreakdownSerializer(serializers.Serializer):
     engine = serializers.CharField(help_text="Materialization engine: clickhouse or managed_warehouse.")
     status = serializers.CharField(help_text="Status of the latest run for the model and engine in this range.")
-    models = serializers.IntegerField(help_text="Models whose latest run on this engine has this status.")
+    count = serializers.IntegerField(help_text="Number of models whose latest run has this status.")
+    models = ModelStatusModelSerializer(many=True, help_text="Models whose latest run has this status.")
 
 
 class ModelUsageSerializer(serializers.Serializer):

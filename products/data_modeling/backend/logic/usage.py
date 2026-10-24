@@ -1,4 +1,3 @@
-from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TypedDict, cast
 from uuid import UUID
@@ -23,10 +22,18 @@ class EngineUsage(TypedDict):
     query_count: int | None
 
 
+class ModelStatusModel(TypedDict):
+    saved_query_id: UUID
+    name: str
+    deleted: bool
+    error: str | None
+
+
 class ModelStatusBreakdown(TypedDict):
     engine: DataModelingJobEngine
     status: DataModelingJobStatus
-    models: int
+    count: int
+    models: list[ModelStatusModel]
 
 
 class ModelUsage:
@@ -94,16 +101,32 @@ class ModelUsage:
 
     @staticmethod
     def status_breakdown(jobs: QuerySet[DataModelingJob]) -> list[ModelStatusBreakdown]:
-        latest_jobs = jobs.order_by("saved_query_id", "engine", "-last_run_at", "-created_at").distinct(
-            "saved_query_id", "engine"
+        latest_jobs = (
+            jobs.filter(saved_query_id__isnull=False)
+            .select_related("saved_query")
+            .order_by("saved_query_id", "engine", "-last_run_at", "-created_at")
+            .distinct("saved_query_id", "engine")
         )
-        counts = Counter(
-            (DataModelingJobEngine(row["engine"]), DataModelingJobStatus(row["status"]))
-            for row in latest_jobs.values("engine", "status")
-        )
+        groups: dict[tuple[DataModelingJobEngine, DataModelingJobStatus], list[ModelStatusModel]] = {}
+        for job in latest_jobs:
+            if job.saved_query is None or job.saved_query_id is None:
+                continue
+            key = (DataModelingJobEngine(job.engine), DataModelingJobStatus(job.status))
+            groups.setdefault(key, []).append(
+                ModelStatusModel(
+                    saved_query_id=job.saved_query_id,
+                    name=job.saved_query.name or "Untitled model",
+                    deleted=job.saved_query.deleted is not False,
+                    error=job.error,
+                )
+            )
+
+        for models in groups.values():
+            models.sort(key=lambda model: (model["name"].lower(), str(model["saved_query_id"])))
+
         return [
-            ModelStatusBreakdown(engine=engine, status=status, models=models)
-            for (engine, status), models in sorted(counts.items())
+            ModelStatusBreakdown(engine=engine, status=status, count=len(models), models=models)
+            for (engine, status), models in sorted(groups.items())
         ]
 
     @classmethod

@@ -679,7 +679,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             ) => latestSuccessfulSyncAt([...(dataModelingJobs?.results ?? []), ...(latestCompletedJob?.results ?? [])]),
         ],
     }),
-    afterMount(({ actions, cache, props }) => {
+    afterMount(({ actions, cache, props, values }) => {
         if (props.viewId) {
             actions.loadDataModelingJobs()
             actions.loadSavedQuery()
@@ -691,6 +691,12 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 const onVisibilityChange = (): void => {
                     if (!document.hidden && props.viewId) {
                         actions.loadDataModelingJobs()
+                        if (
+                            values.jobsPage === 1 &&
+                            values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+                        ) {
+                            actions.loadRunHistoryJobs()
+                        }
                     }
                 }
                 document.addEventListener('visibilitychange', onVisibilityChange)
@@ -743,13 +749,27 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         refreshMaterialization: () => {
             actions.loadSavedQuery()
             actions.loadDataModelingJobs()
+            if (
+                values.jobsPage === 1 &&
+                values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+            ) {
+                actions.loadRunHistoryJobs()
+            }
         },
         loadDataModelingJobs: () => {
             cache.disposables.dispose('dataModelingJobsRefreshTimeout')
         },
         scheduleJobsRefresh: ({ delay }) => {
             cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => actions.loadDataModelingJobs(), delay)
+                const timeoutId = setTimeout(() => {
+                    actions.loadDataModelingJobs()
+                    if (
+                        values.jobsPage === 1 &&
+                        values.selectedRunHistoryEngine === DataModelingJobsListEngine.ManagedWarehouse
+                    ) {
+                        actions.loadRunHistoryJobs()
+                    }
+                }, delay)
                 return () => clearTimeout(timeoutId)
             }, 'dataModelingJobsRefreshTimeout')
         },

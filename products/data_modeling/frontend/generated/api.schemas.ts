@@ -391,13 +391,29 @@ export interface ModelUsageRowApi {
     engines: ModelUsageEngineApi[]
 }
 
+export interface ModelStatusModelApi {
+    /** Model ID. */
+    saved_query_id: string
+    /** Model name. */
+    name: string
+    /** Whether this model has been deleted. */
+    deleted: boolean
+    /**
+     * Error from the latest run, if present.
+     * @nullable
+     */
+    error: string | null
+}
+
 export interface ModelStatusBreakdownApi {
     /** Materialization engine: clickhouse or managed_warehouse. */
     engine: string
     /** Status of the latest run for the model and engine in this range. */
     status: string
-    /** Models whose latest run on this engine has this status. */
-    models: number
+    /** Number of models whose latest run has this status. */
+    count: number
+    /** Models whose latest run has this status. */
+    models: ModelStatusModelApi[]
 }
 
 export interface ModelUsageApi {

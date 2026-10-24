@@ -101,9 +101,9 @@ describe('modelsUsageLogic', () => {
         logic.actions.loadUsageSuccess({
             ...emptyUsage,
             status_breakdown: [
-                { engine: 'clickhouse', status: 'Completed', models: 3 },
-                { engine: 'clickhouse', status: 'Failed', models: 1 },
-                { engine: 'managed_warehouse', status: 'Failed', models: 2 },
+                { engine: 'clickhouse', status: 'Completed', count: 3, models: [] },
+                { engine: 'clickhouse', status: 'Failed', count: 1, models: [] },
+                { engine: 'managed_warehouse', status: 'Failed', count: 2, models: [] },
             ],
         })
 
@@ -112,6 +112,11 @@ describe('modelsUsageLogic', () => {
             { key: 'clickhouse', label: 'ClickHouse', data: [3, 1] },
             { key: 'managed_warehouse', label: 'Managed warehouse', data: [0, 2] },
         ])
+
+        logic.actions.setSelectedStatusBreakdown({ engine: 'clickhouse', status: 'Failed' })
+        expect(logic.values.selectedStatusBreakdown).toEqual({ engine: 'clickhouse', status: 'Failed' })
+        logic.actions.setSelectedEngine(DataModelingUsageListEngine.ManagedWarehouse)
+        expect(logic.values.selectedStatusBreakdown).toBeNull()
     })
 
     it('filters all tab requests by engine', async () => {

@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -7,7 +8,8 @@ import type { MockResolverInfo } from '~/mocks/utils'
 
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import type { ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import type { ModelStatusModelApi, ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import { modelsUsageLogic } from './modelsUsageLogic'
 import { ModelsUsageTab } from './ModelsUsageTab'
 
 const totals: ModelUsageTotalsApi = {
@@ -68,6 +70,12 @@ const models: ModelUsageRowApi[] = [
         ],
     },
 ]
+const statusModel = (index: number, error: string | null = null): ModelStatusModelApi => ({
+    saved_query_id: models[index].saved_query_id!,
+    name: models[index].name,
+    deleted: models[index].deleted,
+    error,
+})
 const populated: ModelUsageApi = {
     date_from: '2026-09-16',
     date_to: '2026-10-16',
@@ -75,11 +83,21 @@ const populated: ModelUsageApi = {
     models,
     count: 3,
     status_breakdown: [
-        { engine: 'clickhouse', status: 'Completed', models: 2 },
-        { engine: 'clickhouse', status: 'Failed', models: 1 },
-        { engine: 'managed_warehouse', status: 'Completed', models: 1 },
-        { engine: 'managed_warehouse', status: 'Running', models: 1 },
-        { engine: 'managed_warehouse', status: 'Failed', models: 1 },
+        { engine: 'clickhouse', status: 'Completed', count: 2, models: [statusModel(0), statusModel(1)] },
+        {
+            engine: 'clickhouse',
+            status: 'Failed',
+            count: 1,
+            models: [statusModel(2, 'Table weekly_revenue has an incompatible column type')],
+        },
+        { engine: 'managed_warehouse', status: 'Completed', count: 1, models: [statusModel(0)] },
+        { engine: 'managed_warehouse', status: 'Running', count: 1, models: [statusModel(1)] },
+        {
+            engine: 'managed_warehouse',
+            status: 'Failed',
+            count: 1,
+            models: [statusModel(2, 'The source query reached its time limit')],
+        },
     ],
     usage_updated_at: '2026-10-16T03:00:00Z',
     trends: Array.from({ length: 30 }, (_, index) => {
@@ -303,11 +321,50 @@ export const Empty: Story = {
                         models: [],
                         trends: [],
                         count: 0,
+                        status_breakdown: [],
                         usage_updated_at: null,
                     },
                 },
             },
         },
+    },
+}
+export const StatusOnly: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_modeling_usage/': {
+                        ...populated,
+                        overview: { ...unknown, runs: 0 },
+                        models: [],
+                        trends: [],
+                        count: 0,
+                        status_breakdown: [
+                            {
+                                engine: 'managed_warehouse',
+                                status: 'Running',
+                                count: 1,
+                                models: [statusModel(1)],
+                            },
+                        ],
+                        usage_updated_at: null,
+                    },
+                },
+            },
+        },
+    },
+}
+export const FailedModelsDialog: Story = {
+    decorators: [inMainContent('w-256')],
+    play: async () => {
+        await waitFor(() => {
+            if (!modelsUsageLogic.findMounted()?.values.usage) {
+                throw new globalThis.Error('Models usage must finish loading')
+            }
+        })
+        modelsUsageLogic.findMounted()!.actions.setSelectedStatusBreakdown({ engine: 'clickhouse', status: 'Failed' })
     },
 }
 export const Error: Story = {
