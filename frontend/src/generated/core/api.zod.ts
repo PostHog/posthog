@@ -1165,6 +1165,44 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault = `event`
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax = 400
+
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin = 0
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax = 4
+
+export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.object({
+    properties: zod
+        .array(
+            zod.object({
+                type: zod
+                    .enum(['event', 'person', 'group', 'session'])
+                    .describe('\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session')
+                    .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
+                    .describe(
+                        'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                    ),
+                name: zod
+                    .string()
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax)
+                    .describe('Property name, for example `$current_url`.'),
+                group_type_index: zod
+                    .number()
+                    .min(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin)
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax)
+                    .nullish()
+                    .describe(
+                        'Group type index of a group property. Required when `type` is `group`, otherwise omit it.'
+                    ),
+            })
+        )
+        .describe('Properties to fetch 30-day query usage for, at most 100 per request.'),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod

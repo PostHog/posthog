@@ -1582,6 +1582,21 @@ class MCPInsightSerializer(InsightSerializer):
             raise serializers.ValidationError(f"This query can't be saved: {details}")
 
 
+def parse_property_names_param(raw: str) -> list[str]:
+    invalid = ValidationError({"properties": 'Pass a JSON list of property names, for example ["$browser"].'})
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        raise invalid
+    if not isinstance(decoded, list):
+        raise invalid
+    # Old clients sent full property-filter dicts under this param. Only plain names filter, so those
+    # payloads stay a no-op.
+    return [item for item in decoded if isinstance(item, str) and item]
+
+
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
 # (the alphanumeric code visible in URLs like `/insights/AaVQ8Ijw`). The resolution happens in
 # `InsightViewSet.safely_get_object`: a purely-numeric string is treated as the PK, otherwise it
@@ -2363,6 +2378,13 @@ class InsightViewSet(
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
                     queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+            elif key == "properties":
+                property_names = parse_property_names_param(request.GET["properties"])
+                if property_names:
+                    # Containment on the whole column, so the GIN index on query_metadata applies.
+                    queryset = queryset.filter(
+                        query_metadata__contains={"properties": [{"name": name} for name in property_names]}
+                    )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
