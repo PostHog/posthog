@@ -49,7 +49,7 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
-    RankingHeadsResponseApi,
+    RankingOutcomesResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
@@ -1465,19 +1465,19 @@ export const signalsReportsPrCiStatuses = async (
     })
 }
 
-export const getSignalsReportsRankingHeadsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/reports/ranking_heads/`
+export const getSignalsReportsRankingOutcomesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/ranking_outcomes/`
 }
 
 /**
- * What each public head of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no heads.
- * @summary List the ranking model's public heads
+ * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
+ * @summary List the ranking model's public outcomes
  */
-export const signalsReportsRankingHeadsList = async (
+export const signalsReportsRankingOutcomesList = async (
     projectId: string,
     options?: RequestInit
-): Promise<RankingHeadsResponseApi> => {
-    return apiMutator<RankingHeadsResponseApi>(getSignalsReportsRankingHeadsListUrl(projectId), {
+): Promise<RankingOutcomesResponseApi> => {
+    return apiMutator<RankingOutcomesResponseApi>(getSignalsReportsRankingOutcomesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

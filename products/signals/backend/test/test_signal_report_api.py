@@ -912,13 +912,18 @@ class TestSignalReportListAPI(APIBaseTest):
             team=self.team, report=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE, content=content
         )
 
-    _RANKING_NOT_AVAILABLE: dict[str, Any] = {"status": "not_available", "model": None, "scored_at": None, "heads": []}
-    _RANKING_UNSCORED: dict[str, Any] = {"status": "unscored", "model": None, "scored_at": None, "heads": []}
+    _RANKING_NOT_AVAILABLE: dict[str, Any] = {
+        "status": "not_available",
+        "model": None,
+        "scored_at": None,
+        "predictions": [],
+    }
+    _RANKING_UNSCORED: dict[str, Any] = {"status": "unscored", "model": None, "scored_at": None, "predictions": []}
 
     @parameterized.expand(
         [
             (
-                "staff_sees_the_public_heads_of_the_served_result",
+                "staff_sees_the_public_outcomes_of_the_served_result",
                 True,
                 None,
                 None,
@@ -928,7 +933,7 @@ class TestSignalReportListAPI(APIBaseTest):
                     "status": "scored",
                     "model": "report_embeddings@2026-09-01",
                     "scored_at": "2026-09-20T12:00:00Z",
-                    "heads": [{"head": "open", "probability": 0.5, "lift": 2.5, "readable": True}],
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": 2.5, "readable": True}],
                 },
             ),
             (
@@ -945,7 +950,7 @@ class TestSignalReportListAPI(APIBaseTest):
                     "status": "scored",
                     "model": "report_embeddings@2026-09-01",
                     "scored_at": "2026-09-20T12:00:00Z",
-                    "heads": [{"head": "open", "probability": 0.5, "lift": 2.0, "readable": True}],
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": 2.0, "readable": True}],
                 },
             ),
             ("non_staff_without_the_flag_is_not_available", False, None, None, None, None, _RANKING_NOT_AVAILABLE),
@@ -969,7 +974,7 @@ class TestSignalReportListAPI(APIBaseTest):
                     "status": "scored",
                     "model": "report_embeddings@2026-09-01",
                     "scored_at": "2026-09-20T12:00:00Z",
-                    "heads": [{"head": "open", "probability": 0.5, "lift": None, "readable": False}],
+                    "predictions": [{"outcome": "open", "probability": 0.5, "lift": None, "readable": False}],
                 },
             ),
             ("only_internal_heads_read_as_unscored", True, None, {"merged": 0.2}, None, None, _RANKING_UNSCORED),
@@ -1028,19 +1033,34 @@ class TestSignalReportListAPI(APIBaseTest):
             "status": "scored",
             "model": "report_embeddings@2026-09-01",
             "scored_at": "2026-09-20T12:00:00Z",
-            "heads": [{"head": "open", "probability": 0.8123, "lift": 3.2, "readable": True}],
+            "predictions": [{"outcome": "open", "probability": 0.8123, "lift": 3.2, "readable": True}],
         }
         assert "manifest" not in json.dumps(rows[0]["ranking"])
 
+    @parameterized.expand([("web", False, 0.8123, 3.2678), ("mcp", True, 0.81, 3.3)])
+    def test_ranking_values_round_for_agents_only(self, _name, via_mcp, probability, lift):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, scores={"fixed": 0.8123}, lifts={"fixed": 3.2678})
+
+        with patch("products.signals.backend.serializers.is_mcp_request", return_value=via_mcp):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["predictions"] == [
+            {"outcome": "fix", "probability": probability, "lift": lift, "readable": False}
+        ]
+
     @parameterized.expand(
         [
-            ("min_lift", {"ranking_min_lift": "fixed:2"}, ["high"]),
-            ("min_lift_on_two_heads", {"ranking_min_lift": "fixed:1.5,open:1.5"}, ["mid"]),
-            ("min_probability", {"ranking_min_probability": "fixed:0.3"}, ["high", "mid"]),
-            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fixed:2,fixed:1"}, ["high"]),
+            ("min_lift", {"ranking_min_lift": "fix:2"}, ["high"]),
+            ("min_lift_on_two_heads", {"ranking_min_lift": "fix:1.5,open:1.5"}, ["mid"]),
+            ("min_probability", {"ranking_min_probability": "fix:0.3"}, ["high", "mid"]),
+            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fix:2,fix:1"}, ["high"]),
             (
                 "repeated_head_probability_keeps_the_strictest",
-                {"ranking_min_probability": "fixed:0.5,fixed:0.2"},
+                {"ranking_min_probability": "fix:0.5,fix:0.2"},
                 ["high"],
             ),
         ]
@@ -1079,7 +1099,7 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._ranking_score_artefact(report, scores={"fixed": 0.6}, heads=[{"head": None, "readable": True}])
 
-        response = self.client.get(self._list_url(status="ready", ranking_min_probability="fixed:0.5"))
+        response = self.client.get(self._list_url(status="ready", ranking_min_probability="fix:0.5"))
 
         assert response.status_code == status.HTTP_200_OK
         rows = response.json()["results"]
@@ -1088,10 +1108,11 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_head", True, {"ranking_min_lift": "pr_merged:2"}, "ranking_min_lift"),
-            ("malformed_value", True, {"ranking_min_probability": "fixed:high"}, "ranking_min_probability"),
-            ("missing_value", True, {"ranking_min_lift": "fixed"}, "ranking_min_lift"),
-            ("no_access", False, {"ranking_min_lift": "fixed:2"}, "ranking_min_lift"),
+            ("internal_head", True, {"ranking_min_lift": "pr_merged:2"}, "ranking_min_lift"),
+            ("malformed_value", True, {"ranking_min_probability": "fix:high"}, "ranking_min_probability"),
+            ("missing_value", True, {"ranking_min_lift": "fix"}, "ranking_min_lift"),
+            ("model_head_name", True, {"ranking_min_lift": "fixed:2"}, "ranking_min_lift"),
+            ("no_access", False, {"ranking_min_lift": "fix:2"}, "ranking_min_lift"),
         ]
     )
     def test_ranking_filters_reject_bad_input_and_users_without_access(self, _name, is_staff, query, attr):
@@ -1113,7 +1134,7 @@ class TestSignalReportListAPI(APIBaseTest):
             ("without_recipe", {}, None, None),
         ]
     )
-    def test_ranking_heads_reads_the_served_model_of_the_latest_score(self, _name, extra_metadata, horizon, cohort):
+    def test_ranking_outcomes_reads_the_served_model_of_the_latest_score(self, _name, extra_metadata, horizon, cohort):
         self.user.is_staff = True
         self.user.save()
         report = self._create_report()
@@ -1124,15 +1145,15 @@ class TestSignalReportListAPI(APIBaseTest):
             extra_metadata=extra_metadata,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_heads/")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_outcomes/")
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["status"] == "scored"
         assert body["model"] == "report_embeddings@2026-09-01"
-        assert [head["head"] for head in body["heads"]] == ["open", "action", "fixed"]
-        assert body["heads"][2] | {"description": None} == {
-            "head": "fixed",
+        assert [entry["outcome"] for entry in body["outcomes"]] == ["open", "action", "fix"]
+        assert body["outcomes"][2] | {"description": None} == {
+            "outcome": "fix",
             "label": "Fix",
             "description": None,
             "horizon_days": horizon,
@@ -1140,17 +1161,17 @@ class TestSignalReportListAPI(APIBaseTest):
             "base_rate": 0.2,
             "readable": True,
         }
-        assert body["heads"][0]["base_rate"] is None
-        assert body["heads"][0]["readable"] is False
+        assert body["outcomes"][0]["base_rate"] is None
+        assert body["outcomes"][0]["readable"] is False
 
     @parameterized.expand([("no_access", False, "not_available"), ("no_score_yet", True, "unscored")])
-    def test_ranking_heads_without_a_readable_model(self, _name, is_staff, expected_status):
+    def test_ranking_outcomes_without_a_readable_model(self, _name, is_staff, expected_status):
         self.user.is_staff = is_staff
         self.user.save()
         with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
-            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_heads/")
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/ranking_outcomes/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"status": expected_status, "model": None, "heads": []}
+        assert response.json() == {"status": expected_status, "model": None, "outcomes": []}
 
     @parameterized.expand(
         [
@@ -1700,8 +1721,8 @@ class TestSignalReportListAPI(APIBaseTest):
             (str(no_priority.id), 65),
         ]
 
-    @parameterized.expand([("open",), ("action",), ("fixed",)])
-    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, head):
+    @parameterized.expand([("open", "open"), ("action", "action"), ("fix", "fixed")])
+    def test_recommended_sort_head_variant_ranks_by_that_head_without_showing_scores_to_non_staff(self, outcome, head):
         self.user.is_staff = False
         self.user.save()
         low_p0 = self._create_report(title="Low P0")
@@ -1736,14 +1757,14 @@ class TestSignalReportListAPI(APIBaseTest):
         )
 
         with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=head
+            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=outcome
         ) as get_flag:
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
-        assert body["ranker"] == head
+        assert body["ranker"] == outcome
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
             (str(same_decile_p0.id), 6),
             (str(high_p3.id), 9),

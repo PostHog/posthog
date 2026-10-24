@@ -168,8 +168,8 @@ from products.signals.backend.ranking.inbox_sort import (
     resolve_recommended_ranker,
     score_decile,
 )
-from products.signals.backend.ranking.public_heads import PUBLIC_HEAD_NAMES
-from products.signals.backend.ranking.served_heads import served_heads
+from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
+from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -247,8 +247,8 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateResponseSerializer,
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
-    RankingHeadsResponseSerializer,
-    RankingHeadsStatus,
+    RankingOutcomesResponseSerializer,
+    RankingOutcomesStatus,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -1207,8 +1207,8 @@ class SignalReportListPagination(LimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or open, action or fixed "
-                "for that head of the served ranking model. Null for every other sort. Each row's "
+                "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
+                "for that outcome of the served ranking model. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
             ),
         }
@@ -1277,7 +1277,9 @@ class SignalReportViewSet(
         "ranking_pr_created": "ranking_pr_created_score",
         "ranking_action": "ranking_action_score",
         "ranking_open": "ranking_open_score",
-        "ranking_fixed": "ranking_fixed_score",
+        "ranking_fix": "ranking_fix_score",
+        # Old name of `ranking_fix`, kept for saved URLs and older clients. Not documented.
+        "ranking_fixed": "ranking_fix_score",
         "ranking_discuss": "ranking_discuss_score",
         "ranking_thumbs_up": "ranking_thumbs_up_score",
         "ranking_reviewer_fix": "ranking_reviewer_fix_score",
@@ -1291,6 +1293,7 @@ class SignalReportViewSet(
         "ranking_pr_created": "pr_created",
         "ranking_action": "action",
         "ranking_open": "open",
+        "ranking_fix": "fixed",
         "ranking_fixed": "fixed",
         "ranking_discuss": "discuss",
         "ranking_thumbs_up": "thumbs_up",
@@ -1301,28 +1304,32 @@ class SignalReportViewSet(
     }
 
     @extend_schema(
-        responses={200: RankingHeadsResponseSerializer},
-        summary="List the ranking model's public heads",
+        responses={200: RankingOutcomesResponseSerializer},
+        summary="List the ranking model's public outcomes",
         description=(
-            "What each public head of the served ranking model predicts, with its horizon, cohort, base rate and "
-            "readability from the model that scored this project's reports. Users who cannot see the ranking "
-            "model get status not_available and no heads."
+            "What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate "
+            "and readability from the model that scored this project's reports. Users who cannot see the ranking "
+            "model get status not_available and no outcomes."
         ),
-        operation_id="signals_reports_ranking_heads_list",
+        operation_id="signals_reports_ranking_outcomes_list",
     )
     @action(
-        detail=False, methods=["get"], url_path="ranking_heads", required_scopes=["task:read"], pagination_class=None
+        detail=False,
+        methods=["get"],
+        url_path="ranking_outcomes",
+        required_scopes=["task:read"],
+        pagination_class=None,
     )
-    def ranking_heads(self, request: Request, **kwargs) -> Response:
+    def ranking_outcomes(self, request: Request, **kwargs) -> Response:
         model: str | None = None
-        heads: list[dict[str, Any]] = []
+        outcomes: list[dict[str, Any]] = []
         if not self._can_view_inbox_ranking:
-            status_value = RankingHeadsStatus.NOT_AVAILABLE
+            status_value = RankingOutcomesStatus.NOT_AVAILABLE
         else:
-            model, heads = served_heads(self.team_id)
-            status_value = RankingHeadsStatus.SCORED if model is not None else RankingHeadsStatus.UNSCORED
+            model, outcomes = served_outcomes(self.team_id)
+            status_value = RankingOutcomesStatus.SCORED if model is not None else RankingOutcomesStatus.UNSCORED
         return Response(
-            RankingHeadsResponseSerializer({"status": status_value.value, "model": model, "heads": heads}).data
+            RankingOutcomesResponseSerializer({"status": status_value.value, "model": model, "outcomes": outcomes}).data
         )
 
     @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
@@ -1988,10 +1995,13 @@ class SignalReportViewSet(
         # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
         # the heads the ordering names are annotated, because each one is a correlated subquery.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
+        annotated: set[str] = set()
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
-            if annotation not in ordered_fields:
+            # An alias shares its annotation with the field it renames, so annotate each one once.
+            if annotation not in ordered_fields or annotation in annotated:
                 continue
+            annotated.add(annotation)
             queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
         return queryset
 
@@ -2057,7 +2067,8 @@ class SignalReportViewSet(
             minimums = self._parse_ranking_minimums(param)
             if not minimums:
                 continue
-            for head, minimum in minimums.items():
+            for outcome, minimum in minimums.items():
+                head = MODEL_HEAD_BY_OUTCOME[outcome]
                 queryset = queryset.filter(GreaterThanOrEqual(self._latest_ranking_value(head, key), minimum))
         return queryset
 
@@ -2068,13 +2079,13 @@ class SignalReportViewSet(
         if not self._can_view_inbox_ranking:
             # The serializer hides ranking scores from these users, and the filter would leak them.
             raise serializers.ValidationError({param: f"Filtering by {param} is not available to you."})
-        valid = ", ".join(PUBLIC_HEAD_NAMES)
+        valid = ", ".join(PUBLIC_OUTCOME_NAMES)
         minimums: dict[str, float] = {}
         for pair in raw.split(","):
-            head, sep, value = pair.strip().partition(":")
-            head = head.strip()
-            if head not in PUBLIC_HEAD_NAMES:
-                raise serializers.ValidationError({param: f"Unknown head {head!r}. Valid heads: {valid}."})
+            outcome, sep, value = pair.strip().partition(":")
+            outcome = outcome.strip()
+            if outcome not in PUBLIC_OUTCOME_NAMES:
+                raise serializers.ValidationError({param: f"Unknown outcome {outcome!r}. Valid outcomes: {valid}."})
             try:
                 minimum = float(value) if sep else math.nan
             except ValueError:
@@ -2082,11 +2093,11 @@ class SignalReportViewSet(
             if not math.isfinite(minimum) or minimum < 0:
                 raise serializers.ValidationError(
                     {
-                        param: f"Use <head>:<number> pairs with a number of 0 or more, e.g. fixed:2. Valid heads: {valid}."
+                        param: f"Use <outcome>:<number> pairs with a number of 0 or more, e.g. fix:2. Valid outcomes: {valid}."
                     }
                 )
-            # A report must meet every pair, so a repeated head keeps its strictest minimum.
-            minimums[head] = max(minimum, minimums.get(head, minimum))
+            # A report must meet every pair, so a repeated outcome keeps its strictest minimum.
+            minimums[outcome] = max(minimum, minimums.get(outcome, minimum))
         return minimums
 
     def _needs_priority_annotation(self) -> bool:
@@ -2652,7 +2663,7 @@ class SignalReportViewSet(
                 description=(
                     "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
                     "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
-                    "the open, action or fixed head of the served ranking model with unscored and stale reports "
+                    "the open, action or fix outcome of the served ranking model with unscored and stale reports "
                     "in priority order after the scored ones. The response's ranker field names the one used."
                 ),
             ),
@@ -2665,7 +2676,7 @@ class SignalReportViewSet(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
                     "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
+                    "ranking_open, ranking_fix, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
                     "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
                     "sort by the served ranking model's probability for that outcome head, with unscored reports "
                     "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
@@ -2677,9 +2688,9 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Comma-separated <head>:<lift> pairs, e.g. fixed:2,open:1.5. Keeps reports whose served ranking "
-                    "lift is at least the value for every named head. Heads: open, action, fixed. Read "
-                    "inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. "
+                    "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
+                    "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
+                    "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
                     "Needs staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
@@ -2689,9 +2700,10 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Comma-separated <head>:<probability> pairs, e.g. fixed:0.3. Keeps reports whose served ranking "
-                    "probability is at least the value for every named head. Heads: open, action, fixed. Read "
-                    "inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. "
+                    "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
+                    "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
+                    "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
+                    "never match. "
                     "Needs staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),

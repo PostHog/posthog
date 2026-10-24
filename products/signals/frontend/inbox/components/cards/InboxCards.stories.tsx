@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind, type InsightVizNode, type TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
-import { HeadEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { RankingOutcomeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { userEvent } from 'storybook/test'
 
@@ -260,17 +260,19 @@ export const ReportCardWithImpact: Story = {
 }
 
 function ranking(
-    scores: Partial<Record<HeadEnumApi, number>>,
-    lifts: Partial<Record<HeadEnumApi, number>>,
+    scores: Partial<Record<RankingOutcomeEnumApi, number>>,
+    lifts: Partial<Record<RankingOutcomeEnumApi, number>>,
     stale = false
 ): SignalReport['ranking'] {
     return {
         status: stale ? 'stale' : 'scored',
         model: 'report_embeddings@2026-06-10',
         scored_at: '2026-06-10T09:00:00Z',
-        heads: Object.values(HeadEnumApi).flatMap((head) => {
-            const probability = scores[head]
-            return probability === undefined ? [] : [{ head, probability, lift: lifts[head] ?? null, readable: true }]
+        predictions: Object.values(RankingOutcomeEnumApi).flatMap((outcome) => {
+            const probability = scores[outcome]
+            return probability === undefined
+                ? []
+                : [{ outcome, probability, lift: lifts[outcome] ?? null, readable: true }]
         }),
     }
 }
@@ -281,7 +283,7 @@ const rankedReports: SignalReport[] = [
         title: 'Checkout button does nothing on Safari',
         priority: 'P1',
         source_products: ['session_replay'],
-        ranking: ranking({ open: 0.91, action: 0.78, fixed: 0.33 }, { open: 0.6, action: 2.1, fixed: 6.0 }),
+        ranking: ranking({ open: 0.91, action: 0.78, fix: 0.33 }, { open: 0.6, action: 2.1, fix: 6.0 }),
     }),
     makeReport({
         title: 'Tooltip flickers on the funnel chart',
@@ -293,7 +295,7 @@ const rankedReports: SignalReport[] = [
         title: 'Slow dashboard load for large projects',
         priority: 'P2',
         source_products: ['error_tracking'],
-        ranking: ranking({ open: 0.4, action: 0.062, fixed: 0.05 }, {}),
+        ranking: ranking({ open: 0.4, action: 0.062, fix: 0.05 }, {}),
     }),
     makeReport({ title: 'Typo in the billing settings page', priority: 'P4', ranking: null }),
     makeReport({

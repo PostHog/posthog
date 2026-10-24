@@ -57,19 +57,19 @@ const activitySummaryVersionsList = (): ToolBase<
     },
 })
 
-const InboxRankingHeadsListSchema = () => z.object({})
+const InboxRankingOutcomesListSchema = () => z.object({})
 
-const inboxRankingHeadsList = (): ToolBase<
-    ReturnType<typeof InboxRankingHeadsListSchema>,
-    Schemas.RankingHeadsResponse
+const inboxRankingOutcomesList = (): ToolBase<
+    ReturnType<typeof InboxRankingOutcomesListSchema>,
+    Schemas.RankingOutcomesResponse
 > => ({
-    name: 'inbox-ranking-heads-list',
-    schema: InboxRankingHeadsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRankingHeadsListSchema>>) => {
+    name: 'inbox-ranking-outcomes-list',
+    schema: InboxRankingOutcomesListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxRankingOutcomesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.RankingHeadsResponse>({
+        const result = await context.api.request<Schemas.RankingOutcomesResponse>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/ranking_heads/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/ranking_outcomes/`,
         })
         return result
     },
@@ -669,7 +669,9 @@ const inboxReportsList = (): ToolBase<
                     'tracker_issue_error',
                     'work_state',
                     'assignee',
-                    'ranking',
+                    'ranking.status',
+                    'ranking.scored_at',
+                    'ranking.predictions',
                     'created_at',
                     'updated_at',
                 ])
@@ -3343,7 +3345,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
     'activity-summary-versions-list': activitySummaryVersionsList,
-    'inbox-ranking-heads-list': inboxRankingHeadsList,
+    'inbox-ranking-outcomes-list': inboxRankingOutcomesList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,
     'inbox-report-artefacts-create': inboxReportArtefactsCreate,

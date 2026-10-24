@@ -17,6 +17,7 @@ from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -97,7 +98,7 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .ranking.inbox_sort import inbox_merge_key
-from .ranking.public_heads import PUBLIC_HEAD_NAMES
+from .ranking.public_outcomes import PUBLIC_OUTCOMES, RankingOutcome
 from .ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
@@ -1222,30 +1223,32 @@ class RankingStatus(TextChoices):
     NOT_AVAILABLE = "not_available", "not_available"
 
 
-class RankingHeadsStatus(TextChoices):
+class RankingOutcomesStatus(TextChoices):
     SCORED = "scored", "scored"
     UNSCORED = "unscored", "unscored"
     NOT_AVAILABLE = "not_available", "not_available"
 
 
-class ReportRankingHeadSerializer(serializers.Serializer):
-    head = serializers.ChoiceField(
-        choices=PUBLIC_HEAD_NAMES,
-        help_text="Outcome the model predicts. Read inbox-ranking-heads-list for what each head means.",
+class ReportRankingPredictionSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=RankingOutcome.choices,
+        help_text="Outcome the model predicts. Read inbox-ranking-outcomes-list for what each outcome means.",
     )
     probability = serializers.FloatField(
-        help_text="The model's calibrated probability that the outcome happens within the head's horizon."
+        help_text="The model's calibrated probability that the outcome happens within the outcome's horizon."
     )
     lift = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "The probability divided by the head's base rate. 1.0 is an average report, 2.7 means 2.7x as likely "
-            "as the average report. Compare lifts across heads, not raw probabilities. Null when the model has "
-            "no saved base rate for the head."
+            "The probability divided by the outcome's base rate. 1.0 is an average report, 2.7 means 2.7x as "
+            "likely as the average report. Compare lifts across outcomes, not raw probabilities. Null when the "
+            "model has no saved base rate for the outcome."
         ),
     )
     readable = serializers.BooleanField(
-        help_text="True when the training run could read the head's holdout AUC. Treat other heads with caution."
+        help_text=(
+            "True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution."
+        )
     )
 
 
@@ -1253,8 +1256,8 @@ class ReportRankingSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=RankingStatus.choices,
         help_text=(
-            "scored: the heads describe the current text. stale: the title or summary changed after the text the "
-            "model read, so the heads describe the old text and the model sorts and filters treat the report as "
+            "scored: the predictions describe the current text. stale: the title or summary changed after the text "
+            "the model read, so the predictions describe the old text and the model sorts and filters treat the report as "
             "unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low "
             "score. not_available: you cannot see the ranking model's output, so every other field is empty."
         ),
@@ -1267,44 +1270,48 @@ class ReportRankingSerializer(serializers.Serializer):
         ),
     )
     scored_at = serializers.DateTimeField(allow_null=True, help_text="When the scoring sweep scored the report.")
-    heads = ReportRankingHeadSerializer(
+    predictions = ReportRankingPredictionSerializer(
         many=True,
         help_text=(
-            "The served model's predictions, one per public head that it scored. A prediction says what may "
-            "happen, never what did: the report's status and its PR fields say whether it was resolved or fixed."
+            "The served model's predictions, one per public outcome that it scored. A prediction says what may "
+            "happen, never what did: the report's status and its PR fields say whether it was resolved."
         ),
     )
 
 
-class RankingHeadInfoSerializer(serializers.Serializer):
-    head = serializers.ChoiceField(choices=PUBLIC_HEAD_NAMES, help_text="Name of the head in the `ranking` field.")
-    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
-        help_text="Short label the inbox shows for the head."
+class RankingOutcomeInfoSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=RankingOutcome.choices, help_text="Name of the outcome in the `ranking` field's predictions."
     )
-    description = serializers.CharField(help_text="What the head predicts, in one sentence.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Short label the inbox shows for the outcome."
+    )
+    description = serializers.CharField(help_text="What the outcome predicts, in one sentence.")
     horizon_days = serializers.IntegerField(
         allow_null=True,
         help_text="Days after scoring within which the outcome counts. Null when the served model did not save it.",
     )
     cohort = serializers.CharField(
         allow_null=True,
-        help_text="Name of the report set the head was trained on. Null when the served model did not save it.",
+        help_text="Name of the report set the outcome was trained on. Null when the served model did not save it.",
     )
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "The head's base rate: a report's lift is its probability divided by this value. "
-            "Null when the served model has no saved base rate for the head."
+            "The outcome's base rate: a report's lift is its probability divided by this value. "
+            "Null when the served model has no saved base rate for the outcome."
         ),
     )
     readable = serializers.BooleanField(
-        help_text="True when the training run could read the head's holdout AUC. Treat other heads with caution."
+        help_text=(
+            "True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution."
+        )
     )
 
 
-class RankingHeadsResponseSerializer(serializers.Serializer):
+class RankingOutcomesResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
-        choices=RankingHeadsStatus.choices,
+        choices=RankingOutcomesStatus.choices,
         help_text=(
             "scored: the served model has scored reports in this project. unscored: no readable score yet. "
             "not_available: you cannot see the ranking model's output."
@@ -1314,7 +1321,7 @@ class RankingHeadsResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.",
     )
-    heads = RankingHeadInfoSerializer(many=True, help_text="One entry per public head, in the inbox order.")
+    outcomes = RankingOutcomeInfoSerializer(many=True, help_text="One entry per public outcome, in the inbox order.")
 
 
 def _ranking_payload(
@@ -1322,9 +1329,9 @@ def _ranking_payload(
     *,
     model: str | None = None,
     scored_at: datetime | None = None,
-    heads: list[dict] | None = None,
+    predictions: list[dict] | None = None,
 ) -> dict:
-    return {"status": status.value, "model": model, "scored_at": scored_at, "heads": heads or []}
+    return {"status": status.value, "model": model, "scored_at": scored_at, "predictions": predictions or []}
 
 
 class SignalReportPriorityUpdateSerializer(serializers.Serializer):
@@ -1936,23 +1943,29 @@ class SignalReportSerializer(serializers.ModelSerializer):
             lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
             lifts = {}
-        heads = [
-            {
-                "head": head,
-                "probability": served.scores[head],
-                "lift": lifts.get(head),
-                "readable": head in readable_heads,
-            }
-            for head in PUBLIC_HEAD_NAMES
-            if head in served.scores
-        ]
-        if not heads:
+        # Agents get rounded values because extra digits suggest precision the model does not have.
+        for_agent = is_mcp_request(request)
+        predictions = []
+        for entry in PUBLIC_OUTCOMES:
+            probability = served.scores.get(entry.model_head)
+            if probability is None:
+                continue
+            lift = lifts.get(entry.model_head)
+            predictions.append(
+                {
+                    "outcome": entry.outcome,
+                    "probability": round(probability, 2) if for_agent else probability,
+                    "lift": round(lift, 1) if for_agent and lift is not None else lift,
+                    "readable": entry.model_head in readable_heads,
+                }
+            )
+        if not predictions:
             return _ranking_payload(RankingStatus.UNSCORED)
         return _ranking_payload(
             RankingStatus.STALE if is_stale_score(score, latest_edit_at) else RankingStatus.SCORED,
             model=score.served_key,
             scored_at=score.scored_at,
-            heads=heads,
+            predictions=predictions,
         )
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
@@ -2127,7 +2140,7 @@ class SignalReportListSerializer(SignalReportSerializer):
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
             "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), "
+            "only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), "
             "then the priority as a tiebreak. The priority ranker uses the priority only. "
             "Reports without a usable score sort after scored ones. Null for every other sort."
         ),

@@ -30,14 +30,14 @@ const STRENGTH_TAG_TYPES: Record<RankingStrength, LemonTagType> = {
     unlikely: 'muted',
 }
 
-function rankingLift(ranking: Ranking, head: string): number | null {
-    const lift = rankingPrediction(ranking, head)?.lift
+function rankingLift(ranking: Ranking, outcome: string): number | null {
+    const lift = rankingPrediction(ranking, outcome)?.lift
     return typeof lift === 'number' && Number.isFinite(lift) ? lift : null
 }
 
 /** The inbox shows raw probabilities and the model key to staff only. Other users see lifts alone. */
-function rankingProbability(ranking: Ranking, head: string, isStaff: boolean): number | null {
-    const probability = isStaff ? rankingPrediction(ranking, head)?.probability : undefined
+function rankingProbability(ranking: Ranking, outcome: string, isStaff: boolean): number | null {
+    const probability = isStaff ? rankingPrediction(ranking, outcome)?.probability : undefined
     return typeof probability === 'number' ? probability : null
 }
 
@@ -50,12 +50,13 @@ function RankingHoverCard({
     active: InboxRankingScore
     isStaff: boolean
 }): JSX.Element {
-    const lift = rankingLift(ranking, active.head)
+    const lift = rankingLift(ranking, active.outcome)
     const others = INBOX_RANKING_SCORES.filter(
         (score) =>
             score !== active &&
-            rankingPrediction(ranking, score.head)?.readable &&
-            (rankingLift(ranking, score.head) !== null || rankingProbability(ranking, score.head, isStaff) !== null)
+            rankingPrediction(ranking, score.outcome)?.readable &&
+            (rankingLift(ranking, score.outcome) !== null ||
+                rankingProbability(ranking, score.outcome, isStaff) !== null)
     )
     return (
         <div className="flex max-w-96 min-w-80 flex-col gap-2 text-xs">
@@ -73,11 +74,11 @@ function RankingHoverCard({
             )}
             <div className="flex flex-col gap-1">
                 {[active, ...others].map((score) => {
-                    const scoreLift = rankingLift(ranking, score.head)
-                    const probability = rankingProbability(ranking, score.head, isStaff)
+                    const scoreLift = rankingLift(ranking, score.outcome)
+                    const probability = rankingProbability(ranking, score.outcome, isStaff)
                     return (
                         <div
-                            key={score.head}
+                            key={score.outcome}
                             className={clsx('flex items-center gap-2', score === active && 'font-bold')}
                         >
                             <span className="w-16 shrink-0">{score.name}</span>
@@ -123,8 +124,8 @@ export function ReportCardRankingTag({
     const score = rankingScoreForField(sortField)
     const isStaff = useValues(userLogic).user?.is_staff ?? false
     const ranking = report.ranking
-    const lift = ranking ? rankingLift(ranking, score.head) : null
-    const probability = ranking ? rankingProbability(ranking, score.head, isStaff) : null
+    const lift = ranking ? rankingLift(ranking, score.outcome) : null
+    const probability = ranking ? rankingProbability(ranking, score.outcome, isStaff) : null
     const state =
         !ranking ||
         ranking.status === 'unscored' ||

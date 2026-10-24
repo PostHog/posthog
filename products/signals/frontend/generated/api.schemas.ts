@@ -1432,38 +1432,38 @@ export const RankingStatusEnumApi = {
 } as const
 
 /**
- * * `open` - open
- * * `action` - action
- * * `fixed` - fixed
+ * * `open` - Open
+ * * `action` - Action
+ * * `fix` - Fix
  */
-export type HeadEnumApi = (typeof HeadEnumApi)[keyof typeof HeadEnumApi]
+export type RankingOutcomeEnumApi = (typeof RankingOutcomeEnumApi)[keyof typeof RankingOutcomeEnumApi]
 
-export const HeadEnumApi = {
+export const RankingOutcomeEnumApi = {
     Open: 'open',
     Action: 'action',
-    Fixed: 'fixed',
+    Fix: 'fix',
 } as const
 
-export interface ReportRankingHeadApi {
-    /** Outcome the model predicts. Read inbox-ranking-heads-list for what each head means.
+export interface ReportRankingPredictionApi {
+    /** Outcome the model predicts. Read inbox-ranking-outcomes-list for what each outcome means.
      *
-     * * `open` - open
-     * * `action` - action
-     * * `fixed` - fixed */
-    head: HeadEnumApi
-    /** The model's calibrated probability that the outcome happens within the head's horizon. */
+     * * `open` - Open
+     * * `action` - Action
+     * * `fix` - Fix */
+    outcome: RankingOutcomeEnumApi
+    /** The model's calibrated probability that the outcome happens within the outcome's horizon. */
     probability: number
     /**
-     * The probability divided by the head's base rate. 1.0 is an average report, 2.7 means 2.7x as likely as the average report. Compare lifts across heads, not raw probabilities. Null when the model has no saved base rate for the head.
+     * The probability divided by the outcome's base rate. 1.0 is an average report, 2.7 means 2.7x as likely as the average report. Compare lifts across outcomes, not raw probabilities. Null when the model has no saved base rate for the outcome.
      * @nullable
      */
     lift: number | null
-    /** True when the training run could read the head's holdout AUC. Treat other heads with caution. */
+    /** True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution. */
     readable: boolean
 }
 
 export interface ReportRankingApi {
-    /** scored: the heads describe the current text. stale: the title or summary changed after the text the model read, so the heads describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
      *
      * * `scored` - scored
      * * `stale` - stale
@@ -1480,8 +1480,8 @@ export interface ReportRankingApi {
      * @nullable
      */
     scored_at: string | null
-    /** The served model's predictions, one per public head that it scored. A prediction says what may happen, never what did: the report's status and its PR fields say whether it was resolved or fixed. */
-    heads: ReportRankingHeadApi[]
+    /** The served model's predictions, one per public outcome that it scored. A prediction says what may happen, never what did: the report's status and its PR fields say whether it was resolved. */
+    predictions: ReportRankingPredictionApi[]
 }
 
 export interface ReportPlanStepApi {
@@ -1677,7 +1677,7 @@ export interface SignalReportListApi {
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
     readonly plan: ReportPlanApi | null
     /**
-     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
      * @nullable
      */
     readonly inbox_merge_key: number | null
@@ -1691,7 +1691,7 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended: priority, or open, action or fixed for that head of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended: priority, or open, action or fix for that outcome of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
@@ -5123,24 +5123,25 @@ export interface PullRequestCiStatusesResponseApi {
  * * `unscored` - unscored
  * * `not_available` - not_available
  */
-export type RankingHeadsStatusEnumApi = (typeof RankingHeadsStatusEnumApi)[keyof typeof RankingHeadsStatusEnumApi]
+export type RankingOutcomesStatusEnumApi =
+    (typeof RankingOutcomesStatusEnumApi)[keyof typeof RankingOutcomesStatusEnumApi]
 
-export const RankingHeadsStatusEnumApi = {
+export const RankingOutcomesStatusEnumApi = {
     Scored: 'scored',
     Unscored: 'unscored',
     NotAvailable: 'not_available',
 } as const
 
-export interface RankingHeadInfoApi {
-    /** Name of the head in the `ranking` field.
+export interface RankingOutcomeInfoApi {
+    /** Name of the outcome in the `ranking` field's predictions.
      *
-     * * `open` - open
-     * * `action` - action
-     * * `fixed` - fixed */
-    head: HeadEnumApi
-    /** Short label the inbox shows for the head. */
+     * * `open` - Open
+     * * `action` - Action
+     * * `fix` - Fix */
+    outcome: RankingOutcomeEnumApi
+    /** Short label the inbox shows for the outcome. */
     label: string
-    /** What the head predicts, in one sentence. */
+    /** What the outcome predicts, in one sentence. */
     description: string
     /**
      * Days after scoring within which the outcome counts. Null when the served model did not save it.
@@ -5148,33 +5149,33 @@ export interface RankingHeadInfoApi {
      */
     horizon_days: number | null
     /**
-     * Name of the report set the head was trained on. Null when the served model did not save it.
+     * Name of the report set the outcome was trained on. Null when the served model did not save it.
      * @nullable
      */
     cohort: string | null
     /**
-     * The head's base rate: a report's lift is its probability divided by this value. Null when the served model has no saved base rate for the head.
+     * The outcome's base rate: a report's lift is its probability divided by this value. Null when the served model has no saved base rate for the outcome.
      * @nullable
      */
     base_rate: number | null
-    /** True when the training run could read the head's holdout AUC. Treat other heads with caution. */
+    /** True when the training run could read the outcome's holdout AUC. Treat other outcomes with caution. */
     readable: boolean
 }
 
-export interface RankingHeadsResponseApi {
+export interface RankingOutcomesResponseApi {
     /** scored: the served model has scored reports in this project. unscored: no readable score yet. not_available: you cannot see the ranking model's output.
      *
      * * `scored` - scored
      * * `unscored` - unscored
      * * `not_available` - not_available */
-    status: RankingHeadsStatusEnumApi
+    status: RankingOutcomesStatusEnumApi
     /**
      * Key of the served model, as `<model_name>@<model_version>`, from the project's latest score.
      * @nullable
      */
     model: string | null
-    /** One entry per public head, in the inbox order. */
-    heads: RankingHeadInfoApi[]
+    /** One entry per public outcome, in the inbox order. */
+    outcomes: RankingOutcomeInfoApi[]
 }
 
 export interface ReportReadStateRequestApi {
@@ -9560,7 +9561,7 @@ export type SignalsReportsListParams = {
      */
     offset?: number
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fix, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
      */
     ordering?: string
     /**
@@ -9568,11 +9569,11 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
-     * Comma-separated <head>:<lift> pairs, e.g. fixed:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <head>:<probability> pairs, e.g. fixed:0.3. Keeps reports whose served ranking probability is at least the value for every named head. Heads: open, action, fixed. Read inbox-ranking-heads-list for what each head means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -9592,7 +9593,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string
     /**
