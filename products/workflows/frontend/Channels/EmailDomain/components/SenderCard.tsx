@@ -57,12 +57,14 @@ function TestEmailButton(): JSX.Element {
     )
 }
 
-export function FirstSenderCard(): JSX.Element {
-    const { senderName, fromAddress } = useValues(emailDomainSenderLogic)
+export function SenderCard(): JSX.Element {
+    const { senderName, fromAddress, isFirstVerifiedSender } = useValues(emailDomainSenderLogic)
     return (
         <section className="rounded-lg border bg-surface-primary p-5 flex flex-col gap-4">
             <div className="flex flex-col gap-0.5">
-                <h2 className="m-0 text-lg font-semibold">Your first sender</h2>
+                <h2 className="m-0 text-lg font-semibold">
+                    {isFirstVerifiedSender ? 'Your first sender' : 'Your sender'}
+                </h2>
                 <p className="m-0 text-sm text-secondary">The name and address people see in their inbox.</p>
             </div>
             <div className="grid gap-3 @md:grid-cols-2">
