@@ -309,6 +309,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.WebPageDirectoryQuery]: {
+        name: 'Page directory',
+        description: 'See how each page earns its traffic, from search engines through to AI crawlers.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
