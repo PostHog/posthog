@@ -315,13 +315,13 @@ def _group_root(observation_id: str, parents: dict[str, str]) -> str:
 
 
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
-    """Rank candidate rows (`id`, `scanner_id`, `created_at`, `watch_rank`, `feed_viewed`) on the
-    embedding rank the watch rank consumer wrote.
+    """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `watch_rank`, `feed_viewed`)
+    on the embedding rank the watch rank consumer wrote.
 
     A pick is a row in its scanner's top fifth by score whose category is an issue. Near-duplicates
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted
-    percentile, viewed rows docked, one scanner held to a share of the picks. Every other row is
-    filler, trimmed to the same floor as the other rankers.
+    percentile, viewed rows docked, one scanner held to a share of the picks, and one session's picks
+    spaced apart. Every other row is filler, trimmed to the same floor as the other rankers.
     """
     percentiles = _scanner_percentiles(rows)
     parents = {
@@ -359,7 +359,12 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
             "similar_count": len(group_members[group]) - 1,
         }
         picks.append(
-            (score, row["created_at"], row.get("scanner_id"), WatchFeedEntry(observation_id=row["id"], reason=reason))
+            (
+                score,
+                row["created_at"],
+                row.get("scanner_id"),
+                WatchFeedEntry(observation_id=row["id"], reason=reason, session_id=row["session_id"]),
+            )
         )
     # A pick stands for its whole duplicate group, so no member returns as filler.
     return finish_feed(picks, [row for row in rows if str(row["id"]) not in grouped_ids])

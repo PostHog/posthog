@@ -2641,7 +2641,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ),
             )
             .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values("id", "scanner_id", "created_at", "scanner_result", "watch_rank", "feed_viewed")
+            .values("id", "scanner_id", "session_id", "created_at", "scanner_result", "watch_rank", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow

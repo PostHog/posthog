@@ -89,6 +89,8 @@ _FRICTION_RE = re.compile(
 class WatchFeedEntry:
     observation_id: UUID
     reason: dict[str, Any]
+    # Set only by rankers that space a recording's cards apart; None opts the entry out.
+    session_id: str | None = None
 
 
 @frozen
@@ -420,11 +422,36 @@ def spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeed
     return placed + deferred
 
 
+# Several scanners can pick one recording. Its cards stay this many places apart, so the feed never
+# shows the same session twice in a row.
+SESSION_SPACING = 5
+
+
+def space_sessions(entries: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
+    """Keep each session's cards at least SESSION_SPACING places apart, reordering but never dropping one.
+
+    A held card returns at the first place its session allows, so score order holds otherwise. A feed
+    with too few other sessions to space every repeat still ends with every card, in score order.
+    """
+    placed: list[WatchFeedEntry] = []
+    waiting: list[WatchFeedEntry] = []
+    for entry in entries:
+        waiting.append(entry)
+        while waiting:
+            recent = {placed_entry.session_id for placed_entry in placed[-(SESSION_SPACING - 1) :]} - {None}
+            ready = next((held for held in waiting if held.session_id not in recent), None)
+            if ready is None:
+                break
+            waiting.remove(ready)
+            placed.append(ready)
+    return placed + waiting
+
+
 def finish_feed(
     picks: list[tuple[float, Any, Any, WatchFeedEntry]], filler_rows: list[dict[str, Any]]
 ) -> list[WatchFeedEntry]:
-    """Order `(score, created_at, scanner_id, entry)` picks with the scanner spread, then pad with
-    `filler_rows` newest and unviewed first, trimmed to the feed's floor."""
+    """Order `(score, created_at, scanner_id, entry)` picks with the scanner spread and session spacing,
+    then pad with `filler_rows` newest and unviewed first, trimmed to the feed's floor."""
     ordered = sorted(picks, key=lambda item: (item[0], item[1]), reverse=True)
     filler: list[tuple[bool, Any, WatchFeedEntry]] = []
     for row in filler_rows:
@@ -433,7 +460,8 @@ def finish_feed(
         filler.append((not viewed, row["created_at"], entry))
     filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return _trim_filler(
-        spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]) + [entry for *_, entry in filler]
+        space_sessions(spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]))
+        + [entry for *_, entry in filler]
     )
 
 
