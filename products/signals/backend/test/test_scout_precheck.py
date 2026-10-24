@@ -26,7 +26,9 @@ from products.customer_analytics.backend.facade.testing import create_account
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
+    _CODE_PRECHECKS as CODE_PRECHECKS,
     PRECHECK_MAX_ROWS,
+    CodePrecheck,
     evaluate_scout_precheck,
     precheck_interval_minutes,
     resolve_effective_precheck,
@@ -41,6 +43,7 @@ NEW_EVENTS_QUERY = "SELECT event FROM events WHERE event = 'boom' AND timestamp 
 DASHBOARDS_QUERY = "SELECT count() FROM system.dashboards"
 SURVEYS_SKILL = "signals-scout-surveys"
 REVENUE_SKILL = "signals-scout-revenue-analytics"
+WORKFLOWS_SKILL = "signals-scout-workflows"
 ROLLOUT_PERCENT = "products.signals.backend.scout_harness.precheck.precheck_default_rollout_percent"
 
 
@@ -327,6 +330,132 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         result, capture = self._evaluate(rollout_percent=0)
 
         assert result is None
+        capture.assert_not_called()
+
+
+@time_machine.travel(NOW, tick=False)
+class TestCodeCheckSkillDefault(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMSkill.objects.create(
+            team=self.team, name=WORKFLOWS_SKILL, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(
+            team=self.team, skill_name=WORKFLOWS_SKILL, write_scopes=["hog_flow_proposal:write"]
+        )
+        self.calls: list[datetime | None] = []
+
+    def _check(self, answer: str | None | Exception, no_input: str | None | Exception) -> CodePrecheck:
+        def no_input_reason(project_id: int) -> str | None:
+            if isinstance(no_input, Exception):
+                raise no_input
+            return no_input
+
+        def run_reason(project_id: int, *, last_run_at: datetime | None, now: datetime) -> str | None:
+            self.calls.append(last_run_at)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        return CodePrecheck(no_input_reason=no_input_reason, run_reason=run_reason)
+
+    def _last_run(self, status: str, *, hours_ago: float = 24, check: bool = False, dry_run: bool = False) -> datetime:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team, title="scout run", description="", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+        )
+        run = SignalScoutRun.all_teams.create(
+            team=self.team,
+            task_run=TaskRun.objects.create(task=task, team=self.team, status=status),
+            skill_name=WORKFLOWS_SKILL,
+            skill_version=1,
+            metadata={
+                **({"check_id": "check-1"} if check else {}),
+                **({} if dry_run else {"write_scopes": ["hog_flow_proposal:write"]}),
+            },
+        )
+        SignalScoutRun.all_teams.filter(pk=run.pk).update(created_at=NOW - timedelta(hours=hours_ago))
+        return NOW - timedelta(hours=hours_ago)
+
+    def _evaluate(
+        self, answer: str | None | Exception, rollout_percent: int = 100, no_input: str | None | Exception = None
+    ):
+        with (
+            patch.dict(CODE_PRECHECKS, {WORKFLOWS_SKILL: self._check(answer, no_input)}),
+            patch(ROLLOUT_PERCENT, return_value=rollout_percent),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture") as capture,
+        ):
+            result = evaluate_scout_precheck(self.team.pk, WORKFLOWS_SKILL)
+        return result, capture
+
+    @parameterized.expand(
+        [
+            ("nothing_new", "completed", None, None, "skip", "no_new_input", None, True),
+            ("new_input", "completed", "published", None, "run", "input_changed", "published", True),
+            ("check_raises", "completed", RuntimeError("boom"), None, "error", "query_error", None, True),
+            ("last_run_failed", "failed", None, None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("last_run_stranded", "in_progress", None, None, "run", "input_changed", "last_run_unsuccessful", False),
+            ("no_input", "completed", "published", "no_input_here", "skip", "no_input", "no_input_here", False),
+            (
+                "no_input_after_a_failed_run",
+                "failed",
+                None,
+                "no_input_here",
+                "skip",
+                "no_input",
+                "no_input_here",
+                False,
+            ),
+            ("no_input_check_raises", "completed", None, RuntimeError("boom"), "error", "query_error", None, False),
+        ]
+    )
+    def test_code_check_gates_the_run(
+        self, _name, run_status, answer, no_input, outcome, reason, detail, checked
+    ) -> None:
+        last_run_at = self._last_run(run_status)
+
+        result, capture = self._evaluate(answer, no_input=no_input)
+
+        assert result is not None
+        assert (result.outcome, result.reason, result.detail, result.query_source) == (
+            outcome,
+            reason,
+            detail,
+            "skill_default",
+        )
+        assert result.should_run == (outcome != "skip")
+        assert self.calls == ([last_run_at] if checked else [])
+        assert capture.call_args.kwargs["properties"]["detail"] == detail
+
+    @parameterized.expand(
+        [
+            ("report_check", True, False, True, 24),
+            ("dry_run", False, True, True, 24),
+            ("dry_run_while_the_scout_only_previews", False, True, False, 2),
+        ]
+    )
+    def test_cut_off_skips_runs_that_could_not_act(self, _name, check, dry_run, emit, cut_off_hours_ago) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team, skill_name=WORKFLOWS_SKILL).update(emit=emit)
+        self._last_run("completed", hours_ago=24)
+        self._last_run("completed", hours_ago=2, check=check, dry_run=dry_run)
+
+        self._evaluate(None)
+
+        assert self.calls == [NOW - timedelta(hours=cut_off_hours_ago)]
+
+    @parameterized.expand([("has_input", None, "run", [None]), ("no_input", "no_input_here", "skip", [])])
+    def test_first_run(self, _name, no_input, outcome, calls) -> None:
+        result, _ = self._evaluate("first_run", no_input=no_input)
+
+        assert result is not None and result.outcome == outcome
+        assert self.calls == calls
+
+    def test_project_outside_the_rollout_does_not_check(self) -> None:
+        result, capture = self._evaluate(None, rollout_percent=0)
+
+        assert result is None
+        assert self.calls == []
         capture.assert_not_called()
 
 
