@@ -182,7 +182,7 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
     def _streamed_tile_result(self, dashboard_id: int) -> object:
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
         self.assertEqual(response.status_code, 200)
-        content = b"".join(response.streaming_content).decode()
+        content = b"".join(response.streaming_content).decode()  # type: ignore[attr-defined]
         metadata = next(
             line[6:] for line in content.split("\n") if line.startswith("data: ") and '"type":"metadata"' in line
         )
