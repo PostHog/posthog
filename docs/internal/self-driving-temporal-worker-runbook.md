@@ -182,8 +182,14 @@ The local worker runs the sweep with all other workflows.
 
 ## GitHub-blocked Self-Driving work
 
-GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed.
+The report summary workflow verifies GitHub readiness before loading signals or starting research. Reports without a usable connection stay `candidate` with a structured `research_blocked_reason`: `not_connected`, `reconnect_required`, `no_repositories`, or `temporarily_unavailable`. They do not consume a first-visible report slot or emit `signal_report_completed` until processing reaches a terminal result. `pending_input` remains available for repository ambiguity and human decisions made during research.
+
+Missing connections, revoked installations, and missing repository access suspend research until a connection or repository-access event schedules `resume_github_blocked_reports` after commit. The five-minute sweep retries only temporary failures within seven days of the first blocker; repeated attempts do not extend that deadline. Recovery processes 25 reports per batch, uses the existing stable Temporal workflow ID, checks consent and quota, and filters out signals from disabled sources. Dismissed and expired reports are excluded. Legacy reports with an exact known connection error are eligible only after a connection event and within seven days of their last research attempt. Reconnecting never resumes older work automatically.
+
+GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed; a transient refresh failure holds research for retry instead of being treated as missing setup.
 
 The self-driving config API exposes effective `github_readiness` from cached state, using the same project and eligible organization-owner connections as execution. Reading this status never calls GitHub.
+
+The bounded recovery sweep runs on the `celery` queue. Per-team report recovery runs on `long_running` because its GitHub and Temporal calls can take more than a few seconds. Installation revalidation uses the `integrations` queue. Delayed batches and retries inherit their task's queue.
 
 Research and implementation blockers each have a timestamp for the first blocked attempt. Recovery uses a seven-day window from that timestamp; subsequent readiness checks must not extend it.
