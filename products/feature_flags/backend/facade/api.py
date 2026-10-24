@@ -43,7 +43,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
@@ -414,6 +414,15 @@ class FlagRolloutRejected(Exception):
     """The rollout change does not apply to this flag (no such condition, or an unsupported config format)."""
 
 
+class FlagChangePolicyConflict(Exception):
+    """The change matches more than one approval policy, so it cannot be gated as one change request."""
+
+    def __init__(self, message: str, *, guidance: str, conflicting_policies: list) -> None:
+        super().__init__(message)
+        self.guidance = guidance
+        self.conflicting_policies = conflicting_policies
+
+
 class FlagChangeNeedsApproval(Exception):
     """An approval policy gates the change. A change request was filed and the flag is left untouched."""
 
@@ -532,6 +541,10 @@ def set_condition_rollout(
             raise FlagVersionConflict(str(error.detail)) from error
         except ApprovalRequired as error:
             raise FlagChangeNeedsApproval(error.message, change_request_id=str(error.change_request.id)) from error
+        except PolicyConflict as error:
+            raise FlagChangePolicyConflict(
+                error.message, guidance=error.guidance, conflicting_policies=error.conflicting_policies
+            ) from error
 
     return ConditionRolloutResult(
         flag_id=saved.id,

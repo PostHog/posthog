@@ -180,6 +180,15 @@ def _update_feature_flag_rollout(
             code="approval_required",
             change_request_id=error.change_request_id,
         )
+    except flags_facade.FlagChangePolicyConflict as error:
+        # The same body the flag API returns for a policy conflict.
+        raise deny(
+            str(error),
+            http_status.HTTP_400_BAD_REQUEST,
+            code="policy_conflict",
+            guidance=error.guidance,
+            conflicting_policies=error.conflicting_policies,
+        )
     except flags_facade.FlagRolloutRejected as error:
         raise deny(str(error), http_status.HTTP_400_BAD_REQUEST)
     return {

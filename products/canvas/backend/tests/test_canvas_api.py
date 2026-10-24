@@ -31,6 +31,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
+from products.approvals.backend.exceptions import PolicyConflict
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.facade import access as canvas_facade
@@ -2639,6 +2640,30 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert flag.key not in str(response.json())
+        flag.refresh_from_db()
+        assert [group["rollout_percentage"] for group in flag.filters["groups"]] == [100, 5]
+
+    def test_flag_rollout_reports_an_approval_policy_conflict_as_a_client_error(self):
+        canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
+        flag = self._rollout_flag()
+        conflict = PolicyConflict(
+            conflicting_policies=[{"action_key": "feature_flag.update"}],
+            message="This change matches multiple approval policies",
+            guidance="Split your changes into separate API calls to address each policy independently",
+        )
+
+        with patch("products.feature_flags.backend.facade.api.update_flag", side_effect=conflict):
+            response = self._invoke(
+                canvas_id,
+                "feature_flags.update_rollout",
+                {"flag_id": flag.id, "condition_index": 1, "rollout_percentage": 25, "version": flag.version},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert body["code"] == "policy_conflict"
+        assert body["guidance"] == conflict.guidance
+        assert body["conflicting_policies"] == conflict.conflicting_policies
         flag.refresh_from_db()
         assert [group["rollout_percentage"] for group in flag.filters["groups"]] == [100, 5]
 
