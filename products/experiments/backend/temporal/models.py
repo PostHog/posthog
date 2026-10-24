@@ -83,6 +83,11 @@ METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS = 60
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
+# ClickHouse max_threads for the recalc metric query and its precompute builds. Without it, recalc queries take
+# the profile default, so a burst of recalculations can take most of the CPU of a node. The kill switch keeps
+# the lower of this value and its own, so this value must stay at or below every kill-switch level.
+METRIC_CALC_MAX_THREADS = 16
+
 RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
 RECALCULATION_PROGRESS_MAX_ATTEMPTS = 3
 

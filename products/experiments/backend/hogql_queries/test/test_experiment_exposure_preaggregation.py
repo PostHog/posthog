@@ -22,6 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
@@ -282,6 +283,37 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                     settings["max_bytes_before_external_group_by"] == MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
                     for settings in settings_list
                 )
+
+    @parameterized.expand([("web_default", None), ("recalculation", 16)])
+    def test_max_threads_reaches_the_select_and_the_precompute_inserts(self, name, max_threads):
+        feature_flag = self.create_feature_flag(key=f"threads-test-{name}")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+        _create_person(distinct_ids=["threads_user"], team_id=self.team.pk)
+        self._create_exposure_event("threads_user", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+        self._enable_precomputation()
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        runner = ExperimentQueryRunner(query=query, team=self.team, max_threads=max_threads)
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query",
+            side_effect=execute_hogql_query,
+        ) as spy_select:
+            insert_settings = self._spy_insert_settings_by_table(runner.calculate)
+
+        assert spy_select.call_args.kwargs["settings"].max_threads == max_threads
+        assert set(insert_settings) == {
+            "experiment_exposures_preaggregated",
+            "experiment_metric_events_preaggregated",
+        }
+        for settings_list in insert_settings.values():
+            assert all(settings.get("max_threads") == max_threads for settings in settings_list)
 
     def test_group_aggregated_experiment_skips_precompute(self):
         # Group-aggregated builds always fail on ClickHouse (the INSERT can't resolve the
