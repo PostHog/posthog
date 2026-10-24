@@ -483,7 +483,8 @@ def set_condition_rollout(
     if flag is None:
         raise FlagNotFound(f"Feature flag {flag_id if flag_id is not None else flag_key} is not in this project.")
     if not user_can_edit_flag(flag, team=team, user=user):
-        raise FlagAccessDenied(f"You cannot edit feature flag {flag.key}.")
+        # Generic on purpose: a caller probing ids must not learn a restricted flag's key.
+        raise FlagAccessDenied("You do not have editor access to this feature flag.")
     if detect_config_format(flag.filters).kind != "v1":
         raise FlagRolloutRejected("This flag uses a configuration format that rollout changes cannot modify yet.")
 

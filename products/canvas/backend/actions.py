@@ -106,7 +106,14 @@ class _PercentageField(serializers.FloatField):
     """A JSON number from 0 to 100. Whole numbers stay ints, because some SDKs read rollout percentages as int."""
 
     def to_internal_value(self, data: Any) -> int | float:
-        if isinstance(data, bool) or not isinstance(data, int | float) or not math.isfinite(data):
+        if isinstance(data, bool) or not isinstance(data, int | float):
+            self.fail("invalid")
+        # An int beyond the float range would overflow in isfinite() and float(), so bound it first.
+        if isinstance(data, int) and data > 100:
+            self.fail("max_value", max_value=100)
+        if isinstance(data, int) and data < 0:
+            self.fail("min_value", min_value=0)
+        if not math.isfinite(data):
             self.fail("invalid")
         value = super().to_internal_value(data)
         return int(value) if value.is_integer() else value

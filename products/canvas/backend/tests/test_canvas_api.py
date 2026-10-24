@@ -2576,6 +2576,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
             ("negative_percentage", {"rollout_percentage": -5}, status.HTTP_400_BAD_REQUEST),
             ("percentage_as_string", {"rollout_percentage": "50"}, status.HTTP_400_BAD_REQUEST),
             ("percentage_as_bool", {"rollout_percentage": True}, status.HTTP_400_BAD_REQUEST),
+            ("percentage_beyond_float_range", {"rollout_percentage": 10**400}, status.HTTP_400_BAD_REQUEST),
             ("no_flag_named", {"flag_id": None}, status.HTTP_400_BAD_REQUEST),
             ("stale_version", {"version": 0}, status.HTTP_409_CONFLICT),
             ("unknown_key", {"flag_id": None, "flag_key": "missing"}, status.HTTP_404_NOT_FOUND),
@@ -2614,6 +2615,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
     def test_flag_rollout_needs_editor_access_to_the_flag(self):
         canvas_id = self._actions_canvas(verbs=("feature_flags.update_rollout",))
         flag = self._rollout_flag()
+        # A flag's creator always keeps access, so the restricted flag must belong to someone else.
+        flag.created_by = User.objects.create_and_join(self.organization, "flag-owner@example.com", None)
+        flag.save(update_fields=["created_by"])
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -2634,6 +2638,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert flag.key not in str(response.json())
         flag.refresh_from_db()
         assert [group["rollout_percentage"] for group in flag.filters["groups"]] == [100, 5]
 
