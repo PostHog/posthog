@@ -17,7 +17,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
 from .ai.human_outcome import maybe_record_human_outcome
-from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
+from .cache import clear_typing, invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
@@ -200,6 +200,8 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)
+            # The message the person typed is now in the thread, so stop the indicator before the TTL ends.
+            clear_typing(team_id, item_id, "agent" if is_team_message else "customer")
 
             if is_team_message and created_by_id:
                 try:

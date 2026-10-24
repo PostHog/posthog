@@ -59,6 +59,8 @@ export interface ChatViewProps {
     extraActions?: React.ReactNode
     /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
     threadExtras?: TimelineExtra[]
+    /** Status line above the composer, e.g. that the customer is typing. Leave undefined to reserve no space. */
+    typingIndicator?: string | null
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
     /** Blocks sending entirely, including private notes (e.g. the user lacks edit access) */
@@ -117,6 +119,7 @@ export function ChatView({
     onDraftChange,
     isPrivate,
     threadExtras,
+    typingIndicator,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
@@ -182,6 +185,11 @@ export function ChatView({
                 aiDraftApplying={aiDraftApplying}
                 onApplyAiDraft={onApplyAiDraft}
             />
+            {typingIndicator !== undefined && (
+                <div className="h-5 shrink-0 truncate px-1 text-xs text-secondary italic" aria-live="polite">
+                    {typingIndicator}
+                </div>
+            )}
             <div className="border-t pt-3 shrink-0">
                 <MessageInput
                     onSendMessage={onSendMessage}

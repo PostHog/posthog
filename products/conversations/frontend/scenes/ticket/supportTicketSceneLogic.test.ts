@@ -71,6 +71,8 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsTicketsTypingCreate: jest.fn().mockResolvedValue({ customer_typing: false }),
+    conversationsTicketsTypingRetrieve: jest.fn().mockResolvedValue({ customer_typing: false }),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -84,6 +86,7 @@ import {
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsTypingCreate,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
@@ -1304,6 +1307,47 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic agent typing signal', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const typingCreateMock = conversationsTicketsTypingCreate as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        jest.useFakeTimers()
+        typingCreateMock.mockClear()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        jest.useRealTimers()
+    })
+
+    it('throttles typing signals for widget replies', () => {
+        logic.actions.setTicket(makeTicket())
+        logic.actions.setDraftContent('H')
+        logic.actions.setDraftContent('He')
+        logic.actions.setDraftContent('Hel')
+        expect(typingCreateMock).toHaveBeenCalledTimes(1)
+        expect(typingCreateMock).toHaveBeenCalledWith('997', 'ticket-1')
+
+        jest.advanceTimersByTime(4000)
+        logic.actions.setDraftContent('Hell')
+        expect(typingCreateMock).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+        ['a private note', { channel_source: 'widget' }, true],
+        ['an email reply', { channel_source: 'email' }, false],
+    ])('sends no typing signal for %s', (_, ticketOverrides, isPrivate) => {
+        logic.actions.setTicket({ ...makeTicket(), ...ticketOverrides } as Ticket)
+        logic.actions.setDraftIsPrivate(isPrivate)
+        logic.actions.setDraftContent('Hello')
+        expect(typingCreateMock).not.toHaveBeenCalled()
     })
 })
 

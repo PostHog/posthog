@@ -65,6 +65,8 @@ import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsTypingCreate,
+    conversationsTicketsTypingRetrieve,
 } from 'products/conversations/frontend/generated/api'
 import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
@@ -96,6 +98,8 @@ const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
+/** Must stay below the server typing TTL, so the flag stays on while the operator keeps typing. */
+const AGENT_TYPING_SIGNAL_INTERVAL_MS = 4000
 const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
 
 /**
@@ -299,6 +303,7 @@ export interface supportTicketSceneLogicValues {
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     composerPrefillAt: number
+    customerTyping: boolean
     deleteDisabledReason: string | undefined
     deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
     discussionsEnabled: boolean
@@ -376,6 +381,9 @@ export interface supportTicketSceneLogicActions {
         value: true
     }
     incrementUnreadCustomerCount: () => {
+        value: true
+    }
+    loadCustomerTyping: () => {
         value: true
     }
     loadFullEmail: (messageId: string) => string
@@ -493,6 +501,9 @@ export interface supportTicketSceneLogicActions {
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
+    }
+    setCustomerTyping: (typing: boolean) => {
+        typing: boolean
     }
     setDraftContent: (content: string | JSONContent | null) => {
         content: string | JSONContent | null
@@ -658,6 +669,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         appendMessage: (message: CommentType) => ({ message }),
 
         pollDiscussionThread: true,
+
+        loadCustomerTyping: true,
+        setCustomerTyping: (typing: boolean) => ({ typing }),
 
         applyAiDraft: (message: ChatMessage) => ({ message }),
         setAiDraftApplying: (applying: boolean) => ({ applying }),
@@ -967,6 +981,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as string | JSONContent | null,
             {
                 setDraftContent: (_, { content }) => content,
+            },
+        ],
+        customerTyping: [
+            false,
+            {
+                setCustomerTyping: (_, { typing }) => typing,
             },
         ],
         draftIsPrivate: [
@@ -1361,6 +1381,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadMessages()
+                        actions.loadCustomerTyping()
                         // A discussion is a slower conversation than the ticket itself, and a Slack
                         // reply landing a few seconds late costs nothing — so it rides the same timer
                         // at a fraction of the rate rather than starting a second one.
@@ -1375,6 +1396,44 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
                 actions.setTicketLoading(false)
+            }
+        },
+        loadCustomerTyping: async () => {
+            const ticket = values.ticket
+            // Only the widget reports typing; other channels have no live customer composer.
+            if (ticket?.channel_source !== 'widget') {
+                return
+            }
+            try {
+                const { customer_typing } = await conversationsTicketsTypingRetrieve(
+                    String(getCurrentTeamId()),
+                    ticket.id
+                )
+                actions.setCustomerTyping(customer_typing)
+            } catch {
+                // The indicator is a hint. A failed poll keeps the last known state until the next tick.
+            }
+        },
+        setCustomerTyping: ({ typing }) => {
+            if (typing && !cache.typingIndicatorShown) {
+                cache.typingIndicatorShown = true
+                posthog.capture('support typing indicator shown', { side: 'agent' })
+            }
+        },
+        setDraftContent: async ({ content }) => {
+            const ticket = values.ticket
+            if (!content || values.draftIsPrivate || ticket?.channel_source !== 'widget') {
+                return
+            }
+            const now = Date.now()
+            if (now - (cache.lastAgentTypingSignalAt ?? 0) < AGENT_TYPING_SIGNAL_INTERVAL_MS) {
+                return
+            }
+            cache.lastAgentTypingSignalAt = now
+            try {
+                await conversationsTicketsTypingCreate(String(getCurrentTeamId()), ticket.id)
+            } catch {
+                // Best effort. The next keystroke after the interval tries again.
             }
         },
         loadPersonSuccess: async () => {
