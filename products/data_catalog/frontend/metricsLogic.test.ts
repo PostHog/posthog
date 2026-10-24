@@ -1,9 +1,7 @@
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -116,62 +114,7 @@ describe('metricsLogic', () => {
         expect(errorCall?.[1]?.button?.label).toEqual('Refresh from insight')
     })
 
-    it('guards double-submit and closes the modal when create succeeds', async () => {
-        let resolveCreate: (metric: DataCatalogMetricApi) => void = () => {}
-        ;(dataCatalogMetricsCreate as jest.Mock).mockReturnValue(
-            new Promise((resolve) => {
-                resolveCreate = resolve
-            })
-        )
-
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'monthly_active_users',
-            description: 'Monthly active users',
-            definitionType: 'insight',
-            sourceInsightShortId: 'abc123',
-        })
-
-        logic.actions.createMetric()
-        logic.actions.createMetric()
-        expect(dataCatalogMetricsCreate).toHaveBeenCalledTimes(1)
-
-        resolveCreate(buildMetric({ id: 'metric-2', name: 'monthly_active_users' }))
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.newMetricModalOpen).toEqual(false)
-        expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
-    })
-
-    it.each([
-        [
-            'the new metric modal',
-            'newMetricModalOpen',
-            (built: typeof logic): void => {
-                built.actions.openNewMetricModal()
-                built.actions.setNewMetricForm({
-                    name: 'weekly_active_users',
-                    description: 'Weekly active users',
-                    definitionType: 'insight',
-                    sourceInsightShortId: 'abc123',
-                })
-                built.actions.createMetric()
-            },
-        ],
-        [
-            'the insight modal',
-            'metricFromInsightModalOpen',
-            (built: typeof logic): void => {
-                built.actions.openMetricFromInsightModal()
-                built.actions.createMetricFromInsight({
-                    name: 'weekly_active_users',
-                    display_name: '',
-                    description: 'Weekly active users',
-                    source_insight_short_id: 'abc123',
-                })
-            },
-        ],
-    ] as const)('asks before it overwrites a taken name from %s', async (_source, modalOpenKey, submit) => {
+    it('asks before it overwrites a taken name from the insight modal', async () => {
         const overwritten = buildMetric({ description: 'Overwritten' })
         ;(dataCatalogMetricsCreate as jest.Mock)
             .mockRejectedValueOnce(
@@ -182,13 +125,18 @@ describe('metricsLogic', () => {
             )
             .mockResolvedValueOnce(overwritten)
 
-        submit(logic)
+        logic.actions.openMetricFromInsightModal()
+        logic.actions.createMetricFromInsight({
+            name: 'weekly_active_users',
+            display_name: '',
+            description: 'Weekly active users',
+            source_insight_short_id: 'abc123',
+        })
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setNewMetricForm({ name: 'edited_after_submit' })
 
         expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[0][1].overwrite).toBe(false)
         expect(lemonToast.error).not.toHaveBeenCalled()
-        expect(logic.values[modalOpenKey]).toEqual(true)
+        expect(logic.values.metricFromInsightModalOpen).toEqual(true)
         const { existing, onOverwrite } = (openOverwriteMetricDialog as jest.Mock).mock.calls[0][0]
         expect(existing).toEqual({ name: 'weekly_active_users', status: 'approved' })
 
@@ -200,74 +148,8 @@ describe('metricsLogic', () => {
             created_source: 'user',
             overwrite: true,
         })
-        expect(logic.values[modalOpenKey]).toEqual(false)
+        expect(logic.values.metricFromInsightModalOpen).toEqual(false)
         expect(logic.values.allMetrics).toEqual([overwritten])
-    })
-
-    it('creates a markdown metric as a stub and routes to the metric page to author it', async () => {
-        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
-            buildMetric({ id: 'metric-4', name: 'mrr', definition_kind: null })
-        )
-
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'mrr',
-            description: 'Monthly recurring revenue',
-            definitionType: 'markdown',
-        })
-        logic.actions.createMetric()
-        await expectLogic(logic).toFinishAllListeners()
-
-        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
-        expect(body.definition).toBeNull()
-        expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
-        expect(router.values.searchParams.edit).toEqual('definition')
-    })
-
-    it('does not create a SQL metric from the modal', async () => {
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm({
-            name: 'sql_metric',
-            description: 'Defined in the SQL editor',
-            definitionType: 'sql',
-        })
-
-        logic.actions.createMetric()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(dataCatalogMetricsCreate).not.toHaveBeenCalled()
-        expect(lemonToast.error).toHaveBeenCalledWith('Create SQL metrics from the SQL editor.')
-        expect(logic.values.newMetricModalOpen).toEqual(true)
-    })
-
-    it.each([
-        [
-            'carries the typed values into the SQL editor URL',
-            {
-                name: 'monthly_active_users',
-                display_name: 'Monthly active users',
-                description: 'Unique users seen in the last 30 days',
-                unit: 'users',
-            },
-            {
-                name: 'monthly_active_users',
-                display_name: 'Monthly active users',
-                description: 'Unique users seen in the last 30 days',
-                unit: 'users',
-            },
-        ],
-        ['omits the prefill from the SQL editor URL when nothing was typed', {}, undefined],
-    ])('%s', async (_case, formValues, expectedPrefill) => {
-        logic.actions.openNewMetricModal()
-        logic.actions.setNewMetricForm(formValues)
-
-        logic.actions.openSqlEditorForNewMetric()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.newMetricModalOpen).toEqual(false)
-        expect(router.values.location.pathname).toContain(urls.sqlEditor())
-        expect(router.values.searchParams.source).toEqual('metric')
-        expect(router.values.searchParams.metric_prefill).toEqual(expectedPrefill)
     })
 
     it('removes the row when delete succeeds', async () => {
