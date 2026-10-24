@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_batchimport\n            SET lease_id = NULL, leased_until = NULL\n            WHERE id = $1 AND lease_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bdd2508c7a5b598f1556bf01b684f9c962a6386df33569b5fa7295f9e844a953"
+}
