@@ -38,6 +38,8 @@ MAX_OWNED = 20
 MAX_WATCHED = 20
 # An object opened on fewer days than this is a visit, not something the person keeps an eye on.
 MIN_WATCHED_OPEN_DAYS = 3
+# The file system refers to these by short id, the activity log by primary key.
+_SHORT_ID_SCOPES: frozenset[str] = frozenset({"Insight", "Notebook", "SessionRecordingPlaylist"})
 
 _SNAKE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _TAG_SEPARATORS = re.compile(r"[\s/-]+")
@@ -111,6 +113,12 @@ def _tag_product(tag: str) -> Product | None:
     return Product(key) if key in Product._value2member_map_ else None
 
 
+def _object_id(item: ActivityItem) -> str | None:
+    if item.scope in _SHORT_ID_SCOPES and item.short_id:
+        return item.short_id
+    return item.item_id
+
+
 def _ranked(counts: Counter[Product]) -> tuple[str, ...]:
     return tuple(str(product) for product, _ in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
@@ -124,14 +132,14 @@ def compute_fields(
     the objects opened on `MIN_WATCHED_OPEN_DAYS` or more days, the most opened first. A product is in
     `works_in` when the person changed something in it or tagged a task with it, and in `visits` when
     they only opened its pages or objects."""
-    kept, _ = person_activity(activity, Counter())
+    kept, _ = person_activity(activity, Counter(), keep_ticket_bursts=True)
     edits: dict[tuple[str, str], list[ActivityItem]] = {}
     work_days: dict[Product, set[datetime.date]] = {}
     for item in kept:
         if (product := scope_product(item.scope)) is not None:
             work_days.setdefault(product, set()).add(_day(item.at))
-        if item.item_id:
-            edits.setdefault((item.scope, item.item_id), []).append(item)
+        if object_id := _object_id(item):
+            edits.setdefault((item.scope, object_id), []).append(item)
     work: Counter[Product] = Counter({product: len(days) for product, days in work_days.items()})
 
     owned_ranked = sorted(
@@ -184,18 +192,22 @@ def compute_fields(
         visit[product] += len(days)
 
     candidates.sort(key=lambda view: (-len(set(view.days)), -view.at.timestamp(), view.type, view.ref))
-    watched = [
-        WatchedObject(
-            ref=f"o{len(owned) + index + 1}",
-            type=view.type,
-            id=view.ref,
-            name=_name(view.name or ""),
-            open_days=len(set(view.days)),
-            last_at=_day(view.at).isoformat(),
-            not_theirs=view.not_theirs,
+    refs = {(entry.type, entry.id): entry.ref for entry in owned}
+    watched: list[WatchedObject] = []
+    for view in candidates[:MAX_WATCHED]:
+        if (view.type, view.ref) not in refs:
+            refs[(view.type, view.ref)] = f"o{len(refs) + 1}"
+        watched.append(
+            WatchedObject(
+                ref=refs[(view.type, view.ref)],
+                type=view.type,
+                id=view.ref,
+                name=_name(view.name or ""),
+                open_days=len(set(view.days)),
+                last_at=_day(view.at).isoformat(),
+                not_theirs=view.not_theirs,
+            )
         )
-        for index, view in enumerate(candidates[:MAX_WATCHED])
-    ]
     page_list = [
         PageVisits(ref=f"p{index + 1}", product=str(product), open_days=len(days), last_at=_day(at).isoformat())
         for index, (product, (at, days)) in enumerate(

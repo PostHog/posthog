@@ -69,6 +69,7 @@ def _change(
     intent: str | None = None,
     item_id: str | None = None,
     credential_type: str | None = None,
+    short_id: str | None = None,
 ) -> ActivityItem:
     return ActivityItem(
         at=_at(days_ago),
@@ -79,6 +80,7 @@ def _change(
         intent=intent,
         item_id=item_id,
         credential_type=credential_type,
+        short_id=short_id,
     )
 
 
@@ -544,11 +546,16 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
 
 
 def test_compute_fields_split_owned_watched_and_visited() -> None:
-    activity = [_change("FeatureFlag", "updated", "new-checkout", days_ago=day, item_id="7") for day in (1, 2, 3)] + [
-        _change("Dashboard", "created", "Growth overview", days_ago=2, item_id="9"),
-        _change("Insight", "updated", "Signup funnel", client="scout:product-analytics", item_id="1"),
-        _change("PersonalAPIKey", "created", "CI deploy key", item_id="k1"),
-    ]
+    activity = (
+        [_change("FeatureFlag", "updated", "new-checkout", days_ago=day, item_id="7") for day in (1, 2, 3)]
+        + [
+            _change("Dashboard", "created", "Growth overview", days_ago=2, item_id="9"),
+            _change("Insight", "updated", "Signup funnel", client="scout:product-analytics", item_id="1"),
+            _change("PersonalAPIKey", "created", "CI deploy key", item_id="k1"),
+            _change("Insight", "updated", "Weekly signups", item_id="42", short_id="abc"),
+        ]
+        + [_change("Ticket", "updated", f"Ticket #{n}", item_id=f"t{n}") for n in (1, 2, 3)]
+    )
     views = [
         _view("insight", "abc", "Weekly signups", days=4, not_theirs=True),
         _view("insight", "def", "Churn by plan", days=2),
@@ -572,6 +579,27 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             },
             {
                 "ref": "o2",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "edit_days": 1,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            *(
+                {
+                    "ref": f"o{n + 2}",
+                    "type": "ticket",
+                    "id": f"t{n}",
+                    "name": f"Ticket #{n}",
+                    "edit_days": 1,
+                    "last_at": "2026-10-18",
+                    "created": False,
+                }
+                for n in (1, 2, 3)
+            ),
+            {
+                "ref": "o6",
                 "type": "dashboard",
                 "id": "9",
                 "name": "Growth overview",
@@ -582,7 +610,7 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
         ],
         "watched": [
             {
-                "ref": "o3",
+                "ref": "o2",
                 "type": "insight",
                 "id": "abc",
                 "name": "Weekly signups",
@@ -592,7 +620,10 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             }
         ],
         "pages": [{"ref": "p1", "product": "session_replay", "open_days": 1, "last_at": "2026-10-18"}],
-        "products": {"works_in": ["feature_flags", "dashboards", "product_analytics"], "visits": ["session_replay"]},
+        "products": {
+            "works_in": ["feature_flags", "product_analytics", "dashboards", "support"],
+            "visits": ["session_replay"],
+        },
         "task_count": 1,
     }
 

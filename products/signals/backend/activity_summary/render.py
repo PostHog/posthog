@@ -152,6 +152,7 @@ class Product(StrEnum):
     CUSTOMER_ANALYTICS = "customer_analytics"
     INBOX = "inbox"
     CANVASES = "canvases"
+    SUPPORT = "support"
 
 
 # A view log row of this type records a page, and its ref is the frontend scene id.
@@ -187,6 +188,7 @@ _SCENE_PRODUCTS: tuple[tuple[str, Product, str], ...] = (
     ("CustomerAnalytics", Product.CUSTOMER_ANALYTICS, "Customer analytics"),
     ("Inbox", Product.INBOX, "Inbox"),
     ("Canvas", Product.CANVASES, "Canvases"),
+    ("SupportTicket", Product.SUPPORT, "Support"),
 )
 # Activity log scopes that no scene id prefix covers. A scope otherwise maps like a scene id.
 _SCOPE_PRODUCTS: tuple[tuple[str, Product], ...] = (
@@ -196,6 +198,7 @@ _SCOPE_PRODUCTS: tuple[tuple[str, Product], ...] = (
     ("LLM|Evaluation", Product.AI_OBSERVABILITY),
     ("Log", Product.LOGS),
     ("Signal", Product.INBOX),
+    ("Ticket", Product.SUPPORT),
 )
 
 
@@ -289,6 +292,8 @@ class ActivityItem:
     item_id: str | None = None
     # The credential that authenticated the change, such as "personal_api_key". None outside a request.
     credential_type: str | None = None
+    # The short id in the row's detail. The file system refers to some objects, such as insights, by it.
+    short_id: str | None = None
 
 
 @frozen
@@ -692,9 +697,14 @@ def _count_line(rows: Sequence[ActivityItem], text: str, limits: RenderLimits) -
     return _ActivityLine(at=latest, text=cap_line(line, limits.activity_line_chars), created=False, rows=len(rows))
 
 
-def _collapse_tickets(
-    items: Sequence[ActivityItem], drops: Counter[str], limits: RenderLimits
-) -> tuple[list[ActivityItem], list[_ActivityLine]]:
+@frozen
+class _TicketBursts:
+    other_rows: list[ActivityItem]
+    lines: list[_ActivityLine]
+    burst_rows: list[ActivityItem]
+
+
+def _collapse_tickets(items: Sequence[ActivityItem], drops: Counter[str], limits: RenderLimits) -> _TicketBursts:
     """One counted line for each UTC day and kind of change that touches `MIN_TICKET_BURST` or more tickets."""
     groups: dict[tuple[datetime.date, str], list[ActivityItem]] = {}
     for item in items:
@@ -709,7 +719,11 @@ def _collapse_tickets(
         burst.update(id(row) for row in rows)
         lines.append(_count_line(rows, f"{activity} {tickets} support tickets", limits))
         drops[Drop.TICKET_BURST] += len(rows) - 1
-    return [item for item in items if id(item) not in burst], lines
+    return _TicketBursts(
+        other_rows=[item for item in items if id(item) not in burst],
+        lines=lines,
+        burst_rows=[item for item in items if id(item) in burst],
+    )
 
 
 def _bulk_runs(rows: Sequence[ActivityItem]) -> list[list[ActivityItem]]:
@@ -764,20 +778,26 @@ def _drop_team_settings(items: Sequence[ActivityItem], drops: Counter[str]) -> l
 
 
 def person_activity(
-    items: Iterable[ActivityItem], drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS
+    items: Iterable[ActivityItem],
+    drops: Counter[str],
+    limits: RenderLimits = DEFAULT_LIMITS,
+    keep_ticket_bursts: bool = False,
 ) -> tuple[list[ActivityItem], list[_ActivityLine]]:
     """The rows that are the person's own work, and one counted line for each ticket burst or bulk job.
 
-    The row rules run first, then the ticket bursts, so a ticket burst is not taken for a bulk job."""
+    The row rules run first, then the ticket bursts, so a ticket burst is not taken for a bulk job.
+    With `keep_ticket_bursts`, the rows of each ticket burst stay in the result as well: a burst is
+    one line in the prompt, but each ticket is still the person's work."""
     kept: list[ActivityItem] = []
     for item in items:
         if (reason := _row_drop(item)) is not None:
             drops[reason] += 1
         else:
             kept.append(item)
-    kept, ticket_lines = _collapse_tickets(kept, drops, limits)
-    kept, bulk_lines = _collapse_bulk(kept, drops, limits)
-    return _drop_team_settings(kept, drops), ticket_lines + bulk_lines
+    tickets = _collapse_tickets(kept, drops, limits)
+    kept, bulk_lines = _collapse_bulk(tickets.other_rows, drops, limits)
+    kept = _drop_team_settings(kept, drops)
+    return (kept + tickets.burst_rows if keep_ticket_bursts else kept), tickets.lines + bulk_lines
 
 
 def activity_units(
