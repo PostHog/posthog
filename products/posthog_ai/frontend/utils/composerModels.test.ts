@@ -27,8 +27,8 @@ describe('composerModels', () => {
     const CATALOGUE: ModelChoiceApi[] = [
         {
             runtime_adapter: 'claude',
-            model: 'claude-opus-4-8',
-            display_name: 'Claude Opus 4.8',
+            model: 'claude-opus-5',
+            display_name: 'Claude Opus 5',
             supported_efforts: ['low', 'medium', 'high'],
         },
         {
@@ -43,7 +43,7 @@ describe('composerModels', () => {
         [null, 'gpt-6.1-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
         ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
-        ['claude-opus-4-8', 'gpt-6.1-sol'],
+        ['claude-opus-5', 'gpt-6.1-sol'],
         ['retired-model', 'gpt-6.1-sol'],
     ])('selects the Codex default with preference %s', (preference, expected) => {
         const catalogue: ModelChoiceApi[] = [
@@ -92,7 +92,7 @@ describe('composerModels', () => {
             'gpt-6-sol',
         ],
         [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
-        [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
+        [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-5'],
         [[], RuntimeAdapterEnumApi.Codex, null],
     ])('uses an available model when no preferred default is available', (catalogue, adapter, expected) => {
         expect(getDefaultModelForRuntimeAdapter(catalogue, adapter, 'retired-model')).toBe(expected)
@@ -102,7 +102,7 @@ describe('composerModels', () => {
     // runtime validates permission modes against its own vocabulary, so `bypassPermissions` has to become
     // `full-access` on the way out. Getting either wrong is a request the backend rejects.
     it.each([
-        ['claude-opus-4-8', 'claude', InitialPermissionModeEnumApi.BypassPermissions],
+        ['claude-opus-5', 'claude', InitialPermissionModeEnumApi.BypassPermissions],
         ['gpt-5.6-luna', 'codex', CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess],
     ])('%s launches on %s', (model, expectedAdapter, expectedMode) => {
         const request = buildRunCreateRequest(
@@ -125,7 +125,7 @@ describe('composerModels', () => {
     // The backend and the desktop app both fold them onto the bare id; without this the web alone reads a stored
     // `anthropic/...` run as an unknown model — raw id for a name, and the generic effort floor.
     it.each([
-        ['anthropic/claude-opus-4-8', 'Claude Opus 4.8'],
+        ['anthropic/claude-opus-5', 'Claude Opus 5'],
         ['openai/gpt-5.6-luna', 'GPT-5.6 Luna'],
     ])('resolves the provider-qualified id %s like the bare one', (qualified, expectedLabel) => {
         const bare = qualified.split('/')[1]
@@ -243,7 +243,7 @@ describe('composerModels', () => {
     // than a hardcoded list — a runtime the gateway stops serving must stop being offered.
     it.each([
         [TaskRuntimeEnumApi.Acp, ['claude', 'codex'], ['gpt-5.6-luna']],
-        [TaskRuntimeEnumApi.Pi, [], ['claude-opus-4-8', 'gpt-5.6-luna']],
+        [TaskRuntimeEnumApi.Pi, [], ['claude-opus-5', 'gpt-5.6-luna']],
     ])("derives the harness list and each harness's models from the catalogue for %s", (runtime, adapters, models) => {
         expect(listRuntimeAdapters(CATALOGUE, runtime)).toEqual(adapters)
         expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex, runtime).map((o) => o.model)).toEqual(
@@ -268,7 +268,7 @@ describe('composerModels', () => {
             expect(pickerModels(FULL, 'anthropic/claude-opus-4-7')).toEqual(FULL)
         })
 
-        it.each([null, undefined, 'claude-opus-4-8', 'model-no-catalogue-knows'])(
+        it.each([null, undefined, 'claude-opus-5', 'model-no-catalogue-knows'])(
             'drops every retired model for %s',
             (selected: string | null | undefined) => {
                 expect(pickerModels(FULL, selected)).toEqual(CATALOGUE)
