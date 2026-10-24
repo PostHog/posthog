@@ -31,6 +31,7 @@ from django.db.models import (
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Cast, Coalesce
+from django.db.models.lookups import In
 from django.utils import timezone
 
 import structlog
@@ -1565,8 +1566,7 @@ class SignalReportViewSet(
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
         if self.action != "list" or self._bool_query_param("include_unlisted") is True:
             return queryset
-        hidden_ids = inbox_hidden_report_ids(self.team_id)
-        return queryset.exclude(id__in=hidden_ids) if hidden_ids else queryset
+        return queryset.exclude(In(Cast("id", output_field=CharField()), inbox_hidden_report_ids(self.team_id)))
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")

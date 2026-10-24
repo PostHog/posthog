@@ -8,7 +8,7 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from django.db.models import Q, QuerySet
+from django.db.models import CharField, F, Func, Q, QuerySet, Value
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
@@ -136,21 +136,27 @@ def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
     return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
 
 
-def inbox_hidden_report_ids(team_id: int) -> list[str]:
-    """The reports kept out of the inbox because the scout that authored them turned off its inbox destination.
+def inbox_hidden_report_ids(team_id: int) -> QuerySet[SignalScoutRun]:
+    """The ids of the reports kept out of the inbox because the scout that authored them turned off its inbox destination.
 
     Only authorship counts, read from the config's current setting: an opted-out scout that edits
     another source's report does not hide it, and turning the scout back on lists its reports again.
-    The list endpoint resolves the ids once and excludes them by primary key. A correlated check
-    on the report queryset probes the run table once for each report in the team, before the page
-    limit applies.
+    Compare it with the report id cast to text. The subquery does not reference the outer row, so
+    Postgres evaluates it once per query. A correlated check probes the run table once for each
+    report in the team, before the page limit applies.
     """
-    hidden: set[str] = set()
-    for emitted in (
-        _inbox_opted_out_runs(team_id).exclude(emitted_report_ids=[]).values_list("emitted_report_ids", flat=True)
-    ):
-        hidden.update(emitted or [])
-    return sorted(hidden)
+    # Drop JSON nulls first: one NULL in the right side of a NOT IN makes the exclusion match every report.
+    non_null_ids = Func(
+        F("emitted_report_ids"),
+        Func(Value("$[*] ? (@ != null)"), function="", template="%(expressions)s::jsonpath"),
+        function="jsonb_path_query_array",
+    )
+    return (
+        _inbox_opted_out_runs(team_id)
+        .exclude(emitted_report_ids=[])
+        .annotate(report_id=Func(non_null_ids, function="jsonb_array_elements_text", output_field=CharField()))
+        .values("report_id")
+    )
 
 
 def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:

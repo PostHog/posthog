@@ -423,7 +423,7 @@ class TestSignalReportListAPI(APIBaseTest):
             scout_config=config,
             skill_name=config.skill_name,
             skill_version=1,
-            emitted_report_ids=[str(authored.id)],
+            emitted_report_ids=[str(authored.id), None],
             edited_report_ids=[str(edited_only.id)],
         )
 
@@ -434,8 +434,8 @@ class TestSignalReportListAPI(APIBaseTest):
         retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
 
         assert report_list_sql
-        # A per-report probe of the scout run table runs before the page limit and slows every inbox load.
-        assert not any("signals_signalscoutrun" in sql for sql in report_list_sql)
+        # A per-report containment probe of the scout run table runs before the page limit and slows every inbox load.
+        assert not any("@>" in sql for sql in report_list_sql)
         assert default_ids == {str(listed.id), str(edited_only.id)}
         assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
         assert retrieve_response.status_code == status.HTTP_200_OK
@@ -2182,7 +2182,10 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            response = self.client.get(
+                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
+            )
 
         assert response.status_code == status.HTTP_200_OK
         # All association subqueries must stay team-scoped. Without the scope the planner can
@@ -2229,7 +2232,10 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="No PR report")
 
         with patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products:
-            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            response = self.client.get(
+                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"count": 3, "next": None, "previous": None, "results": []}
