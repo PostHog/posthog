@@ -8357,10 +8357,10 @@ Today (8): `alert_conditions`, `alert_policies`, `entities`, `logs`, `page_views
 
 Diffed against: <https://docs.newrelic.com/attribute-dictionary/>
 
-- [ ] `NrAiIncident` — incident open/close history for the alert conditions already synced - the state-transition table that makes alert_conditions queryable (high)
+- [x] `NrAiIncident` — incident open/close history for the alert conditions already synced - the state-transition table that makes alert_conditions queryable (high)
 - [ ] `Metric` — New Relic's dimensional metric timeslice data, the headline data type behind every APM/infra chart (high)
-- [ ] `JavaScriptError` — browser error events; the error-side counterpart to page_views, same way transaction_errors pairs with transactions (high)
-- [ ] `NrAiIssue` — correlated issue grouping over incidents, needed for MTTA/MTTR analysis (medium)
+- [x] `JavaScriptError` — browser error events; the error-side counterpart to page_views, same way transaction_errors pairs with transactions (high)
+- [x] `NrAiIssue` — correlated issue grouping over incidents, needed for MTTA/MTTR analysis (medium)
 - [ ] `Deployment / ChangeTrackingEvent` — deployment and change markers to correlate releases with transaction/error regressions (medium)
 - [ ] `MobileSession / MobileCrash / MobileRequest` — mobile monitoring events; no mobile coverage at all today (medium)
 - [ ] `SyntheticCheck / SyntheticRequest` — synthetic monitor results for uptime and SLA reporting (medium)
