@@ -1,13 +1,21 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
-from django.test import TestCase
+from django.db import transaction
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+SCOPED_CAPTURE = "products.workflows.backend.models.hog_flow.hog_flow.ph_scoped_capture"
+
+
+def captured_events(scoped_capture: MagicMock) -> list[dict]:
+    capture = scoped_capture.return_value.__enter__.return_value
+    return [call.kwargs for call in capture.call_args_list]
 
 
 class TestHogFlow(TestCase):
@@ -17,6 +25,59 @@ class TestHogFlow(TestCase):
         self.team = team
         self.user = user
         self.org = org
+
+    @patch(SCOPED_CAPTURE)
+    def test_creation_reports_once_after_commit(self, scoped_capture: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            flow = HogFlow.objects.create(
+                name="Welcome",
+                team=self.team,
+                created_by=self.user,
+                origin_product="broadcasts",
+                actions=[{"type": "trigger"}],
+            )
+            flow.name = "Renamed"
+            flow.origin_product = "loops"
+            flow.actions = []
+            flow.save()
+            scoped_capture.assert_not_called()
+
+        events = captured_events(scoped_capture)
+        assert len(events) == 1
+        assert events[0]["event"] == "workflows workflow created"
+        assert events[0]["distinct_id"] == str(self.team.uuid)
+        assert events[0]["groups"]["project"] == str(self.team.uuid)
+        assert events[0]["groups"]["organization"] == str(self.org.id)
+        assert events[0]["properties"] == {
+            "workflow_id": str(flow.id),
+            "origin_product": "broadcasts",
+            "actions_count": 1,
+        }
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    @patch(SCOPED_CAPTURE)
+    def test_creation_reports_from_the_instance_region(self, scoped_capture: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            HogFlow.objects.create(name="Welcome", team=self.team)
+        scoped_capture.assert_called_once_with(event_region="EU")
+
+    @patch(SCOPED_CAPTURE, side_effect=RuntimeError("Analytics unavailable"))
+    def test_analytics_failure_does_not_fail_creation(self, scoped_capture: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            flow = HogFlow.objects.create(name="Welcome", team=self.team)
+        scoped_capture.assert_called_once()
+        assert HogFlow.objects.filter(id=flow.id, team=self.team).exists()
+
+    @patch(SCOPED_CAPTURE)
+    def test_rolled_back_creation_does_not_report(self, scoped_capture: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                with transaction.atomic():
+                    HogFlow.objects.create(name="Rolled back", team=self.team)
+                    raise ValueError("Abort")
+            except ValueError:
+                pass
+        scoped_capture.assert_not_called()
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_hog_flow_saved_receiver(self, mock_reload):
