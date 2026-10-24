@@ -73,31 +73,32 @@ export const getJavaSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 language: 'java',
                                 file: 'Instrumentation.java',
                                 code: dedent`
+                                    import io.opentelemetry.api.common.AttributeKey;
+                                    import io.opentelemetry.api.common.Attributes;
                                     import io.opentelemetry.api.logs.Logger;
-                                    import io.opentelemetry.exporter.otlp.logs.OtlpGrpcLogRecordExporter;
+                                    import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporter;
                                     import io.opentelemetry.sdk.logs.SdkLoggerProvider;
                                     import io.opentelemetry.sdk.logs.export.BatchLogRecordProcessor;
                                     import io.opentelemetry.sdk.resources.Resource;
-                                    import io.opentelemetry.semconv.resource.attributes.ResourceAttributes;
 
                                     public class Instrumentation {
                                         public static Logger setupLogger() {
                                             Resource resource = Resource.getDefault()
                                                 .merge(Resource.create(
-                                                    io.opentelemetry.api.common.Attributes.of(
-                                                        ResourceAttributes.SERVICE_NAME, "my-app"
-                                                    )
+                                                    Attributes.of(AttributeKey.stringKey("service.name"), "my-app")
                                                 ));
 
-                                            OtlpGrpcLogRecordExporter exporter = OtlpGrpcLogRecordExporter.builder()
-                                                .setEndpoint("<ph_client_api_host>/otlp")
+                                            OtlpHttpLogRecordExporter exporter = OtlpHttpLogRecordExporter.builder()
+                                                .setEndpoint("<ph_client_api_host>/i/v1/logs")
                                                 .addHeader("Authorization", "Bearer <ph_project_token>")
                                                 .build();
 
                                             SdkLoggerProvider loggerProvider = SdkLoggerProvider.builder()
                                                 .setResource(resource)
-                                                .addLogRecordProcessor(BatchLogRecordProcessor.create(exporter))
+                                                .addLogRecordProcessor(BatchLogRecordProcessor.builder(exporter).build())
                                                 .build();
+
+                                            Runtime.getRuntime().addShutdownHook(new Thread(loggerProvider::close));
 
                                             return loggerProvider.get("my-app");
                                         }
