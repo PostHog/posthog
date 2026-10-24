@@ -1210,6 +1210,13 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class CustomChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    canvasId: str = Field(..., description="The canvas whose published build draws the chart.")
+
+
 class CustomerAnalyticsPinnedProperty(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7851,6 +7858,7 @@ class SavedInsightNode(BaseModel):
         default=None,
         description=('Context key for universal column configuration (e.g., "survey:123")'),
     )
+    customChart: CustomChartSettings | None = None
     defaultColumns: list[str] | None = Field(
         default=None,
         description="Default columns to use when resetting column configuration",
@@ -31237,6 +31245,7 @@ class DataVisualizationNode(BaseModel):
         extra="forbid",
     )
     chartSettings: ChartSettings | None = None
+    customChart: CustomChartSettings | None = None
     display: ChartDisplayType | None = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
@@ -33012,6 +33021,7 @@ class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    customChart: CustomChartSettings | None = None
     embedded: bool | None = Field(default=None, description="Query is embedded inside another bordered component")
     full: bool | None = Field(
         default=None,

@@ -8139,6 +8139,11 @@ export namespace Schemas {
       widgets: AddDashboardWidgetRequest[];
     }
 
+    export interface CustomChartSettings {
+      /** The canvas whose published build draws the chart. */
+      canvasId: string;
+    }
+
     export type InsightVizNodeKind = typeof InsightVizNodeKind[keyof typeof InsightVizNodeKind];
 
 
@@ -8158,6 +8163,7 @@ export namespace Schemas {
     }
 
     export interface InsightVizNode {
+      customChart?: CustomChartSettings | null;
       /** Query is embedded inside another bordered component */
       embedded?: boolean | null;
       /** Show with most visual options enabled. Used in insight scene. */
@@ -10717,6 +10723,7 @@ export namespace Schemas {
 
     export interface DataVisualizationNode {
       chartSettings?: ChartSettings | null;
+      customChart?: CustomChartSettings | null;
       display?: ChartDisplayType | null;
       kind: DataVisualizationNodeKind;
       source: HogQLQuery;
@@ -96839,6 +96846,7 @@ export namespace Schemas {
       context?: DataTableNodeViewPropsContext | null;
       /** Context key for universal column configuration (e.g., "survey:123") */
       contextKey?: string | null;
+      customChart?: CustomChartSettings | null;
       /** Default columns to use when resetting column configuration */
       defaultColumns?: string[] | null;
       /** Query is embedded inside another bordered component */

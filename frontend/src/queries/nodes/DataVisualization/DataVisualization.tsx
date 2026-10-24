@@ -9,7 +9,8 @@ import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -45,6 +46,7 @@ import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneChar
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
+import { CustomChart } from 'products/product_analytics/frontend/insights/customChart/CustomChart'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -221,7 +223,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         dashboardId,
         dataVisualizationProps,
         presetChartHeight: scenePresetChartHeight,
+        customChart,
+        customChartData,
     } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const customChartsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOM_CHART_INSIGHTS]
 
     const presetChartHeight =
         !props.embedded &&
@@ -618,6 +624,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     />
                 ) : null}
             </>
+        )
+    }
+
+    // Shared and exported views run no generated code, so they keep the built-in chart.
+    if (
+        component &&
+        customChart &&
+        customChartsEnabled &&
+        !props.inSharedMode &&
+        !responseError &&
+        response &&
+        !responseLoading
+    ) {
+        component = (
+            <CustomChart
+                canvasId={customChart.canvasId}
+                data={customChartData}
+                builtInChart={component}
+                embedded={!!props.embedded}
+            />
         )
     }
 

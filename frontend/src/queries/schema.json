@@ -18511,6 +18511,18 @@
             "required": ["items", "combiner", "channel_type", "id"],
             "type": "object"
         },
+        "CustomChartSettings": {
+            "additionalProperties": false,
+            "description": "A generated canvas that draws the source query's results instead of the built-in chart.",
+            "properties": {
+                "canvasId": {
+                    "description": "The canvas whose published build draws the chart.",
+                    "type": "string"
+                }
+            },
+            "required": ["canvasId"],
+            "type": "object"
+        },
         "CustomEventConversionGoal": {
             "additionalProperties": false,
             "properties": {
@@ -20873,6 +20885,9 @@
             "properties": {
                 "chartSettings": {
                     "$ref": "#/definitions/ChartSettings"
+                },
+                "customChart": {
+                    "$ref": "#/definitions/CustomChartSettings"
                 },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
@@ -30240,6 +30255,9 @@
         "InsightVizNode": {
             "additionalProperties": false,
             "properties": {
+                "customChart": {
+                    "$ref": "#/definitions/CustomChartSettings"
+                },
                 "embedded": {
                     "description": "Query is embedded inside another bordered component",
                     "type": "boolean"
@@ -51709,6 +51727,9 @@
                 "contextKey": {
                     "description": "Context key for universal column configuration (e.g., \"survey:123\")",
                     "type": "string"
+                },
+                "customChart": {
+                    "$ref": "#/definitions/CustomChartSettings"
                 },
                 "defaultColumns": {
                     "description": "Default columns to use when resetting column configuration",
