@@ -2182,7 +2182,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            # `include_unlisted` drops the inbox-listing filter, whose lateral join would match the JOIN check below.
             response = self.client.get(
                 self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
             )
@@ -2232,10 +2232,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="No PR report")
 
         with patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products:
-            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
-            response = self.client.get(
-                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
-            )
+            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"count": 3, "next": None, "previous": None, "results": []}

@@ -8,11 +8,11 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from typing import Any
+from django.db import connection
+from django.db.models import BooleanField, Q, QuerySet
+from django.db.models.expressions import RawSQL
 
-from django.db.models import CharField, F, Func, Q, QuerySet, Value
-
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -138,27 +138,32 @@ def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
     return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
 
 
-def inbox_hidden_report_ids(team_id: int) -> QuerySet[SignalScoutRun, dict[str, Any]]:
-    """The ids of the reports kept out of the inbox because the scout that authored them turned off its inbox destination.
+def inbox_hidden_report_filter(team_id: int) -> RawSQL:
+    """Keeps a report out of the inbox list when the scout that authored it turned off its inbox destination.
 
     Only authorship counts, read from the config's current setting: an opted-out scout that edits
     another source's report does not hide it, and turning the scout back on lists its reports again.
-    Compare it with the report id cast to text. The subquery does not reference the outer row, so
-    Postgres evaluates it once per query. A correlated check probes the run table once for each
-    report in the team, before the page limit applies.
+    Use it in a filter on a `SignalReport` queryset. The `NOT EXISTS` correlates on plain equality
+    with the report id, so Postgres plans it as an anti-join. A JSONB containment check, or a
+    `NOT IN` over the expanded ids, can fall back to a probe once for each report in the team.
     """
-    # Drop JSON nulls first: one NULL in the right side of a NOT IN makes the exclusion match every report.
-    non_null_ids = Func(
-        F("emitted_report_ids"),
-        Func(Value("$[*] ? (@ != null)"), function="", template="%(expressions)s::jsonpath"),
-        function="jsonb_path_query_array",
-    )
-    return (
-        _inbox_opted_out_runs(team_id)
-        .exclude(emitted_report_ids=[])
-        .annotate(report_id=Func(non_null_ids, function="jsonb_array_elements_text", output_field=CharField()))
-        .values("report_id")
-    )
+    quote = connection.ops.quote_name
+    # Trusted identifiers: from Django ORM metadata. Values are parameterized.
+    runs = quote(SignalScoutRun._meta.db_table)
+    configs = quote(SignalScoutConfig._meta.db_table)
+    reports = quote(SignalReport._meta.db_table)
+    sql = f"""NOT EXISTS (
+        SELECT 1
+        FROM {runs} AS hidden_run
+        CROSS JOIN LATERAL jsonb_array_elements_text(hidden_run.emitted_report_ids) AS hidden(report_id)
+        WHERE hidden_run.team_id = %s
+          AND jsonb_typeof(hidden_run.emitted_report_ids) = 'array'
+          AND hidden_run.scout_config_id IN (
+              SELECT id FROM {configs} WHERE team_id = %s AND output_destinations -> 'inbox' = 'false'::jsonb
+          )
+          AND hidden.report_id = {reports}.id::text
+    )"""
+    return RawSQL(sql, (team_id, team_id), output_field=BooleanField())
 
 
 def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:
