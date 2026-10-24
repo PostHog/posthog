@@ -1330,10 +1330,44 @@ def _render_matches_query(render: ToolCall, calls: list[ToolCall]) -> bool:
     )
 
 
-def _chart_paths(output: dict | None, parser: LogParser, tools: set[str]) -> list[str]:
-    """How the user saw a chart: ``render-ui``, ``inline`` (the client's UI app), or a ``chart_references`` kind."""
+def _native_query_chart(call: ToolCall) -> bool:
+    """PostHog AI's extractQueryResult widget reads metadata without an inline-view text note."""
+    try:
+        payload = json.loads(call.output)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("isError") is True:
+        return False
+    meta = payload.get("_meta")
+    data = meta.get("com.posthog.mcp/app_data") if isinstance(meta, dict) else None
+    if not isinstance(data, dict):
+        data = payload.get("structuredContent")
+    if not isinstance(data, dict):
+        data = payload
+    query = data.get("query")
+    if not isinstance(query, dict):
+        return False
+    if query.get("kind") == "InsightVizNode":
+        query = query.get("source")
+    if not isinstance(query, dict):
+        return False
+    kinds = {
+        "query-trends": "TrendsQuery",
+        "query-funnel": "FunnelsQuery",
+        "query-retention": "RetentionQuery",
+        "query-paths": "PathsQuery",
+        "query-lifecycle": "LifecycleQuery",
+        "query-stickiness": "StickinessQuery",
+    }
+    return call.name in kinds and query.get("kind") == kinds[call.name]
+
+
+def _chart_paths(output: dict | None, parser: LogParser, tools: set[str], surface: str | None = None) -> list[str]:
+    """Native widget data or the chart paths supported by the default MCP app scorer."""
     paths: list[str] = []
     calls = parser.get_tool_calls()
+    if surface == "posthog_ai":
+        return ["native" for call in calls if not call.is_error and call.name in tools and _native_query_chart(call)]
     for call in _render_ui_calls(parser):
         if not call.is_error and _rendered_tool_name(call) in tools and _render_matches_query(call, calls):
             paths.append("render-ui")
@@ -1362,6 +1396,9 @@ class ChartShown(Scorer):
     that the client already displays inline (``INLINE_VIEW_NOTE``), or a full-size chart link or
     block tag in the answer (a saved insight or a SQL query). ``ChartFromTypedQuery``
     grades which of these the agent chose. ``None`` if the spec is absent.
+
+    ``surface="posthog_ai"`` checks the native query widget payload instead. It does
+    not count Desktop links or require an MCP app's text note. Neither mode checks pixels.
     """
 
     def _name(self) -> str:
@@ -1374,7 +1411,8 @@ class ChartShown(Scorer):
         parser = _build_parser(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        paths = _chart_paths(output, parser, tools)
+        spec = _read_spec(expected, self._name()) or {}
+        paths = _chart_paths(output, parser, tools, spec.get("surface"))
         if paths:
             return Score(name=self._name(), score=1.0, metadata={"paths": paths})
         return Score(
@@ -1392,7 +1430,7 @@ class ChartFromTypedQuery(Scorer):
     An agent that answers with ``query-trends`` and then links a hand-written SQL chart shows
     numbers computed by a different query, without PostHog's standard definitions such as the
     project timezone or test-account filtering. Score 1.0 when any chart comes from
-    ``render-ui``, the inline view, or a saved insight that holds a typed query; 0.0 when every
+    a native PostHog AI widget, ``render-ui``, the inline view, or a saved insight that holds a typed query; 0.0 when every
     chart is a SQL query. ``None`` when no chart was shown (graded by ``ChartShown``), when the only
     other charts are saved insights whose query kind no tool call showed, or the spec is absent.
     """
@@ -1407,7 +1445,8 @@ class ChartFromTypedQuery(Scorer):
         parser = _build_parser(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        paths = _chart_paths(output, parser, tools)
+        spec = _read_spec(expected, self._name()) or {}
+        paths = _chart_paths(output, parser, tools, spec.get("surface"))
         if not paths:
             return Score(name=self._name(), score=None, metadata={"reason": "No chart was shown"})
         if any(path not in ("sql", "saved") for path in paths):

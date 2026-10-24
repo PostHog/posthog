@@ -22,6 +22,43 @@ class TestModelUsageValidation(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
 
+    def test_rejects_unknown_engine(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"engine": "duckgres"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("engine", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ({"days": 7, "date_from": "2026-10-01"},),
+            ({"date_to": "2026-10-10"},),
+            ({"date_from": "2026-10-10", "date_to": "2026-10-01"},),
+            ({"date_from": "2025-10-01", "date_to": "2026-10-02"},),
+        ]
+    )
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_rejects_invalid_custom_date_range(self, query: dict[str, object]) -> None:
+        serializer = ModelUsageQuerySerializer(data=query)
+        self.assertFalse(serializer.is_valid())
+
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_accepts_custom_date_range(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "2026-10-15"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"].isoformat(), "2026-10-01")
+        self.assertEqual(serializer.validated_data["end_date"].isoformat(), "2026-10-16")
+
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_resolves_relative_date_range(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"days": 7})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"].isoformat(), "2026-10-09")
+        self.assertEqual(serializer.validated_data["end_date"].isoformat(), "2026-10-16")
+
+    @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
+    def test_accepts_maximum_end_date_without_overflow(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"date_from": "2026-10-01", "date_to": "9999-12-31"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
 
 @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
 class TestModelUsage(WarehouseAccessControlTestMixin):
@@ -43,7 +80,9 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         DataModelingJob.objects.create(**base, **measured)
         DataModelingJob.objects.create(**{**base, "status": "Failed"})
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
-        DataModelingJob.objects.create(**{**base, "engine": "managed_warehouse"}, **measured)
+        managed = DataModelingJob.objects.create(
+            **{**base, "engine": "managed_warehouse"}, read_bytes=4096, usage_updated_at=finished
+        )
         DataModelingJob.objects.create(**{**base, "last_run_at": finished + timedelta(days=1)}, **measured)
         other_team = Team.objects.create(organization=self.organization)
         DataModelingJob.objects.create(team=other_team, status="Completed", last_run_at=finished, **measured)
@@ -64,8 +103,37 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(len(data["trends"]), 7)
         self.assertIsNone(data["trends"][0]["read_bytes"])
         self.assertEqual(data["trends"][-1]["runs"], 2)
+        self.assertEqual(data["trends"][-1]["engines"][0]["engine"], "clickhouse")
         self.assertEqual(data["models"][0]["name"], "daily_orders")
         self.assertEqual(data["count"], 1)
+
+        combined = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "all"}
+        ).json()
+        self.assertEqual(combined["overview"]["runs"], 3)
+        self.assertEqual(combined["overview"]["measured_runs"], 2)
+        self.assertEqual(combined["overview"]["read_bytes"], 5120)
+        self.assertEqual(
+            [(item["engine"], item["runs"]) for item in combined["trends"][-1]["engines"]],
+            [("clickhouse", 2), ("managed_warehouse", 1)],
+        )
+        self.assertEqual(
+            [(item["engine"], item["read_bytes"]) for item in combined["models"][0]["engines"]],
+            [("clickhouse", 1024), ("managed_warehouse", managed.read_bytes)],
+        )
+
+        managed_only = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "managed_warehouse"}
+        ).json()
+        self.assertEqual(managed_only["overview"]["runs"], 1)
+        self.assertEqual(managed_only["overview"]["read_bytes"], 4096)
+        self.assertEqual([item["engine"] for item in managed_only["models"][0]["engines"]], ["managed_warehouse"])
+
+        filtered = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/",
+            {"days": 7, "engine": "all", "saved_query_id": model.id},
+        ).json()
+        self.assertEqual(filtered["count"], 1)
         invalid = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 91})
         self.assertEqual(invalid.status_code, 400)
 
@@ -101,6 +169,28 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertTrue(results[0]["models"][0]["deleted"])
         self.assertEqual([data["overview"]["read_bytes"] for data in results], [2000] * 4)
         self.assertEqual([data["count"] for data in results], [4] * 4)
+
+    def test_custom_date_range_is_inclusive_and_excludes_today(self) -> None:
+        model = DataWarehouseSavedQuery.objects.create(team=self.team, name="custom_range")
+        for day in [9, 10, 12, 13, 16]:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=model,
+                status="Completed",
+                last_run_at=datetime(2026, 10, day, 12, tzinfo=UTC),
+            )
+
+        result = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/",
+            {"date_from": "2026-10-10", "date_to": "2026-10-12"},
+        )
+
+        self.assertEqual(result.status_code, 200, result.content)
+        data = result.json()
+        self.assertEqual(data["date_from"], "2026-10-10")
+        self.assertEqual(data["date_to"], "2026-10-13")
+        self.assertEqual(data["overview"]["runs"], 2)
+        self.assertEqual([day["runs"] for day in data["trends"]], [1, 0, 1])
 
     def test_denies_warehouse_access(self) -> None:
         self._create_project_default(access_level="none")

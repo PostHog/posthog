@@ -58,6 +58,17 @@ class TestPostPrClosedSlackUpdate(TestCase):
         footer_patcher.start()
         self.addCleanup(footer_patcher.stop)
 
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_mobile_takeover_silences_proactive_private_pr_cards(self, post: MagicMock) -> None:
+        SlackThreadTaskMapping.objects.create(
+            **self.mapping_kwargs, conversation_type=SlackThreadTaskMapping.ConversationType.IM
+        )
+        self.task.state = {**(self.task.state or {}), "mobile_push_user_ids": [self.task.created_by_id]}
+        self.task.save(update_fields=["state"])
+
+        assert not post_pr_closed_slack_update(str(self.task_run.id), PR_URL)
+        post.assert_not_called()
+
     @parameterized.expand(
         [
             ("announced_pr", PR_URL, True, [1, 0]),

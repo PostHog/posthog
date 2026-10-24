@@ -36,6 +36,11 @@ class ActivitySummaryConfig:
     # Enrolls every organization with AI data processing approval. Otherwise only `organization_ids`.
     enroll_all_approved: bool = False
     organization_ids: tuple[str, ...] = ()
+    # Generates for this percentage of the organizations with a project that has an enabled signal source.
+    # Only those projects get summaries. A higher percentage keeps the organizations of a lower one.
+    self_driving_organization_percentage: float = 0.0
+    # The tick never generates for these organizations, even when another field enrolls them.
+    deny_organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     max_pairs_per_tick: int = 50
     # Rolling 24 hours, counted from the stored rows, so the caps hold across ticks and workers.
@@ -89,6 +94,12 @@ def _fraction(value: Any, default: float) -> float:
     return number if number <= 1 else default
 
 
+def _percentage(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return default
+    return float(value)
+
+
 def _bool(value: Any, default: bool) -> bool:
     return value if isinstance(value, bool) else default
 
@@ -138,6 +149,10 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         enabled=True,
         enroll_all_approved=_bool(payload.get("enroll_all_approved"), defaults.enroll_all_approved),
         organization_ids=_organization_ids(payload.get("organization_ids")),
+        self_driving_organization_percentage=_percentage(
+            payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
+        ),
+        deny_organization_ids=_organization_ids(payload.get("deny_organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_pairs_per_tick=_positive_int(payload.get("max_pairs_per_tick"), defaults.max_pairs_per_tick),
         max_pairs_per_day=_positive_int(payload.get("max_pairs_per_day"), defaults.max_pairs_per_day),
@@ -176,5 +191,7 @@ def read_config() -> ActivitySummaryConfig:
         enabled=config.enabled,
         enroll_all_approved=config.enroll_all_approved,
         organizations=len(config.organization_ids),
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
+        denied_organizations=len(config.deny_organization_ids),
     )
     return config
