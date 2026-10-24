@@ -3790,3 +3790,10 @@ class TestClickhousePathsEdgeValidation(SimpleTestCase):
         results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(list(edges))
 
         self.assertCountEqual(results, self.BASIC_PATH_2)
+
+    def test_non_utf8_node_keys(self):
+        edges = [(b"1_\xff", "2_b", 5, 1.0), ("2_b", b"3_\xfe", 5, 1.0)]
+
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
+
+        self.assertEqual(results, [("1_\ufffd", "2_b", 5, 1.0), ("2_b", "3_\ufffd", 5, 1.0)])

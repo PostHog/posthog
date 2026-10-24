@@ -302,7 +302,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         pathReplacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
-        event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
+        event_conditional = parse_expr(
+            "toValidUTF8(ifNull({event_hogql}, '')) AS path_item_ungrouped", {"event_hogql": event_hogql}
+        )
 
         funnel_fields, funnel_event_filter = self.handle_funnel()
         if funnel_event_filter:
@@ -884,6 +886,15 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         edges = defaultdict(list)
         validated_results = []
         starting_nodes_stack = []
+
+        # The ClickHouse driver returns bytes for a String value that is not valid UTF-8
+        results = [
+            (
+                *(key.decode("utf-8", errors="replace") if isinstance(key, bytes) else key for key in result[:2]),
+                *result[2:],
+            )
+            for result in results
+        ]
 
         for result in results:
             edges[result[0]].append(result[1])
