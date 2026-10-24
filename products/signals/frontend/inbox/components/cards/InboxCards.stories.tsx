@@ -267,7 +267,7 @@ const RANKING = {
     stale: false,
 }
 
-// Under the Engage sort: a lift above 1x, a lift below 1x, a probability with no lift, an unscored report, and a report edited after scoring.
+// Under the Action sort: a lift above 1x, a lift below 1x, a probability with no lift, an unscored report, and a report edited after scoring.
 const rankedReports: SignalReport[] = [
     makeReport({
         title: 'Checkout button does nothing on Safari',
