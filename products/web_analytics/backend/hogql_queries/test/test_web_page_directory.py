@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    EventPropertyFilter,
+    PropertyOperator,
     WebPageDirectoryMetric,
     WebPageDirectoryQuery,
     WebPageDirectoryQueryResponse,
@@ -22,14 +24,22 @@ HUMAN_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 
 class TestWebPageDirectoryQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    def _pageview(self, person: str, path: str, properties: Optional[dict[str, Any]] = None) -> None:
-        with time_machine.travel("2026-01-10T10:00:00Z", tick=False):
-            _create_person(team_id=self.team.pk, distinct_ids=[person], properties={})
+    def _pageview(
+        self,
+        person: str,
+        path: str,
+        properties: Optional[dict[str, Any]] = None,
+        timestamp: str = "2026-01-10T12:00:00Z",
+        create_person: bool = True,
+    ) -> None:
+        if create_person:
+            with time_machine.travel("2026-01-10T10:00:00Z", tick=False):
+                _create_person(team_id=self.team.pk, distinct_ids=[person], properties={})
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=person,
-            timestamp="2026-01-10T12:00:00Z",
+            timestamp=timestamp,
             properties={
                 "$host": "example.com",
                 "$pathname": path,
@@ -53,8 +63,7 @@ class TestWebPageDirectoryQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run(self, **kwargs: Any) -> WebPageDirectoryQueryResponse:
         query = WebPageDirectoryQuery(
             dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-31"),
-            properties=[],
-            **kwargs,
+            **{"properties": [], **kwargs},
         )
         with time_machine.travel("2026-02-01T00:00:00Z", tick=False):
             return WebPageDirectoryQueryRunner(team=self.team, query=query).calculate()
@@ -162,3 +171,37 @@ class TestWebPageDirectoryQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert totals.visitors is not None and totals.visitors.current == 2
         assert totals.aiReferrals is not None and totals.aiReferrals.current == 1
         assert totals.aiCrawls is not None and totals.aiCrawls.current == 2
+
+    @parameterized.expand(
+        [
+            ("browser_filter_limits_bounce_sessions", "$browser", "Chrome", 0.0),
+            ("pathname_filter_targets_previous_page", "$pathname", "/pricing", 0.5),
+        ]
+    )
+    def test_filters_apply_to_bounce_rate_and_time_on_page(
+        self, _name: str, key: str, value: str, expected_bounce_rate: float
+    ) -> None:
+        session_id = str(uuid7("2026-01-10"))
+        self._pageview("a", "/pricing", {"$browser": "Chrome", "$session_id": session_id})
+        self._pageview(
+            "a",
+            "/checkout",
+            {
+                "$browser": "Chrome",
+                "$session_id": session_id,
+                "$prev_pageview_pathname": "/pricing",
+                "$prev_pageview_duration": 40,
+            },
+            timestamp="2026-01-10T12:00:40Z",
+            create_person=False,
+        )
+        self._pageview("b", "/pricing", {"$browser": "Firefox"})
+
+        response = self._run(
+            pageKeys=["example.com/pricing"],
+            metrics=[WebPageDirectoryMetric.BOUNCE_RATE, WebPageDirectoryMetric.TIME_ON_PAGE],
+            properties=[EventPropertyFilter(key=key, value=value, operator=PropertyOperator.EXACT)],
+        )
+
+        assert response.results[0].bounceRate == expected_bounce_rate
+        assert response.results[0].timeOnPageP90 == 40.0
