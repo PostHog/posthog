@@ -249,6 +249,19 @@ Usage reports v2 records query latency and failures under the existing query nam
 A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
 Missing-organization diagnostics use size-bounded events. Temporal runs their capture and flush outside the event loop.
 
+Usage records still differ from the legacy queries for every counter.
+Set a counter's flag to `realtime` only after a change removes its gap below.
+The team can also agree to bill the usage record count with the gap.
+
+- Events, enhanced person events, and exceptions: usage records use capture time, and the legacy queries use the event timestamp. The switch must not count an event on both dates or on neither date.
+- Feature flag requests: usage records use the flush time of the Rust flags service. The legacy query uses the later Celery export time.
+- Feature flag local evaluation requests: the Django feature flag list endpoint counts personal API key requests in Redis, but it writes no usage records.
+- CDP invocations and workflow emails, push, and SMS: usage records and app metrics flush on separate clocks. Each source can put one dispatch on a different date.
+- Workflow invocations: the legacy query counts fetch and push dispatches. Usage records count push dispatches as `workflow_push_sent`. Thus `workflow_billable_invocations` holds only fetches. The clock difference above also applies.
+- Web and mobile recordings: the replay pipeline marks a session as seen before it parses the first message. When that message fails, the later messages of the session bill nothing. The fix is [#121613](https://github.com/PostHog/posthog/pull/121613), which bills each saved session once.
+- Survey responses: usage records include product tour responses, which the legacy query exempts.
+- AI events: usage records do not apply the legacy exemptions for wallet-billed gateway events and sponsored relay events.
+
 ### Billable calculation
 
 Local evaluation requests are weighted 10x compared to decide requests:
