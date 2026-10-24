@@ -16,6 +16,12 @@ from products.customer_analytics.backend.temporal.calendar_sync import (
     calendar_sync_integration_activity,
     google_account_email_backfill_activity,
 )
+from products.customer_analytics.backend.temporal.membership_cleanup import (
+    MembershipCleanupTeamWorkflow,
+    MembershipCleanupWorkflow,
+    list_membership_cleanup_teams_activity,
+    membership_cleanup_activity,
+)
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
@@ -24,6 +30,8 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
 )
 
 WORKFLOWS = [
+    MembershipCleanupTeamWorkflow,
+    MembershipCleanupWorkflow,
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
     CalendarSyncCoordinatorWorkflow,
@@ -33,6 +41,8 @@ WORKFLOWS = [
     OwnershipClaimsSweepWorkflow,
 ]
 ACTIVITIES = [
+    list_membership_cleanup_teams_activity,
+    membership_cleanup_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,
