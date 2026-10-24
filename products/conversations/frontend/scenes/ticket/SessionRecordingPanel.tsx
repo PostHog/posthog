@@ -13,7 +13,7 @@ interface SessionRecordingPanelProps {
     distinctId?: string
 }
 
-/** The widget stores the replay URL under `replay_url`. The id is its last path segment. */
+/** The widget stores the replay URL under `replay_url`; posthog-js sends `session_replay_url`. The id is its last path segment. */
 export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
     if (typeof replayUrl !== 'string' || !replayUrl) {
         return null
@@ -21,9 +21,13 @@ export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
     return replayUrl.split('?')[0].split('/').filter(Boolean).pop() ?? null
 }
 
+export function replayUrlFromContext(
+            ctx?: { replay_url?: unknown; session_replay_url?: unknown } | null
+        ): unknown {
+            return ctx?.replay_url ?? ctx?.session_replay_url
+        } 
 export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRecordingPanelProps): JSX.Element {
-    const recordingId = recordingIdFromReplayUrl(sessionContext?.replay_url)
-
+    const recordingId = recordingIdFromReplayUrl(replayUrlFromContext(sessionContext))
     return (
         <LemonCollapse
             className="bg-surface-primary"
