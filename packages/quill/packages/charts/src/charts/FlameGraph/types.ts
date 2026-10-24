@@ -85,9 +85,12 @@ export interface FlameNodeDatum<Meta = unknown> {
 
 /** Several small sibling nodes drawn as one "+N more" cell. */
 export interface FlameBundleDatum<Meta = unknown> {
-    /** The parent the bundled nodes share. */
-    parent: FlameNodeDatum<Meta>
-    nodes: FlameNodeDatum<Meta>[]
+    /** The parent the bundled nodes share, or null for a bundle of roots. */
+    parent: FlameNodeDatum<Meta> | null
+    /** Number of bundled nodes. */
+    count: number
+    /** The bundled nodes, resolved on first read. */
+    readonly nodes: FlameNodeDatum<Meta>[]
     /** Every node in the bundle, including the nodes under them. */
     descendantCount: number
     /** Sum of the bundled nodes' values. */
@@ -155,6 +158,8 @@ export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
     comparing: boolean
     /** True when a click on the hovered cell zooms into it. */
     canFocus: boolean
+    /** Sum of the roots' values, the whole the shares are taken of. */
+    totalValue: number
 }
 
 export interface FlameGraphProps<Meta = unknown> {

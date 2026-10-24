@@ -190,7 +190,7 @@ There is no `series` or `labels`.
   `onNodeClick` fires after the zoom with the resolved `FlameNodeDatum`; set `clickToFocus: false` to only report clicks.
   `onFocusChange` reports every zoom change, with `null` for the whole graph.
 - `search` is a case-insensitive substring matched against names.
-  Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and their share of the total value, counting a match nested in another match once.
+  Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
   The host renders the search input.
 - `height: 'auto'` (default) grows with the deepest row in view up to `maxHeight` (480px), then scrolls vertically; `fill` takes the parent's height; a number fixes it.
   Only the rows in the scroll viewport are drawn, and only the nodes inside the zoom window, so a 50,000-node tree stays smooth.

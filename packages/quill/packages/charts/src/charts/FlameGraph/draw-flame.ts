@@ -14,6 +14,8 @@ const NEW_OUTLINE_ALPHA = 0.7
 const HOVER_LINE_WIDTH = 2
 
 const PRINTABLE_ASCII = /^[\x20-\x7e]*$/
+/** Measured widths are dropped all at once past this many, which bounds the cache on long sessions. */
+const MAX_CACHED_WIDTHS = 4096
 
 /**
  * Truncates labels to a width. The label font is monospace, so an ASCII label is cut by
@@ -57,6 +59,9 @@ export class LabelFitter {
     private measure(ctx: CanvasRenderingContext2D, text: string): number {
         let width = this.widths.get(text)
         if (width === undefined) {
+            if (this.widths.size >= MAX_CACHED_WIDTHS) {
+                this.widths.clear()
+            }
             width = ctx.measureText(text).width
             this.widths.set(text, width)
         }

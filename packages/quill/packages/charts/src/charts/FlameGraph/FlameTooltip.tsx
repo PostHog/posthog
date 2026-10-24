@@ -82,17 +82,21 @@ export function FlameTooltip<Meta>({
     const color = ctx.seriesData[0]?.color
     if (hit.kind === 'bundle') {
         const { bundle } = hit
-        const nested = bundle.descendantCount - bundle.nodes.length
+        const nested = bundle.descendantCount - bundle.count
+        const whole = bundle.parent ? bundle.parent.value : ctx.totalValue
         return (
             <TooltipSurface data-attr="hog-chart-flame-tooltip">
                 <div className="font-semibold mb-1">
-                    {bundle.nodes.length} smaller nodes in {bundle.parent.name}
+                    {bundle.parent
+                        ? `${bundle.count} smaller nodes in ${bundle.parent.name}`
+                        : `${bundle.count} smaller roots`}
                 </div>
                 <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
                     <Row label="Total">
                         {valueFormatter(bundle.value)}{' '}
                         <span className="opacity-70">
-                            ({formatShare(bundle.parent.value > 0 ? bundle.value / bundle.parent.value : 0)} of parent)
+                            ({formatShare(whole > 0 ? bundle.value / whole : 0)} of {bundle.parent ? 'parent' : 'total'}
+                            )
                         </span>
                     </Row>
                     {nested > 0 ? <Row label="Nested nodes">{nested.toLocaleString()}</Row> : null}

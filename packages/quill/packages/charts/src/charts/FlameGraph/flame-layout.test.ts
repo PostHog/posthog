@@ -6,6 +6,8 @@ import {
     depthAtY,
     focusRowCount,
     focusWindow,
+    indexOfId,
+    nodeId,
     rowTop,
     searchFlame,
     visibleDepths,
@@ -22,7 +24,7 @@ const TREE: FlameNode = {
 }
 
 function spanOf(tree: ReturnType<typeof buildFlameTree>, id: string): [number, number] {
-    const index = tree.idToIndex.get(id)!
+    const index = indexOfId(tree, id)!
     const round = (v: number): number => Math.round(v * 1e6) / 1e6
     return [round(tree.x0[index]), round(tree.x1[index])]
 }
@@ -87,7 +89,26 @@ describe('flame layout', () => {
         const cyclic: FlameNode = { name: 'loop', value: 4, children: [shared, { name: 'dup', value: 1 }] }
         cyclic.children!.push(cyclic, shared)
         const tree = buildFlameTree(cyclic)
-        expect(tree.ids).toEqual(['loop', 'loop/dup', 'loop/dup#2'])
+        const ids = Array.from({ length: tree.size }, (_, i) => nodeId(tree, i))
+        expect(ids).toEqual(['loop', 'loop/dup', 'loop/dup#2'])
+        expect(ids.map((id) => indexOfId(tree, id))).toEqual([0, 1, 2])
+    })
+
+    it('resolves ids through names that contain a slash and below nodes that bring their own id', () => {
+        const tree = buildFlameTree({
+            name: 'root',
+            value: 10,
+            children: [
+                { name: 'a', value: 2, children: [{ name: 'c', value: 1 }] },
+                { name: 'a/b', value: 3 },
+                { name: 'span', id: 'trace:42', value: 4, children: [{ name: 'db', value: 2 }] },
+            ],
+        })
+        expect(tree.nodes[indexOfId(tree, 'root/a/b')!].name).toBe('a/b')
+        expect(tree.nodes[indexOfId(tree, 'root/a/c')!].name).toBe('c')
+        expect(indexOfId(tree, 'trace:42/db')).toBe(tree.size - 1)
+        expect(nodeId(tree, tree.size - 1)).toBe('trace:42/db')
+        expect(indexOfId(tree, 'root/missing')).toBeUndefined()
     })
 
     it.each([
@@ -100,20 +121,20 @@ describe('flame layout', () => {
 
     it('zooms to the focused node, keeps its ancestors full width and drops its siblings', () => {
         const tree = buildFlameTree(TREE)
-        const focus = { kind: 'node' as const, index: tree.idToIndex.get('root/a')! }
+        const focus = { kind: 'node' as const, index: indexOfId(tree, 'root/a')! }
         const window = focusWindow(tree, focus)
         expect(window).toEqual({ x0: 0, x1: 0.6 })
         expect(focusRowCount(tree, focus)).toBe(3)
 
         const cells = computeFlameCells(tree, window, 600, 0, 2)
-        const drawn = cells.map((cell) => [tree.ids[cell.index], Math.round(cell.x0), Math.round(cell.x1)])
+        const drawn = cells.map((cell) => [nodeId(tree, cell.index), Math.round(cell.x0), Math.round(cell.x1)])
         expect(drawn).toEqual([
             ['root', 0, 1000],
             ['root/a', 0, 600],
             ['root/a/a1', 0, 300],
         ])
-        expect(tree.ids[cellAt(cells, 2, 299)!.index]).toBe('root/a/a1')
-        expect(tree.ids[cellAt(cells, 2, 303)!.index]).toBe('root/a/a1')
+        expect(nodeId(tree, cellAt(cells, 2, 299)!.index)).toBe('root/a/a1')
+        expect(nodeId(tree, cellAt(cells, 2, 303)!.index)).toBe('root/a/a1')
         expect(cellAt(cells, 2, 305)).toBeNull()
     })
 
@@ -161,8 +182,20 @@ describe('flame layout', () => {
         const result = searchFlame(tree, ' DB. ')!
         expect(result.count).toBe(3)
         expect(result.fraction).toBeCloseTo(0.45)
-        expect(result.containsMatch[tree.idToIndex.get('root/render')!]).toBe(1)
+        expect(result.containsMatch[indexOfId(tree, 'root/render')!]).toBe(1)
         expect(searchFlame(tree, '   ')).toBeNull()
+    })
+
+    it('measures search coverage on the laid-out widths, so concurrent matches cannot pass 100%', () => {
+        const tree = buildFlameTree({
+            name: 'root',
+            value: 100,
+            children: [
+                { name: 'match_a', value: 100 },
+                { name: 'match_b', value: 100 },
+            ],
+        })
+        expect(searchFlame(tree, 'match')!.fraction).toBeCloseTo(1)
     })
 
     it.each([
@@ -175,5 +208,13 @@ describe('flame layout', () => {
         expect(depthAtY(-1, geometry)).toBe(-1)
         expect(depthAtY(200, geometry)).toBe(-1)
         expect(visibleDepths(0, 50, geometry)).toEqual(rows)
+    })
+
+    it('shifts bottom-up rows down by the offset that pins the roots to the bottom edge', () => {
+        const geometry = { rowHeight: 20, rowCount: 2, direction: 'bottom-up' as const, offset: 60 }
+        expect(rowTop(0, geometry)).toBe(80)
+        expect(depthAtY(85, geometry)).toBe(0)
+        expect(depthAtY(30, geometry)).toBe(-1)
+        expect(visibleDepths(0, 100, geometry)).toEqual([0, 1])
     })
 })

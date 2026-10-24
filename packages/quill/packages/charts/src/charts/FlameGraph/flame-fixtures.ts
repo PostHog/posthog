@@ -149,14 +149,12 @@ export const DIFF_TREE: FlameNode = {
     ],
 }
 
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0
+/** A small linear congruential generator: deterministic, and good enough for fixture shapes. */
+function seededRandom(seed: number): () => number {
+    let state = seed >>> 0
     return () => {
-        a = (a + 0x6d2b79f5) >>> 0
-        let t = a
-        t = Math.imul(t ^ (t >>> 15), t | 1)
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+        return state / 4294967296
     }
 }
 
@@ -180,7 +178,7 @@ const NOUNS = ['user', 'cart', 'order', 'price', 'session', 'query', 'batch', 'e
 /** A random call tree with exactly `count` nodes, a skewed value split and depth into the 20s,
  *  like a real profile. The same seed gives the same tree. */
 export function generateFlameTree(count: number, seed = 7): FlameNode {
-    const rand = mulberry32(seed)
+    const rand = seededRandom(seed)
     const pick = <T>(items: readonly T[]): T => items[Math.floor(rand() * items.length)]
     const root: FlameNode = { name: 'main', group: SERVICES[0], value: 1_000_000, children: [] }
     const open: FlameNode[] = [root]

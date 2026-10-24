@@ -7,11 +7,10 @@ import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { clearAndPrepare } from '../../core/hooks/clearCanvas'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
-import { useLatest } from '../../core/hooks/useLatest'
 import { prefersReducedMotion } from '../../core/motion'
 import { markPaintDone, markPaintPending } from '../../core/paint-state'
 import { monotonicNow } from '../../core/time'
-import type { ChartMargins, ChartScales } from '../../core/types'
+import type { ChartDimensions, ChartMargins, ChartScales, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
 import { cellRect, drawFlame, drawFlameHover, LabelFitter } from './draw-flame'
@@ -30,7 +29,9 @@ import {
     type FlameWindow,
     focusRowCount,
     focusWindow,
+    indexOfId,
     nodeDatum,
+    nodeId,
     searchFlame,
     visibleDepths,
 } from './flame-layout'
@@ -59,12 +60,12 @@ function keyToFocus(tree: FlameTree<unknown>, key: FocusKey): FlameFocus {
     const zoomable = (index: number | undefined): index is number =>
         index !== undefined && index >= 0 && tree.x1[index] > tree.x0[index]
     if (key?.kind === 'node') {
-        const index = tree.idToIndex.get(key.id)
+        const index = indexOfId(tree, key.id)
         return zoomable(index) ? { kind: 'node', index } : null
     }
     if (key?.kind === 'bundle') {
-        const first = tree.idToIndex.get(key.first)
-        const last = tree.idToIndex.get(key.last)
+        const first = indexOfId(tree, key.first)
+        const last = indexOfId(tree, key.last)
         if (first !== undefined && last !== undefined && first <= last && tree.parent[first] === tree.parent[last]) {
             return { kind: 'bundle', first, last }
         }
@@ -84,15 +85,25 @@ function bundleDatum<Meta>(
     last: number,
     diff: FlameDiffOptions
 ): FlameBundleDatum<Meta> {
-    const nodes: FlameNodeDatum<Meta>[] = []
     let descendantCount = 0
     let value = 0
     for (let i = first; i <= last; i++) {
-        nodes.push(nodeDatum(tree, i, diff))
         descendantCount += tree.subtreeSize[i]
         value += tree.value[i]
     }
-    return { parent: nodeDatum(tree, tree.parent[first], diff), nodes, descendantCount, value }
+    const parentIndex = tree.parent[first]
+    let nodes: FlameNodeDatum<Meta>[] | null = null
+    return {
+        parent: parentIndex >= 0 ? nodeDatum(tree, parentIndex, diff) : null,
+        count: last - first + 1,
+        // A bundle can hold thousands of nodes, so their datums are only built when read.
+        get nodes(): FlameNodeDatum<Meta>[] {
+            nodes ??= Array.from({ length: last - first + 1 }, (_, i) => nodeDatum(tree, first + i, diff))
+            return nodes
+        },
+        descendantCount,
+        value,
+    }
 }
 
 /** Runs `callback` on the next frame and keeps its id in `ref` until it runs. A frame that runs
@@ -111,10 +122,23 @@ function scheduleFrame(ref: React.MutableRefObject<number | null>, callback: () 
 
 interface HoverState {
     cell: FlameCell
-    /** The tree the cell's indices point into. */
+    /** The tree the cell's indices point into, and the size it was laid out at. */
     tree: FlameTree<unknown>
+    dimensions: ChartDimensions
+    /** Canvas bounds read in the event handler, so rendering the tooltip reads no layout. */
+    bounds: DOMRect
     x: number
     y: number
+}
+
+/** Like `useLatest`, but written after commit: a render React throws away (the deferred search
+ *  render) must not leak its values into a scroll or animation frame. */
+function useCommittedRef<T>(value: T): React.MutableRefObject<T> {
+    const ref = useRef(value)
+    useLayoutEffect(() => {
+        ref.current = value
+    })
+    return ref
 }
 
 export function FlameGraph<Meta = unknown>({ onError, ...rest }: FlameGraphProps<Meta>): React.ReactElement {
@@ -176,20 +200,16 @@ function FlameGraphInner<Meta = unknown>({
         [tree, colorBy, paletteKey, ink, diff]
     )
     const shades = useMemo(() => new FlameShades(ink), [ink])
-    const fitter = useMemo(() => new LabelFitter(), [])
+    // One fitter per tree, so measured labels of replaced data are dropped with it.
+    const fitter = useMemo(() => new LabelFitter(), [tree]) // eslint-disable-line react-hooks/exhaustive-deps
     // Deferred so typing in a host's search box stays responsive while a large tree is searched.
     const deferredSearch = useDeferredValue(search)
     const searchResult = useMemo(() => searchFlame(tree, deferredSearch), [tree, deferredSearch])
 
+    // While zooming out to a shallower subtree, keep the taller height until the animation ends,
+    // so the rows being animated away are not cut off mid-flight.
+    const [heldRows, setHeldRows] = useState(0)
     const [focusKey, setFocusKey] = useState<FocusKey>(() => idToKey(defaultFocusedId))
-    const isFirstFocusProp = useRef(true)
-    useEffect(() => {
-        if (isFirstFocusProp.current) {
-            isFirstFocusProp.current = false
-            return
-        }
-        setFocusKey(idToKey(defaultFocusedId))
-    }, [defaultFocusedId])
     const focus = useMemo(() => keyToFocus(tree, focusKey), [tree, focusKey])
     const target = useMemo(() => focusWindow(tree, focus), [tree, focus])
     const focusNodeIndex = focus?.kind === 'node' ? focus.index : focus ? tree.parent[focus.first] : -1
@@ -216,42 +236,34 @@ function FlameGraphInner<Meta = unknown>({
         const cells = computeFlameCells(tree, target, plotWidth, 0, tree.maxDepth)
         return cells.length > 0 ? cells[cells.length - 1].depth + 1 : 1
     }, [tree, focus, target, plotWidth])
-    // While zooming out to a shallower subtree, keep the taller height until the animation ends,
-    // so the rows being animated away are not cut off mid-flight.
-    const [heldRows, setHeldRows] = useState(0)
     const rowCount = Math.max(targetRows, heldRows)
+    const rowCountRef = useCommittedRef(rowCount)
+    const isFirstFocusProp = useRef(true)
+    useEffect(() => {
+        if (isFirstFocusProp.current) {
+            isFirstFocusProp.current = false
+            return
+        }
+        setHeldRows(rowCountRef.current)
+        setFocusKey(idToKey(defaultFocusedId))
+    }, [defaultFocusedId, rowCountRef])
     const contentHeight = rowCount * rowHeight
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
-    const [fillHeight, setFillHeight] = useState(0)
-    useLayoutEffect(() => {
-        const el = scrollRef.current
-        if (height !== 'fill' || !el) {
-            return
-        }
-        const measure = (): void => setFillHeight(el.getBoundingClientRect().height)
-        measure()
-        if (typeof ResizeObserver === 'undefined') {
-            return
-        }
-        const observer = new ResizeObserver(measure)
-        observer.observe(el)
-        return () => observer.disconnect()
-    }, [height])
-    const viewportHeight =
+    // `fill` takes its height from the parent through CSS; the canvas host measures it.
+    const fixedViewportHeight =
         height === 'fill'
-            ? Math.max(rowHeight, fillHeight)
+            ? null
             : typeof height === 'number'
               ? Math.max(rowHeight, height)
               : Math.max(rowHeight, Math.min(contentHeight, maxHeight))
+    const viewportHeight = dimensions?.height ?? fixedViewportHeight ?? 0
 
-    // Bottom-up rows count up from the bottom of the viewport, so a viewport taller than the tree
-    // keeps the roots on its bottom edge instead of above blank space.
-    const geometryRows =
-        direction === 'bottom-up' ? Math.max(rowCount, Math.floor(viewportHeight / rowHeight)) : rowCount
+    // Bottom-up rows sit on the bottom edge of a viewport taller than the tree, not above blank space.
+    const offset = direction === 'bottom-up' ? Math.max(0, viewportHeight - contentHeight) : 0
     const geometry = useMemo<FlameRowGeometry>(
-        () => ({ rowHeight, rowCount: geometryRows, direction }),
-        [rowHeight, geometryRows, direction]
+        () => ({ rowHeight, rowCount, direction, offset }),
+        [rowHeight, rowCount, direction, offset]
     )
 
     const viewRef = useRef<FlameWindow>(target)
@@ -260,10 +272,11 @@ function FlameGraphInner<Meta = unknown>({
     const paintRafRef = useRef<number | null>(null)
     const animationRafRef = useRef<number | null>(null)
     const [hoverState, setHover] = useState<HoverState | null>(null)
-    // A hover from before a data update points into the old tree, so it reads as no hover.
-    const hover = hoverState?.tree === tree ? hoverState : null
+    const hoverCellRef = useRef<FlameCell | null>(null)
+    // A hover from before a data update or a resize points at cells that moved, so it reads as none.
+    const hover = hoverState?.tree === tree && hoverState.dimensions === dimensions ? hoverState : null
 
-    const paintInputs = useLatest({ tree, colors, shades, ink, fitter, geometry, searchResult, ancestors, theme })
+    const paintInputs = useCommittedRef({ tree, colors, shades, ink, fitter, geometry, searchResult, ancestors, theme })
     const paint = useCallback((): void => {
         if (!ctx) {
             return
@@ -303,7 +316,7 @@ function FlameGraphInner<Meta = unknown>({
 
     // Frames queued earlier, and the zoom animation, must draw with the dimensions of the latest
     // render: a zoom can grow the viewport while it animates.
-    const paintRef = useLatest(paint)
+    const paintRef = useCommittedRef(paint)
     const requestPaint = useCallback((): void => {
         if (!ctx || paintRafRef.current !== null) {
             return
@@ -314,7 +327,7 @@ function FlameGraphInner<Meta = unknown>({
 
     useEffect(
         () => requestPaint(),
-        [requestPaint, tree, colors, shades, searchResult, ancestors, geometry, theme.skipDraw]
+        [requestPaint, dimensions, tree, colors, shades, searchResult, ancestors, geometry, theme.skipDraw]
     )
 
     const isFirstWindow = useRef(true)
@@ -411,7 +424,7 @@ function FlameGraphInner<Meta = unknown>({
     const hitAt = useCallback(
         (clientX: number, clientY: number): HoverState | null => {
             const bounds = canvasRef.current?.getBoundingClientRect()
-            if (!bounds) {
+            if (!bounds || !dimensions) {
                 return null
             }
             const x = clientX - bounds.left
@@ -419,9 +432,9 @@ function FlameGraphInner<Meta = unknown>({
             const depth = depthAtY(y + scrollTopRef.current, geometry)
             const { cells, tree: cellsTree } = cellsRef.current
             const cell = depth >= 0 ? cellAt(cells, depth, x) : null
-            return cell && cellsTree ? { cell, x, y, tree: cellsTree } : null
+            return cell && cellsTree ? { cell, x, y, tree: cellsTree, dimensions, bounds } : null
         },
-        [canvasRef, geometry]
+        [canvasRef, geometry, dimensions]
     )
 
     const handlers = useMemo(
@@ -430,27 +443,37 @@ function FlameGraphInner<Meta = unknown>({
                 if (animationRafRef.current !== null) {
                     return
                 }
-                setHover(hitAt(event.clientX, event.clientY))
+                const next = hitAt(event.clientX, event.clientY)
+                // Without a tooltip to move, only a change of cell needs a render.
+                if (!showTooltip && next?.cell === hoverCellRef.current) {
+                    return
+                }
+                hoverCellRef.current = next?.cell ?? null
+                setHover(next)
             },
-            onMouseLeave: (): void => setHover(null),
+            onMouseLeave: (): void => {
+                hoverCellRef.current = null
+                setHover(null)
+            },
             onClick: (event: React.MouseEvent<HTMLDivElement>): void => {
                 const hit = hitAt(event.clientX, event.clientY)
-                if (!hit) {
+                // Cells from a paint of an older tree hold indices that mean other nodes now.
+                if (!hit || hit.tree !== tree) {
                     return
                 }
                 const { cell } = hit
                 if (cell.kind === 'bundle') {
-                    changeFocus({ kind: 'bundle', first: tree.ids[cell.index], last: tree.ids[cell.last] })
+                    changeFocus({ kind: 'bundle', first: nodeId(tree, cell.index), last: nodeId(tree, cell.last) })
                     return
                 }
                 const isFocused = focus?.kind === 'node' && focus.index === cell.index
                 if (clickToFocus && !isFocused) {
-                    changeFocus({ kind: 'node', id: tree.ids[cell.index] })
+                    changeFocus({ kind: 'node', id: nodeId(tree, cell.index) })
                 }
                 onNodeClick?.(nodeDatum(tree, cell.index, diff))
             },
         }),
-        [hitAt, changeFocus, tree, focus, clickToFocus, onNodeClick, diff]
+        [hitAt, changeFocus, tree, focus, clickToFocus, onNodeClick, diff, showTooltip]
     )
 
     // Bottom-up graphs keep their roots in view, at the bottom of the scroll range.
@@ -471,16 +494,14 @@ function FlameGraphInner<Meta = unknown>({
         [requestPaint]
     )
 
+    const resetZoom = useCallback((): void => changeFocus(null), [changeFocus])
+
     const zoomOut = useCallback((): void => {
         if (!focus) {
             return
         }
         const parentIndex = focus.kind === 'node' ? tree.parent[focus.index] : tree.parent[focus.first]
-        if (focus.kind === 'bundle') {
-            changeFocus({ kind: 'node', id: tree.ids[parentIndex] })
-        } else {
-            changeFocus(parentIndex >= 0 ? { kind: 'node', id: tree.ids[parentIndex] } : null)
-        }
+        changeFocus(parentIndex >= 0 ? { kind: 'node', id: nodeId(tree, parentIndex) } : null)
     }, [focus, tree, changeFocus])
 
     const onKeyDown = useCallback(
@@ -495,9 +516,9 @@ function FlameGraphInner<Meta = unknown>({
 
     const crumbs = useMemo<FlameCrumb[]>(() => {
         const items: FlameCrumb[] = focusPath.map((index) => ({
-            key: tree.ids[index],
+            key: String(index),
             label: String(tree.nodes[index].name ?? ''),
-            onSelect: () => changeFocus({ kind: 'node', id: tree.ids[index] }),
+            onSelect: () => changeFocus({ kind: 'node', id: nodeId(tree, index) }),
         }))
         if (focus?.kind === 'bundle') {
             items.push({ key: '\u0000bundle', label: `+${focus.last - focus.first + 1} more`, onSelect: () => {} })
@@ -517,11 +538,10 @@ function FlameGraphInner<Meta = unknown>({
 
     const canvasBounds = useCanvasBounds(canvasRef)
     const tooltipCtx = useMemo<FlameTooltipContext<Meta> | null>(() => {
-        const bounds = canvasBounds()
-        if (!hover || !hit || !bounds) {
+        if (!hover || !hit) {
             return null
         }
-        const label = hit.kind === 'node' ? hit.node.name : `${hit.bundle.nodes.length} smaller nodes`
+        const label = hit.kind === 'node' ? hit.node.name : `${hit.bundle.count} smaller nodes`
         const value = hit.kind === 'node' ? hit.node.value : hit.bundle.value
         const fill = hover.cell.kind === 'bundle' ? ink.neutral : colors.fills[hover.cell.index]
         const isFocused = focus?.kind === 'node' && hover.cell.kind === 'node' && focus.index === hover.cell.index
@@ -530,21 +550,22 @@ function FlameGraphInner<Meta = unknown>({
             label,
             seriesData: [
                 {
-                    series: { key: tree.ids[hover.cell.index], label, data: [value] },
+                    series: { key: hit.kind === 'node' ? hit.node.id : 'bundle', label, data: [value] },
                     value,
                     color: fill,
                 },
             ],
             position: { x: hover.x, y: hover.y },
             hoverPosition: { x: hover.x, y: hover.y },
-            canvasBounds: bounds,
+            canvasBounds: hover.bounds,
             isPinned: false,
             hit,
             valueFormatter,
             comparing: colorBy === 'diff',
             canFocus: hover.cell.kind === 'bundle' || (clickToFocus && !isFocused),
+            totalValue: tree.totalValue,
         }
-    }, [hover, hit, canvasBounds, ink, colors, focus, tree, valueFormatter, colorBy, clickToFocus])
+    }, [hover, hit, ink, colors, focus, tree, valueFormatter, colorBy, clickToFocus])
 
     const renderTooltip = useMemo(
         () =>
@@ -570,7 +591,8 @@ function FlameGraphInner<Meta = unknown>({
                 : null,
         [dimensions, theme, canvasBounds]
     )
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex: hover?.cell.index ?? -1 }), [hover])
+    const hoverIndex = hover?.cell.index ?? -1
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     const isEmpty = tree.size === 0 || tree.x1[tree.rowStart[1] - 1] <= 0
     const clickable = !!hover && (hover.cell.kind === 'bundle' || clickToFocus || !!onNodeClick)
@@ -585,28 +607,27 @@ function FlameGraphInner<Meta = unknown>({
                     data-hog-charts-flame=""
                 >
                     {showBreadcrumb && !isEmpty ? (
-                        <FlameGraphHeader
-                            crumbs={crumbs}
-                            onReset={focus ? () => changeFocus(null) : null}
-                            search={searchResult}
-                        />
+                        <FlameGraphHeader crumbs={crumbs} onReset={focus ? resetZoom : null} search={searchResult} />
                     ) : null}
                     <div
                         ref={scrollRef}
                         className={`relative w-full overflow-y-auto overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair) ${fillParent ? 'flex-1 min-h-0' : ''}`}
-                        style={fillParent ? undefined : { height: viewportHeight }}
+                        style={{ height: fixedViewportHeight ?? undefined, containerType: 'size' }}
                         tabIndex={0}
+                        data-attr="hog-chart-flame-viewport"
                         onScroll={onScroll}
                         onKeyDown={onKeyDown}
                     >
-                        <div className="relative w-full" style={{ height: Math.max(contentHeight, viewportHeight) }}>
-                            <div className="sticky top-0 flex flex-col w-full" style={{ height: viewportHeight }}>
+                        {/* The content box sets the scroll range. The canvas host inside it sticks to the top at
+                            the viewport's height (`cqh`), so only the visible rows are ever painted. */}
+                        <div className="relative w-full min-h-full" style={{ height: contentHeight }}>
+                            <div className="sticky top-0 flex flex-col w-full" style={{ height: '100cqh' }}>
                                 <ChartShell
                                     wrapperRef={wrapperRef}
                                     canvasRef={canvasRef}
                                     overlayCanvasRef={overlayCanvasRef}
                                     pointer={clickable}
-                                    ariaLabel={`Flame graph with ${tree.size} nodes`}
+                                    ariaLabel={`Flame graph with ${tree.size} ${tree.size === 1 ? 'node' : 'nodes'}`}
                                     handlers={handlers}
                                     showOverlay={!!dimensions}
                                 >
@@ -618,7 +639,10 @@ function FlameGraphInner<Meta = unknown>({
                                     {tooltipCtx && showTooltip ? (
                                         <Tooltip
                                             context={tooltipCtx}
-                                            renderTooltip={renderTooltip as never}
+                                            // The context handed to the renderer is the FlameTooltipContext built above.
+                                            renderTooltip={
+                                                renderTooltip as (ctx: TooltipContext<Meta>) => React.ReactNode
+                                            }
                                             placement="cursor"
                                         />
                                     ) : null}

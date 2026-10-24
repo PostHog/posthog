@@ -66,7 +66,7 @@ function searchSummary(search: FlameSearchResult): string {
     return `${search.count.toLocaleString()} ${search.count === 1 ? 'match' : 'matches'} · ${formatShare(search.fraction)} of total`
 }
 
-export function FlameGraphHeader({ crumbs, onReset, search }: FlameGraphHeaderProps): React.ReactElement {
+function FlameGraphHeaderInner({ crumbs, onReset, search }: FlameGraphHeaderProps): React.ReactElement {
     const collapsed = crumbs.length > MAX_VISIBLE_CRUMBS
     const shown = collapsed ? [crumbs[0], ...crumbs.slice(-2)] : crumbs
     const hidden = collapsed ? crumbs.slice(1, -2) : []
@@ -115,3 +115,6 @@ export function FlameGraphHeader({ crumbs, onReset, search }: FlameGraphHeaderPr
         </div>
     )
 }
+
+/** Memoized, because the chart re-renders on every mousemove while the zoom path does not change. */
+export const FlameGraphHeader = React.memo(FlameGraphHeaderInner)

@@ -15,8 +15,12 @@ export const MIN_NODE_PX = 3
 export interface FlameTree<Meta = unknown> {
     size: number
     nodes: FlameNode<Meta>[]
-    ids: string[]
-    idToIndex: Map<string, number>
+    /** `#k` suffix that tells a node's default id apart from an earlier sibling's with the same
+     *  name, or 0. Ids themselves are built on demand by {@link nodeId}, because storing one path
+     *  string per node costs memory quadratic in the depth. */
+    nameSuffix: Int32Array
+    /** Nodes that carry their own `id`, first one wins. */
+    explicitIds: Map<string, number>
     parent: Int32Array
     depth: Int32Array
     x0: Float64Array
@@ -97,13 +101,29 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
     const depth: number[] = []
     const x0: number[] = []
     const x1: number[] = []
-    const ids: string[] = []
-    const idToIndex = new Map<string, number>()
-    const nextSuffix = new Map<string, number>()
+    const nameSuffix: number[] = []
+    const explicitIds = new Map<string, number>()
     const childStart: number[] = []
     const childCount: number[] = []
     let hasBaseline = false
     let hasGroups = false
+
+    const suffixes = new Map<FlameNode<Meta>, number>()
+    /** Suffixes follow input order, so sorting siblings never changes a node's default id. */
+    const assignSuffixes = (siblings: FlameNode<Meta>[]): void => {
+        const seenNames = new Map<string, number>()
+        for (const sibling of siblings) {
+            if (sibling.id !== undefined) {
+                continue
+            }
+            const name = String(sibling.name ?? '')
+            const count = (seenNames.get(name) ?? 0) + 1
+            seenNames.set(name, count)
+            if (count > 1) {
+                suffixes.set(sibling, count)
+            }
+        }
+    }
 
     const push = (node: FlameNode<Meta>, parentIndex: number, left: number, right: number): void => {
         const index = nodes.length
@@ -112,23 +132,15 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
         depth.push(parentIndex < 0 ? 0 : depth[parentIndex] + 1)
         x0.push(left)
         x1.push(right)
-        const base = node.id ?? (parentIndex < 0 ? node.name : `${ids[parentIndex]}/${node.name}`)
-        let id = base
-        if (idToIndex.has(id)) {
-            // Resume from the last suffix used for this base, so many repeated names stay linear.
-            let suffix = nextSuffix.get(base) ?? 2
-            while (idToIndex.has(`${base}#${suffix}`)) {
-                suffix++
-            }
-            id = `${base}#${suffix}`
-            nextSuffix.set(base, suffix + 1)
+        nameSuffix.push(suffixes.get(node) ?? 0)
+        if (node.id !== undefined && !explicitIds.has(node.id)) {
+            explicitIds.set(node.id, index)
         }
-        ids.push(id)
-        idToIndex.set(id, index)
         hasBaseline ||= node.baselineValue !== undefined
         hasGroups ||= !!node.group
     }
 
+    assignSuffixes(roots)
     const rootWeight = roots.reduce((sum, root) => sum + weightOf(root), 0)
     let cursor = 0
     for (const root of roots) {
@@ -148,6 +160,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
                 seen.add(child)
                 return true
             })
+            assignSuffixes(fresh)
             const parentWeight = weightOf(nodes[head])
             const ordered = orderChildren(fresh, parentWeight)
             const childWeight = ordered.reduce((sum, child) => sum + weightOf(child), 0)
@@ -203,8 +216,8 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
     return {
         size,
         nodes,
-        ids,
-        idToIndex,
+        nameSuffix: Int32Array.from(nameSuffix),
+        explicitIds,
         parent: Int32Array.from(parent),
         depth: Int32Array.from(depth),
         x0: Float64Array.from(x0),
@@ -221,6 +234,67 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
         hasBaseline,
         hasGroups,
     }
+}
+
+function idSegment(tree: FlameTree<unknown>, index: number): string {
+    const name = String(tree.nodes[index].name ?? '')
+    const suffix = tree.nameSuffix[index]
+    return suffix > 0 ? `${name}#${suffix}` : name
+}
+
+/** A node's id: its own `id`, or the path of names from the root (or from the nearest ancestor with
+ *  its own `id`), joined with `/`. */
+export function nodeId(tree: FlameTree<unknown>, index: number): string {
+    const parts: string[] = []
+    for (let i = index; i >= 0; i = tree.parent[i]) {
+        const own = tree.nodes[i].id
+        if (own !== undefined) {
+            parts.push(own)
+            break
+        }
+        parts.push(idSegment(tree, i))
+    }
+    return parts.reverse().join('/')
+}
+
+/** The index of the node with id `id`, or undefined. Walks down only the branches whose path is a
+ *  prefix of `id`, comparing in place, so a lookup builds no path strings. */
+export function indexOfId(tree: FlameTree<unknown>, id: string): number | undefined {
+    const explicit = tree.explicitIds.get(id)
+    if (explicit !== undefined) {
+        return explicit
+    }
+    // Each entry is a node whose id matches `id` up to `end`.
+    const stack: { index: number; end: number }[] = []
+    const tryEnter = (index: number, start: number): void => {
+        const segment = idSegment(tree, index)
+        const end = start + segment.length
+        if (id.startsWith(segment, start) && (end === id.length || id[end] === '/')) {
+            stack.push({ index, end })
+        }
+    }
+    for (let i = 0; i < tree.size && tree.depth[i] === 0; i++) {
+        if (tree.nodes[i].id === undefined) {
+            tryEnter(i, 0)
+        }
+    }
+    for (const [own, index] of tree.explicitIds) {
+        if (id.length > own.length && id[own.length] === '/' && id.startsWith(own)) {
+            stack.push({ index, end: own.length })
+        }
+    }
+    while (stack.length > 0) {
+        const { index, end } = stack.pop()!
+        if (end === id.length) {
+            return index
+        }
+        for (let c = tree.childStart[index], last = c + tree.childCount[index]; c < last; c++) {
+            if (tree.nodes[c].id === undefined) {
+                tryEnter(c, end + 1)
+            }
+        }
+    }
+    return undefined
 }
 
 /** The part of unit space a focus zooms to. A node with no width cannot be zoomed into, so it
@@ -300,6 +374,8 @@ export function computeFlameCells(
             }
             const p = parent[i]
             if (p >= 0 && (x1[p] - x0[p]) * scale < MIN_NODE_PX) {
+                // Siblings are contiguous, so skip the rest of this narrow parent's children at once.
+                i = tree.childStart[p] + tree.childCount[p] - 1
                 continue
             }
             const left = (x0[i] - window.x0) * scale
@@ -334,6 +410,7 @@ export const HIT_SLOP_PX = 4
 /** The cell under `x` px in row `depth`, from cells sorted by depth then x. In a gap between
  *  cells, the nearest cell within {@link HIT_SLOP_PX} counts as hit. */
 export function cellAt(cells: readonly FlameCell[], depth: number, x: number): FlameCell | null {
+    // First cell of the row, then the first cell in it ending past `x - HIT_SLOP_PX`.
     let lo = 0
     let hi = cells.length
     while (lo < hi) {
@@ -344,9 +421,18 @@ export function cellAt(cells: readonly FlameCell[], depth: number, x: number): F
             hi = mid
         }
     }
+    hi = cells.length
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1
+        if (cells[mid].depth === depth && cells[mid].x1 <= x - HIT_SLOP_PX) {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
     let nearest: FlameCell | null = null
     let nearestDistance = HIT_SLOP_PX
-    for (let i = lo; i < cells.length && cells[i].depth === depth; i++) {
+    for (let i = lo; i < cells.length && cells[i].depth === depth && cells[i].x0 <= x + HIT_SLOP_PX; i++) {
         const cell = cells[i]
         if (x >= cell.x0 && x < cell.x1) {
             return cell
@@ -355,9 +441,6 @@ export function cellAt(cells: readonly FlameCell[], depth: number, x: number): F
         if (distance <= nearestDistance) {
             nearest = cell
             nearestDistance = distance
-        }
-        if (cell.x0 > x + HIT_SLOP_PX) {
-            break
         }
     }
     return nearest
@@ -415,7 +498,7 @@ export interface FlameSearchResult {
     /** 1 where the node or a node under it matches, so a bundle can tell whether it hides a match. */
     containsMatch: Uint8Array
     count: number
-    /** Share of the total value covered by matches, counting a match inside another match once. */
+    /** Share of the graph's width covered by matches, 0..1, counting a match inside another match once. */
     fraction: number
 }
 
@@ -431,7 +514,7 @@ export function searchFlame(tree: FlameTree<unknown>, query: string | undefined)
         names = tree.nodes.map((node) => String(node.name ?? '').toLowerCase())
         lowerNamesCache.set(tree, names)
     }
-    const { size, parent, value } = tree
+    const { size, parent } = tree
     const matches = new Uint8Array(size)
     const containsMatch = new Uint8Array(size)
     const insideMatch = new Uint8Array(size)
@@ -443,8 +526,10 @@ export function searchFlame(tree: FlameTree<unknown>, query: string | undefined)
         if (names[i].includes(needle)) {
             matches[i] = 1
             count++
+            // Laid-out widths, not raw values: concurrent children are scaled to fit their parent,
+            // and matches that are not nested in each other never overlap.
             if (!insideMatch[i]) {
-                covered += value[i]
+                covered += tree.x1[i] - tree.x0[i]
             }
         }
     }
@@ -455,7 +540,7 @@ export function searchFlame(tree: FlameTree<unknown>, query: string | undefined)
             containsMatch[p] = 1
         }
     }
-    return { matches, containsMatch, count, fraction: tree.totalValue > 0 ? covered / tree.totalValue : 0 }
+    return { matches, containsMatch, count, fraction: Math.min(1, covered) }
 }
 
 const share = (part: number, whole: number): number => (whole > 0 ? part / whole : 0)
@@ -465,7 +550,7 @@ export function nodeDatum<Meta>(tree: FlameTree<Meta>, index: number, diff: Flam
     const p = tree.parent[index]
     const value = tree.value[index]
     return {
-        id: tree.ids[index],
+        id: nodeId(tree, index),
         name: node.name,
         value,
         self: tree.self[index],
@@ -475,7 +560,7 @@ export function nodeDatum<Meta>(tree: FlameTree<Meta>, index: number, diff: Flam
         group: node.group,
         meta: node.meta,
         depth: tree.depth[index],
-        parentId: p >= 0 ? tree.ids[p] : null,
+        parentId: p >= 0 ? nodeId(tree, p) : null,
         fractionOfParent: share(value, p >= 0 ? tree.value[p] : tree.totalValue),
         fractionOfRoot: share(value, tree.totalValue),
         change: classifyChange(node, diff),
@@ -489,16 +574,18 @@ export interface FlameRowGeometry {
     rowHeight: number
     rowCount: number
     direction: FlameDirection
+    /** Blank px above the first row, which bottom-up graphs use to sit on the viewport's bottom edge. */
+    offset?: number
 }
 
 /** Top of a depth's row in content px, before the scroll offset. */
-export function rowTop(depth: number, { rowHeight, rowCount, direction }: FlameRowGeometry): number {
-    return (direction === 'top-down' ? depth : rowCount - 1 - depth) * rowHeight
+export function rowTop(depth: number, { rowHeight, rowCount, direction, offset = 0 }: FlameRowGeometry): number {
+    return offset + (direction === 'top-down' ? depth : rowCount - 1 - depth) * rowHeight
 }
 
 /** Depth of the row at content y, or -1 outside the rows. */
-export function depthAtY(y: number, { rowHeight, rowCount, direction }: FlameRowGeometry): number {
-    const row = Math.floor(y / rowHeight)
+export function depthAtY(y: number, { rowHeight, rowCount, direction, offset = 0 }: FlameRowGeometry): number {
+    const row = Math.floor((y - offset) / rowHeight)
     if (row < 0 || row >= rowCount) {
         return -1
     }
@@ -507,8 +594,9 @@ export function depthAtY(y: number, { rowHeight, rowCount, direction }: FlameRow
 
 /** Depths with any part inside the content band `[scrollTop, scrollTop + height)`. */
 export function visibleDepths(scrollTop: number, height: number, geometry: FlameRowGeometry): [number, number] {
-    const firstRow = Math.max(0, Math.floor(scrollTop / geometry.rowHeight))
-    const lastRow = Math.min(geometry.rowCount - 1, Math.ceil((scrollTop + height) / geometry.rowHeight) - 1)
+    const top = scrollTop - (geometry.offset ?? 0)
+    const firstRow = Math.max(0, Math.floor(top / geometry.rowHeight))
+    const lastRow = Math.min(geometry.rowCount - 1, Math.ceil((top + height) / geometry.rowHeight) - 1)
     if (geometry.direction === 'top-down') {
         return [firstRow, lastRow]
     }

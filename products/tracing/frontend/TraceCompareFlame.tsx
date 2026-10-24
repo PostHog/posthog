@@ -88,9 +88,12 @@ function SpanFlameTooltip({ ctx }: { ctx: FlameTooltipContext<TraceFlameMeta> })
         return (
             <TooltipSurface>
                 <strong>
-                    {bundle.descendantCount} small spans in {bundle.parent.name}
+                    {bundle.count} small spans{bundle.parent ? ` in ${bundle.parent.name}` : ''}
                 </strong>
                 <div>p50 sum: {formatDuration(bundle.value)}</div>
+                {bundle.descendantCount > bundle.count ? (
+                    <div>{bundle.descendantCount - bundle.count} nested spans</div>
+                ) : null}
                 {footer}
             </TooltipSurface>
         )
