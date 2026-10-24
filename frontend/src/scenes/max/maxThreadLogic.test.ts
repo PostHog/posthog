@@ -47,6 +47,7 @@ import * as tasksApi from 'products/tasks/frontend/generated/api'
 import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-constants'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -708,6 +709,56 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('billing context', () => {
+        it.each([
+            { flagAtMount: false, flagAfterMount: false, mountsBillingContext: false },
+            { flagAtMount: true, flagAfterMount: true, mountsBillingContext: true },
+            { flagAtMount: false, flagAfterMount: true, mountsBillingContext: true },
+        ])(
+            'mounts the billing context only behind its flag (at mount: $flagAtMount, after: $flagAfterMount)',
+            async ({ flagAtMount, flagAfterMount, mountsBillingContext }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MAX_BILLING_CONTEXT]: flagAtMount })
+                const threadLogic = maxThreadLogic({ conversationId: 'billing-context-thread', panelId: 'test' })
+                threadLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MAX_BILLING_CONTEXT]: flagAfterMount })
+                await import('./maxBillingContextLogic')
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(maxBillingContextLogic.isMounted()).toBe(mountsBillingContext)
+
+                threadLogic.unmount()
+                logic.unmount()
+                expect(maxBillingContextLogic.isMounted()).toBe(false)
+                featureFlagLogic.actions.setFeatureFlags([], {})
+                logic.mount()
+            }
+        )
+
+        it('sends the billing context with the first automatic message', async () => {
+            const streamSpy = mockStream()
+            const billingContext = { subscription_level: MaxBillingContextSubscriptionLevel.PAID } as MaxBillingContext
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MAX_BILLING_CONTEXT]: true })
+            maxBillingContextLogic.mount()
+            jest.spyOn(maxBillingContextLogic.selectors, 'billingContext').mockReturnValue(billingContext)
+
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            maxLogicInstance.actions.setQuestion('How much did I spend?')
+            maxLogicInstance.actions.setAutoRun(true)
+            const autoRunLogic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            autoRunLogic.mount()
+            await expectLogic(autoRunLogic).toDispatchActions(['askMax'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ content: 'How much did I spend?', billing_context: billingContext }),
+                expect.any(Object)
+            )
+
+            autoRunLogic.cache.generationController?.abort()
+            autoRunLogic.unmount()
+            maxBillingContextLogic.unmount()
         })
     })
 
