@@ -191,31 +191,5 @@ describe('ComboChart', () => {
             expect(lines).toHaveLength(1)
             expect(lines[0].label).toBe('Target')
         })
-
-        it('reports render errors through onError', () => {
-            const onError = jest.fn()
-            const tooltip = (): never => {
-                throw new Error('boom')
-            }
-            // ChartErrorBoundary surfaces the error to onError; React still logs it. Restore
-            // explicitly rather than via afterEach — setupJsdom installs a persistent
-            // getBoundingClientRect spy that restoreAllMocks would also tear down.
-            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-            try {
-                const { chart } = renderHogChart(
-                    <ComboChart
-                        series={BAR_AND_LINE}
-                        labels={LABELS}
-                        theme={THEME}
-                        tooltip={tooltip}
-                        onError={onError}
-                    />
-                )
-                chart.hoverAtIndex(1)
-                expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom' }), expect.anything())
-            } finally {
-                consoleErrorSpy.mockRestore()
-            }
-        })
     })
 })

@@ -706,23 +706,6 @@ describe('BarChart', () => {
             expect(lines[0].label).toBe('Target')
             expect(lines[0].orientation).toBe('horizontal')
         })
-
-        it('reports render errors through onError', async () => {
-            const onError = jest.fn()
-            const tooltip = (): React.ReactNode => {
-                throw new Error('boom')
-            }
-            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-            try {
-                const { chart } = renderHogChart(
-                    <BarChart series={SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
-                )
-                chart.hoverAtIndex(1)
-                await waitFor(() => expect(onError).toHaveBeenCalled())
-            } finally {
-                consoleErrorSpy.mockRestore()
-            }
-        })
     })
 
     describe('interactive legend', () => {

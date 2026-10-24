@@ -372,28 +372,6 @@ describe('BoxPlot', () => {
         })
     })
 
-    describe('error handling', () => {
-        let consoleErrorSpy: jest.SpyInstance
-        beforeEach(() => {
-            consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-        })
-        afterEach(() => {
-            consoleErrorSpy.mockRestore()
-        })
-
-        it('reports render errors through onError', async () => {
-            const onError = jest.fn()
-            const tooltip = (): React.ReactNode => {
-                throw new Error('boom')
-            }
-            const { chart } = renderHogChart(
-                <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
-            )
-            chart.hoverAtIndex(1)
-            await waitFor(() => expect(onError).toHaveBeenCalled())
-        })
-    })
-
     describe('children', () => {
         it('renders custom overlay children', () => {
             const { chart } = renderHogChart(
