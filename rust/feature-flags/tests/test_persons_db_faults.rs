@@ -129,7 +129,7 @@ async fn assert_person_flags_fail_within(
     server: &ServerHandle,
     team: &Team,
     deadline: Duration,
-) -> Result<()> {
+) -> Result<Value> {
     let (body, elapsed) = evaluate(server, team).await?;
     assert!(
         elapsed < deadline + RESPONSE_SLACK,
@@ -148,7 +148,7 @@ async fn assert_person_flags_fail_within(
     for key in [CONTINUITY_FLAG, PERSON_FLAG] {
         assert_eq!(body["flags"][key]["failed"], json!(true), "{key}: {body}");
     }
-    Ok(())
+    Ok(body)
 }
 
 /// Sends requests until one answers every flag, and fails the test after `RECOVERY_LIMIT`.
@@ -247,7 +247,7 @@ async fn person_flags_fail_within_the_deadline_when_new_connections_open_too_slo
 }
 
 #[tokio::test]
-#[ignore = "depends on timing; runs alone in ci-rust-flags-db-faults.yml"]
+#[ignore = "depends on timing; runs alone in the flags-db-faults CI job"]
 async fn open_gate_fails_person_flags_without_waiting_and_closes_after_recovery() -> Result<()> {
     let context = TestContext::new(None).await;
     let (team, _) = insert_team_with_flags(&context).await?;
@@ -266,17 +266,10 @@ async fn open_gate_fails_person_flags_without_waiting_and_closes_after_recovery(
     config.persons_db_gate_half_open_trials = 1;
     let server = start_server(config, &team).await;
 
-    assert_person_flags_fail_within(&server, &team, &[CONTINUITY_FLAG, PERSON_FLAG], deadline)
-        .await?;
+    assert_person_flags_fail_within(&server, &team, deadline).await?;
 
     // The open breaker rejects persons calls before they wait for the pool's acquire timeout.
-    let body = assert_person_flags_fail_within(
-        &server,
-        &team,
-        &[CONTINUITY_FLAG, PERSON_FLAG],
-        Duration::ZERO,
-    )
-    .await?;
+    let body = assert_person_flags_fail_within(&server, &team, Duration::ZERO).await?;
     assert_eq!(
         body["flags"][PERSON_FLAG]["reason"]["code"],
         json!("db_gate_open"),
