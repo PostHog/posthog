@@ -20,7 +20,7 @@ export const lennySummitCampaign: CampaignConfig = {
         },
     ],
     eligibilityCriteria: [
-        'A valid code from the Lenny & Friends Summit',
+        "A coupon code from Lenny's team. PostHog doesn't send these codes. If your Summit email had only a link, contact Lenny's team for your code.",
         'Organization admin or owner in PostHog',
         'An active PostHog subscription',
     ],
