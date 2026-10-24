@@ -34,9 +34,6 @@ export function EmailChangeVerificationModal(): JSX.Element {
         <LemonModal isOpen={modalOpen} onClose={closeModal} simple width={400}>
             <form
                 className="flex flex-col items-center gap-2.5 p-6 text-center"
-                // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
-                // the browser blocks an Enter-key submit on a partial code and shows no feedback.
-                noValidate
                 onSubmit={(e) => {
                     e.preventDefault()
                     if (!verificationResultLoading) {
