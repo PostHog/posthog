@@ -68,7 +68,7 @@ export function ReportInterviewInvite(): JSX.Element | null {
     }
 
     return (
-        <div className="flex max-w-96 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-tertiary">
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-tertiary">
             <span>Want some free PostHog merch?</span>
             <LemonButton
                 type="tertiary"
