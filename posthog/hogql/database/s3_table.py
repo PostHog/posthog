@@ -165,11 +165,6 @@ def build_function_call(
     table_size_mib: Optional[float] = None,
     compression: Optional[str] = None,
 ) -> str:
-    if _reads_brotli_files(url):
-        raise ExposedHogQLError(
-            "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
-        )
-
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
@@ -255,6 +250,11 @@ def build_function_call(
             expr += f", {escaped_structure}"
 
         return return_expr(expr)
+
+    if _reads_brotli_files(url):
+        raise ExposedHogQLError(
+            "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
+        )
 
     # Azure
     if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):

@@ -95,6 +95,10 @@ class TestS3Compression(SimpleTestCase):
         else:
             build_function_call(url, DataWarehouseTable.TableFormat.CSVWithNames, None, "key", "secret")
 
+    @parameterized.expand([(DataWarehouseTable.TableFormat.Delta,), (DataWarehouseTable.TableFormat.DeltaS3Wrapper,)])
+    def test_build_function_call_reads_a_delta_table_in_a_br_folder(self, table_format: str) -> None:
+        build_function_call("https://b.example.com/lake/table.br", table_format, None, "key", "secret")
+
 
 class TestS3Table(BaseTest):
     def _events_from_sql(self) -> str:
