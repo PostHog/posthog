@@ -33,7 +33,7 @@ type Chart = ReturnType<typeof getHogChart>
 function renderGroup(
     props: Omit<ChartGroupProps, 'children'> = {},
     onBrush?: () => void
-): { hourly: Chart; fine: Chart; optedOut: Chart; heatmap: Chart; container: HTMLElement } {
+): { hourly: Chart; fine: Chart; heatmap: Chart; container: HTMLElement } {
     const { container } = render(
         <ChartGroup {...props}>
             <div data-chart="hourly">
@@ -46,9 +46,6 @@ function renderGroup(
             </div>
             <div data-chart="fine">
                 <LineChart series={fineSeries} labels={FIVE_MIN} theme={THEME} />
-            </div>
-            <div data-chart="opted-out">
-                <LineChart series={fineSeries} labels={FIVE_MIN} theme={THEME} syncWithGroup={false} />
             </div>
             <div data-chart="heatmap">
                 <Heatmap
@@ -73,7 +70,6 @@ function renderGroup(
     return {
         hourly: getHogChart(scope('hourly')),
         fine: getHogChart(scope('fine')),
-        optedOut: getHogChart(scope('opted-out')),
         heatmap: getHogChart(scope('heatmap')),
         container,
     }
@@ -91,7 +87,7 @@ describe('ChartGroup', () => {
     })
 
     it('mirrors the hovered time on the other charts and clears it when the pointer leaves', async () => {
-        const { hourly, fine, optedOut, heatmap, container } = renderGroup()
+        const { hourly, fine, heatmap, container } = renderGroup()
         await hoverUntilTooltip(hourly.element, 0, HOURLY.length)
         const repaints = trackStaticRepaints(fine)
 
@@ -101,7 +97,6 @@ describe('ChartGroup', () => {
         expect(fine.groupHoverIndex()).toBe(12)
         expect(heatmap.groupHoverIndex()).toBe(6)
         expect(hourly.groupHoverIndex()).toBeNull()
-        expect(optedOut.groupHoverIndex()).toBeNull()
         expect(container.querySelector('[data-attr="metric-card-subtitle"]')?.textContent).toBe(HALF_HOURLY[2])
         expect(repaints.count()).toBe(0)
         repaints.stop()

@@ -5,6 +5,7 @@ import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
+import { ChartGroupContext } from '../../core/chart-group-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
 import { sanitizeFixedDomain } from '../../core/scales'
@@ -332,28 +333,29 @@ function ScatterChartInner<Meta = unknown>({
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-scatter-legend">
-            <Chart
-                series={visibleSeries}
-                labels={labels}
-                config={baseConfig}
-                theme={theme}
-                createScales={createScales}
-                drawStatic={drawStatic}
-                drawHover={drawHover}
-                resolveHoverIndex={resolveHoverIndex}
-                resolveValue={resolveValue}
-                valueRangeSeries={valueRangeSeries}
-                tooltip={renderTooltip}
-                onPointClick={onPointClick ? handlePointClick : undefined}
-                onAreaSelect={onAreaSelect ? handleAreaSelect : undefined}
-                className={className}
-                dataAttr={dataAttr}
-                // Scatter x is continuous and its labels are synthetic, so nothing lines up with it.
-                syncWithGroup={false}
-            >
-                {!xAxis.hide && <ScatterXAxisLabels />}
-                {children}
-            </Chart>
+            {/* Scatter x is continuous and its labels are synthetic, so it never joins a `ChartGroup`. */}
+            <ChartGroupContext.Provider value={null}>
+                <Chart
+                    series={visibleSeries}
+                    labels={labels}
+                    config={baseConfig}
+                    theme={theme}
+                    createScales={createScales}
+                    drawStatic={drawStatic}
+                    drawHover={drawHover}
+                    resolveHoverIndex={resolveHoverIndex}
+                    resolveValue={resolveValue}
+                    valueRangeSeries={valueRangeSeries}
+                    tooltip={renderTooltip}
+                    onPointClick={onPointClick ? handlePointClick : undefined}
+                    onAreaSelect={onAreaSelect ? handleAreaSelect : undefined}
+                    className={className}
+                    dataAttr={dataAttr}
+                >
+                    {!xAxis.hide && <ScatterXAxisLabels />}
+                    {children}
+                </Chart>
+            </ChartGroupContext.Provider>
         </ChartLegend>
     )
 }

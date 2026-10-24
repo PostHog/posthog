@@ -168,8 +168,6 @@ export interface HeatmapProps {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
-    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
-    syncWithGroup?: boolean
 }
 
 export function Heatmap({ onError, ...rest }: HeatmapProps): React.ReactElement {
@@ -192,7 +190,6 @@ function HeatmapInner({
     className,
     dataAttr,
     children,
-    syncWithGroup,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
     const { colorScale: requestedColorScale = 'auto' } = config ?? {}
     // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
@@ -530,7 +527,6 @@ function HeatmapInner({
             valueRangeSeries={valueRangeSeries}
             className={className}
             dataAttr={dataAttr}
-            syncWithGroup={syncWithGroup}
             groupLabels={xLabels}
         >
             {config?.cellLabel && (

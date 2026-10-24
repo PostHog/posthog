@@ -19,8 +19,6 @@ const NOOP_SUBSCRIBE = (): (() => void) => () => {}
 const NO_LABELS = buildChartGroupXIndex([])
 
 interface UseChartGroupMemberOptions {
-    /** False keeps the chart out of the enclosing group. */
-    enabled: boolean
     /** The x values this chart lines up on. */
     labels: string[]
 }
@@ -60,10 +58,9 @@ function createMatcher(store: ChartGroupStore, id: string, xIndex: ChartGroupXIn
 }
 
 /** Joins the enclosing `ChartGroup`: publishes this chart's hover, and maps the group's hover,
- *  zoom and selection onto this chart's labels. Inert outside a group or when `enabled` is false. */
-export function useChartGroupMember({ enabled, labels }: UseChartGroupMemberOptions): ChartGroupMember {
-    const context = useContext(ChartGroupContext)
-    const group = enabled ? context : null
+ *  zoom and selection onto this chart's labels. Inert outside a group. */
+export function useChartGroupMember({ labels }: UseChartGroupMemberOptions): ChartGroupMember {
+    const group = useContext(ChartGroupContext)
     const store = group?.store ?? null
     const id = useId()
 
@@ -148,11 +145,11 @@ export function useChartGroupMember({ enabled, labels }: UseChartGroupMemberOpti
 }
 
 /** The enclosing `ChartGroup`'s hover mapped onto `labels`, as React state that changes only when the
- *  matched index does. -1 outside a group, without labels, or when `enabled` is false. Use it for DOM
- *  that follows the group hover, such as a stat tile's headline. */
-export function useChartGroupHoverIndex(labels: string[] | undefined, enabled = true): number {
+ *  matched index does. -1 outside a group or without labels. Use it for DOM that follows the group
+ *  hover, such as a stat tile's headline. */
+export function useChartGroupHoverIndex(labels: string[] | undefined): number {
     const context = useContext(ChartGroupContext)
-    const store = enabled && labels ? (context?.store ?? null) : null
+    const store = labels ? (context?.store ?? null) : null
     const getIndex = useMemo(
         () => (store && labels ? createMatcher(store, '', buildChartGroupXIndex(labels)) : NO_INDEX),
         [store, labels]

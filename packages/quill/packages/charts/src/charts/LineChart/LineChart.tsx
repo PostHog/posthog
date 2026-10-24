@@ -62,8 +62,6 @@ export interface LineChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
-    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
-    syncWithGroup?: boolean
 }
 
 export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
@@ -84,7 +82,6 @@ function LineChartInner<Meta = unknown>({
     onDateRangeZoom,
     className,
     dataAttr,
-    syncWithGroup,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
@@ -311,7 +308,6 @@ function LineChartInner<Meta = unknown>({
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
-                syncWithGroup={syncWithGroup}
                 resolveValue={resolveValue}
                 resolvePositionValue={resolvePositionValue}
             >

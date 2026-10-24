@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
+import { ChartGroupContext } from '../../core/chart-group-context'
 import type {
     BarChartConfig,
     BarsConfig,
@@ -282,23 +283,24 @@ export function FunnelChart<Meta = unknown>({
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 
+    // Step labels are synthetic indices that would match unrelated categorical charts in a `ChartGroup`.
     const chart = (
-        <BarChart<Meta>
-            series={series}
-            labels={bandLabels}
-            theme={theme}
-            config={barConfig}
-            tooltip={tooltip}
-            onPointClick={handlePointClick}
-            className={className}
-            dataAttr={dataAttr}
-            // Step labels are synthetic indices that would match unrelated categorical charts.
-            syncWithGroup={false}
-            onError={onError}
-        >
-            {hasStepFooter && <StepBandProbe onBands={setBands} />}
-            {children}
-        </BarChart>
+        <ChartGroupContext.Provider value={null}>
+            <BarChart<Meta>
+                series={series}
+                labels={bandLabels}
+                theme={theme}
+                config={barConfig}
+                tooltip={tooltip}
+                onPointClick={handlePointClick}
+                className={className}
+                dataAttr={dataAttr}
+                onError={onError}
+            >
+                {hasStepFooter && <StepBandProbe onBands={setBands} />}
+                {children}
+            </BarChart>
+        </ChartGroupContext.Provider>
     )
 
     if (!stepFooter) {

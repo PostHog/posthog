@@ -79,10 +79,6 @@ export interface MetricCardProps {
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
-    /** Set false to keep the card out of the enclosing `ChartGroup`. Inside a group, a card with
-     *  `labels` follows the group hover: its sparkline shows the crosshair and its headline the
-     *  value at that x. Defaults to true. */
-    syncWithGroup?: boolean
 }
 
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
@@ -125,13 +121,12 @@ function MetricCardInner({
     hoverIntentMs = 60,
     className,
     dataAttr,
-    syncWithGroup = true,
 }: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
-    const groupHoverIndex = useChartGroupHoverIndex(sparklineData ? labels : undefined, syncWithGroup)
+    const groupHoverIndex = useChartGroupHoverIndex(sparklineData ? labels : undefined)
     const intentIndex = useHoverIntent(hoverIndex >= 0 ? hoverIndex : groupHoverIndex, hoverIntentMs)
     const activeIndex = intentIndex >= 0 ? intentIndex : lastIndex
 
@@ -156,7 +151,6 @@ function MetricCardInner({
                     fillOpacity={sparklineFillOpacity}
                     dashedFromIndex={sparklineDashedFromIndex}
                     onHoverIndexChange={setHoverIndex}
-                    syncWithGroup={syncWithGroup}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
                 />
@@ -170,7 +164,6 @@ function MetricCardInner({
             sparklineFill,
             sparklineFillOpacity,
             sparklineDashedFromIndex,
-            syncWithGroup,
             sparklineClassName,
         ]
     )

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
+import { ChartGroupContext } from '../../core/chart-group-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import type {
@@ -224,26 +225,27 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-slope-legend">
-            <LineChart<Meta>
-                series={slopeSeries}
-                labels={slopeLabels}
-                config={lineConfig}
-                theme={theme}
-                tooltip={tooltip ?? sortedTooltip}
-                onPointClick={onPointClick}
-                className={className}
-                dataAttr={dataAttr}
-                // Start and end columns are not a shared x axis.
-                syncWithGroup={false}
-            >
-                <SlopeValueLabels
-                    valueFormatter={valueFormatter}
-                    showStartLabels={showStartLabels}
-                    showEndLabels={showEndLabels}
-                />
-                <SlopeSeriesLabels show={showSeriesLabels} offsetX={nameOffsetX} />
-                {children}
-            </LineChart>
+            {/* Start and end columns are not a shared x axis, so the chart stays out of any `ChartGroup`. */}
+            <ChartGroupContext.Provider value={null}>
+                <LineChart<Meta>
+                    series={slopeSeries}
+                    labels={slopeLabels}
+                    config={lineConfig}
+                    theme={theme}
+                    tooltip={tooltip ?? sortedTooltip}
+                    onPointClick={onPointClick}
+                    className={className}
+                    dataAttr={dataAttr}
+                >
+                    <SlopeValueLabels
+                        valueFormatter={valueFormatter}
+                        showStartLabels={showStartLabels}
+                        showEndLabels={showEndLabels}
+                    />
+                    <SlopeSeriesLabels show={showSeriesLabels} offsetX={nameOffsetX} />
+                    {children}
+                </LineChart>
+            </ChartGroupContext.Provider>
         </ChartLegend>
     )
 }

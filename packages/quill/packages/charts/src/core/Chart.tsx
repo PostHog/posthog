@@ -121,9 +121,6 @@ export interface ChartProps<Meta = unknown> {
      *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
      *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
     resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
-    /** Set false to keep this chart out of the enclosing `ChartGroup`: it neither shares its hover,
-     *  zoom and selection nor mirrors the other charts'. Defaults to true. */
-    syncWithGroup?: boolean
     /** Chart-type seam: the x values the chart lines up on inside a `ChartGroup`, index-aligned with
      *  `labels`. Defaults to `labels`. Heatmap passes its column labels, since its `labels` are
      *  synthetic column keys. Chart-type adapters provide this; consumers do not. */
@@ -153,7 +150,6 @@ export function Chart<Meta = unknown>({
     valueRangeSeries,
     wrapClickData,
     resolveHoverIndex,
-    syncWithGroup = true,
     groupLabels,
 }: ChartProps<Meta>): React.ReactElement {
     const {
@@ -350,7 +346,7 @@ export function Chart<Meta = unknown>({
         }
     }, [drawStatic, tickMarkCoords, theme])
 
-    const group = useChartGroupMember({ enabled: syncWithGroup, labels: groupLabels ?? labels })
+    const group = useChartGroupMember({ labels: groupLabels ?? labels })
     // Drag-to-zoom only runs along a horizontal x axis.
     const groupZoom = interactionAxis === 'x' ? group.zoom : null
     const zoomHandler = useMemo<((data: DateRangeZoomData) => void) | undefined>(

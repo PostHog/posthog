@@ -109,7 +109,7 @@ Charts line up by x value, so an hourly chart and a 5-minute chart show the same
 </ChartGroup>
 ```
 
-Matching rules, opting out, and the rest: [docs/interactions.md](./docs/interactions.md#chart-groups).
+Matching rules, keeping a chart out, and the rest: [docs/interactions.md](./docs/interactions.md#chart-groups).
 
 ## Custom overlays
 

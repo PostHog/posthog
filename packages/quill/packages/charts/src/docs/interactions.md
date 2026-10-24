@@ -88,9 +88,10 @@ Filter every chart's data by `[from, to)` rather than by label, because each cha
 - `MetricCard` follows the group hover with its headline and subtitle, after its `hoverIntentMs` dwell. `useChartGroupHoverIndex(labels)` gives the same index to your own DOM.
 - A mirrored line chart rings each series at the matching x, up to 12 series. Past that it draws only the crosshair.
 
-### Opting out
+### Keeping a chart out
 
-Pass `syncWithGroup={false}` to any chart to keep it out of the enclosing group: it neither shares its hover, zoom, and selection nor mirrors the others'.
+A chart joins the group by being rendered inside it, and there is no per-chart switch.
+To keep a chart from syncing, render it outside the `ChartGroup`.
 
 ## Legend clicks
 

@@ -33,7 +33,7 @@ export interface ChartGroupProps {
 }
 
 /** Links the charts inside it so they share hover, crosshair, tooltip, zoom and selection. Charts
- *  join by being rendered anywhere inside, at any depth; a chart leaves with `syncWithGroup={false}`.
+ *  join by being rendered anywhere inside, at any depth; a chart that should not sync sits outside.
  *  Charts line up by x value, not by index: ISO time labels match by time, so hourly and 5-minute
  *  charts align, and other labels match by their exact string. Renders no DOM of its own. */
 export function ChartGroup({
