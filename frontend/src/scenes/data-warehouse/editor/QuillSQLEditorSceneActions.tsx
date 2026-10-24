@@ -20,9 +20,9 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-export interface QuillSQLEditorSecondarySaveMenuItem extends SaveAsMenuItem {
+export interface QuillSQLEditorSaveMenuItem extends SaveAsMenuItem {
     onClick: () => void
-    accessDisabledReason: string | null | undefined
+    disabledReason: string | null | undefined
 }
 
 export interface QuillSQLEditorSceneActionsProps {
@@ -36,7 +36,8 @@ export interface QuillSQLEditorSceneActionsProps {
     saveAsViewAccessDisabledReason: string | null
     saveAsEndpointDisabledReason: string | null
     continueInNotebookAccessDisabledReason: string | null
-    secondarySaveMenuItems: QuillSQLEditorSecondarySaveMenuItem[]
+    secondarySaveMenuItems: QuillSQLEditorSaveMenuItem[]
+    saveAsNewMenuItems: QuillSQLEditorSaveMenuItem[]
     onPrimarySaveClick: () => void
 }
 
@@ -52,6 +53,7 @@ export function QuillSQLEditorSceneActions({
     saveAsEndpointDisabledReason,
     continueInNotebookAccessDisabledReason,
     secondarySaveMenuItems,
+    saveAsNewMenuItems,
     onPrimarySaveClick,
 }: QuillSQLEditorSceneActionsProps): JSX.Element {
     const { updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading } = useValues(editorSceneLogic)
@@ -66,16 +68,8 @@ export function QuillSQLEditorSceneActions({
     } = useValues(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
-    const {
-        updateInsight,
-        closeEditingObject,
-        saveAsInsight,
-        saveAsView,
-        saveAsEndpoint,
-        updateEditingMetric,
-        setEditingMetricName,
-        discardChanges,
-    } = useActions(sqlEditorLogic)
+    const { updateInsight, closeEditingObject, updateEditingMetric, setEditingMetricName, discardChanges } =
+        useActions(sqlEditorLogic)
 
     const continueInNotebookDisabledReason = queryInput?.trim()
         ? continueInNotebookAccessDisabledReason
@@ -119,35 +113,18 @@ export function QuillSQLEditorSceneActions({
     const saveAsMenuItemsGroup = (
         <DropdownMenuGroup>
             {continueInNotebookMenuItem}
-            <DropdownMenuItem disabledReason={saveAsInsightDisabledReason} onClick={() => saveAsInsight()}>
-                Save as new insight...
-            </DropdownMenuItem>
-            <DropdownMenuItem
-                disabledReason={saveAsDisabledReason ?? saveAsViewAccessDisabledReason}
-                onClick={() => saveAsView()}
-            >
-                Save as new view...
-            </DropdownMenuItem>
-            <DropdownMenuItem
-                disabledReason={saveAsDisabledReason ?? saveAsEndpointDisabledReason}
-                onClick={() => saveAsEndpoint()}
-            >
-                Save as endpoint...
-            </DropdownMenuItem>
+            {saveAsNewMenuItems.map((item) => (
+                <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
+                    {item.label}
+                </DropdownMenuItem>
+            ))}
         </DropdownMenuGroup>
     )
 
     const secondarySaveMenuContent = (
         <DropdownMenuContent align="end">
             {secondarySaveMenuItems.map((item) => (
-                <DropdownMenuItem
-                    key={item.action}
-                    disabledReason={
-                        (item.action === 'insight' ? saveAsInsightDisabledReason : saveAsDisabledReason) ??
-                        item.accessDisabledReason
-                    }
-                    onClick={item.onClick}
-                >
+                <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
                     {item.label}
                 </DropdownMenuItem>
             ))}

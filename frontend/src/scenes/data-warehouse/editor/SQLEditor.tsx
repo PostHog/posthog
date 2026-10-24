@@ -47,7 +47,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
-import { editorSceneLogic } from './editorSceneLogic'
+import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
@@ -55,7 +55,7 @@ import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
-import { QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
+import { QuillSQLEditorSaveMenuItem, QuillSQLEditorSceneActions } from './QuillSQLEditorSceneActions'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { useUpdateEditingView } from './useUpdateEditingView'
@@ -513,10 +513,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         insightLoading,
         sourceQuery,
         isSourceQueryLastRun,
+        isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
+        metadata,
+        activeQueryText,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, saveAsCohort } = useActions(editorSceneLogic)
     const {
         updateInsight,
         closeEditingObject,
@@ -576,46 +579,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
-    const secondarySaveMenuItems = useMemo(
-        () =>
-            saveAsMenuItems.secondary.map((item) => ({
-                ...item,
-                onClick: () => {
-                    if (item.action === 'insight') {
-                        saveAsInsight()
-                        return
-                    }
-
-                    if (item.action === 'endpoint') {
-                        saveAsEndpoint()
-                        return
-                    }
-
-                    if (item.action === 'metric') {
-                        saveAsMetric()
-                        return
-                    }
-
-                    saveAsView()
-                },
-                accessDisabledReason:
-                    item.action === 'view'
-                        ? saveAsViewAccessDisabledReason
-                        : item.action === 'endpoint'
-                          ? saveAsEndpointDisabledReason
-                          : undefined,
-            })),
-        [
-            saveAsEndpoint,
-            saveAsInsight,
-            saveAsMetric,
-            saveAsMenuItems.secondary,
-            saveAsView,
-            saveAsViewAccessDisabledReason,
-            saveAsEndpointDisabledReason,
-        ]
-    )
-
     const onPrimarySaveClick = (): void => {
         if (saveAsMenuItems.primary.action === 'endpoint') {
             saveAsEndpoint()
@@ -660,6 +623,108 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+
+    const saveAsCohortDisabledReason = useMemo(() => {
+        if (saveAsDisabledReason) {
+            return saveAsDisabledReason
+        }
+        if (selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') {
+            return 'Switch to PostHog (ClickHouse) to save a cohort'
+        }
+        if (isMultiQuery) {
+            return 'Use a single SQL query to save a cohort'
+        }
+        const tables =
+            metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
+        const hasPersonId =
+            response &&
+            'columns' in response &&
+            response.columns?.some(
+                (column: unknown) =>
+                    column === 'person_id' ||
+                    column === 'actor_id' ||
+                    column === 'distinct_id' ||
+                    (column === 'id' && tables?.some((table) => table === 'persons' || table === 'posthog.persons'))
+            )
+        return hasPersonId ? undefined : 'Return person_id, actor_id, distinct_id, or id from persons'
+    }, [
+        saveAsDisabledReason,
+        selectedConnectionId,
+        sourceQuery.source.executionTarget,
+        isMultiQuery,
+        metadata,
+        activeQueryText,
+        queryInput,
+        response,
+    ])
+
+    function disabledReasonFor(action: SaveAsMenuItem['action']): string | null | undefined {
+        if (action === 'cohort') {
+            return saveAsCohortDisabledReason
+        }
+        if (action === 'insight') {
+            return saveAsInsightDisabledReason
+        }
+        return (
+            saveAsDisabledReason ??
+            (action === 'view'
+                ? saveAsViewAccessDisabledReason
+                : action === 'endpoint'
+                  ? saveAsEndpointDisabledReason
+                  : undefined)
+        )
+    }
+
+    const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
+        ...item,
+        disabledReason: disabledReasonFor(item.action),
+        onClick: () => {
+            if (item.action === 'insight') {
+                saveAsInsight()
+                return
+            }
+            if (item.action === 'endpoint') {
+                saveAsEndpoint()
+                return
+            }
+            if (item.action === 'metric') {
+                saveAsMetric()
+                return
+            }
+            if (item.action === 'cohort') {
+                saveAsCohort()
+                return
+            }
+            saveAsView()
+        },
+    }))
+
+    const saveAsNewMenuItems: QuillSQLEditorSaveMenuItem[] = [
+        {
+            action: 'insight',
+            label: 'Save as new insight...',
+            disabledReason: disabledReasonFor('insight'),
+            onClick: () => saveAsInsight(),
+        },
+        {
+            action: 'view',
+            label: 'Save as new view...',
+            disabledReason: disabledReasonFor('view'),
+            onClick: () => saveAsView(),
+        },
+        {
+            action: 'endpoint',
+            label: 'Save as endpoint...',
+            disabledReason: disabledReasonFor('endpoint'),
+            onClick: () => saveAsEndpoint(),
+        },
+        {
+            action: 'cohort',
+            label: 'Save as cohort...',
+            disabledReason: disabledReasonFor('cohort'),
+            onClick: () => saveAsCohort(),
+        },
+    ]
 
     const {
         disabledReason: editingViewDisabledReason,
@@ -772,6 +837,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             saveAsEndpointDisabledReason={saveAsEndpointDisabledReason}
                             continueInNotebookAccessDisabledReason={continueInNotebookAccessDisabledReason}
                             secondarySaveMenuItems={secondarySaveMenuItems}
+                            saveAsNewMenuItems={saveAsNewMenuItems}
                             onPrimarySaveClick={onPrimarySaveClick}
                         />
                     ) : (
@@ -804,28 +870,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     placement: 'bottom-end',
                                                     overlay: (
                                                         <LemonMenuOverlay
-                                                            items={[
-                                                                continueInNotebookMenuItem,
-                                                                {
-                                                                    label: 'Save as new insight...',
-                                                                    disabledReason: saveAsInsightDisabledReason,
-                                                                    onClick: () => saveAsInsight(),
-                                                                },
-                                                                {
-                                                                    label: 'Save as new view...',
-                                                                    disabledReason:
-                                                                        saveAsDisabledReason ??
-                                                                        saveAsViewAccessDisabledReason,
-                                                                    onClick: () => saveAsView(),
-                                                                },
-                                                                {
-                                                                    label: 'Save as endpoint...',
-                                                                    disabledReason:
-                                                                        saveAsDisabledReason ??
-                                                                        saveAsEndpointDisabledReason,
-                                                                    onClick: () => saveAsEndpoint(),
-                                                                },
-                                                            ]}
+                                                            items={[continueInNotebookMenuItem, ...saveAsNewMenuItems]}
                                                         />
                                                     ),
                                                 },
@@ -875,25 +920,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             {
                                                                 items: [
                                                                     continueInNotebookMenuItem,
-                                                                    {
-                                                                        label: 'Save as new insight...',
-                                                                        disabledReason: saveAsInsightDisabledReason,
-                                                                        onClick: () => saveAsInsight(),
-                                                                    },
-                                                                    {
-                                                                        label: 'Save as new view...',
-                                                                        disabledReason:
-                                                                            saveAsDisabledReason ??
-                                                                            saveAsViewAccessDisabledReason,
-                                                                        onClick: () => saveAsView(),
-                                                                    },
-                                                                    {
-                                                                        label: 'Save as endpoint...',
-                                                                        disabledReason:
-                                                                            saveAsDisabledReason ??
-                                                                            saveAsEndpointDisabledReason,
-                                                                        onClick: () => saveAsEndpoint(),
-                                                                    },
+                                                                    ...saveAsNewMenuItems,
                                                                 ],
                                                             },
                                                             {
@@ -928,18 +955,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             icon: <IconChevronDown />,
                                             dropdown: {
                                                 placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={secondarySaveMenuItems.map((item) => ({
-                                                            ...item,
-                                                            disabledReason:
-                                                                (item.action === 'insight'
-                                                                    ? saveAsInsightDisabledReason
-                                                                    : saveAsDisabledReason) ??
-                                                                item.accessDisabledReason,
-                                                        }))}
-                                                    />
-                                                ),
+                                                overlay: <LemonMenuOverlay items={secondarySaveMenuItems} />,
                                             },
                                         }}
                                     >
@@ -976,18 +992,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             'data-attr': 'sql-editor-save-options-button',
                                             dropdown: {
                                                 placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={secondarySaveMenuItems.map((item) => ({
-                                                            ...item,
-                                                            disabledReason:
-                                                                (item.action === 'insight'
-                                                                    ? saveAsInsightDisabledReason
-                                                                    : saveAsDisabledReason) ??
-                                                                item.accessDisabledReason,
-                                                        }))}
-                                                    />
-                                                ),
+                                                overlay: <LemonMenuOverlay items={secondarySaveMenuItems} />,
                                             },
                                         }}
                                     >
