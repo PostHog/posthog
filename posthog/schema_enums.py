@@ -833,6 +833,7 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+    BREAKDOWN_ICICLE = "BreakdownIcicle"
 
 
 class ValueLabelPosition(StrEnum):

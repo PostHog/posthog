@@ -6,6 +6,7 @@ export const DISPLAY_TYPES_WITHOUT_LEGEND = [
     ChartDisplayType.BoldNumber,
     ChartDisplayType.Metric,
     ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.BreakdownIcicle,
 ]
 
 export const DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS = [

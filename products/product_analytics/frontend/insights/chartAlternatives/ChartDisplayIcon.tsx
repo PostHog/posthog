@@ -5,6 +5,7 @@ import {
     IconAreaChart,
     IconCumulativeChart,
     IconDonutChart,
+    IconIcicleChart,
     IconProportionBarChart,
     IconTableChart,
     IconTrendingUp,
@@ -26,6 +27,8 @@ export function ChartDisplayIcon({ icon }: { icon: ChartDisplayIconKind }): JSX.
             return <IconDonutChart />
         case 'horizontalBar':
             return <IconGraph className="rotate-90" />
+        case 'icicle':
+            return <IconIcicleChart />
         case 'line':
             return <IconTrends />
         case 'metric':

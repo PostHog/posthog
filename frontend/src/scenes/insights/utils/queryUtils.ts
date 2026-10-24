@@ -275,6 +275,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsProportionBar]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.BreakdownIcicle]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)
     [ChartDisplayType.WorldMap]: ChartDisplayType.WorldMap,
@@ -399,6 +400,7 @@ const AGGREGATED_RESULT_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsTable,
     ChartDisplayType.WorldMap,
     ChartDisplayType.CalendarHeatmap,
+    ChartDisplayType.BreakdownIcicle,
 ])
 
 // A result computed for the other row shape renders as a blank or zeroed chart.

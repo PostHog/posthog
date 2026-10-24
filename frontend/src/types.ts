@@ -3163,6 +3163,7 @@ export enum ChartDisplayType {
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
     ScatterPlot = 'ScatterPlot',
+    BreakdownIcicle = 'BreakdownIcicle',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
