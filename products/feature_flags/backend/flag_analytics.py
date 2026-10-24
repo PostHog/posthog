@@ -1,7 +1,8 @@
 import time
 from datetime import datetime
+from itertools import batched
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.cache import cache
@@ -19,6 +20,7 @@ from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature
 from posthog.models import Team
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
@@ -31,6 +33,13 @@ logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+
+# Per-team counts of the local evaluation requests that Django served, held until the next usage report.
+# The legacy local evaluation counter also holds requests that the Rust definitions service counted
+# and reported itself, so reporting from that counter would count those requests twice.
+LEGACY_LOCAL_EVALUATION_USAGE_KEY = "posthog:legacy_local_evaluation_usage"
+# usage-ingestion rejects a request with more records than USAGE_INGESTION_MAX_BATCH_SIZE, which defaults to 500.
+USAGE_RECORDS_PER_REQUEST = 500
 
 # SDK library names must match the Rust Library::as_str() values in
 # rust/feature-flags/src/handler/types.rs
@@ -106,6 +115,34 @@ def increment_request_count(
         client.hincrby(key_name, time_bucket, count)
     except Exception as error:
         capture_exception(error)
+
+
+def increment_legacy_local_evaluation_usage(team_id: int) -> None:
+    try:
+        get_client().hincrby(LEGACY_LOCAL_EVALUATION_USAGE_KEY, str(team_id), 1)
+    except Exception as error:
+        capture_exception(error)
+
+
+def report_legacy_local_evaluation_usage() -> None:
+    # One transaction reads and clears the counts, so a request counted after it waits for the next report.
+    pipe = get_client().pipeline(transaction=True)
+    pipe.hgetall(LEGACY_LOCAL_EVALUATION_USAGE_KEY)
+    pipe.delete(LEGACY_LOCAL_EVALUATION_USAGE_KEY)
+    counts, _ = pipe.execute()
+    records = [
+        UsageRecord(
+            record_id=str(uuid4()),
+            producer_id="feature-flags-django",
+            team_id=int(team_id),
+            usage_key="feature_flag_local_evaluation_requests",
+            unit="requests",
+            quantity=int(count),
+        )
+        for team_id, count in counts.items()
+    ]
+    for chunk in batched(records, USAGE_RECORDS_PER_REQUEST, strict=False):
+        report_usage(chunk, site="legacy_flag_definitions")
 
 
 def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:

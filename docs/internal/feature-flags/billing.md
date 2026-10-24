@@ -116,6 +116,29 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-flutter`      | Flutter SDK             |
 | `other`                | Unknown or unrecognized |
 
+### Legacy Django endpoint
+
+The Django flag list endpoint counts each request made with a personal API key as a local evaluation request.
+This applies to `/api/feature_flag/` and to `/api/projects/:project_id/feature_flags/`.
+Browser-session and unauthenticated requests are not counted.
+
+Each counted request increments two Redis hashes:
+
+- The legacy team counter, `posthog:local_evaluation_requests:{team_id}`, which the 30-minute aggregation reads.
+- `posthog:legacy_local_evaluation_usage`, which holds one per-team count of the requests that Django served.
+
+The second hash exists because the Rust definitions service also writes to the legacy team counter and reports its own usage records.
+
+Every minute, `report_legacy_local_evaluation_usage_task` reads and deletes `posthog:legacy_local_evaluation_usage` in one Redis transaction.
+It then sends one `feature_flag_local_evaluation_requests` record per team as the `feature-flags-django` producer.
+The task sends at most 500 records in each request, because usage ingestion rejects a request above its batch limit.
+The task runs on the `feature_flags_long_running` queue, so a stalled usage-ingestion service cannot delay the cache rebuilds on the `feature_flags` queue.
+
+The workers on that queue need `USAGE_INGESTION_ADDR` and an enabled `USAGE_INGESTION_REPORT_TEAMS` allowlist.
+The task discards counts for teams that the allowlist does not enable.
+Delivery is best effort: the shared usage-ingestion client logs a failed send, and the task does not put the counts back.
+The counter's existing source-selection guard still keeps legacy totals authoritative during comparison rollout.
+
 ### Redis pipelining
 
 Both the team-level and SDK-level counters are incremented in a single Redis round-trip using pipelining:
