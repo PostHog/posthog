@@ -2491,6 +2491,7 @@ export type FunnelLayoutApi = (typeof FunnelLayoutApi)[keyof typeof FunnelLayout
 export const FunnelLayoutApi = {
     Horizontal: 'horizontal',
     Vertical: 'vertical',
+    Metric: 'metric',
 } as const
 
 /**

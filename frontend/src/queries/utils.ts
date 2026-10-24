@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { FunnelLayout, MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -361,6 +361,14 @@ export function isFunnelsQuery(node?: Record<string, any> | null): node is Funne
     return node?.kind === NodeKind.FunnelsQuery
 }
 
+export function isFunnelsMetricQuery(node?: Record<string, any> | null): boolean {
+    return (
+        isFunnelsQuery(node) &&
+        node.funnelsFilter?.funnelVizType === FunnelVizType.Trends &&
+        node.funnelsFilter?.layout === FunnelLayout.metric
+    )
+}
+
 export function isRetentionQuery(node?: Record<string, any> | null): node is RetentionQuery {
     return node?.kind === NodeKind.RetentionQuery
 }
@@ -500,7 +508,8 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
 
 export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
     (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
-    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
+    (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric) ||
+    (isInsightVizNode(query) && isFunnelsMetricQuery(query.source))
 
 // Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
 // frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.

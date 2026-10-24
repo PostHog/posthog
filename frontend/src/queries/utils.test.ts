@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -523,6 +524,30 @@ describe('isMetricInsightQuery', () => {
                 },
             },
             true,
+        ],
+        [
+            'funnel trends metric',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.metric },
+                },
+            },
+            true,
+        ],
+        [
+            'funnel steps with a stale metric layout',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: { funnelVizType: FunnelVizType.Steps, layout: FunnelLayout.metric },
+                },
+            },
+            false,
         ],
         [
             'SQL line chart',

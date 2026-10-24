@@ -237,7 +237,7 @@
                         "layout": {
                             "default": "vertical",
                             "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
-                            "enum": ["horizontal", "vertical"],
+                            "enum": ["horizontal", "vertical", "metric"],
                             "type": "string"
                         }
                     },

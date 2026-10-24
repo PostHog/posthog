@@ -18,7 +18,7 @@ from playwright.sync_api import (
 )
 from prometheus_client import Counter, Histogram
 
-from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
+from posthog.schema import ChartDisplayType, FunnelLayout, FunnelVizType, NodeKind
 
 from posthog.hogql.errors import TableAccessDeniedError
 
@@ -185,10 +185,13 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
         return 4000
 
     trends_filter = source.get("trendsFilter") or {}
-    is_metric = (
-        query.get("kind") == NodeKind.INSIGHT_VIZ_NODE
-        and source.get("kind") == NodeKind.TRENDS_QUERY
-        and trends_filter.get("display") == ChartDisplayType.METRIC
+    is_metric = query.get("kind") == NodeKind.INSIGHT_VIZ_NODE and (
+        (source.get("kind") == NodeKind.TRENDS_QUERY and trends_filter.get("display") == ChartDisplayType.METRIC)
+        or (
+            is_funnel
+            and funnels_filter.get("funnelVizType") == FunnelVizType.TRENDS
+            and funnel_layout == FunnelLayout.METRIC
+        )
     )
     return 600 if is_metric else 800
 

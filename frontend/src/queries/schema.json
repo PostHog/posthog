@@ -27909,7 +27909,7 @@
             "type": "object"
         },
         "FunnelLayout": {
-            "enum": ["horizontal", "vertical"],
+            "enum": ["horizontal", "vertical", "metric"],
             "type": "string"
         },
         "FunnelMathType": {

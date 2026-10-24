@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { ExportType, ExportedData } from '~/exporter/types'
 
 import __funnelHistoricalTrends from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import __funnelHistoricalTrendsCompare from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'
 import __funnelTimeToConvert from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import __funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import { Exporter } from '../Exporter'
@@ -67,5 +68,20 @@ export const FunnelHistoricalTrendsInsight: Story = {
 export const FunnelTimeToConvertInsight: Story = {
     args: {
         insight: __funnelTimeToConvert as any,
+    },
+}
+
+export const FunnelMetricCompareInsight: Story = {
+    args: {
+        insight: {
+            ...__funnelHistoricalTrendsCompare,
+            query: {
+                ...__funnelHistoricalTrendsCompare.query,
+                source: {
+                    ...__funnelHistoricalTrendsCompare.query.source,
+                    funnelsFilter: { ...__funnelHistoricalTrendsCompare.query.source.funnelsFilter, layout: 'metric' },
+                },
+            },
+        } as any,
     },
 }

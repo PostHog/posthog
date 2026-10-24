@@ -1,3 +1,5 @@
+import { FunnelLayout } from 'lib/constants'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, FunnelVizType, InsightModel } from '~/types'
 
@@ -30,6 +32,15 @@ describe('visualizationShape', () => {
                 funnelsFilter: { funnelVizType: FunnelVizType.Trends },
             }),
             'line',
+        ],
+        [
+            'funnel metric',
+            insightVisualization({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Trends, layout: FunnelLayout.metric },
+            }),
+            'number',
         ],
         [
             'funnel time to convert',
