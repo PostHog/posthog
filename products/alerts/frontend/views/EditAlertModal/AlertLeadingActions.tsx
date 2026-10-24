@@ -20,6 +20,7 @@ interface AlertLeadingActionsProps {
     onSnoozeAlert: (snoozeUntil: string) => void
     onClearSnooze: () => void
     clearSnoozeLoading: boolean
+    snoozeLoading: boolean
     onSendTestDelivery: () => void
     testDeliveryLoading: boolean
     testDeliveryDisabledReason?: string
@@ -33,6 +34,7 @@ export function AlertLeadingActions({
     onSnoozeAlert,
     onClearSnooze,
     clearSnoozeLoading,
+    snoozeLoading,
     onSendTestDelivery,
     testDeliveryLoading,
     testDeliveryDisabledReason,
@@ -67,6 +69,7 @@ export function AlertLeadingActions({
             {!isSnoozed ? (
                 <SnoozeButton
                     onChange={onSnoozeAlert}
+                    loading={snoozeLoading}
                     disabledReason={
                         alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'
                     }
@@ -94,7 +97,7 @@ export function AlertLeadingActions({
                         type="tertiary"
                         size="xsmall"
                         icon={<IconX />}
-                        onClick={onClearSnooze}
+                        onClick={() => onClearSnooze()}
                         loading={clearSnoozeLoading}
                         tooltip="Unsnooze alert"
                         aria-label="Unsnooze alert"

@@ -179,6 +179,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         simulationResultLoading,
         simulationDateFrom,
         clearSnoozeLoading,
+        snoozeLoading,
         thresholdBoundsFormError,
         hogqlAlertPreview,
         funnelAlertPreview,
@@ -354,6 +355,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             onSnoozeAlert={snoozeAlert}
             onClearSnooze={clearSnooze}
             clearSnoozeLoading={clearSnoozeLoading}
+            snoozeLoading={snoozeLoading}
             onSendTestDelivery={sendTestDelivery}
             testDeliveryLoading={testDeliveryResultLoading}
             testDeliveryDisabledReason={
