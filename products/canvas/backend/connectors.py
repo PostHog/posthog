@@ -1,9 +1,9 @@
-"""Canvas connectors: live third-party data a canvas reads as the viewer (ph.connectors).
+"""Canvas connectors: live data a canvas reads, or changes, as the viewer (ph.connectors).
 
 A connector call names a provider and a tool. The host forwards
 ph.connectors.call(provider, tool, arguments) to the call endpoint, which
 checks the canvas's declared capabilities and runs the tool with the
-viewer's own connection, never the author's. Two provider families share
+viewer's own connection, never the author's. Three provider families share
 the pipeline:
 
 - Native providers (``github``) run against the viewer's ``UserIntegration``
@@ -11,9 +11,12 @@ the pipeline:
   registry.
 - MCP providers (``mcp:<host>``) run against the viewer's MCP store
   installation for that host, through the store's own policy and audit.
+- The PostHog provider (``posthog``) runs PostHog's own MCP tools on the
+  PostHog MCP server as the viewer, in the canvas's project, with a token
+  that holds only the scopes the called tool needs.
 
-Every tool this module exposes is read-only. Writes are a follow-up that
-needs a user gesture and a confirm step in the host.
+Native and MCP store tools are read-only. PostHog tools may write, but every
+write needs a single-use approval that the host gets from the viewer.
 """
 
 import json
@@ -33,20 +36,31 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.mcp_tool_definitions import McpToolDefinition, get_mcp_tool_definitions
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 
 from products.canvas.backend.facade.enums import ConnectorCallStatus, ConnectorKind
 from products.mcp_store.backend.facade import api as mcp_store_facade
 from products.mcp_store.backend.facade.contracts import ConnectorTool as McpConnectorTool
+from products.webmcp.backend.facade import api as webmcp_facade
+from products.webmcp.backend.facade.contracts import CallToolInput, McpScopesUnavailable, McpServerError
 
 logger = structlog.get_logger(__name__)
 
 # Rollout gate, evaluated per team. Fails closed: connectors stay off when the
 # flag cannot be evaluated, because every call spends the viewer's credential.
 CANVAS_CONNECTORS_FLAG = "canvas-connectors"
+# A second gate on top of CANVAS_CONNECTORS_FLAG for the PostHog provider, which can write.
+# Fails closed for the same reason.
+CANVAS_POSTHOG_TOOLS_FLAG = "canvas-posthog-tools"
 
 MCP_PROVIDER_PREFIX = "mcp:"
+POSTHOG_PROVIDER = "posthog"
+# The MCP server reads the viewer and the pinned project before it runs any tool.
+POSTHOG_MCP_BASE_SCOPES = ("user:read", "project:read")
+# Sent as the MCP consumer, so the MCP server's analytics can tell canvas calls apart.
+POSTHOG_MCP_CONSUMER = "posthog-canvas"
 # Results cross the postMessage bridge into the sandbox; a runaway tool result
 # must not be able to stall the host.
 MAX_RESULT_BYTES = 256 * 1024
@@ -69,8 +83,31 @@ def canvas_connectors_enabled(team_uuid: UUID | str) -> bool:
         return False
 
 
+def canvas_posthog_tools_enabled(team_uuid: UUID | str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                CANVAS_POSTHOG_TOOLS_FLAG,
+                str(team_uuid),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("canvas_posthog_tools_flag_check_failed")
+        return False
+
+
 class ConnectorToolError(Exception):
     """The upstream service refused or failed the tool call."""
+
+
+@frozen
+class ConnectorConfirmation:
+    """What the host shows the viewer before it approves one write."""
+
+    title: str
+    destructive: bool
 
 
 @frozen
@@ -82,6 +119,7 @@ class ConnectorCallResult:
     # Where the viewer connects the provider, for the not_connected state.
     connect_path: str | None = None
     approval_token: str | None = field(default=None, repr=False)
+    confirmation: ConnectorConfirmation | None = None
 
 
 @frozen
@@ -477,7 +515,49 @@ def mcp_provider_host(provider: str) -> str | None:
 
 
 def is_known_provider(provider: str) -> bool:
-    return provider in NATIVE_CONNECTORS or mcp_provider_host(provider) is not None
+    return provider in NATIVE_CONNECTORS or provider == POSTHOG_PROVIDER or mcp_provider_host(provider) is not None
+
+
+def _posthog_tool_unavailable_reason(definition: McpToolDefinition) -> str | None:
+    if definition.is_superseded:
+        return f"is replaced by {', '.join(definition.superseded_by)}"
+    # The token is pinned to the canvas's project, and the API refuses organization endpoints to such a token.
+    if any(scope.startswith("organization") for scope in definition.required_scopes):
+        return "needs organization access, which a canvas call does not have"
+    return None
+
+
+def posthog_tool(tool_name: str) -> McpToolDefinition | None:
+    """The PostHog MCP tool a canvas may call under this name, or None."""
+    definition = get_mcp_tool_definitions().get(tool_name)
+    if definition is None or _posthog_tool_unavailable_reason(definition) is not None:
+        return None
+    return definition
+
+
+def posthog_tool_declaration_errors(tools: list[str]) -> list[str]:
+    """One message per declared PostHog tool that a canvas cannot call."""
+    definitions = get_mcp_tool_definitions()
+    errors = []
+    for name in sorted(set(tools)):
+        definition = definitions.get(name)
+        if definition is None:
+            errors.append(f'"{name}" is not a PostHog MCP tool')
+        elif (reason := _posthog_tool_unavailable_reason(definition)) is not None:
+            errors.append(f'"{name}" {reason}')
+    return errors
+
+
+def posthog_write_tools(tools: set[str] | list[str]) -> list[str]:
+    """The tools in `tools` that are PostHog MCP tools and are not read-only."""
+    definitions = get_mcp_tool_definitions()
+    return sorted(name for name in tools if (definition := definitions.get(name)) and not definition.read_only)
+
+
+def posthog_tool_required_scopes(tool_name: str) -> list[str]:
+    """The API scopes a call of this PostHog tool uses, in addition to the MCP server's own reads."""
+    definition = posthog_tool(tool_name)
+    return list(definition.required_scopes) if definition is not None else []
 
 
 def unregistered_native_tools(provider: str, tools: list[str]) -> list[str]:
@@ -583,6 +663,67 @@ def _call_mcp_tool(
     return ConnectorCallResult(status=ConnectorCallStatus.OK, result=bounded, truncated=truncated)
 
 
+def _call_posthog_tool(
+    team_id: int,
+    user_id: int,
+    tool_name: str,
+    arguments: dict[str, Any],
+    approval_token: str | None,
+    approval_context: str,
+) -> ConnectorCallResult:
+    tool = posthog_tool(tool_name)
+    if tool is None:
+        return ConnectorCallResult(
+            status=ConnectorCallStatus.TOOL_MISSING,
+            detail=f'"{tool_name}" is not a PostHog MCP tool that canvases can call.',
+        )
+    if not tool.read_only:
+        approval = {
+            "server_key": POSTHOG_PROVIDER,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "scope": approval_context,
+        }
+        if approval_token is None:
+            return ConnectorCallResult(
+                status=ConnectorCallStatus.NEEDS_APPROVAL,
+                detail=f"{tool.title} changes data in PostHog. Confirm this change to continue.",
+                approval_token=mcp_store_facade.issue_first_party_tool_approval(team_id, user_id, **approval),
+                confirmation=ConnectorConfirmation(title=tool.title, destructive=tool.destructive),
+            )
+        if not mcp_store_facade.consume_first_party_tool_approval(approval_token, team_id, user_id, **approval):
+            return ConnectorCallResult(
+                status=ConnectorCallStatus.BLOCKED,
+                detail="Approval expired, was already used, or does not match this call. Request approval again.",
+            )
+    if not webmcp_facade.is_available():
+        return ConnectorCallResult(
+            status=ConnectorCallStatus.UPSTREAM_ERROR, detail="The PostHog MCP server is not available here."
+        )
+    try:
+        outcome = webmcp_facade.call_tool(
+            CallToolInput(
+                user_id=user_id,
+                team_id=team_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                scopes=tuple(sorted({*POSTHOG_MCP_BASE_SCOPES, *tool.required_scopes})),
+                consumer=POSTHOG_MCP_CONSUMER,
+            )
+        )
+    except McpScopesUnavailable as error:
+        return ConnectorCallResult(status=ConnectorCallStatus.BLOCKED, detail=str(error))
+    except McpServerError as error:
+        logger.warning("canvas_posthog_tool_call_failed", team_id=team_id, tool_name=tool_name, error=str(error))
+        return ConnectorCallResult(
+            status=ConnectorCallStatus.UPSTREAM_ERROR, detail=f"PostHog could not run {tool_name}: {error}"
+        )
+    bounded, truncated = _bounded(
+        {"content": outcome.content, "structured_content": outcome.structured_content, "is_error": outcome.is_error}
+    )
+    return ConnectorCallResult(status=ConnectorCallStatus.OK, result=bounded, truncated=truncated)
+
+
 def call_connector_tool(
     team_id: int,
     user_id: int,
@@ -599,12 +740,14 @@ def call_connector_tool(
     connector = NATIVE_CONNECTORS.get(provider)
     if connector is not None:
         return _call_native_tool(user_id, connector, tool_name, arguments)
+    if provider == POSTHOG_PROVIDER:
+        return _call_posthog_tool(team_id, user_id, tool_name, arguments, approval_token, approval_context)
     host = mcp_provider_host(provider)
     if host is None:
         return ConnectorCallResult(
             status=ConnectorCallStatus.TOOL_MISSING,
-            detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}) '
-            f'or "{MCP_PROVIDER_PREFIX}<server host>".',
+            detail=f'Unknown provider "{provider}". Use a native provider ({", ".join(sorted(NATIVE_CONNECTORS))}), '
+            f'"{POSTHOG_PROVIDER}", or "{MCP_PROVIDER_PREFIX}<server host>".',
         )
     return _call_mcp_tool(team_id, user_id, host, tool_name, arguments, actor_label, approval_token, approval_context)
 
@@ -742,6 +885,32 @@ def native_connector_listings() -> list[ConnectorListing]:
         )
         for connector in sorted(NATIVE_CONNECTORS.values(), key=lambda connector: connector.provider)
     ]
+
+
+def posthog_connector_listing(tool_names: list[str] | None = None) -> ConnectorListing:
+    """PostHog's own MCP tools. The full catalogue lists each tool's one-line summary; naming tools
+    returns their full descriptions. Arguments match the PostHog MCP tool of the same name."""
+    definitions = get_mcp_tool_definitions()
+    names = sorted(definitions) if tool_names is None else sorted(set(tool_names))
+    tools = [definition for name in names if (definition := posthog_tool(name)) is not None]
+    return ConnectorListing(
+        provider=POSTHOG_PROVIDER,
+        label="PostHog",
+        kind=ConnectorKind.POSTHOG,
+        # Every viewer has a PostHog session; their own permissions decide what each call can reach.
+        connected=True,
+        connect_path="",
+        tools=[
+            ConnectorToolListing(
+                name=tool.name,
+                summary=tool.summary,
+                read_only=tool.read_only,
+                input_schema={},
+                usage=tool.summary if tool_names is None else tool.description,
+            )
+            for tool in tools
+        ],
+    )
 
 
 def connector_listings(team_id: int, user_id: int, mcp_hosts: list[str] | None = None) -> list[ConnectorListing]:

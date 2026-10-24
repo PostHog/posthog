@@ -5,17 +5,17 @@
             "description": "The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities.",
             "properties": {
                 "connectors": {
-                    "description": "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
+                    "description": "Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review.",
                     "items": {
                         "description": "One provider a canvas may call through ph.connectors, with the tools it may use.",
                         "properties": {
                             "provider": {
-                                "description": "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
+                                "description": "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store.",
                                 "maxLength": 300,
                                 "type": "string"
                             },
                             "tools": {
-                                "description": "Tool names the canvas may call on this provider. Read-only tools only.",
+                                "description": "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes.",
                                 "items": {
                                     "maxLength": 200,
                                     "type": "string"

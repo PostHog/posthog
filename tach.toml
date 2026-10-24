@@ -1082,6 +1082,8 @@ depends_on = [
     "products.mcp_store",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # PostHog MCP tool calls made as the viewer (via the webmcp facade).
+    "products.webmcp",
 ]
 layer = "modules"
 

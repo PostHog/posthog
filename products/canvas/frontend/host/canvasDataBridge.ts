@@ -20,6 +20,7 @@ import type {
     CanvasStateEntryApi,
 } from '../generated/api.schemas'
 import {
+    CANVAS_POSTHOG_PROVIDER,
     CanvasConnectorCallInput,
     canvasAgentRequestInputSchema,
     canvasConnectorCallInputSchema,
@@ -45,6 +46,14 @@ export interface CanvasConnectorPermissionRequest {
     reason: 'canvas' | 'tool'
 }
 
+/** One call of a PostHog tool that changes data, as the viewer confirms it. */
+export interface CanvasPostHogWriteConfirmation {
+    tool: string
+    title: string
+    destructive: boolean
+    arguments: Record<string, unknown>
+}
+
 export interface CanvasDataBridgeContext {
     projectId: string
     canvasId: string
@@ -64,7 +73,17 @@ export interface CanvasDataBridgePrompts {
     confirmAction: (request: CanvasActionConfirmation) => Promise<boolean>
     confirmAgentRequest: (prompt: string) => Promise<boolean>
     requestConnectorPermission: (request: CanvasConnectorPermissionRequest) => Promise<boolean>
+    confirmPostHogWrite: (request: CanvasPostHogWriteConfirmation) => Promise<boolean>
     hasUserActivation: () => boolean
+}
+
+type CanvasConnectorCallResult = Omit<CanvasConnectorCallResultApi, 'approval_token'>
+
+// Raised inside a cached read so the cache keeps nothing for a call that turned out to write.
+class PostHogWriteNeedsApproval extends Error {
+    constructor(readonly response: CanvasConnectorCallResultApi) {
+        super('This PostHog tool changes data and needs confirmation')
+    }
 }
 
 interface CanvasDataResult {
@@ -163,6 +182,8 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    // PostHog tools seen to write. Their calls skip the read cache, so a repeated change is never a cached no-op.
+    private readonly posthogWriteTools = new Set<string>()
 
     constructor(
         private readonly context: () => CanvasDataBridgeContext,
@@ -381,7 +402,9 @@ export class CanvasDataBridge {
         return { requestOutcome: result.request_outcome, taskId: result.task_id }
     }
 
-    private async connectorCall(payload: unknown): Promise<Omit<CanvasConnectorCallResultApi, 'approval_token'>> {
+    private async connectorCall(payload: unknown): Promise<CanvasConnectorCallResult> {
+        // Read before the first await: the gesture belongs to the message being handled now.
+        const startedByUser = this.prompts.hasUserActivation()
         const input = canvasConnectorCallInputSchema.parse(payload)
         const { projectId, canvasId, sourceVersionId } = this.context()
         if (!sourceVersionId) {
@@ -389,6 +412,9 @@ export class CanvasDataBridge {
         }
         await this.requireConnectorConsent(sourceVersionId, input)
         const args = { provider: input.provider, tool: input.tool, arguments: input.arguments }
+        if (input.provider === CANVAS_POSTHOG_PROVIDER) {
+            return this.posthogToolCall(args, sourceVersionId, input.refresh, startedByUser)
+        }
         return this.cache.read(
             'connectorCall',
             { ...args, sourceVersionId },
@@ -412,6 +438,72 @@ export class CanvasDataBridge {
                 return this.withoutApprovalToken(second)
             }
         )
+    }
+
+    private async posthogToolCall(
+        args: { provider: string; tool: string; arguments: Record<string, unknown> },
+        sourceVersionId: string,
+        refresh: number | undefined,
+        startedByUser: boolean
+    ): Promise<CanvasConnectorCallResult> {
+        const { projectId, canvasId } = this.context()
+        const call = async (): Promise<CanvasConnectorCallResult> => {
+            const response = await canvasesConnectorsCall(projectId, canvasId, args)
+            if (response.status === 'needs_approval') {
+                throw new PostHogWriteNeedsApproval(response)
+            }
+            return this.withoutApprovalToken(response)
+        }
+        try {
+            if (this.posthogWriteTools.has(args.tool)) {
+                return await call()
+            }
+            return await this.cache.read(
+                'posthogToolCall',
+                { ...args, sourceVersionId },
+                refresh ?? CONNECTOR_READ_TTL_SECONDS,
+                call
+            )
+        } catch (error) {
+            if (!(error instanceof PostHogWriteNeedsApproval)) {
+                throw error
+            }
+            this.posthogWriteTools.add(args.tool)
+            return this.confirmPostHogWrite(args, error.response, startedByUser)
+        }
+    }
+
+    private async confirmPostHogWrite(
+        args: { provider: string; tool: string; arguments: Record<string, unknown> },
+        pending: CanvasConnectorCallResultApi,
+        startedByUser: boolean
+    ): Promise<CanvasConnectorCallResult> {
+        // Writes need a click, the same rule ph.actions follows, so a canvas cannot open the dialog on load.
+        if (!startedByUser && !this.prompts.hasUserActivation()) {
+            throw new Error('PostHog tools that change data must be called from a click or other user action.')
+        }
+        if (!pending.approval_token || !pending.confirmation) {
+            throw new Error('This change cannot be confirmed. Try again.')
+        }
+        const confirmed = await this.prompts.confirmPostHogWrite({
+            tool: args.tool,
+            title: pending.confirmation.title,
+            destructive: pending.confirmation.destructive,
+            arguments: args.arguments,
+        })
+        if (!confirmed) {
+            throw new Error('Change canceled.')
+        }
+        const { projectId, canvasId } = this.context()
+        const result = await canvasesConnectorsCall(projectId, canvasId, {
+            ...args,
+            approval_token: pending.approval_token,
+        })
+        if (result.status === 'ok') {
+            // Cached reads can predate the write, and a stale version makes the next guarded write fail.
+            this.cache.clear('posthogToolCall')
+        }
+        return this.withoutApprovalToken(result)
     }
 
     // The approval token is bound to this viewer and must never reach the iframe.

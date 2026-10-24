@@ -39,11 +39,14 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
 - `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
-- `capabilities.connectors` — one `{ "provider", "tools" }` entry per third-party provider the
-  canvas reads through `ph.connectors.call`, listing every tool it calls on that provider. A
-  provider is a native id (`github`) or `mcp:<server host>` (`mcp:mcp.calendly.com`). Unknown
-  providers, unregistered native tools, and private MCP hosts fail validation; every declared
-  tool must have `is_read_only: true` in the catalog. An upstream hint alone does not grant access.
+- `capabilities.connectors` — one `{ "provider", "tools" }` entry per provider the canvas calls
+  through `ph.connectors.call`, listing every tool it calls on that provider. A provider is a
+  native id (`github`), `mcp:<server host>` (`mcp:mcp.calendly.com`), or `posthog` for PostHog's
+  own MCP tools. Unknown providers, unregistered native or PostHog tools, and private MCP hosts
+  fail validation. On `github` and `mcp:` providers every declared tool must have
+  `is_read_only: true` in the catalog; an upstream hint alone does not grant access. On `posthog`
+  a tool may write: the draft's `capability_widening.connectors_added[].write_tools` lists those,
+  so name them when you ask the user to promote, and say the viewer confirms each write.
   A canvas with connectors cannot declare shared state.
 - `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
   external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.

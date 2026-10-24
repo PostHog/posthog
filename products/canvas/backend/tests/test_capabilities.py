@@ -61,6 +61,23 @@ class TestCapabilityWidening(TestCase):
             ConnectorGrant(provider="mcp:mcp.example.com", tools=["list_events"]),
         ]
 
+    def test_new_posthog_tools_call_out_the_ones_that_write(self):
+        after = {
+            "connectors": [
+                {
+                    "provider": "posthog",
+                    "tools": ["feature-flag-set-release-condition-rollout", "feature-flag-get-definition"],
+                }
+            ]
+        }
+        assert capability_widening({}, after).connectors_added == [
+            ConnectorGrant(
+                provider="posthog",
+                tools=["feature-flag-get-definition", "feature-flag-set-release-condition-rollout"],
+                write_tools=["feature-flag-set-release-condition-rollout"],
+            )
+        ]
+
     def test_only_new_connector_tools_count_as_widening(self):
         before = {"connectors": [{"provider": "github", "tools": ["list_pull_requests"]}]}
         after = {"connectors": [{"provider": "github", "tools": ["search_issues", "list_pull_requests"]}]}

@@ -448,7 +448,7 @@ export const CanvasesDraftCreateBody = () => zod
                                                 canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
                                             )
                                             .describe(
-                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                                "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
                                             ),
                                         tools: zod
                                             .array(
@@ -461,7 +461,7 @@ export const CanvasesDraftCreateBody = () => zod
                                             .min(1)
                                             .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax)
                                             .describe(
-                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                                "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes."
                                             ),
                                     })
                                     .describe(
@@ -471,7 +471,7 @@ export const CanvasesDraftCreateBody = () => zod
                             .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsMax)
                             .optional()
                             .describe(
-                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                                "Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
                             ),
                     })
                     .optional()
@@ -640,7 +640,7 @@ export const CanvasesEditCreateBody = () => zod
                                     .string()
                                     .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax)
                                     .describe(
-                                        "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                        "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
                                     ),
                                 tools: zod
                                     .array(
@@ -650,7 +650,9 @@ export const CanvasesEditCreateBody = () => zod
                                     )
                                     .min(1)
                                     .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax)
-                                    .describe('Tool names the canvas may call on this provider. Read-only tools only.'),
+                                    .describe(
+                                        "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes."
+                                    ),
                             })
                             .describe(
                                 'One provider a canvas may call through ph.connectors, with the tools it may use.'
@@ -659,7 +661,7 @@ export const CanvasesEditCreateBody = () => zod
                     .max(canvasesEditCreateBodyCapabilitiesOneConnectorsMax)
                     .optional()
                     .describe(
-                        "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                        "Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
                     ),
             })
             .optional()
@@ -1326,7 +1328,7 @@ export const CanvasesPublishCreateBody = () => zod
                                                 canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
                                             )
                                             .describe(
-                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                                "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
                                             ),
                                         tools: zod
                                             .array(
@@ -1341,7 +1343,7 @@ export const CanvasesPublishCreateBody = () => zod
                                                 canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
                                             )
                                             .describe(
-                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                                "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes."
                                             ),
                                     })
                                     .describe(
@@ -1351,7 +1353,7 @@ export const CanvasesPublishCreateBody = () => zod
                             .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsMax)
                             .optional()
                             .describe(
-                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                                "Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
                             ),
                     })
                     .optional()
@@ -1781,7 +1783,7 @@ export const CanvasesValidateCreateBody = () => zod
                                                 canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
                                             )
                                             .describe(
-                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                                "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
                                             ),
                                         tools: zod
                                             .array(
@@ -1796,7 +1798,7 @@ export const CanvasesValidateCreateBody = () => zod
                                                 canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
                                             )
                                             .describe(
-                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                                "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', where the viewer confirms each call of a tool that writes."
                                             ),
                                     })
                                     .describe(
@@ -1806,7 +1808,7 @@ export const CanvasesValidateCreateBody = () => zod
                             .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsMax)
                             .optional()
                             .describe(
-                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                                "Providers the canvas calls through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
                             ),
                     })
                     .optional()
@@ -1840,5 +1842,11 @@ export const CanvasesConnectorsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every server the caller has connected in the MCP store."
+        ),
+    posthog_tools: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated PostHog MCP tool names to describe in full (e.g. 'feature-flag-get-definition'). Without it, the 'posthog' provider lists every tool with a one-line summary."
         ),
 })

@@ -120,6 +120,7 @@ const canvasConnectorsRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/connectors/`,
             query: {
                 mcp_hosts: params.mcp_hosts,
+                posthog_tools: params.posthog_tools,
             },
         })
         return result

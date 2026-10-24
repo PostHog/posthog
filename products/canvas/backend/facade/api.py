@@ -16,11 +16,15 @@ from products.canvas.backend.artifacts import (
     require_artifact_host as require_artifact_host,
 )
 from products.canvas.backend.connectors import (
+    POSTHOG_PROVIDER as POSTHOG_PROVIDER,
     call_connector_tool as call_connector_tool,
     canvas_connectors_enabled as canvas_connectors_enabled,
+    canvas_posthog_tools_enabled as canvas_posthog_tools_enabled,
     connector_listings as connector_listings,
     mcp_provider_host as mcp_provider_host,
     native_connector_listings as native_connector_listings,
+    posthog_connector_listing as posthog_connector_listing,
+    posthog_tool_required_scopes as posthog_tool_required_scopes,
 )
 from products.canvas.backend.contract import (
     GRID_COLUMN_CHOICES as GRID_COLUMN_CHOICES,

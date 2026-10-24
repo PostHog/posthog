@@ -68,4 +68,13 @@ export class CanvasReadCache {
         this.inFlight.set(key, request)
         return request
     }
+
+    /** Drops every cached result of `method`, so the next read of it is fresh. */
+    clear(method: string): void {
+        for (const key of this.entries.keys()) {
+            if (key.startsWith(`${method}:`)) {
+                this.entries.delete(key)
+            }
+        }
+    }
 }

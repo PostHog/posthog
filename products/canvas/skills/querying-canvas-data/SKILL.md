@@ -268,11 +268,12 @@ per person: open pull requests, today's meetings, assigned issues. Never fetch s
 yourself while authoring and bake the result into the source — that snapshot is stale the moment
 it is published, and it shows every viewer the author's data.
 
-- Providers are `github` (native, over the viewer's personal GitHub connection) or
+- Providers are `github` (native, over the viewer's personal GitHub connection),
   `mcp:<server host>` for any server the viewer has connected in the MCP store (for example
-  `mcp:mcp.calendly.com`). Discover providers, tools, argument schemas, and per-tool `usage`
+  `mcp:mcp.calendly.com`), or `posthog` for PostHog's own MCP tools (see below). Discover providers, tools, argument schemas, and per-tool `usage`
   with the `canvas-connectors-retrieve` tool; pass `mcp_hosts` to inspect a server the current
-  user has not connected. Call only tools whose catalog entry has `is_read_only: true`.
+  user has not connected. On `github` and `mcp:` providers, call only tools whose catalog entry
+  has `is_read_only: true`.
   MCP tools need an explicit read-only hint and a name that passes the local read-verb check.
 - **Declare every provider and tool** in `capabilities.connectors` as
   `[{ "provider": "github", "tools": ["list_pull_requests"] }]`. Validation rejects an
@@ -301,6 +302,67 @@ useEffect(() => {
     .then((res) => setPrs({ loading: false, status: res.status, rows: res.result?.pull_requests ?? [] }))
     .catch((error) => setPrs({ loading: false, status: 'error', rows: [] }))
 }, [])
+```
+
+### PostHog's own MCP tools — provider `posthog`
+
+`ph.connectors.call('posthog', '<tool-name>', args)` runs one of PostHog's MCP tools (the same
+tools you call while authoring, with the same names and arguments) as the **viewer**, in the
+canvas's project, with the viewer's own permissions. Use it when a canvas must read or change
+PostHog objects that `ph.query` and `ph.actions` do not cover, for example a feature flag
+rollout board.
+
+- List the tools with `canvas-connectors-retrieve`: the `posthog` entry has every callable tool
+  with its `is_read_only` flag. Pass `posthog_tools` (comma-separated names) to get the full
+  description of the tools you plan to call. Arguments match the MCP tool of the same name.
+- Declare each tool: `[{ "provider": "posthog", "tools": ["feature-flag-get-definition"] }]`.
+  Validation rejects unknown tools, replaced tools, and tools that need organization access.
+- Reads (`is_read_only: true`) run without a confirm step and are cached like other connector
+  calls. After a write succeeds, the host drops its cached PostHog reads.
+- **Writes** (`is_read_only: false`) run only after the viewer confirms that one call in a host
+  dialog that shows the tool, its arguments, and a warning for destructive tools. Call them only
+  from a click handler. A write started on load or render is rejected. A canceled confirm rejects
+  the promise with an error; show it and let the viewer try again.
+- The result is `{ content, structured_content, is_error }`. Read the tool output from
+  `structured_content` when it is set, else parse the text in `content`. `is_error: true` means
+  the tool refused the call (for example a version conflict); show its message.
+- The same shared-state rule applies: viewers can see different PostHog data, so a canvas that
+  declares `posthog` cannot declare shared state.
+
+For a version-guarded write, read the object first in the same click handler, then send the
+version that read returned. A 409 in the result means someone changed the object after your read:
+read again and let the viewer retry, never retry blindly with the old version.
+
+```tsx
+// structured_content when the tool sets it, else the JSON text of the first content block.
+function toolOutput<T>(res: CanvasConnectorCallResult): T | null {
+  if (res.status !== 'ok' || !res.result || res.result.is_error) return null
+  const { structured_content, content } = res.result as { structured_content?: T; content?: { text?: string }[] }
+  if (structured_content) return structured_content
+  try {
+    return JSON.parse(content?.[0]?.text ?? 'null') as T
+  } catch {
+    return null
+  }
+}
+
+async function setRollout(flagId: number, conditionIndex: number, percentage: number) {
+  const read = await ph.connectors.call('posthog', 'feature-flag-get-definition', { id: flagId })
+  const flag = toolOutput<{ version?: number }>(read)
+  if (typeof flag?.version !== 'number') {
+    throw new Error(read.detail || 'Could not read the flag')
+  }
+  const write = await ph.connectors.call('posthog', 'feature-flag-set-release-condition-rollout', {
+    id: flagId,
+    condition_index: conditionIndex,
+    rollout_percentage: percentage,
+    version: flag.version,
+  })
+  if (write.status !== 'ok' || write.result?.is_error) {
+    throw new Error(write.detail || 'The rollout did not change')
+  }
+}
+// <button onClick={() => setRollout(row.id, 0, 50)}>Roll out to 50%</button>
 ```
 
 ## Side effects

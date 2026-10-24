@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { canvasesActionsInvoke, canvasesActionsRetrieve } from '../generated/api'
+import { canvasesActionsInvoke, canvasesActionsRetrieve, canvasesConnectorsCall } from '../generated/api'
 import { CanvasDataBridge } from './canvasDataBridge'
 
 jest.mock('../generated/api')
@@ -20,6 +20,7 @@ describe('CanvasDataBridge query routing', () => {
                 confirmAction: jest.fn(),
                 confirmAgentRequest: jest.fn(),
                 requestConnectorPermission: jest.fn(),
+                confirmPostHogWrite: jest.fn(),
                 hasUserActivation: () => true,
             }
         )
@@ -105,6 +106,7 @@ describe('CanvasDataBridge action confirmation', () => {
                 confirmAction,
                 confirmAgentRequest: jest.fn(),
                 requestConnectorPermission: jest.fn(),
+                confirmPostHogWrite: jest.fn(),
                 hasUserActivation: () => true,
             }
         )
@@ -118,5 +120,110 @@ describe('CanvasDataBridge action confirmation', () => {
             expect(canvasesActionsInvoke).not.toHaveBeenCalled()
         }
         expect(confirmAction).toHaveBeenCalledWith({ action, payload })
+    })
+})
+
+describe('CanvasDataBridge PostHog tools', () => {
+    const okResult = {
+        status: 'ok',
+        result: { content: [], structured_content: { version: 3 }, is_error: false },
+        detail: '',
+        truncated: false,
+        connect_path: null,
+        approval_token: null,
+        confirmation: null,
+    } as const
+    const pendingWrite = {
+        ...okResult,
+        status: 'needs_approval',
+        result: null,
+        approval_token: 'approval-token',
+        confirmation: { title: 'Set feature flag release condition rollout', destructive: false },
+    } as const
+    const read = { provider: 'posthog', tool: 'feature-flag-get-definition', arguments: { id: 7 } }
+    const write = {
+        provider: 'posthog',
+        tool: 'feature-flag-set-release-condition-rollout',
+        arguments: { id: 7, condition_index: 0, rollout_percentage: 50, version: 3 },
+    }
+
+    const setup = (
+        options: { hasUserActivation?: boolean; confirm?: boolean } = {}
+    ): { bridge: CanvasDataBridge; confirmPostHogWrite: jest.Mock } => {
+        const confirmPostHogWrite = jest.fn(async () => options.confirm ?? true)
+        const bridge = new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction: jest.fn(),
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission: jest.fn(async () => true),
+                confirmPostHogWrite,
+                hasUserActivation: () => options.hasUserActivation ?? true,
+            }
+        )
+        return { bridge, confirmPostHogWrite }
+    }
+
+    beforeEach(() => {
+        jest.mocked(canvasesConnectorsCall).mockReset()
+    })
+
+    test('a confirmed write sends the approval once and is never served from the read cache', async () => {
+        jest.mocked(canvasesConnectorsCall).mockImplementation(async (_project, _canvas, body) =>
+            body.tool === write.tool && !body.approval_token ? pendingWrite : okResult
+        )
+        const { bridge, confirmPostHogWrite } = setup()
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            await expect(bridge.handle('connectorCall', write)).resolves.not.toHaveProperty('approval_token')
+        }
+
+        expect(confirmPostHogWrite).toHaveBeenCalledTimes(2)
+        expect(confirmPostHogWrite).toHaveBeenCalledWith({
+            tool: write.tool,
+            title: pendingWrite.confirmation.title,
+            destructive: false,
+            arguments: write.arguments,
+        })
+        expect(jest.mocked(canvasesConnectorsCall).mock.calls.map(([, , body]) => body.approval_token)).toEqual([
+            undefined,
+            'approval-token',
+            undefined,
+            'approval-token',
+        ])
+    })
+
+    test('a successful write makes the next read fresh', async () => {
+        jest.mocked(canvasesConnectorsCall).mockImplementation(async (_project, _canvas, body) =>
+            body.tool === write.tool && !body.approval_token ? pendingWrite : okResult
+        )
+        const { bridge } = setup()
+
+        await bridge.handle('connectorCall', read)
+        await bridge.handle('connectorCall', read)
+        expect(canvasesConnectorsCall).toHaveBeenCalledTimes(1)
+        await bridge.handle('connectorCall', write)
+        await bridge.handle('connectorCall', read)
+
+        expect(canvasesConnectorsCall).toHaveBeenCalledTimes(4)
+    })
+
+    test.each([
+        { name: 'without a user action', hasUserActivation: false, confirm: true, error: 'user action' },
+        { name: 'when the viewer cancels', hasUserActivation: true, confirm: false, error: 'Change canceled' },
+    ])('a write is not sent $name', async ({ hasUserActivation, confirm, error }) => {
+        jest.mocked(canvasesConnectorsCall).mockResolvedValue(pendingWrite)
+        const { bridge } = setup({ hasUserActivation, confirm })
+
+        await expect(bridge.handle('connectorCall', write)).rejects.toThrow(error)
+
+        expect(canvasesConnectorsCall).toHaveBeenCalledTimes(1)
+        expect(jest.mocked(canvasesConnectorsCall).mock.calls[0][2]).not.toHaveProperty('approval_token')
     })
 })

@@ -7,7 +7,9 @@ boundary is the security-relevant direction, so it gets a first-class,
 structured answer rather than a raw manifest diff.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from products.canvas.backend.connectors import POSTHOG_PROVIDER, posthog_write_tools
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -16,6 +18,8 @@ class ConnectorGrant:
 
     provider: str
     tools: list[str]
+    # The subset of `tools` that can change data, so a review can call those out.
+    write_tools: list[str] = field(default_factory=list)
 
 
 def _posthog_section(manifest: dict | None) -> dict:
@@ -105,5 +109,6 @@ def _connectors_added(before: dict[str, set[str]], after: dict[str, set[str]]) -
     for provider in sorted(after):
         tools = sorted(after[provider] - before.get(provider, set()))
         if tools:
-            added.append(ConnectorGrant(provider=provider, tools=tools))
+            write_tools = posthog_write_tools(tools) if provider == POSTHOG_PROVIDER else []
+            added.append(ConnectorGrant(provider=provider, tools=tools, write_tools=write_tools))
     return added

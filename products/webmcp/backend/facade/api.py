@@ -24,3 +24,13 @@ def get_exec_tool(user_id: int, team_id: int) -> contracts.ExecTool:
 
 def run_exec(input: contracts.RunExecInput) -> contracts.ExecResult:
     return McpServerClient.for_user(User.objects.get(id=input.user_id), input.team_id).call_exec(input.command)
+
+
+def call_tool(input: contracts.CallToolInput) -> contracts.ToolCallResult:
+    """Run one PostHog MCP tool as the user, in the user's project, with a token that holds only `input.scopes`.
+
+    Raises McpScopesUnavailable when the WebMCP application cannot grant a scope the call needs, and
+    McpServerError when the MCP server cannot complete the call.
+    """
+    user = User.objects.get(id=input.user_id)
+    return McpServerClient.for_tool_call(user, input).call_tool(input.tool_name, input.arguments)

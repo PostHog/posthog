@@ -267,15 +267,27 @@ class CanvasConnectorDeclarationSerializer(serializers.Serializer):
     provider = serializers.CharField(
         max_length=300,
         help_text=(
-            "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' "
-            "(e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+            "Connector provider id: a native provider such as 'github', 'posthog' for PostHog's own MCP tools, "
+            "or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
         ),
     )
     tools = serializers.ListField(
         child=serializers.CharField(max_length=200),
         min_length=1,
         max_length=64,
-        help_text="Tool names the canvas may call on this provider. Read-only tools only.",
+        help_text=(
+            "Tool names the canvas may call on this provider. Read-only tools only, except on 'posthog', "
+            "where the viewer confirms each call of a tool that writes."
+        ),
+    )
+
+
+class CanvasConnectorGrantSerializer(CanvasConnectorDeclarationSerializer):
+    """One provider a draft newly declares, with the tools that can change data called out."""
+
+    write_tools = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        help_text="The newly declared tools that can change data. The viewer confirms each call of these.",
     )
 
 
@@ -289,7 +301,7 @@ class CanvasCapabilitiesSerializer(serializers.Serializer):
         default=list,
         max_length=20,
         help_text=(
-            "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. "
+            "Providers the canvas calls through ph.connectors, each with the tools it may call. "
             "Every call runs with the viewer's own connection; declaring one shows it in the promote review."
         ),
     )
@@ -1123,9 +1135,12 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
     )
-    connectors_added = CanvasConnectorDeclarationSerializer(
+    connectors_added = CanvasConnectorGrantSerializer(
         many=True,
-        help_text="Connector providers and tools the draft newly declares it may call via ph.connectors.",
+        help_text=(
+            "Connector providers and tools the draft newly declares it may call via ph.connectors. "
+            "write_tools lists the ones that can change data."
+        ),
     )
 
 
@@ -1174,7 +1189,11 @@ class CanvasConnectorToolSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Tool name, as passed to ph.connectors.call.")
     summary = serializers.CharField(help_text="One line naming what the tool reads.")
     is_read_only = serializers.BooleanField(
-        source="read_only", help_text="True when the tool only reads. Canvases may call read-only tools."
+        source="read_only",
+        help_text=(
+            "True when the tool only reads. On 'posthog', a canvas may also call tools that write, and the "
+            "viewer confirms each such call. Other providers allow read-only tools only."
+        ),
     )
     input_schema = serializers.DictField(help_text="JSON Schema of the tool's arguments object.")
     usage = serializers.CharField(help_text="Authoring docs: argument and result shape, limits, and behavior.")
@@ -1184,12 +1203,15 @@ class CanvasConnectorSerializer(serializers.Serializer):
     """One connector provider, with the caller's connection state and the tools it exposes."""
 
     provider = serializers.CharField(
-        help_text="Provider id to declare and call, e.g. 'github' or 'mcp:mcp.calendly.com'."
+        help_text="Provider id to declare and call, e.g. 'github', 'posthog', or 'mcp:mcp.calendly.com'."
     )
     display_name = serializers.CharField(source="label", help_text="Display name of the provider.")
     kind = serializers.ChoiceField(
         choices=ConnectorKind.choices,
-        help_text="'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation.",
+        help_text=(
+            "'native' runs through a PostHog personal integration; 'mcp' through an MCP store installation; "
+            "'posthog' runs PostHog's own MCP tools with the viewer's PostHog permissions."
+        ),
     )
     connected = serializers.BooleanField(
         allow_null=True,
@@ -1223,6 +1245,17 @@ class CanvasConnectorCallSerializer(serializers.Serializer):
     )
 
 
+class CanvasConnectorConfirmationSerializer(serializers.Serializer):
+    """What the host shows the viewer before it approves one call of a tool that writes."""
+
+    title = serializers.CharField(
+        help_text="Readable name of the tool, e.g. 'Set feature flag release condition rollout'."
+    )
+    destructive = serializers.BooleanField(
+        help_text="True when the tool can delete or overwrite data. The host shows a stronger warning."
+    )
+
+
 class CanvasConnectorCallResultSerializer(serializers.Serializer):
     """Result of one connector call. `status` is 'ok' when `result` holds the tool's output."""
 
@@ -1242,7 +1275,10 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
     )
     result = serializers.DictField(
         allow_null=True,
-        help_text="Tool output. Native tools return their documented shape; MCP tools return {content, structured_content, is_error}.",
+        help_text=(
+            "Tool output. Native tools return their documented shape; MCP and 'posthog' tools return "
+            "{content, structured_content, is_error}."
+        ),
     )
     detail = serializers.CharField(allow_blank=True, help_text="Human-readable explanation for a non-ok status.")
     truncated = serializers.BooleanField(
@@ -1250,6 +1286,10 @@ class CanvasConnectorCallResultSerializer(serializers.Serializer):
     )
     connect_path = serializers.CharField(
         allow_null=True, help_text="In-app path where the viewer can connect the provider, when that would help."
+    )
+    confirmation = CanvasConnectorConfirmationSerializer(
+        allow_null=True,
+        help_text="Set with 'needs_approval' for a 'posthog' tool that writes: what the host shows before the viewer confirms.",
     )
 
 

@@ -787,3 +787,47 @@ def member_server_hosts(team_id: int, user_id: int) -> list[str]:
         .values_list("url", flat=True)
     )
     return sorted({host for url in urls if (host := _installation_host(url))})
+
+
+def _first_party_approval_binding(
+    team_id: int, user_id: int, server_key: str, tool_name: str, arguments: dict[str, Any], scope: str
+) -> ConnectorApprovalBinding:
+    # A first-party server has no installation row. The `first-party:` prefix keeps its bindings apart
+    # from any installation id, so a token issued for one can never approve a call on the other.
+    return ConnectorApprovalBinding(
+        team_id=team_id,
+        user_id=user_id,
+        installation_id=f"first-party:{server_key}",
+        server_url=server_key,
+        tool_name=tool_name,
+        arguments=arguments,
+        scope=scope,
+    )
+
+
+def issue_first_party_tool_approval(
+    team_id: int, user_id: int, *, server_key: str, tool_name: str, arguments: dict[str, Any], scope: str
+) -> str:
+    """A single-use approval token for one call of a tool on one of PostHog's own servers,
+    bound to the member, tool, exact arguments, and the caller's `scope`. Same lifetime and
+    binding rules as the per-call approvals of installed servers."""
+    return issue_connector_approval(
+        _first_party_approval_binding(team_id, user_id, server_key, tool_name, arguments, scope)
+    )
+
+
+def consume_first_party_tool_approval(
+    token: str,
+    team_id: int,
+    user_id: int,
+    *,
+    server_key: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    scope: str,
+) -> bool:
+    """Consume a token from `issue_first_party_tool_approval`. False when it expired, was already
+    used, or was issued for a different member, tool, arguments, or scope."""
+    return consume_connector_approval(
+        token, _first_party_approval_binding(team_id, user_id, server_key, tool_name, arguments, scope)
+    )
