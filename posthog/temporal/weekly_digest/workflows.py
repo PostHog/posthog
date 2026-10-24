@@ -13,7 +13,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
-    count_organizations,
     generate_dashboard_lookup,
     generate_error_issue_lookup,
     generate_event_definition_lookup,
@@ -28,6 +27,7 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_organization_id_ranges,
     list_team_id_ranges,
     send_weekly_digest_batch,
 )
@@ -193,8 +193,9 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             )
         )
 
-        organization_count = await workflow.execute_activity(
-            count_organizations,
+        organization_id_ranges = await workflow.execute_activity(
+            list_organization_id_ranges,
+            input.common,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -203,15 +204,12 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        batch_size = input.common.batch_size
-        org_batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
-
         await asyncio.gather(
             *[
                 workflow.execute_activity(
                     generate_organization_digest_batch,
                     GenerateOrganizationDigestInput(
-                        batch=batch,
+                        organization_id_range=organization_id_range,
                         digest=input.digest,
                         common=input.common,
                     ),
@@ -222,7 +220,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch in org_batches
+                for organization_id_range in organization_id_ranges
             ]
         )
 
@@ -236,8 +234,9 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:
-        organization_count = await workflow.execute_activity(
-            count_organizations,
+        organization_id_ranges = await workflow.execute_activity(
+            list_organization_id_ranges,
+            input.common,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -246,15 +245,12 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=1),
         )
 
-        batch_size = input.common.batch_size
-        batches = [(i, i + batch_size) for i in range(0, organization_count, batch_size)]
-
         await asyncio.gather(
             *[
                 workflow.execute_activity(
                     send_weekly_digest_batch,
                     SendWeeklyDigestBatchInput(
-                        batch=batch,
+                        organization_id_range=organization_id_range,
                         dry_run=input.dry_run,
                         allow_already_sent=input.allow_already_sent,
                         digest=input.digest,
@@ -267,6 +263,6 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                     ),
                     heartbeat_timeout=timedelta(minutes=2),
                 )
-                for batch in batches
+                for organization_id_range in organization_id_ranges
             ]
         )

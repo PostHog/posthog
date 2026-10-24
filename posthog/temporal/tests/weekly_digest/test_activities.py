@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
@@ -35,6 +35,7 @@ from posthog.temporal.weekly_digest.activities import (
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     ActivityCancelled,
     UploadDeadlineExceeded,
+    _cut_organization_id_ranges,
     _cut_team_id_ranges,
     _query_team_usage_trends,
     _redis_url,
@@ -54,16 +55,22 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_organization_id_ranges,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
-from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
+from posthog.temporal.weekly_digest.queries import (
+    query_organization_ids_for_digest,
+    query_team_ids_for_digest,
+    query_teams_for_digest,
+)
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
     CommonInput,
     Digest,
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
+    OrganizationIdRange,
     SendWeeklyDigestBatchInput,
     TeamIdRange,
     UsageTrends,
@@ -79,6 +86,7 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 DJANGO_REDIS_URL = "redis://django-cache.example.com:6379"
+ALL_ORGANIZATIONS = OrganizationIdRange(start=UUID(int=0), end=None)
 
 
 def run_sync(activity_fn: Callable[..., Any], *args: Any) -> Any:
@@ -163,6 +171,37 @@ def test_team_id_ranges_page_every_digest_team_exactly_once(organization, digest
         ]
         assert len(team_ids) <= common.batch_size
         paged.extend(team_ids)
+
+    assert paged == expected
+
+
+@pytest.mark.django_db
+def test_organization_id_ranges_page_every_digest_organization_exactly_once(
+    organization, redis_servers, common_input, digest
+):
+    for i in range(4):
+        Organization.objects.create(name=f"digest org {i}")
+        if i == 1:
+            # Sits inside a batch range, so a leak here shows up as an extra paged organization.
+            Organization.objects.create(name="internal org", for_internal_metrics=True)
+
+    common = common_input.model_copy(update={"batch_size": 2})
+    expected = list(query_organization_ids_for_digest())
+    # An odd count leaves a last range with no end, which must still reach the newest organization.
+    assert len(expected) % common.batch_size == 1
+
+    paged: list[UUID] = []
+    for organization_id_range in run_sync(list_organization_id_ranges, common):
+        redis_servers.digest.flushall()
+        run_sync(
+            generate_organization_digest_batch,
+            GenerateOrganizationDigestInput(organization_id_range=organization_id_range, digest=digest, common=common),
+        )
+        organization_ids = sorted(
+            UUID(json.loads(redis_servers.digest.get(key))["id"]) for key in redis_servers.digest.keys()
+        )
+        assert len(organization_ids) <= common.batch_size
+        paged.extend(organization_ids)
 
     assert paged == expected
 
@@ -376,7 +415,7 @@ def _run_error_issue_lookup_without_occurrences(team_range: TeamIdRange, digest:
 def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common),
+        GenerateOrganizationDigestInput(organization_id_range=ALL_ORGANIZATIONS, digest=digest, common=common),
     )
 
 
@@ -604,7 +643,7 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
     )
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
+        GenerateOrganizationDigestInput(organization_id_range=ALL_ORGANIZATIONS, digest=digest, common=common_input),
     )
 
     # One organization's malformed value skips that organization only.
@@ -651,9 +690,9 @@ def _org_digest_json(organization: Organization, team: Team) -> str:
 def _send_input(
     organization: Organization, digest: Digest, common: CommonInput, dry_run: bool
 ) -> SendWeeklyDigestBatchInput:
-    organization_index = list(Organization.objects.order_by("id").values_list("id", flat=True)).index(organization.id)
+    organization_ids = list(query_organization_ids_for_digest())
     return SendWeeklyDigestBatchInput(
-        batch=(organization_index, organization_index + 1),
+        organization_id_range=_cut_organization_id_ranges(organization_ids, 1)[organization_ids.index(organization.id)],
         dry_run=dry_run,
         allow_already_sent=False,
         digest=digest,
