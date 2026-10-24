@@ -27,6 +27,15 @@ const VIEWPORT_MARGIN = 8
 // Matches the backend limit on the screenshot upload.
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 
+/** A DOM `Event` rejection shows up in error tracking only as its `isTrusted` key, so wrap it in an Error. */
+function captureScreenshotError(e: unknown): void {
+    posthog.captureException(
+        e instanceof Error
+            ? e
+            : new Error(`Feedback screenshot failed: ${e instanceof Event ? `${e.type} event` : String(e)}`)
+    )
+}
+
 /** Keeps the bar fully on screen, also after the window shrinks below a saved position. */
 export function clampToViewport(
     position: WidgetPosition,
@@ -307,12 +316,12 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
         selectElement: ({ target }) => {
             // Start right away, before the comment box takes focus and an open menu has a chance to close.
             cache.screenshotPromise = captureFeedbackScreenshot(target.element?.getBoundingClientRect() ?? null)
-            cache.screenshotPromise.catch((e: unknown) => posthog.captureException(e))
+            cache.screenshotPromise.catch(captureScreenshotError)
         },
         startGeneralFeedback: () => {
             posthog.capture('internal feedback whole page started')
             cache.screenshotPromise = captureFeedbackScreenshot(null)
-            cache.screenshotPromise.catch((e: unknown) => posthog.captureException(e))
+            cache.screenshotPromise.catch(captureScreenshotError)
         },
         clearSelection: () => {
             cache.screenshotPromise = null
