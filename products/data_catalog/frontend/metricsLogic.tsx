@@ -12,11 +12,11 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 import { existingMetricFromNameConflict, metricCount } from './common'
+import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
     dataCatalogMetricsBulkDeleteCreate,
-    dataCatalogMetricsCreate,
     dataCatalogMetricsDestroy,
     dataCatalogMetricsList,
     dataCatalogMetricsRefreshFromInsightCreate,
@@ -46,6 +46,7 @@ export interface MetricFromInsightRequest {
     name: string
     display_name: string
     description: string
+    unit: string
     source_insight_short_id: string
 }
 
@@ -78,8 +79,8 @@ export interface metricsLogicValues {
     allMetrics: DataCatalogMetricApi[]
     allMetricsLoading: boolean
     bulkActionInFlight: BulkMetricAction | null
+    creatingMetricAs: MetricSaveAction | null
     filters: MetricsFilters
-    isCreatingMetric: boolean
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
     proposedCount: number
@@ -109,8 +110,10 @@ export interface metricsLogicActions {
     }
     createMetricFromInsight: (
         request: MetricFromInsightRequest,
+        approve: boolean,
         overwrite?: boolean
     ) => {
+        approve: boolean
         overwrite: boolean
         request: MetricFromInsightRequest
     }
@@ -148,8 +151,8 @@ export interface metricsLogicActions {
     setBulkActionInFlight: (bulkAction: BulkMetricAction | null) => {
         bulkAction: BulkMetricAction | null
     }
-    setCreatingMetric: (creating: boolean) => {
-        creating: boolean
+    setCreatingMetricAs: (creatingAs: MetricSaveAction | null) => {
+        creatingAs: MetricSaveAction | null
     }
     setFilters: (filters: Partial<MetricsFilters>) => {
         filters: Partial<MetricsFilters>
@@ -178,7 +181,7 @@ export const metricsLogic = kea<metricsLogicType>([
     })),
     actions({
         setFilters: (filters: Partial<MetricsFilters>) => ({ filters }),
-        setCreatingMetric: (creating: boolean) => ({ creating }),
+        setCreatingMetricAs: (creatingAs: MetricSaveAction | null) => ({ creatingAs }),
         approveMetric: (name: string) => ({ name }),
         refreshMetricFromInsight: (name: string) => ({ name }),
         deleteMetric: (name: string) => ({ name }),
@@ -188,8 +191,9 @@ export const metricsLogic = kea<metricsLogicType>([
         setBulkActionInFlight: (bulkAction: BulkMetricAction | null) => ({ bulkAction }),
         openMetricFromInsightModal: true,
         closeMetricFromInsightModal: true,
-        createMetricFromInsight: (request: MetricFromInsightRequest, overwrite: boolean = false) => ({
+        createMetricFromInsight: (request: MetricFromInsightRequest, approve: boolean, overwrite: boolean = false) => ({
             request,
+            approve,
             overwrite,
         }),
     }),
@@ -222,10 +226,10 @@ export const metricsLogic = kea<metricsLogicType>([
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
-        isCreatingMetric: [
-            false,
+        creatingMetricAs: [
+            null as MetricSaveAction | null,
             {
-                setCreatingMetric: (_, { creating }) => creating,
+                setCreatingMetricAs: (_, { creatingAs }) => creatingAs,
             },
         ],
         metricFromInsightModalOpen: [
@@ -289,34 +293,25 @@ export const metricsLogic = kea<metricsLogicType>([
                 result_count: values.metrics.length,
             })
         },
-        createMetricFromInsight: async ({ request, overwrite }) => {
-            if (values.isCreatingMetric) {
+        createMetricFromInsight: async ({ request, approve, overwrite }) => {
+            if (values.creatingMetricAs) {
                 return
             }
-            actions.setCreatingMetric(true)
+            actions.setCreatingMetricAs(approve ? 'approve' : 'propose')
             try {
-                const created = await dataCatalogMetricsCreate(projectId(), {
-                    name: request.name,
-                    display_name: request.display_name,
-                    description: request.description,
-                    source_insight_short_id: request.source_insight_short_id,
-                    created_source: 'user',
-                    overwrite,
-                })
-                actions.loadMetricsSuccess(withCreatedMetric(values.allMetrics, created))
+                const created = await createMetricAsUser({ ...request, overwrite }, approve)
+                actions.loadMetricsSuccess(withCreatedMetric(values.allMetrics, created.metric))
                 actions.closeMetricFromInsightModal()
-                lemonToast.success(overwrite ? 'Metric overwritten from insight' : 'Metric created from insight', {
-                    button: {
-                        label: 'View metric',
-                        action: () => router.actions.push(urls.dataCatalogMetric(created.name)),
-                    },
+                toastCreatedMetric(created, overwrite, {
+                    label: 'View metric',
+                    action: () => router.actions.push(urls.dataCatalogMetric(created.metric.name)),
                 })
             } catch (error) {
                 const existing = existingMetricFromNameConflict(error)
                 if (existing) {
                     openOverwriteMetricDialog({
                         existing,
-                        onOverwrite: () => actions.createMetricFromInsight(request, true),
+                        onOverwrite: () => actions.createMetricFromInsight(request, approve, true),
                     })
                 } else {
                     lemonToast.error(
@@ -324,7 +319,7 @@ export const metricsLogic = kea<metricsLogicType>([
                     )
                 }
             } finally {
-                actions.setCreatingMetric(false)
+                actions.setCreatingMetricAs(null)
             }
         },
         approveMetric: async ({ name }) => {
