@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
-from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox import SandboxBase, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import (
     emit_agent_log,
     log_activity_execution,
@@ -37,12 +37,13 @@ class MaterializeContextLayerOutput:
     mounted: bool
 
 
-def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str) -> None:
+def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str, sandbox: SandboxBase | None) -> None:
     """Remove any leftover wiki checkout. Best-effort, like the mount itself."""
     mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
     bundle_path = shlex.quote(f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle")
     try:
-        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+        if sandbox is None:
+            sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         sandbox.execute(f"rm -rf {mount_path} {bundle_path}", timeout_seconds=MOUNT_TIMEOUT_SECONDS)
     except Exception as error:
         emit_agent_log(ctx.run_id, "debug", f"Could not clear a stale context wiki checkout: {error}")
@@ -51,6 +52,12 @@ def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str) -> None:
 @activity.defn
 @asyncify
 def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) -> MaterializeContextLayerOutput:
+    return materialize_context_layer(input, None)
+
+
+def materialize_context_layer(
+    input: MaterializeContextLayerInput, sandbox: SandboxBase | None
+) -> MaterializeContextLayerOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -65,7 +72,7 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             # organization gained a private project) would stay readable. Removing
             # the directory is what makes the agent stop seeing it, since the
             # harnesses gate on the mount path existing rather than on the env var.
-            _clear_wiki_checkout(ctx, input.sandbox_id)
+            _clear_wiki_checkout(ctx, input.sandbox_id, sandbox)
             return MaterializeContextLayerOutput(mounted=False)
 
         mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
@@ -85,7 +92,8 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             f"status=$?; rm -f {bundle_path} {shlex.quote(url_path)}; exit $status"
         )
         try:
-            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+            if sandbox is None:
+                sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
             sandbox.write_file(url_path, mount.bundle_url.encode())
             result = sandbox.execute(command, timeout_seconds=MOUNT_TIMEOUT_SECONDS)
         except Exception as error:

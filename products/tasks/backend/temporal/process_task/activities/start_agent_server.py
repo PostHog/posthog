@@ -768,6 +768,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     Sandbox credentials (sandbox_url, connect_token) are passed directly via input
     from get_sandbox_for_repository output.
     """
+    return start_agent_server_in_sandbox(input, None)
+
+
+def start_agent_server_in_sandbox(input: StartAgentServerInput, sandbox: SandboxBase | None) -> StartAgentServerOutput:
     ctx = input.context
 
     with (
@@ -788,8 +792,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         log_with_activity_context("Starting agent server", run_id=ctx.run_id)
 
-        with StepTimer("sandbox_lookup"):
-            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+        if sandbox is None:
+            with StepTimer("sandbox_lookup"):
+                sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         # Classic (non-deferred) path only: any clone has already happened by now, so a missing
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.

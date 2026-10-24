@@ -4,6 +4,7 @@ import shlex
 import asyncio
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -39,6 +40,7 @@ from products.tasks.backend.exceptions import (
     RepositoryAccessError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
+    SandboxProvisionError,
     TaskInvalidStateError,
     TaskNotFoundError,
 )
@@ -57,6 +59,7 @@ from products.tasks.backend.logic.services.network_policy import (
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxBase,
+    SandboxClass,
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
@@ -688,6 +691,10 @@ def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTempl
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
+    return prepare_repository_sandbox(input)
+
+
+def prepare_repository_sandbox(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
     ctx = input.context
 
     with log_activity_execution(
@@ -883,6 +890,13 @@ def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare
 @asyncify
 @posthoganalytics.scoped(fresh=True, capture_exceptions=False)
 def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+    created, _ = create_repository_sandbox(input)
+    return created
+
+
+def create_repository_sandbox(
+    input: CreateSandboxForRepositoryInput,
+) -> tuple[CreateSandboxForRepositoryOutput, SandboxBase]:
     ctx = input.context
     prepared = input.prepared
 
@@ -1087,7 +1101,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
-        )
+        ), sandbox
 
 
 @activity.defn
@@ -1096,42 +1110,9 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     if not sandbox_class.supports_creation_cancellation:
         return await _create_sandbox_for_repository(input)
 
-    cancel_event = threading.Event()
-    creation_after_cancellation: CreateSandboxForRepositoryOutput | None = None
-    cancellation: asyncio.CancelledError | None = None
-
-    with sandbox_class.creation_cancellation_scope(cancel_event):
-        creation_task = asyncio.create_task(_create_sandbox_for_repository(input))
-        try:
-            while True:
-                activity.heartbeat()
-                try:
-                    return await asyncio.wait_for(
-                        asyncio.shield(creation_task), timeout=SANDBOX_CREATION_HEARTBEAT_SECONDS
-                    )
-                except TimeoutError:
-                    continue
-        except asyncio.CancelledError as error:
-            cancellation = error
-            cancel_event.set()
-            # sync_to_async cannot stop its worker thread, so wait for the provider operation
-            # to exit before Temporal can retry this activity against the same sandbox name.
-            try:
-                creation_after_cancellation = await asyncio.wait_for(
-                    asyncio.shield(creation_task), timeout=SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS
-                )
-            except TimeoutError:
-                logger.exception(
-                    "sandbox_creation_cancellation_wait_timed_out",
-                    extra={"run_id": input.context.run_id},
-                )
-            except Exception as error:
-                logger.debug(
-                    "sandbox_creation_stopped_after_cancellation",
-                    extra={"run_id": input.context.run_id, "error_type": type(error).__name__},
-                )
-
-    if creation_after_cancellation is not None:
+    async def destroy_after_cancellation(creation_after_cancellation: CreateSandboxForRepositoryOutput | None) -> None:
+        if creation_after_cancellation is None:
+            return
         sandbox = await asyncio.to_thread(
             get_sandbox_class_for_sandbox_id(creation_after_cancellation.sandbox_id).get_by_id,
             creation_after_cancellation.sandbox_id,
@@ -1145,8 +1126,62 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
                 creation_after_cancellation.sandbox_id,
             )
 
-    assert cancellation is not None
-    raise cancellation
+    return await run_with_creation_heartbeat(
+        sandbox_class,
+        lambda _cancel_event: _create_sandbox_for_repository(input),
+        run_id=input.context.run_id,
+        on_cancelled=destroy_after_cancellation,
+    )
+
+
+async def run_with_creation_heartbeat[T](
+    sandbox_class: SandboxClass,
+    start: Callable[[threading.Event], Awaitable[T]],
+    *,
+    run_id: str,
+    on_cancelled: Callable[[T | None], Awaitable[None]],
+    creation_expired: Callable[[], bool] = lambda: False,
+) -> T:
+    cancel_event = threading.Event()
+    interruption: BaseException
+
+    with sandbox_class.creation_cancellation_scope(cancel_event):
+        creation_task = asyncio.ensure_future(start(cancel_event))
+        try:
+            while not creation_expired():
+                activity.heartbeat()
+                done, _ = await asyncio.wait({creation_task}, timeout=SANDBOX_CREATION_HEARTBEAT_SECONDS)
+                if done:
+                    return creation_task.result()
+            interruption = SandboxProvisionError(
+                "Sandbox creation exceeded its deadline",
+                {"run_id": run_id, "creation_timeout_seconds": sandbox_class.creation_timeout_seconds},
+                TimeoutError(),
+            )
+        except asyncio.CancelledError as error:
+            interruption = error
+        cancel_event.set()
+        # sync_to_async cannot stop its worker thread, so wait for the provider operation
+        # to exit before Temporal can retry this activity against the same sandbox name.
+        result_after_cancellation = await _settle_after_cancellation(creation_task, run_id)
+
+    await on_cancelled(result_after_cancellation)
+    raise interruption
+
+
+async def _settle_after_cancellation[T](creation_task: "asyncio.Future[T]", run_id: str) -> T | None:
+    done, _ = await asyncio.wait({creation_task}, timeout=SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS)
+    if not done:
+        logger.error("sandbox_creation_cancellation_wait_timed_out", extra={"run_id": run_id})
+        return None
+    error = creation_task.exception()
+    if error is not None:
+        logger.debug(
+            "sandbox_creation_stopped_after_cancellation",
+            extra={"run_id": run_id, "error_type": type(error).__name__},
+        )
+        return None
+    return creation_task.result()
 
 
 @activity.defn
