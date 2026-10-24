@@ -35,64 +35,98 @@ the token into the `multiIf`. `token_col` is always a SQL identifier the caller
 controls, never request input.
 """
 
-# Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
-_UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
+from collections.abc import Mapping
 
-# Product token + first parenthetical (the surface) with the version dropped,
-# e.g. "claude-code cli", "openai-mcp chatgpt". Used both gated to claude-code
-# (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
-_UA_TOKEN = f"trim(concat({_UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))"
+# Every event property the token reads, keyed by its role in the resolution. The token
+# is a pure function of these values, so a query can group rows by them first and
+# resolve the token once per group (`harness_token_from_inputs_sql`). A new identity
+# signal must be added here, or that grouping merges rows that resolve differently.
+HARNESS_INPUT_PROPERTIES: dict[str, str] = {
+    "vendor_client": "properties.$mcp_vendor_client",
+    "legacy_vendor_client": "properties.mcp_vendor_client",
+    "user_agent": "properties.$mcp_client_user_agent",
+    "client_name": "properties.$mcp_client_name",
+}
 
-# The x-anthropic-client vendor header, coalesced across both wire keys it is
-# captured under: `$mcp_vendor_client` (the SDK name) and the unprefixed
-# `mcp_vendor_client` (PostHog's own server). The unprefixed arm is load-bearing,
-# not cosmetic: rows carrying only it often self-report a wrong clientInfo.name
-# (Claude Code as "Anthropic/ClaudeAI"), so without it they misattribute.
-_VENDOR = (
-    "lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''),"
-    " nullIf(toString(properties.mcp_vendor_client), '')))"
-)
 
-# The ordered resolution steps: vendor header, then the two User-Agent surfaces
-# that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
-_RAW_TOKEN = f"""coalesce(
+def _raw_token_sql(inputs: Mapping[str, str]) -> str:
+    """The ordered resolution steps over `inputs`, a role-to-SQL map shaped like `HARNESS_INPUT_PROPERTIES`."""
+    # Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
+    ua_product = f"extract(toString({inputs['user_agent']}), '^([^/]+)')"
+
+    # Product token + first parenthetical (the surface) with the version dropped,
+    # e.g. "claude-code cli", "openai-mcp chatgpt". Used both gated to claude-code
+    # (step 2, to keep the CLI/SDK/IDE split) and as the generic fallback (step 4).
+    ua_token = f"trim(concat({ua_product}, ' ', extract(toString({inputs['user_agent']}), '[(]([^,)]+)')))"
+
+    # The x-anthropic-client vendor header, coalesced across both wire keys it is
+    # captured under: `$mcp_vendor_client` (the SDK name) and the unprefixed
+    # `mcp_vendor_client` (PostHog's own server). The unprefixed arm is load-bearing,
+    # not cosmetic: rows carrying only it often self-report a wrong clientInfo.name
+    # (Claude Code as "Anthropic/ClaudeAI"), so without it they misattribute.
+    vendor = (
+        f"lower(coalesce(nullIf(toString({inputs['vendor_client']}), ''),"
+        f" nullIf(toString({inputs['legacy_vendor_client']}), '')))"
+    )
+
+    # The ordered resolution steps: vendor header, then the two User-Agent surfaces
+    # that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
+    return f"""coalesce(
     multiIf(
         -- The header is captured verbatim and its value arrives in both spellings
         -- ('ClaudeCode' and 'claude-code'), so each vendor matches both.
-        {_VENDOR} IN ('claudecode', 'claude-code'), 'claude-code',
-        {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
-        {_VENDOR} = 'cowork', 'cowork',
-        {_VENDOR} IN ('claudedesign', 'claude-design'), 'claude-design',
+        {vendor} IN ('claudecode', 'claude-code'), 'claude-code',
+        {vendor} IN ('claudeai', 'claude-ai'), 'claude-ai',
+        {vendor} = 'cowork', 'cowork',
+        {vendor} IN ('claudedesign', 'claude-design'), 'claude-design',
         NULL
     ),
-    if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
+    if(lower({ua_product}) = 'claude-code', {ua_token}, NULL),
     -- grok.com Connectors self-identifies as grok only in the User-Agent
     -- (`grok-connectors-manager/…`); its clientInfo.name is the generic
     -- "connectors-manager", which would otherwise win below and drop the vendor.
     -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
     -- clientInfo.name and buckets to Grok without help.)
-    if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
+    if(startsWith(lower({ua_product}), 'grok'), {ua_token}, NULL),
     -- Kimchi (kimchi.dev) is built on pi and reports the generic pi-mcp
     -- `pi-mcp-<server>` as its clientInfo.name; only its `kimchi/…` User-Agent
     -- names it, so promote that above the name the same way.
-    if(startsWith(lower({_UA_PRODUCT}), 'kimchi'), {_UA_TOKEN}, NULL),
-    nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
-    nullIf({_UA_TOKEN}, ''),
+    if(startsWith(lower({ua_product}), 'kimchi'), {ua_token}, NULL),
+    nullIf(nullIf(toString({inputs["client_name"]}), ''), 'mcp'),
+    nullIf({ua_token}, ''),
     ''
 )"""
 
-# The normalized token: lower-cased first, then the "(via mcp-remote …)" proxy
-# suffix stripped and trimmed, matching categorizeHarness's normalization so the
-# bucketing comparisons below are case- and proxy-insensitive. Lower-casing before
-# the strip keeps the pattern case-flag-free; the doubled backslashes survive HogQL
-# string parsing to reach RE2 as `\s` / `\(`.
-HARNESS_TOKEN_SQL = f"trim(replaceRegexpAll(lower({_RAW_TOKEN}), '\\\\s*\\\\(via mcp-remote[^)]*\\\\)\\\\s*', ''))"
+
+def _normalized_token_sql(raw_token: str) -> str:
+    # The normalized token: lower-cased first, then the "(via mcp-remote …)" proxy
+    # suffix stripped and trimmed, matching categorizeHarness's normalization so the
+    # bucketing comparisons below are case- and proxy-insensitive. Lower-casing before
+    # the strip keeps the pattern case-flag-free; the doubled backslashes survive HogQL
+    # string parsing to reach RE2 as `\s` / `\(`.
+    return f"trim(replaceRegexpAll(lower({raw_token}), '\\\\s*\\\\(via mcp-remote[^)]*\\\\)\\\\s*', ''))"
+
+
+def harness_token_from_inputs_sql(input_columns: Mapping[str, str]) -> str:
+    """`HARNESS_TOKEN_SQL` computed from columns that already hold the input properties.
+
+    `input_columns` maps every role in `HARNESS_INPUT_PROPERTIES` to the alias of the
+    column holding that property. A missing role raises, so a caller cannot group by
+    fewer inputs than the token reads.
+    """
+    missing = HARNESS_INPUT_PROPERTIES.keys() - input_columns.keys()
+    if missing:
+        raise ValueError(f"missing harness input columns: {sorted(missing)}")
+    return _normalized_token_sql(_raw_token_sql(input_columns))
+
+
+HARNESS_TOKEN_SQL = _normalized_token_sql(_raw_token_sql(HARNESS_INPUT_PROPERTIES))
 
 # The same resolution and proxy-suffix strip, but with the client's own capitalization
 # intact, so an unrecognized client can be shown under the name it actually reported
 # rather than a lower-cased one. Matching still uses the token above; this is display
 # only. `(?i)` does the case-insensitive strip that `lower()` made unnecessary there.
-HARNESS_DISPLAY_NAME_SQL = f"trim(replaceRegexpAll({_RAW_TOKEN}, '(?i)\\\\s*\\\\(via mcp-remote[^)]*\\\\)\\\\s*', ''))"
+HARNESS_DISPLAY_NAME_SQL = f"trim(replaceRegexpAll({_raw_token_sql(HARNESS_INPUT_PROPERTIES)}, '(?i)\\\\s*\\\\(via mcp-remote[^)]*\\\\)\\\\s*', ''))"
 
 # Shown by `harness_label_or_token_sql` when an event carries no identity signal at
 # all — not a client anyone runs, unlike every other label this module emits.
