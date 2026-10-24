@@ -17,6 +17,30 @@ from posthog.dags.slack_alerts import (
 
 
 class TestSlackAlertsRouting:
+    @parameterized.expand([("events", "duckling_events_backfill_job"), ("persons", "duckling_persons_backfill_job")])
+    def test_exhausted_backfill_alerts_the_managed_pipeline_owner(self, _name: str, job_name: str) -> None:
+        failed_run = dagster.DagsterRun(
+            job_name,
+            tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, "duckling/retry_attempt": "3"},
+        )
+        failure_event = dagster.DagsterEvent(
+            event_type_value=dagster.DagsterEventType.RUN_FAILURE.value,
+            job_name=job_name,
+            message="failed",
+        )
+        with dagster.DagsterInstance.ephemeral() as instance:
+            context = dagster.RunFailureSensorContext(
+                sensor_name="notify_slack_on_failure",
+                dagster_run=failed_run,
+                dagster_event=failure_event,
+                instance=instance,
+            )
+            slack = mock.MagicMock()
+            with mock.patch("posthog.dags.slack_alerts.settings.CLOUD_DEPLOYMENT", "US"):
+                notify_slack_on_failure(context, slack=slack)
+
+        assert slack.get_client.return_value.chat_postMessage.call_args.kwargs["channel"] == "#alerts-managed-warehouse"
+
     def test_query_log_archive_export_alert_uses_query_performance_owner(self):
         failed_run = dagster.DagsterRun(
             "export_query_log_archive_to_s3",

@@ -39,6 +39,8 @@ class ManagedWarehouseBackfillPartition(TeamScopedRootMixin, UUIDModel):
     started_at = models.DateTimeField()
     completed_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=128, null=True, blank=True)
+    retry_at = models.DateTimeField(null=True, blank=True)
+    retry_exhausted = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

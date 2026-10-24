@@ -1,6 +1,7 @@
 import dagster
 
 from posthog.dags import events_backfill_to_duckling
+from posthog.dags.duckling_backfill_recovery import duckling_backfill_recovery_sensor
 
 from products.data_modeling.backend.facade.dags import job_usage
 from products.data_warehouse.backend.facade.dags import managed_viewset_sync
@@ -25,6 +26,7 @@ defs = dagster.Definitions(
     sensors=[
         groups_backfill.duckling_groups_full_backfill_sensor,
         groups_backfill.duckling_groups_daily_backfill_sensor,
+        duckling_backfill_recovery_sensor,
         events_backfill_to_duckling.duckling_events_daily_backfill_sensor,
         events_backfill_to_duckling.duckling_events_full_backfill_sensor,
         events_backfill_to_duckling.duckling_persons_daily_backfill_sensor,

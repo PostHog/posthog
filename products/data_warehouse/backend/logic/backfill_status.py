@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 
 from django.db import DatabaseError
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -118,6 +119,8 @@ def record_backfill_started(*, team_id: int, dataset: str, partition_key: str, r
                 "started_at": timezone.now(),
                 "completed_at": None,
                 "last_error": None,
+                "retry_at": None,
+                "retry_exhausted": False,
             },
         )
     except (DatabaseError, ValueError):
@@ -167,17 +170,30 @@ def record_backfill_outcome(
     Used when reconstructing status from a scheduler's own run history, where all we know is how
     the run ended.
     """
-    record_backfill_started(team_id=team_id, dataset=dataset, partition_key=partition_key, run_id=run_id)
-    if outcome is BackfillOutcome.SUCCEEDED:
-        _finish(team_id=team_id, dataset=dataset, partition_key=partition_key, run_id=run_id, failure_reason=None)
-    elif outcome is BackfillOutcome.FAILED:
-        _finish(
-            team_id=team_id,
+    try:
+        descriptor = describe_partition_key(partition_key)
+        # Reconciliation must not overwrite a row created by a concurrently starting attempt.
+        ManagedWarehouseBackfillPartition.objects.for_team(team_id).get_or_create(
+            environment_id=team_id,
             dataset=dataset,
             partition_key=partition_key,
-            run_id=run_id,
-            failure_reason=failure_reason,
+            defaults={
+                "team_id": team_id,
+                "granularity": descriptor.granularity,
+                "period_start": descriptor.period_start,
+                "lifecycle_state": {
+                    BackfillOutcome.RUNNING: LifecycleState.RUNNING,
+                    BackfillOutcome.SUCCEEDED: LifecycleState.COMPLETED,
+                    BackfillOutcome.FAILED: LifecycleState.FAILED,
+                }[outcome],
+                "run_id": run_id,
+                "started_at": timezone.now(),
+                "completed_at": None if outcome is BackfillOutcome.RUNNING else timezone.now(),
+                "last_error": failure_reason if outcome is BackfillOutcome.FAILED else None,
+            },
         )
+    except (DatabaseError, ValueError):
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed", team_id=team_id, dataset=dataset)
 
 
 def stale_running_partitions(*, dataset: str, limit: int) -> list[ManagedWarehouseBackfillPartition]:
@@ -201,18 +217,70 @@ def stale_running_partitions(*, dataset: str, limit: int) -> list[ManagedWarehou
         return []
 
 
+def record_backfill_recovery(
+    *,
+    team_id: int,
+    dataset: str,
+    partition_key: str,
+    run_id: str,
+    retry_at: datetime | None,
+    exhausted: bool,
+    previous_run_id: str | None = None,
+) -> None:
+    try:
+        descriptor = describe_partition_key(partition_key)
+        partitions = ManagedWarehouseBackfillPartition.objects.for_team(team_id)
+        partitions.get_or_create(
+            environment_id=team_id,
+            dataset=dataset,
+            partition_key=partition_key,
+            defaults={
+                "team_id": team_id,
+                "granularity": descriptor.granularity,
+                "period_start": descriptor.period_start,
+                "lifecycle_state": LifecycleState.FAILED,
+                "run_id": run_id,
+                "started_at": timezone.now(),
+                "completed_at": timezone.now(),
+                "last_error": "RunDidNotComplete",
+            },
+        )
+        (
+            partitions.filter(
+                Q(run_id=run_id) | Q(run_id=previous_run_id, lifecycle_state=LifecycleState.FAILED),
+                environment_id=team_id,
+                dataset=dataset,
+                partition_key=partition_key,
+            )
+            .exclude(run_id=run_id, lifecycle_state=LifecycleState.FAILED, retry_at=retry_at, retry_exhausted=exhausted)
+            .update(
+                run_id=run_id,
+                lifecycle_state=LifecycleState.FAILED,
+                retry_at=retry_at,
+                retry_exhausted=exhausted,
+                updated_at=timezone.now(),
+            )
+        )
+    except (DatabaseError, ValueError):
+        logger.exception("managed_warehouse_backfill_recovery_status_write_failed", team_id=team_id, dataset=dataset)
+
+
 def _finish(*, team_id: int, dataset: str, partition_key: str, run_id: str, failure_reason: str | None) -> None:
     updates: dict[str, object] = {
         "run_id": run_id,
         "completed_at": timezone.now(),
         "lifecycle_state": LifecycleState.COMPLETED if failure_reason is None else LifecycleState.FAILED,
         "last_error": failure_reason,
+        "retry_at": None,
+        "retry_exhausted": False,
+        "updated_at": timezone.now(),
     }
     try:
         ManagedWarehouseBackfillPartition.objects.for_team(team_id).filter(
             environment_id=team_id,
             dataset=dataset,
             partition_key=partition_key,
+            run_id=run_id,
         ).update(**updates)
     except DatabaseError:
         logger.exception(

@@ -100,7 +100,7 @@ Example: `12345_2024-01-15` for team 12345's data on January 15, 2024.
 
 - Run every hour
 - Create partitions for **yesterday's** data only
-- Retry failed partitions automatically
+- Failure recovery is handled separately by `duckling_backfill_recovery_sensor`, including older daily partitions and historical months.
 - Skip partitions already in progress
 
 ### Full Backfill Sensors (Daily)
@@ -205,6 +205,20 @@ different credential IDs and secrets. A reconnect refreshes only the credential 
 by that session.
 
 ## Troubleshooting
+
+### Automatic recovery
+
+The recovery sensor checks failures every minute and retries each failed partition up to three times.
+Retry delays start at 1, 5, and 15 minutes with stable jitter; queue capacity can delay execution further.
+Retries preserve the run configuration and use the existing backfill concurrency limits.
+The sensor only schedules enabled teams in ready warehouses, and skips failures superseded by newer runs.
+Canceled runs and runs configured to drop tables, append without cleanup, preview data, or export without registration are not replayed automatically.
+
+Data ops shows when a failed partition is waiting for automatic recovery.
+Once retries are exhausted, it reports that PostHog needs to investigate.
+The existing Dagster failure sensor routes each failed attempt, including the final attempt, to the job owner's alert channel.
+The UI does not claim that a notification was delivered.
+Operators can manually rerun the failed partition after correcting a persistent problem.
 
 ### Partition stuck in "Running"
 
