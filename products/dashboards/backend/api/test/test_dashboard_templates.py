@@ -634,7 +634,12 @@ class TestDashboardTemplates(APIBaseTest):
                                 "description": "Optional context for AI agents. Maximum 10000 characters.",
                                 "type": ["string", "null"],
                                 "maxLength": 10000,
-                            }
+                            },
+                            "group_key": {
+                                "description": "Key of the tile group this tile joins. Tiles with the same key belong together.",
+                                "type": ["string", "null"],
+                                "maxLength": 100,
+                            },
                         },
                     },
                     "minItems": 1,
@@ -684,6 +689,10 @@ class TestDashboardTemplates(APIBaseTest):
                         },
                         {"type": "null"},
                     ],
+                },
+                "customization": {
+                    "description": "Display settings that the new dashboard starts with, such as tile spacing and tile groups",
+                    "type": ["object", "null"],
                 },
                 "tags": {
                     "description": "The tags of the dashboard template",
@@ -1511,7 +1520,7 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert data["is_featured"] is False
         assert data["image_url"] in (None, "")
         assert len(data["tiles"]) == len(variable_template["tiles"])
-        assert data["customization"] == {"groups": {"plans": {"title": "Plans"}}}
+        assert data["customization"] == {"groups": {"plans": {"title": "Plans", "color": None}}}
 
     @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
     def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:
