@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 import pytest
@@ -912,8 +912,8 @@ class TestSignalReportListAPI(APIBaseTest):
             team=self.team, report=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE, content=content
         )
 
-    _RANKING_NOT_AVAILABLE = {"status": "not_available", "model": None, "scored_at": None, "heads": []}
-    _RANKING_UNSCORED = {"status": "unscored", "model": None, "scored_at": None, "heads": []}
+    _RANKING_NOT_AVAILABLE: dict[str, Any] = {"status": "not_available", "model": None, "scored_at": None, "heads": []}
+    _RANKING_UNSCORED: dict[str, Any] = {"status": "unscored", "model": None, "scored_at": None, "heads": []}
 
     @parameterized.expand(
         [
@@ -959,13 +959,18 @@ class TestSignalReportListAPI(APIBaseTest):
                 _RANKING_UNSCORED,
             ),
             (
-                "null_readable_head_reads_as_unscored",
+                "null_readable_head_keeps_the_score_with_no_readable_head",
                 True,
                 None,
                 None,
                 [{"head": None, "readable": True}],
                 None,
-                _RANKING_UNSCORED,
+                {
+                    "status": "scored",
+                    "model": "report_embeddings@2026-09-01",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "heads": [{"head": "open", "probability": 0.5, "lift": None, "readable": False}],
+                },
             ),
             ("only_internal_heads_read_as_unscored", True, None, {"merged": 0.2}, None, None, _RANKING_UNSCORED),
         ]
@@ -1067,6 +1072,19 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert sorted(row["title"] for row in response.json()["results"]) == sorted(expected)
+
+    def test_ranking_filter_match_shows_as_scored_despite_bad_readable_metadata(self):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, scores={"fixed": 0.6}, heads=[{"head": None, "readable": True}])
+
+        response = self.client.get(self._list_url(status="ready", ranking_min_probability="fixed:0.5"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == [str(report.id)]
+        assert rows[0]["ranking"]["status"] == "scored"
 
     @parameterized.expand(
         [

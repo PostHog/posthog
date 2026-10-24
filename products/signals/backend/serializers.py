@@ -1272,7 +1272,9 @@ class ReportRankingSerializer(serializers.Serializer):
 
 class RankingHeadInfoSerializer(serializers.Serializer):
     head = serializers.ChoiceField(choices=PUBLIC_HEAD_NAMES, help_text="Name of the head in the `ranking` field.")
-    label = serializers.CharField(help_text="Short label the inbox shows for the head.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        help_text="Short label the inbox shows for the head."
+    )
     description = serializers.CharField(help_text="What the head predicts, in one sentence.")
     horizon_days = serializers.IntegerField(
         allow_null=True,
@@ -1915,14 +1917,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
         try:
             score = RankingScore.model_validate_json(art.content)
             served = score.results[score.served_key]
+        except (ValueError, KeyError):
+            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+            return _ranking_payload(RankingStatus.UNSCORED)
+        # The ranking filters read the score alone, so bad readability or threshold metadata must not hide it here.
+        try:
             readable_heads = readable_head_names(served.metadata)
-            if not all(isinstance(head, str) and head for head in readable_heads):
-                raise ValueError("readable head names must be non-empty strings")
+        except (KeyError, TypeError, AttributeError):
+            readable_heads = frozenset()
+        try:
             # A score written before lifts were stored carries the metadata to compute them.
             lifts = served.lifts or head_lifts(served.scores, served.metadata)
         except (ValueError, KeyError, TypeError, AttributeError):
-            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
-            return _ranking_payload(RankingStatus.UNSCORED)
+            lifts = {}
         heads = [
             {
                 "head": head,

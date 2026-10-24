@@ -32,6 +32,7 @@ from django.db.models import (
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Cast, Coalesce
+from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
 import structlog
@@ -1313,8 +1314,10 @@ class SignalReportViewSet(
         detail=False, methods=["get"], url_path="ranking_heads", required_scopes=["task:read"], pagination_class=None
     )
     def ranking_heads(self, request: Request, **kwargs) -> Response:
+        model: str | None = None
+        heads: list[dict[str, Any]] = []
         if not self._can_view_inbox_ranking:
-            status_value, model, heads = RankingStatus.NOT_AVAILABLE, None, []
+            status_value = RankingStatus.NOT_AVAILABLE
         else:
             model, heads = served_heads(self.team_id)
             status_value = RankingStatus.SCORED if model is not None else RankingStatus.UNSCORED
@@ -2046,15 +2049,16 @@ class SignalReportViewSet(
     def _apply_signal_report_ranking_filters(self, queryset):
         # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
         # unscored and stale reports drop out of every ranking filter.
-        for param, key in (("ranking_min_lift", "lifts"), ("ranking_min_probability", "scores")):
+        filters: tuple[tuple[str, Literal["scores", "lifts"]], ...] = (
+            ("ranking_min_lift", "lifts"),
+            ("ranking_min_probability", "scores"),
+        )
+        for param, key in filters:
             minimums = self._parse_ranking_minimums(param)
             if not minimums:
                 continue
             for head, minimum in minimums.items():
-                annotation = f"ranking_filter_{key}_{head}"
-                queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, key)}).filter(
-                    **{f"{annotation}__gte": minimum}
-                )
+                queryset = queryset.filter(GreaterThanOrEqual(self._latest_ranking_value(head, key), minimum))
         return queryset
 
     def _parse_ranking_minimums(self, param: str) -> dict[str, float]:
