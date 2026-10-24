@@ -84,250 +84,45 @@ describe('CanvasReplayerPlugin', () => {
     })
 
     describe('responsive canvas sizing', () => {
-        it('preserves percentage dimensions for responsive canvases', async () => {
-            // Mock percentage-based canvas
+        const renderFrame = async (computedWidth: string, computedHeight: string): Promise<HTMLImageElement> => {
             ;(window.getComputedStyle as jest.Mock).mockReturnValue({
-                width: '100%',
-                height: '100%',
+                width: computedWidth,
+                height: computedHeight,
                 display: 'block',
-                getPropertyValue: jest.fn((prop: string) => {
-                    const layoutProps: Record<string, string> = {
-                        margin: '0px',
-                        padding: '0px',
-                        border: 'none',
-                        boxSizing: 'border-box',
-                        position: 'static',
-                        top: 'auto',
-                        left: 'auto',
-                        right: 'auto',
-                        bottom: 'auto',
-                    }
-                    return layoutProps[prop] || ''
-                }),
+                getPropertyValue: jest.fn(() => ''),
             })
+            // A 220x110 canvas under an ancestor with `transform: scale(0.5)`.
+            mockCanvas.getBoundingClientRect = jest.fn(() => ({ width: 110, height: 55 }) as DOMRect)
+            mockCanvas.toBlob = jest.fn((callback) => callback(new Blob(['frame'], { type: 'image/webp' })))
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 1,
+                    type: 0,
+                    commands: [{ property: 'drawImage', args: [{}, 0, 0] }],
+                },
+                timestamp: 1000,
+            }
 
-            const plugin = CanvasReplayerPlugin([])
-
-            // Simulate onBuild - this creates and stores the image
+            const plugin = CanvasReplayerPlugin([event])
             plugin.onBuild?.(mockCanvas, { id: 1, replayer: mockReplayer })
+            plugin.handler!(event, false, { replayer: mockReplayer })
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            mockImage.dispatchEvent(new Event('load'))
+            return mockImage
+        }
 
-            // Create a working target canvas that will trigger our dimension logic
-            const workingTargetCanvas = document.createElement('canvas')
-            workingTargetCanvas.width = 300
-            workingTargetCanvas.height = 150
+        it.each([
+            { name: 'ignores ancestor transforms', width: '220px', height: '110px', expected: ['220px', '110px'] },
+            { name: 'keeps percentage sizes', width: '100%', height: '100%', expected: ['100%', '100%'] },
+            { name: 'keeps mixed sizes', width: '100%', height: '200px', expected: ['100%', '200px'] },
+            { name: 'falls back to the drawing buffer', width: '', height: '2px', expected: ['300px', '150px'] },
+        ])('$name', async ({ width, height, expected }) => {
+            const image = await renderFrame(width, height)
 
-            // Mock toBlob to immediately call our callback with dimension setting logic
-            workingTargetCanvas.toBlob = jest.fn((callback) => {
-                const blob = new Blob(['test'], { type: 'image/webp' })
-
-                // Simulate the async nature but call immediately to trigger dimension logic
-                setTimeout(() => {
-                    if (callback) {
-                        callback(blob)
-
-                        // After blob is created, trigger the onload to set dimensions
-                        if (mockImage.onload) {
-                            mockImage.onload(new Event('load'))
-                        }
-                    }
-                }, 0)
-            })
-
-            // Update the replayer mock to return our working canvas
-            mockReplayer.getMirror = () => ({
-                getNode: () => mockCanvas,
-            })
-
-            // We need to manually trigger the processMutation logic since the full flow is complex
-            // Let's directly test the dimension detection logic
-            const computedStyle = window.getComputedStyle(mockCanvas)
-            const usesPercentageWidth = computedStyle.width.includes('%')
-            const usesPercentageHeight = computedStyle.height.includes('%')
-
-            expect(usesPercentageWidth).toBe(true)
-            expect(usesPercentageHeight).toBe(true)
-
-            // Test the dimension logic that would be applied
-            let finalWidthStyle: string
-            let finalHeightStyle: string
-
-            if (usesPercentageWidth) {
-                finalWidthStyle = computedStyle.width // Should be '100%'
-            } else {
-                finalWidthStyle = '300px' // fallback
-            }
-
-            if (usesPercentageHeight) {
-                finalHeightStyle = computedStyle.height // Should be '100%'
-            } else {
-                finalHeightStyle = '150px' // fallback
-            }
-
-            // Verify the logic works correctly
-            expect(finalWidthStyle).toBe('100%')
-            expect(finalHeightStyle).toBe('100%')
-        })
-
-        it('uses pixel dimensions for fixed-size canvases', () => {
-            // Mock fixed-size canvas (no percentage values)
-            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
-                width: '',
-                height: '',
-                display: 'block',
-                getPropertyValue: jest.fn(() => ''),
-            })
-
-            // Mock getBoundingClientRect to return reasonable dimensions
-            mockCanvas.getBoundingClientRect = jest.fn(() => ({
-                width: 400,
-                height: 200,
-                top: 0,
-                left: 0,
-                right: 400,
-                bottom: 200,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }))
-
-            // Test the dimension detection logic directly
-            const computedStyle = window.getComputedStyle(mockCanvas)
-            const usesPercentageWidth = computedStyle.width.includes('%')
-            const usesPercentageHeight = computedStyle.height.includes('%')
-
-            expect(usesPercentageWidth).toBe(false)
-            expect(usesPercentageHeight).toBe(false)
-
-            // Test the pixel dimension logic
-            let finalWidthStyle: string
-            let finalHeightStyle: string
-
-            if (usesPercentageWidth) {
-                finalWidthStyle = computedStyle.width
-            } else {
-                // Use measured dimensions
-                const canvasRect = mockCanvas.getBoundingClientRect()
-                const measuredWidth = canvasRect.width || mockCanvas.offsetWidth || mockCanvas.clientWidth
-                finalWidthStyle =
-                    measuredWidth && measuredWidth >= 10 ? measuredWidth + 'px' : (mockCanvas.width || 300) + 'px'
-            }
-
-            if (usesPercentageHeight) {
-                finalHeightStyle = computedStyle.height
-            } else {
-                // Use measured dimensions
-                const canvasRect = mockCanvas.getBoundingClientRect()
-                const measuredHeight = canvasRect.height || mockCanvas.offsetHeight || mockCanvas.clientHeight
-                finalHeightStyle =
-                    measuredHeight && measuredHeight >= 10 ? measuredHeight + 'px' : (mockCanvas.height || 150) + 'px'
-            }
-
-            // Verify pixel dimensions are used
-            expect(finalWidthStyle).toBe('400px')
-            expect(finalHeightStyle).toBe('200px')
-        })
-
-        it('falls back to canvas drawing buffer when measurements fail', () => {
-            // Mock empty computed styles
-            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
-                width: '',
-                height: '',
-                display: 'block',
-                getPropertyValue: jest.fn(() => ''),
-            })
-
-            // Mock all measurement methods to return tiny/invalid values (< 10px threshold)
-            mockCanvas.getBoundingClientRect = jest.fn(() => ({
-                width: 2, // Too small, should trigger fallback
-                height: 1, // Too small, should trigger fallback
-                top: 0,
-                left: 0,
-                right: 2,
-                bottom: 1,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            }))
-
-            Object.defineProperty(mockCanvas, 'offsetWidth', { value: 2 })
-            Object.defineProperty(mockCanvas, 'offsetHeight', { value: 1 })
-            Object.defineProperty(mockCanvas, 'clientWidth', { value: 0 })
-            Object.defineProperty(mockCanvas, 'clientHeight', { value: 0 })
-
-            // Test the fallback logic
-            const computedStyle = window.getComputedStyle(mockCanvas)
-            const usesPercentageWidth = computedStyle.width.includes('%')
-            const usesPercentageHeight = computedStyle.height.includes('%')
-
-            expect(usesPercentageWidth).toBe(false)
-            expect(usesPercentageHeight).toBe(false)
-
-            // Test the fallback dimension logic
-            let finalWidthStyle: string
-            let finalHeightStyle: string
-
-            if (usesPercentageWidth) {
-                finalWidthStyle = computedStyle.width
-            } else {
-                const canvasRect = mockCanvas.getBoundingClientRect()
-                const measuredWidth = canvasRect.width || mockCanvas.offsetWidth || mockCanvas.clientWidth
-                // Since measuredWidth = 2, which is < 10, should fallback to canvas.width (300)
-                finalWidthStyle =
-                    measuredWidth && measuredWidth >= 10 ? measuredWidth + 'px' : (mockCanvas.width || 300) + 'px'
-            }
-
-            if (usesPercentageHeight) {
-                finalHeightStyle = computedStyle.height
-            } else {
-                const canvasRect = mockCanvas.getBoundingClientRect()
-                const measuredHeight = canvasRect.height || mockCanvas.offsetHeight || mockCanvas.clientHeight
-                // Since measuredHeight = 1, which is < 10, should fallback to canvas.height (150)
-                finalHeightStyle =
-                    measuredHeight && measuredHeight >= 10 ? measuredHeight + 'px' : (mockCanvas.height || 150) + 'px'
-            }
-
-            // Should fall back to canvas drawing buffer dimensions (300x150)
-            expect(finalWidthStyle).toBe('300px')
-            expect(finalHeightStyle).toBe('150px')
-        })
-
-        it('handles mixed percentage and pixel sizing', () => {
-            // Mock mixed sizing: percentage width, pixel height
-            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
-                width: '100%',
-                height: '200px',
-                display: 'block',
-                getPropertyValue: jest.fn(() => ''),
-            })
-
-            // Test the mixed dimension logic
-            const computedStyle = window.getComputedStyle(mockCanvas)
-            const usesPercentageWidth = computedStyle.width.includes('%')
-            const usesPercentageHeight = computedStyle.height.includes('%')
-
-            expect(usesPercentageWidth).toBe(true)
-            expect(usesPercentageHeight).toBe(false) // '200px' doesn't include '%'
-
-            // Test the mixed dimension logic
-            let finalWidthStyle: string
-            let finalHeightStyle: string
-
-            if (usesPercentageWidth) {
-                finalWidthStyle = computedStyle.width // Should be '100%'
-            } else {
-                finalWidthStyle = '300px' // fallback
-            }
-
-            if (usesPercentageHeight) {
-                finalHeightStyle = computedStyle.height
-            } else {
-                // For pixel values, we should preserve them directly
-                finalHeightStyle = computedStyle.height || '150px' // Should be '200px'
-            }
-
-            // Should preserve mixed sizing
-            expect(finalWidthStyle).toBe('100%')
-            expect(finalHeightStyle).toBe('200px')
+            expect([image.style.width, image.style.height]).toEqual(expected)
+            expect(mockParent.contains(image)).toBe(true)
         })
 
         it('creates plugin with required methods', () => {
@@ -413,6 +208,21 @@ describe('CanvasReplayerPlugin', () => {
 
             const image = created.find((element) => element.tagName === 'IMG')
             expect(image?.ownerDocument).toBe(replayDocument)
+        })
+        it('builds a new image when a seek rebuilds the canvas in a new document', () => {
+            const firstDocument = document.implementation.createHTMLDocument()
+            const rebuiltDocument = document.implementation.createHTMLDocument()
+            const firstCanvas = firstDocument.createElement('canvas')
+            const rebuiltCanvas = rebuiltDocument.createElement('canvas')
+            rebuiltDocument.body.appendChild(rebuiltCanvas)
+
+            const plugin = CanvasReplayerPlugin([])
+            plugin.onBuild?.(firstCanvas, { id: 1, replayer: mockReplayer } as any)
+            const createImage = jest.spyOn(rebuiltDocument, 'createElement')
+            plugin.onBuild?.(rebuiltCanvas, { id: 1, replayer: mockReplayer } as any)
+
+            expect(createImage).toHaveBeenCalledWith('img')
+            expect(createImage.mock.results[0].value.ownerDocument).toBe(rebuiltDocument)
         })
     })
 
