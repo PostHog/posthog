@@ -61,6 +61,7 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
+    is_mcp_request,
 )
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -394,6 +395,27 @@ def parse_pr_ci_status_report_ids(raw: str | None) -> list[uuid.UUID]:
         return [uuid.UUID(report_id) for report_id in ids]
     except ValueError:
         raise exceptions.ValidationError({"report_ids": "Every report id must be a UUID."})
+
+
+# Ordering field to the outcome head it reads from the served model of the latest ranking score. The API
+# documents only the public outcomes. Staff tools and saved URLs still use the internal heads and `ranking_fixed`,
+# the old name of `ranking_fix`, so the API accepts them but does not document them.
+PUBLIC_RANKING_ORDERING_HEADS: dict[str, str] = {
+    f"ranking_{outcome}": head for outcome, head in MODEL_HEAD_BY_OUTCOME.items()
+}
+UNDOCUMENTED_RANKING_ORDERING_HEADS: dict[str, str] = {
+    "ranking_fixed": "fixed",
+    "ranking_pr_merged": "pr_merged",
+    "ranking_pr_created": "pr_created",
+    "ranking_discuss": "discuss",
+    "ranking_thumbs_up": "thumbs_up",
+    "ranking_reviewer_fix": "reviewer_fix",
+    "ranking_refund": "refund",
+    "ranking_dismiss_wrong": "dismiss_wrong",
+    "ranking_dismiss_lowvalue": "dismiss_lowvalue",
+}
+RANKING_ORDERING_HEADS: dict[str, str] = PUBLIC_RANKING_ORDERING_HEADS | UNDOCUMENTED_RANKING_ORDERING_HEADS
+_OUTCOME_BY_MODEL_HEAD: dict[str, str] = {head: outcome for outcome, head in MODEL_HEAD_BY_OUTCOME.items()}
 
 
 def classify_report_list_client(user_agent: str | None) -> str:
@@ -1273,35 +1295,10 @@ class SignalReportViewSet(
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
-        "ranking_pr_merged": "ranking_pr_merged_score",
-        "ranking_pr_created": "ranking_pr_created_score",
-        "ranking_action": "ranking_action_score",
-        "ranking_open": "ranking_open_score",
-        "ranking_fix": "ranking_fix_score",
-        # Old name of `ranking_fix`, kept for saved URLs and older clients. Not documented.
+        **{field: f"{field}_score" for field in RANKING_ORDERING_HEADS},
         "ranking_fixed": "ranking_fix_score",
-        "ranking_discuss": "ranking_discuss_score",
-        "ranking_thumbs_up": "ranking_thumbs_up_score",
-        "ranking_reviewer_fix": "ranking_reviewer_fix_score",
-        "ranking_refund": "ranking_refund_score",
-        "ranking_dismiss_wrong": "ranking_dismiss_wrong_score",
-        "ranking_dismiss_lowvalue": "ranking_dismiss_lowvalue_score",
     }
-    # Ordering field to the outcome head it reads from the served model of the latest ranking score.
-    _RANKING_ORDERING_HEADS: dict[str, str] = {
-        "ranking_pr_merged": "pr_merged",
-        "ranking_pr_created": "pr_created",
-        "ranking_action": "action",
-        "ranking_open": "open",
-        "ranking_fix": "fixed",
-        "ranking_fixed": "fixed",
-        "ranking_discuss": "discuss",
-        "ranking_thumbs_up": "thumbs_up",
-        "ranking_reviewer_fix": "reviewer_fix",
-        "ranking_refund": "refund",
-        "ranking_dismiss_wrong": "dismiss_wrong",
-        "ranking_dismiss_lowvalue": "dismiss_lowvalue",
-    }
+    _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
 
     @extend_schema(
         responses={200: RankingOutcomesResponseSerializer},
@@ -1328,6 +1325,7 @@ class SignalReportViewSet(
         else:
             model, outcomes = served_outcomes(self.team_id)
             status_value = RankingOutcomesStatus.SCORED if model is not None else RankingOutcomesStatus.UNSCORED
+        self._capture_ranking_usage("ranking_outcomes", ranking_status=status_value.value)
         return Response(
             RankingOutcomesResponseSerializer({"status": status_value.value, "model": model, "outcomes": outcomes}).data
         )
@@ -2675,11 +2673,11 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' "
                     "for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, "
-                    "priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, "
-                    "ranking_open, ranking_fix, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, "
-                    "ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields "
-                    "sort by the served ranking model's probability for that outcome head, with unscored reports "
-                    "last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
+                    f"priority, created_at, updated_at, id, {', '.join(PUBLIC_RANKING_ORDERING_HEADS)}. "
+                    "Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by "
+                    "the served ranking model's probability for that public outcome, with unscored reports last in "
+                    "either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking "
+                    "fields need staff or the inbox model sort rollout: other users get a 400."
                 ),
             ),
             OpenApiParameter(
@@ -2790,6 +2788,7 @@ class SignalReportViewSet(
 
         if count_only:
             list_span.set_attribute("signals.reports.list.total_count", total_count)
+            self._capture_list_ranking_usage(total_count)
             return Response({"count": total_count, "next": None, "previous": None, "results": []})
 
         report_ids = [str(r.id) for r in reports]
@@ -2810,12 +2809,66 @@ class SignalReportViewSet(
                     )
 
         data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
+        self._capture_list_ranking_usage(total_count if page is not None else len(reports))
 
         if page is not None:
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
             return response
         return Response(data)
+
+    def _capture_list_ranking_usage(self, result_count: int | None) -> None:
+        if classify_report_list_client(self.request.headers.get("user-agent")) in {"web", "desktop"}:
+            # The inbox clients capture their own list loads with the sort and the ranker.
+            return
+        raw_ordering = self.request.query_params.get("ordering") or ""
+        ordering_outcomes = sorted(
+            {
+                _OUTCOME_BY_MODEL_HEAD.get(RANKING_ORDERING_HEADS[name], "internal")
+                for name in (part.strip().removeprefix("-") for part in raw_ordering.split(","))
+                if name in RANKING_ORDERING_HEADS
+            }
+        )
+        min_lift = self._parse_ranking_minimums("ranking_min_lift")
+        min_probability = self._parse_ranking_minimums("ranking_min_probability")
+        if not (ordering_outcomes or self._inbox_ranker or min_lift or min_probability):
+            return
+        self._capture_ranking_usage(
+            "list",
+            ordering_outcomes=ordering_outcomes,
+            min_lift=min_lift,
+            min_probability=min_probability,
+            result_count=result_count,
+        )
+
+    def _capture_ranking_usage(
+        self,
+        endpoint: Literal["list", "ranking_outcomes"],
+        *,
+        ordering_outcomes: list[str] | None = None,
+        min_lift: dict[str, float] | None = None,
+        min_probability: dict[str, float] | None = None,
+        ranking_status: str | None = None,
+        result_count: int | None = None,
+    ) -> None:
+        # The properties describe the request only. They never carry report content.
+        report_user_action(
+            self.request.user,
+            "signals_inbox_ranking_used",
+            properties={
+                "team_id": self.team_id,
+                "surface": "mcp" if is_mcp_request(self.request) else "api",
+                "endpoint": endpoint,
+                "ordering_outcomes": ordering_outcomes or [],
+                "ranker": self._inbox_ranker if endpoint == "list" else None,
+                "min_lift": min_lift or {},
+                "min_probability": min_probability or {},
+                "ranking_status": ranking_status,
+                "result_count": result_count,
+            },
+            team=self.team,
+            request=self.request,
+        )
 
     def _render_report_rows(
         self, reports: Sequence[SignalReport], *, include_source_metadata: bool

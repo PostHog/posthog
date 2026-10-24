@@ -438,8 +438,9 @@ tools:
             metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons.
             Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.
             Each row's `ranking.predictions` carries the inbox ranking model's predicted probability and lift per
-            outcome (`open`, `action`, `fix`). Lift 1.0 is an average report. A prediction is a forecast, not the
-            report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`, filter
+            outcome (`open`, `action`, `fix`), and `readable`. Lift 1.0 is an average report. `readable: false` means
+            training could not measure that outcome, so rank and filter on it with caution. A prediction is a forecast,
+            not the report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`, filter
             with `ranking_min_lift` and `ranking_min_probability` (for example `fix:2`), and read
             inbox-ranking-outcomes-list for what each outcome means.
         agent_note: >
