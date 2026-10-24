@@ -8,7 +8,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo
 from posthog.clickhouse.workload import Workload
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
 from products.data_modeling.dags.job_usage import USAGE_SQL, JobUsageCollector
 
 
@@ -77,6 +77,15 @@ class TestJobUsageCollector(BaseTest):
         DataModelingJob.objects.create(
             **{**base, "workflow_run_id": "duplicate", "last_run_at": finished - timedelta(days=1)}
         )
+        # Managed warehouse runs record their own read_bytes, so the archive must not overwrite them.
+        managed = DataModelingJob.objects.create(
+            **{
+                **base,
+                "workflow_run_id": "managed",
+                "engine": DataModelingJobEngine.MANAGED_WAREHOUSE,
+                "read_bytes": 345,
+            }
+        )
         DataModelingJob.objects.filter(team=self.team).update(created_at=finished - timedelta(hours=1))
         bootstrap_client = MagicMock()
         bootstrap_client.execute.return_value = [("ops.example.com", 9000, 1, 1, "online", "ops")]
@@ -87,6 +96,10 @@ class TestJobUsageCollector(BaseTest):
             make_pool.return_value.get_client.return_value.__enter__.return_value = client
             JobUsageCollector.collect(cluster, finished.date(), {})
             JobUsageCollector.collect(cluster, finished.date(), {})
+        sent = {key for call in client.execute.call_args_list for key in call.kwargs["external_tables"][0]["data"]}
+        self.assertNotIn((self.team.id, "example-refresh", "managed"), sent)
+        managed.refresh_from_db()
+        self.assertEqual(managed.read_bytes, 345)
         measured.refresh_from_db()
         missing.refresh_from_db()
         duplicate.refresh_from_db()

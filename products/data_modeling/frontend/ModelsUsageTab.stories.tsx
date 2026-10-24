@@ -30,6 +30,10 @@ const models: ModelUsageRowApi[] = [
         query_count: 240,
         runs: 120,
         measured_runs: 118,
+        engines: [
+            { ...totals, engine: 'clickhouse', read_bytes: 3.8 * 1024 ** 4 },
+            { ...totals, engine: 'managed_warehouse', read_bytes: 1.3 * 1024 ** 4 },
+        ],
     },
     {
         ...totals,
@@ -42,6 +46,10 @@ const models: ModelUsageRowApi[] = [
         query_count: 288,
         runs: 144,
         measured_runs: 140,
+        engines: [
+            { ...totals, engine: 'clickhouse', read_bytes: 1.7 * 1024 ** 4 },
+            { ...totals, engine: 'managed_warehouse', read_bytes: 0.7 * 1024 ** 4 },
+        ],
     },
     {
         ...totals,
@@ -54,6 +62,10 @@ const models: ModelUsageRowApi[] = [
         query_count: 112,
         runs: 56,
         measured_runs: 54,
+        engines: [
+            { ...totals, engine: 'clickhouse', read_bytes: 0.6 * 1024 ** 4 },
+            { ...totals, engine: 'managed_warehouse', read_bytes: 0.3 * 1024 ** 4 },
+        ],
     },
 ]
 const populated: ModelUsageApi = {
@@ -63,11 +75,18 @@ const populated: ModelUsageApi = {
     models,
     count: 3,
     usage_updated_at: '2026-10-16T03:00:00Z',
-    trends: Array.from({ length: 30 }, (_, index) => ({
-        ...totals,
-        day: new Date(Date.UTC(2026, 8, 16 + index)).toISOString().slice(0, 10),
-        read_bytes: (150 + ((index * 71) % 300)) * 1024 ** 3,
-    })),
+    trends: Array.from({ length: 30 }, (_, index) => {
+        const readBytes = (150 + ((index * 71) % 300)) * 1024 ** 3
+        return {
+            ...totals,
+            day: new Date(Date.UTC(2026, 8, 16 + index)).toISOString().slice(0, 10),
+            read_bytes: readBytes,
+            engines: [
+                { ...totals, engine: 'clickhouse', read_bytes: readBytes * 0.7 },
+                { ...totals, engine: 'managed_warehouse', read_bytes: readBytes * 0.3 },
+            ],
+        }
+    }),
 }
 const unknown: ModelUsageTotalsApi = {
     runs: 8,
@@ -83,20 +102,28 @@ const materializedViews = models.map((model) => ({
     name: model.name,
     is_materialized: true,
 }))
+const savedQueryIdToNodeId = Object.fromEntries(
+    models.map((model, index) => [
+        model.saved_query_id!,
+        `00000000-0000-4000-9000-${String(index + 1).padStart(12, '0')}`,
+    ])
+)
 
 const jobTemplates: DataModelingJobApi[] = [
     {
         id: '10000000-0000-4000-8000-000000000001',
         saved_query_id: models[0].saved_query_id,
+        saved_query_name: models[0].name,
+        saved_query_deleted: false,
         status: 'Completed',
         engine: 'clickhouse',
         run_mode: 'incremental',
         full_refresh_reason: null,
         rows_materialized: 1_250_000,
         error: null,
-        created_at: '2026-10-16T02:00:00Z',
-        last_run_at: '2026-10-16T02:04:12Z',
-        updated_at: '2026-10-16T02:04:12Z',
+        created_at: '2026-10-15T22:00:00Z',
+        last_run_at: '2026-10-15T22:04:12Z',
+        updated_at: '2026-10-15T22:04:12Z',
         workflow_id: 'materialize-example-1',
         workflow_run_id: 'run-example-1',
         rows_expected: 1_250_000,
@@ -109,15 +136,17 @@ const jobTemplates: DataModelingJobApi[] = [
     {
         id: '10000000-0000-4000-8000-000000000002',
         saved_query_id: models[1].saved_query_id,
+        saved_query_name: models[1].name,
+        saved_query_deleted: false,
         status: 'Running',
         engine: 'managed_warehouse',
         run_mode: 'full_refresh',
         full_refresh_reason: 'definition_changed',
         rows_materialized: 840_000,
         error: null,
-        created_at: '2026-10-16T01:30:00Z',
-        last_run_at: '2026-10-16T01:30:00Z',
-        updated_at: '2026-10-16T01:30:00Z',
+        created_at: '2026-10-15T21:30:00Z',
+        last_run_at: '2026-10-15T21:30:00Z',
+        updated_at: '2026-10-15T21:30:00Z',
         workflow_id: 'materialize-example-2',
         workflow_run_id: 'run-example-2',
         rows_expected: 2_100_000,
@@ -130,15 +159,17 @@ const jobTemplates: DataModelingJobApi[] = [
     {
         id: '10000000-0000-4000-8000-000000000003',
         saved_query_id: models[2].saved_query_id,
+        saved_query_name: models[2].name,
+        saved_query_deleted: false,
         status: 'Failed',
         engine: 'clickhouse',
         run_mode: null,
         full_refresh_reason: null,
         rows_materialized: 0,
         error: 'Example materialization failure',
-        created_at: '2026-10-15T23:00:00Z',
-        last_run_at: '2026-10-15T23:01:30Z',
-        updated_at: '2026-10-15T23:01:30Z',
+        created_at: '2026-10-15T20:00:00Z',
+        last_run_at: '2026-10-15T20:01:30Z',
+        updated_at: '2026-10-15T20:01:30Z',
         workflow_id: 'materialize-example-3',
         workflow_run_id: 'run-example-3',
         rows_expected: null,
@@ -153,7 +184,7 @@ const jobTemplates: DataModelingJobApi[] = [
 const jobs: DataModelingJobApi[] = Array.from({ length: 23 }, (_, index) => ({
     ...jobTemplates[index % jobTemplates.length],
     id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-    created_at: new Date(Date.UTC(2026, 9, 16, 2, -index * 15)).toISOString(),
+    created_at: new Date(Date.UTC(2026, 9, 15, 22, -index * 15)).toISOString(),
 }))
 
 const inMainContent =
@@ -167,6 +198,7 @@ const inMainContent =
 const meta: Meta<typeof ModelsUsageTab> = {
     title: 'Products/Data modeling/Models usage',
     component: ModelsUsageTab,
+    args: { savedQueryIdToNodeId },
     decorators: [mswDecorator({})],
     parameters: {
         featureFlags: [FEATURE_FLAGS.DATA_MODELING_USAGE, FEATURE_FLAGS.MANAGED_TRINO_QUERY],
@@ -180,9 +212,20 @@ const meta: Meta<typeof ModelsUsageTab> = {
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 20)
                         const savedQueryId = params.get('saved_query_id')
-                        const filteredJobs = savedQueryId
-                            ? jobs.filter((job) => job.saved_query_id === savedQueryId)
-                            : jobs
+                        const engine = params.get('engine')
+                        const status = params.get('status')
+                        const after = params.get('after')
+                        const before = params.get('before')
+                        const filteredJobs = jobs.filter((job) => {
+                            const startedAt = new Date(job.created_at)
+                            return (
+                                (!savedQueryId || job.saved_query_id === savedQueryId) &&
+                                (!engine || job.engine === engine) &&
+                                (!status || job.status === status) &&
+                                (!after || startedAt >= new Date(after)) &&
+                                (!before || startedAt < new Date(before))
+                            )
+                        })
 
                         return [
                             200,
@@ -225,7 +268,16 @@ export const Unmeasured: Story = {
                         usage_updated_at: null,
                         trends: [],
                         count: 1,
-                        models: [{ ...models[0], ...unknown }],
+                        models: [
+                            {
+                                ...models[0],
+                                ...unknown,
+                                engines: [
+                                    { ...unknown, engine: 'clickhouse' },
+                                    { ...unknown, engine: 'managed_warehouse' },
+                                ],
+                            },
+                        ],
                     },
                 },
             },

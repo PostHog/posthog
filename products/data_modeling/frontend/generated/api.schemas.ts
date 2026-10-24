@@ -267,7 +267,7 @@ export interface LineageResponseApi {
 }
 
 export interface ModelUsageTotalsApi {
-    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    /** Finished materialization runs, including failures and cancellations. */
     runs: number
     /** Runs with recorded usage. Other runs have unknown cost. */
     measured_runs: number
@@ -293,8 +293,37 @@ export interface ModelUsageTotalsApi {
     query_count: number | null
 }
 
+export interface ModelUsageEngineApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** Materialization engine: clickhouse or managed_warehouse. */
+    engine: string
+}
+
 export interface ModelUsageDayApi {
-    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    /** Finished materialization runs, including failures and cancellations. */
     runs: number
     /** Runs with recorded usage. Other runs have unknown cost. */
     measured_runs: number
@@ -320,10 +349,12 @@ export interface ModelUsageDayApi {
     query_count: number | null
     /** UTC day on which the runs finished. */
     day: string
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
 }
 
 export interface ModelUsageRowApi {
-    /** Finished ClickHouse materialization runs, including failures and cancellations. */
+    /** Finished materialization runs, including failures and cancellations. */
     runs: number
     /** Runs with recorded usage. Other runs have unknown cost. */
     measured_runs: number
@@ -356,6 +387,8 @@ export interface ModelUsageRowApi {
     name: string
     /** Whether this model has been deleted. */
     deleted: boolean
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
 }
 
 export interface ModelUsageApi {
@@ -430,11 +463,28 @@ export type DataModelingNodesLineageRetrieveParams = {
 
 export type DataModelingUsageListParams = {
     /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string
+    /**
      * Number of complete UTC days, up to 90.
      * @minimum 1
      * @maximum 90
      */
     days?: number
+    /**
+     * Materialization engine. All combines ClickHouse and managed warehouse usage.
+     *
+     * * `all` - All
+     * * `clickhouse` - ClickHouse
+     * * `managed_warehouse` - Managed warehouse
+     * @minLength 1
+     */
+    engine?: DataModelingUsageListEngine
     /**
      * Model breakdown page, starting at 1.
      * @minimum 1
@@ -446,4 +496,17 @@ export type DataModelingUsageListParams = {
      * @maximum 100
      */
     page_size?: number
+    /**
+     * Limit usage to one accessible materialized view.
+     * @nullable
+     */
+    saved_query_id?: string | null
 }
+
+export type DataModelingUsageListEngine = (typeof DataModelingUsageListEngine)[keyof typeof DataModelingUsageListEngine]
+
+export const DataModelingUsageListEngine = {
+    All: 'all',
+    Clickhouse: 'clickhouse',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
