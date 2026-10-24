@@ -5,7 +5,6 @@ embedded document to the results topic, and this consumer ranks the Replay Visio
 vectors. A worker outage only delays ranks, and a database outage shorter than the retry window too.
 """
 
-import math
 import time
 import signal
 import asyncio
@@ -125,7 +124,6 @@ class WatchRankConsumer:
             return "skipped"
         if not await self._wait(produced_at + _CLICKHOUSE_VISIBILITY_DELAY_S - time.time()):
             return "interrupted"
-        give_up_at = self._first_failed_at.get(request.observation_id, math.inf)
         backoff = _RETRY_BACKOFF_S
         while True:
             # Async ORM calls share one thread, so a connection that broke must be replaced before a retry.
@@ -142,9 +140,7 @@ class WatchRankConsumer:
                 )
             self._liveness.record_heartbeat()
             now = time.monotonic()
-            give_up_at = min(
-                give_up_at, self._first_failed_at.setdefault(request.observation_id, now) + _RETRY_WINDOW_S
-            )
+            give_up_at = self._first_failed_at.setdefault(request.observation_id, now) + _RETRY_WINDOW_S
             if now + backoff > give_up_at:
                 # The backfill command can write a rank this gave up on.
                 self._first_failed_at.pop(request.observation_id, None)

@@ -1,5 +1,6 @@
 import json
 import math
+import time
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -182,3 +183,14 @@ class TestWatchRankConsumer(BaseTest):
         assert [c.kwargs["message"] for c in consumer.store_offsets.call_args_list] == [messages[i] for i in stored]
         (seek,) = consumer.seek.call_args_list
         assert seek.args[0].offset == rewind_from
+
+    def test_a_deferred_failure_keeps_its_retry_window_in_the_next_batch(self) -> None:
+        consumer = WatchRankConsumer(MagicMock())
+        message = _result_message()
+
+        with (
+            patch(f"{_CONSUMER}.rank_observation", AsyncMock(side_effect=RuntimeError("postgres down"))),
+            patch(f"{_CONSUMER}.close_old_connections"),
+        ):
+            for _ in range(2):
+                assert async_to_sync(consumer.handle)(message, 0.0, time.monotonic()) == "deferred"
