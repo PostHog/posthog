@@ -1,6 +1,6 @@
 import { assignKey, isRecord } from '@/lib/plain-object'
 
-const REDACTED_VALUE = '[REDACTED]'
+export const REDACTED_VALUE = '[REDACTED]'
 const MAX_ENCODING_LAYERS = 8
 const CREDENTIAL_NAME_FRAGMENTS = ['apikey', 'token', 'secret', 'password', 'passwd', 'credential', 'signature']
 const CREDENTIAL_NAMES = new Set(['key', 'pwd', 'auth', 'authorization', 'sig', 'code', 'jwt', 'session', 'sessionid'])
@@ -12,6 +12,13 @@ const URL_PASSWORD_PATTERN = /\b[a-z][a-z\d+.-]*:\/\/[^\s/"'<>\\]*@/gi
 // Project tokens (phc_) are public; these prefixes identify private tokens in posthog/models/utils.py.
 const POSTHOG_TOKEN_PATTERN = /\b(?:phx|phs|pha|phr)_([A-Za-z0-9_-]{16,})/g
 const BEARER_PATTERN = /\bBearer\s+([^\s"'\\,;}]+)/gi
+export const PRIVATE_KEY_HEADER_PATTERN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY[A-Z ]*-----/g
+export const PRIVATE_KEY_FOOTER_PATTERN = /-----END [A-Z0-9 ]*PRIVATE KEY[A-Z ]*-----/g
+// The body runs to the end of the text when the footer is absent, so a key cut across log lines stays masked.
+const PRIVATE_KEY_PATTERN = new RegExp(
+    `(${PRIVATE_KEY_HEADER_PATTERN.source})([\\s\\S]*?)(?:${PRIVATE_KEY_FOOTER_PATTERN.source}|$)`,
+    'g'
+)
 const ESCAPE_PATTERN = /%([0-9a-f]{2})|\\u([0-9a-f]{4})|\\(["'\\/])/gi
 
 function decodeEscape(
@@ -87,6 +94,12 @@ function findCredentialRanges(text: string): RedactionRange[] {
         const end = match.index + match[0].length - 1
         if (passwordStart >= userInfoStart && passwordStart < end) {
             ranges.push({ start: passwordStart + 1, end })
+        }
+    }
+    for (const match of text.matchAll(PRIVATE_KEY_PATTERN)) {
+        if (match[2]) {
+            const start = match.index + match[1]!.length
+            ranges.push({ start, end: start + match[2].length })
         }
     }
     for (const pattern of [POSTHOG_TOKEN_PATTERN, BEARER_PATTERN]) {
