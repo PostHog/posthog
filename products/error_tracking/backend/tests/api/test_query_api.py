@@ -339,8 +339,17 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             timestamp=timestamp or now() - relativedelta(hours=1),
         )
 
+    @parameterized.expand(
+        [
+            ("relative", "-1d", True),
+            ("absolute", "2026-04-23T12:00:00Z", True),
+            ("milliseconds", "2026-04-24T10:00:00.500Z", False),
+        ]
+    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issues_list_accepts_typed_filters_and_matches_release_precisely(self) -> None:
+    def test_issues_list_accepts_typed_filters_and_matches_release_precisely(
+        self, _name: str, first_seen_after: str, included: bool
+    ) -> None:
         self.create_issue()
         self.create_exception_event(
             properties={
@@ -356,6 +365,30 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 },
             }
         )
+        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
+        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
+        for issue_id, first_seen in [
+            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
+            (old_issue_id, now() - timedelta(days=2)),
+        ]:
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
+                first_seen=first_seen
+            )
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
+        )
+        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
+        self.create_exception_event(
+            issue_id=old_issue_id,
+            fingerprint="new-fingerprint-on-old-issue",
+            properties={
+                "$lib": "posthog-js",
+                "$browser": "Chrome",
+                "$current_url": "https://example.test/checkout",
+                "$exception_release": {"version": "2026.04.24"},
+            },
+        )
         flush_persons_and_events()
 
         with patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation") as start_generation:
@@ -364,9 +397,10 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 data={
                     "status": "all",
                     "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                    "firstSeenAfter": first_seen_after,
                     "library": "posthog-js",
                     "release": "2026.04.24",
-                    "fingerprint": self.fingerprint,
+                    "fingerprint": [self.fingerprint, "new-fingerprint-on-old-issue"],
                     "url": "/checkout",
                     "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
                 },
@@ -374,8 +408,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
-        assert "summary" not in response.json()["results"][0]
+        assert [row["id"] for row in response.json()["results"]] == ([self.issue_id] if included else [])
+        if included:
+            assert "summary" not in response.json()["results"][0]
         start_generation.assert_not_called()
 
         project_response = self.client.post(
@@ -413,15 +448,23 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.status_code == 200
         assert detail_response.json()["severity"] == "high"
 
-    def test_rejects_hogql_property_filters(self) -> None:
+    @parameterized.expand(
+        [({"key": "1 = 1", "type": "hogql", "value": "1"}, "HogQL property filters are not supported here")]
+        + [
+            ({"key": key, "type": "error_tracking_issue", "operator": operator, "value": "-24h"}, "firstSeenAfter")
+            for key in ("first_seen", "last_seen")
+            for operator in ("gt", "gte", "lt", "lte")
+        ]
+    )
+    def test_rejects_unsupported_property_filters(self, item: dict[str, object], message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
+            data={"filterGroup": [item]},
             format="json",
         )
 
         assert response.status_code == 400
-        assert "HogQL property filters are not supported here" in str(response.json())
+        assert message in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(

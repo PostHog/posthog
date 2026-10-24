@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from typing import cast
+from zoneinfo import ZoneInfo
 
 from django.db import models
 
@@ -9,6 +11,7 @@ from rest_framework import serializers
 from posthog.schema import ErrorTrackingOrderBy
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
+from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
@@ -79,6 +82,17 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
     for item in value:
         if item.get("type") == "hogql":
             raise serializers.ValidationError("HogQL property filters are not supported here.")
+        if (
+            item.get("type") == "error_tracking_issue"
+            and item.get("key") in ("first_seen", "last_seen")
+            and item.get("operator") in ("gt", "gte", "lt", "lte")
+            and isinstance(date_value := item.get("value"), str)
+            and re.match(r"^-?\d+[hdwmqysHDWMQY]", date_value)
+        ):
+            raise serializers.ValidationError(
+                "Relative dates with gt/gte/lt/lte are not supported for first_seen or last_seen. "
+                "Use firstSeenAfter for issues first seen after a time, or an ISO timestamp in filterGroup."
+            )
     return value
 
 
@@ -112,6 +126,10 @@ ErrorTrackingIssueOrderBy = models.TextChoices(  # type: ignore[call-overload]
 
 
 class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
+    firstSeenAfter = serializers.CharField(
+        required=False,
+        help_text="Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.",
+    )
     dateRange = ErrorTrackingDateRangeSerializer(
         required=False,
         help_text="Date range for issue aggregates. Defaults to the last 7 days.",
@@ -180,6 +198,14 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     filePath = serializers.CharField(
         required=False, max_length=1000, help_text="Search stack-frame source/file path text."
     )
+
+    def validate_firstSeenAfter(self, value: str) -> str:
+        if re.fullmatch(r"-?\d+[hdwmqysM]", value):
+            try:
+                return relative_date_parse(value, ZoneInfo("UTC")).isoformat()
+            except (ValueError, OverflowError):
+                raise serializers.ValidationError("Expected an ISO timestamp or relative date such as -24h or -7d.")
+        return serializers.DateTimeField().run_validation(value).isoformat()
 
     def validate_filterGroup(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
         return validate_filter_group(value)
