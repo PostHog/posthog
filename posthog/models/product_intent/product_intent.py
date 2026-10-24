@@ -352,6 +352,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
+                    "is_ai_data_processing_approved": team.organization.is_ai_data_processing_approved is True,
                     "realm": get_instance_realm(),
                 },
                 team=team,
