@@ -29,6 +29,8 @@ _LAZY = {
     "tables_wait_for_repair": "cdc.broken",
     "purge_buffer_prefix": "cdc.buffer",
     "CDC_SEQ_COLUMN": "cdc.batcher",
+    "companion_tables": "cdc.companion_table",
+    "deregister_companion_table": "cdc.companion_table",
     "BUFFER_LANE": "cdc.snapshot_lane",
     "CDC_RESET_PENDING_KEY": "cdc.snapshot_lane",
     "hand_reset_to_capture_if_sync_running": "cdc.snapshot_lane",
