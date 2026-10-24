@@ -2081,7 +2081,8 @@ class SignalReportViewSet(
                         param: f"Use <head>:<number> pairs with a number of 0 or more, e.g. fixed:2. Valid heads: {valid}."
                     }
                 )
-            minimums[head] = minimum
+            # A report must meet every pair, so a repeated head keeps its strictest minimum.
+            minimums[head] = max(minimum, minimums.get(head, minimum))
         return minimums
 
     def _needs_priority_annotation(self) -> bool:

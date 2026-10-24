@@ -1032,6 +1032,12 @@ class TestSignalReportListAPI(APIBaseTest):
             ("min_lift", {"ranking_min_lift": "fixed:2"}, ["high"]),
             ("min_lift_on_two_heads", {"ranking_min_lift": "fixed:1.5,open:1.5"}, ["mid"]),
             ("min_probability", {"ranking_min_probability": "fixed:0.3"}, ["high", "mid"]),
+            ("repeated_head_lift_keeps_the_strictest", {"ranking_min_lift": "fixed:2,fixed:1"}, ["high"]),
+            (
+                "repeated_head_probability_keeps_the_strictest",
+                {"ranking_min_probability": "fixed:0.5,fixed:0.2"},
+                ["high"],
+            ),
         ]
     )
     def test_ranking_filters_keep_scored_reports_at_or_above_every_minimum(self, _name, query, expected):
