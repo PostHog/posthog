@@ -29810,6 +29810,16 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       readonly saved_query_id: string | null;
+      /**
+         * Model name, or null if permanently deleted.
+         * @nullable
+         */
+      readonly saved_query_name: string | null;
+      /**
+         * Whether the model is soft-deleted, or null if permanently deleted.
+         * @nullable
+         */
+      readonly saved_query_deleted: boolean | null;
       readonly status: DataModelingJobStatusEnum;
       /** The engine that ran this materialization job. */
       readonly engine: string;
@@ -29840,7 +29850,7 @@ export namespace Schemas {
          */
       readonly rows_expected: number | null;
       /**
-         * Bytes read by this run, including probes and retries.
+         * Bytes read by this run, or null if it has not been measured yet.
          * @nullable
          */
       readonly read_bytes: number | null;
@@ -70923,7 +70933,7 @@ export namespace Schemas {
     }
 
     export interface ModelUsageTotals {
-      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      /** Finished materialization runs, including failures and cancellations. */
       runs: number;
       /** Runs with recorded usage. Other runs have unknown cost. */
       measured_runs: number;
@@ -70949,8 +70959,37 @@ export namespace Schemas {
       query_count: number | null;
     }
 
+    export interface ModelUsageEngine {
+      /** Finished materialization runs, including failures and cancellations. */
+      runs: number;
+      /** Runs with recorded usage. Other runs have unknown cost. */
+      measured_runs: number;
+      /**
+         * Measured bytes read, including probes and retries. Null if unmeasured.
+         * @nullable
+         */
+      read_bytes: number | null;
+      /**
+         * Measured rows read. Null if unmeasured.
+         * @nullable
+         */
+      read_rows: number | null;
+      /**
+         * Measured CPU microseconds. Null if unmeasured.
+         * @nullable
+         */
+      cpu_microseconds: number | null;
+      /**
+         * Measured ClickHouse query count. Null if unmeasured.
+         * @nullable
+         */
+      query_count: number | null;
+      /** Materialization engine: clickhouse or managed_warehouse. */
+      engine: string;
+    }
+
     export interface ModelUsageDay {
-      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      /** Finished materialization runs, including failures and cancellations. */
       runs: number;
       /** Runs with recorded usage. Other runs have unknown cost. */
       measured_runs: number;
@@ -70976,10 +71015,12 @@ export namespace Schemas {
       query_count: number | null;
       /** UTC day on which the runs finished. */
       day: string;
+      /** Usage totals for each selected engine. */
+      engines: ModelUsageEngine[];
     }
 
     export interface ModelUsageRow {
-      /** Finished ClickHouse materialization runs, including failures and cancellations. */
+      /** Finished materialization runs, including failures and cancellations. */
       runs: number;
       /** Runs with recorded usage. Other runs have unknown cost. */
       measured_runs: number;
@@ -71012,6 +71053,8 @@ export namespace Schemas {
       name: string;
       /** Whether this model has been deleted. */
       deleted: boolean;
+      /** Usage totals for each selected engine. */
+      engines: ModelUsageEngine[];
     }
 
     export interface ModelUsage {
@@ -128486,9 +128529,23 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
+     * Include jobs finished at or after this time.
+     */
+    after?: string;
+    /**
      * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
      */
     all_engines?: boolean;
+    /**
+     * Include jobs finished before this time.
+     */
+    before?: string;
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `duckgres` - Duckgres
+     * * `managed_warehouse` - Managed warehouse
+     */
+    engine?: DataModelingJobsListEngine;
     /**
      * Number of results to return per page.
      */
@@ -128507,6 +128564,15 @@ export namespace Schemas {
      */
     status?: DataModelingJobsListStatus;
     };
+
+    export type DataModelingJobsListEngine = typeof DataModelingJobsListEngine[keyof typeof DataModelingJobsListEngine];
+
+
+    export const DataModelingJobsListEngine = {
+      Clickhouse: 'clickhouse',
+      Duckgres: 'duckgres',
+      ManagedWarehouse: 'managed_warehouse',
+    } as const;
 
     export type DataModelingJobsListStatus = typeof DataModelingJobsListStatus[keyof typeof DataModelingJobsListStatus];
 
@@ -128564,11 +128630,28 @@ export namespace Schemas {
 
     export type DataModelingUsageListParams = {
     /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string;
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string;
+    /**
      * Number of complete UTC days, up to 90.
      * @minimum 1
      * @maximum 90
      */
     days?: number;
+    /**
+     * Materialization engine. All combines ClickHouse and managed warehouse usage.
+     *
+     * * `all` - All
+     * * `clickhouse` - ClickHouse
+     * * `managed_warehouse` - Managed warehouse
+     * @minLength 1
+     */
+    engine?: DataModelingUsageListEngine;
     /**
      * Model breakdown page, starting at 1.
      * @minimum 1
@@ -128580,7 +128663,21 @@ export namespace Schemas {
      * @maximum 100
      */
     page_size?: number;
+    /**
+     * Limit usage to one accessible materialized view.
+     * @nullable
+     */
+    saved_query_id?: string | null;
     };
+
+    export type DataModelingUsageListEngine = typeof DataModelingUsageListEngine[keyof typeof DataModelingUsageListEngine];
+
+
+    export const DataModelingUsageListEngine = {
+      All: 'all',
+      Clickhouse: 'clickhouse',
+      ManagedWarehouse: 'managed_warehouse',
+    } as const;
 
     export type DataQualityChecksListParams = {
     /**
