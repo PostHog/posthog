@@ -120,3 +120,11 @@ def _trim_and_tag(identifier: str, tag: str, max_length: int) -> str:
     )
     assert len(trimmed) == max_length
     return trimmed
+
+
+def fold_column_name(name: str) -> str:
+    """Fold a source column name the way the pipeline normalizes it, so `ID` matches `id`."""
+    try:
+        return NamingConvention.normalize_identifier(name)
+    except ValueError:
+        return name

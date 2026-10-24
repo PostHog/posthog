@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCMaskedKeyError,
     CDCSlotNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
@@ -41,6 +42,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.SLOT_IN_USE, True),
             (CDCErrorCategory.WAL_DECODE_ERROR, False),
             (CDCErrorCategory.TRANSACTION_TOO_LARGE, False),
+            (CDCErrorCategory.MASKED_KEY_CONFLICT, False),
             (CDCErrorCategory.UNKNOWN, True),
         ]
     )
@@ -81,9 +83,19 @@ class TestClassifyCDCError:
         info = classify_cdc_error(wrapper, PostgresCDCAdapter())
         assert info.category is CDCErrorCategory.AUTH_FAILED
 
-    def test_transaction_too_large_is_classified_without_adapter(self):
-        info = classify_cdc_error(CDCTransactionTooLargeError("500001 events"), None)
-        assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
+    @parameterized.expand(
+        [
+            (
+                "transaction_too_large",
+                CDCTransactionTooLargeError("500001 events"),
+                CDCErrorCategory.TRANSACTION_TOO_LARGE,
+            ),
+            ("masked_key", CDCMaskedKeyError("orders masks id"), CDCErrorCategory.MASKED_KEY_CONFLICT),
+        ]
+    )
+    def test_config_errors_are_classified_without_adapter(self, _name, exc, category):
+        info = classify_cdc_error(exc, None)
+        assert info.category is category
         assert info.retryable is False
 
     def test_slot_not_configured_is_classified_without_adapter(self):

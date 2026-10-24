@@ -375,6 +375,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = no masking. Source column names whose values the sync replaces with a one-way digest.
+    masked_columns = models.JSONField(null=True, blank=True, default=None)
 
     objects = ExternalDataSchemaQuerySet.as_manager()
 
