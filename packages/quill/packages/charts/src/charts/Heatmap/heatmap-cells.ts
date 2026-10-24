@@ -1,6 +1,6 @@
 import { dimColor, resolveCssColor } from '../../core/color-utils'
 import type { HeatmapCellDatum, HeatmapCellStyle } from './Heatmap'
-import { cellRect, type CellRect, type HeatmapLayout } from './heatmap-layout'
+import type { CellRect, HeatmapLayout } from './heatmap-layout'
 
 /** Resolved `cellStyle` output, row-major like the grid. A null entry means the default fill. */
 export type HeatmapResolvedCellStyles = (HeatmapCellStyle | null)[][]
@@ -42,22 +42,33 @@ export function resolveCellStyles({
     )
 }
 
+/** Fill for the band behind a selected or hovered column. Resolve it once per accent, because
+ *  parsing the color is the expensive part of drawing the band. */
+export function columnHighlightFill(accent: string): string {
+    return dimColor(accent, COLUMN_HIGHLIGHT_ALPHA)
+}
+
+export function drawColumnHighlight(
+    ctx: CanvasRenderingContext2D,
+    layout: HeatmapLayout,
+    column: number,
+    fill: string
+): void {
+    if (column < 0 || column >= layout.cols) {
+        return
+    }
+    ctx.fillStyle = fill
+    ctx.fillRect(layout.plotLeft + column * layout.colWidth, layout.plotTop, layout.colWidth, layout.plotHeight)
+}
+
 export function drawColumnHighlights(
     ctx: CanvasRenderingContext2D,
     layout: HeatmapLayout,
     columns: number[],
-    accent: string
+    fill: string
 ): void {
-    if (columns.length === 0) {
-        return
-    }
-    ctx.fillStyle = dimColor(accent, COLUMN_HIGHLIGHT_ALPHA)
     for (const column of columns) {
-        if (column < 0 || column >= layout.cols) {
-            continue
-        }
-        const rect = cellRect(layout, column, 0)
-        ctx.fillRect(rect.x, layout.plotTop, rect.width, layout.plotHeight)
+        drawColumnHighlight(ctx, layout, column, fill)
     }
 }
 

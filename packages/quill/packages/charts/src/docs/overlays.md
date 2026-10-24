@@ -58,6 +58,8 @@ A translucent box spanning an x-axis range.
 Pass `start` and `end` as data indices or labels, straight from `onDateRangeZoom`'s `startIndex` and `endIndex`.
 Use it to mirror an external selection (the rows visible in a paired virtualized list, a picked time window) onto the chart.
 On band (bar) charts the box covers the endpoints' full bands; on point (line) charts it runs point to point.
+A single point takes half the gap to its neighbors on each side, so it stays visible.
+On a horizontal chart the box spans the selected rows.
 `color`, `fillOpacity`, and `borderOpacity` tune the look (`borderOpacity: 0` drops the edge border).
 It clamps to the plot area and renders null when an endpoint does not resolve.
 It draws no label. To name the range, such as an incident window, add a vertical `ReferenceLine` whose `value` is the range's start label, and give it a `label`.

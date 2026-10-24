@@ -74,6 +74,8 @@ export interface TimeSeriesComboChartProps<Meta = unknown> {
     className?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 /** Time-indexed {@link ComboChart}: mixed bar + line/area series on a timezone/interval-aware band
@@ -87,6 +89,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     tooltip,
     onPointClick,
     dataAttr,
+    syncWithGroup,
     className,
     children,
     onError,
@@ -164,6 +167,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}
+                syncWithGroup={syncWithGroup}
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}

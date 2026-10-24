@@ -233,6 +233,8 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}
+                // Start and end columns are not a shared x axis.
+                syncWithGroup={false}
             >
                 <SlopeValueLabels
                     valueFormatter={valueFormatter}

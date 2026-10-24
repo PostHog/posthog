@@ -59,6 +59,8 @@ export interface BarChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
@@ -80,6 +82,7 @@ function BarChartInner<Meta = unknown>({
     onDateRangeZoom,
     className,
     dataAttr,
+    syncWithGroup,
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
@@ -457,6 +460,7 @@ function BarChartInner<Meta = unknown>({
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}
             dataAttr={dataAttr}
+            syncWithGroup={syncWithGroup}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
             resolveBottomValue={resolveBottomValue}

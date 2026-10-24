@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     AxisLabels,
@@ -8,6 +8,7 @@ import {
 } from '../overlays/AxisLabels'
 import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
+import { HighlightedRange } from '../overlays/HighlightedRange'
 import { Tooltip } from '../overlays/Tooltip'
 import { normalizeAxisLabel } from '../utils/axis-labels'
 import {
@@ -20,8 +21,10 @@ import {
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
+import { ChartGroupTooltip } from './ChartGroupTooltip'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
+import { useChartGroupMember } from './hooks/useChartGroupMember'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
@@ -118,6 +121,13 @@ export interface ChartProps<Meta = unknown> {
      *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
      *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
     resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
+    /** Set false to keep this chart out of the enclosing `ChartGroup`: it neither shares its hover,
+     *  zoom and selection nor mirrors the other charts'. Defaults to true. */
+    syncWithGroup?: boolean
+    /** Chart-type seam: the x values the chart lines up on inside a `ChartGroup`, index-aligned with
+     *  `labels`. Defaults to `labels`. Heatmap passes its column labels, since its `labels` are
+     *  synthetic column keys. Chart-type adapters provide this; consumers do not. */
+    groupLabels?: string[]
 }
 
 export function Chart<Meta = unknown>({
@@ -143,6 +153,8 @@ export function Chart<Meta = unknown>({
     valueRangeSeries,
     wrapClickData,
     resolveHoverIndex,
+    syncWithGroup = true,
+    groupLabels,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -338,7 +350,39 @@ export function Chart<Meta = unknown>({
         }
     }, [drawStatic, tickMarkCoords, theme])
 
-    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
+    const group = useChartGroupMember({ enabled: syncWithGroup, labels: groupLabels ?? labels })
+    // Drag-to-zoom only runs along a horizontal x axis.
+    const groupZoom = interactionAxis === 'x' ? group.zoom : null
+    const zoomHandler = useMemo<((data: DateRangeZoomData) => void) | undefined>(
+        () =>
+            groupZoom
+                ? (data) => {
+                      onDateRangeZoom?.(data)
+                      groupZoom(data.startIndex, data.endIndex)
+                  }
+                : onDateRangeZoom,
+        [onDateRangeZoom, groupZoom]
+    )
+    const groupSelect = group.select
+    const areaSelectHandler = useMemo<((data: AreaSelectData, scales: ChartScales) => void) | undefined>(
+        () =>
+            onAreaSelect && groupSelect
+                ? (data, committedScales) => {
+                      onAreaSelect(data, committedScales)
+                      groupSelect(data.startIndex, data.endIndex)
+                  }
+                : onAreaSelect,
+        [onAreaSelect, groupSelect]
+    )
+
+    const {
+        hoverIndex,
+        hoverPosition,
+        tooltipCtx,
+        dragRect,
+        buildTooltipCtx,
+        handlers: interactionHandlers,
+    } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -350,8 +394,8 @@ export function Chart<Meta = unknown>({
         resolveClickToNearestSeries,
         onPointClick,
         isPointClickable,
-        onDateRangeZoom,
-        onAreaSelect,
+        onDateRangeZoom: zoomHandler,
+        onAreaSelect: areaSelectHandler,
         resolveValue,
         resolvePositionValue,
         resolveBottomValue,
@@ -360,6 +404,34 @@ export function Chart<Meta = unknown>({
         wrapClickData,
         resolveHoverIndex,
     })
+
+    // Publish on a hover index change only. A pinned chart keeps its index after the pointer leaves, and
+    // a labels change must not put that stale hover back into the group.
+    const publishGroupHoverRef = useLatest(group.publish)
+    useLayoutEffect(() => publishGroupHoverRef.current(hoverIndex), [publishGroupHoverRef, hoverIndex])
+    // A pinned tooltip keeps its hover index after the pointer leaves, but the group still has to clear.
+    const baseMouseLeave = interactionHandlers.onMouseLeave
+    const onMouseLeave = useCallback(() => {
+        baseMouseLeave()
+        publishGroupHoverRef.current(-1)
+    }, [baseMouseLeave, publishGroupHoverRef])
+    // A pinned chart ignores mousemove, so it takes the group hover back explicitly when the pointer returns.
+    const baseMouseMove = interactionHandlers.onMouseMove
+    const reclaimGroupHover = group.reclaim
+    const pinnedIndex = tooltipCtx?.isPinned ? hoverIndex : -1
+    const onMouseMove = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            baseMouseMove(e)
+            if (pinnedIndex >= 0) {
+                reclaimGroupHover(pinnedIndex)
+            }
+        },
+        [baseMouseMove, reclaimGroupHover, pinnedIndex]
+    )
+    const handlers = useMemo(
+        () => ({ ...interactionHandlers, onMouseMove, onMouseLeave }),
+        [interactionHandlers, onMouseMove, onMouseLeave]
+    )
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
@@ -395,6 +467,7 @@ export function Chart<Meta = unknown>({
         drawStatic: drawStaticWithTicks,
         drawHover: composedDrawHover,
         hoverAnimationMs,
+        externalHover: group.hoverSource,
     })
 
     const ariaLabel = useMemo(() => {
@@ -456,7 +529,7 @@ export function Chart<Meta = unknown>({
                         !!onPointClick &&
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
-                    crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    crosshair={!!zoomHandler || !!onAreaSelect}
                     ariaLabel={ariaLabel}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
@@ -481,10 +554,25 @@ export function Chart<Meta = unknown>({
                         axisColor={axisColor}
                     />
 
+                    {group.selection && (
+                        <HighlightedRange start={group.selection.startIndex} end={group.selection.endIndex} />
+                    )}
+
                     {children}
 
                     {tooltipCtx && showTooltip && (
                         <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement={tooltipPlacement} />
+                    )}
+                    {showTooltip && group.tooltipSource && (
+                        <ChartGroupTooltip
+                            source={group.tooltipSource}
+                            canvasBounds={canvasBounds}
+                            dimensions={dimensions}
+                            localHoverIndex={hoverIndex}
+                            buildTooltipCtx={buildTooltipCtx}
+                            renderTooltip={renderTooltip}
+                            placement={tooltipPlacement}
+                        />
                     )}
                 </ChartShell>
             </ChartHoverContext.Provider>

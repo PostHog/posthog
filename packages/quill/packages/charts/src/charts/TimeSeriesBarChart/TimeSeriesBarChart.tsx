@@ -89,6 +89,8 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
     className?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function TimeSeriesBarChart<Meta = unknown>({
@@ -101,6 +103,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     isPointClickable,
     onDateRangeZoom,
     dataAttr,
+    syncWithGroup,
     className,
     children,
     onError,
@@ -195,6 +198,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
+                syncWithGroup={syncWithGroup}
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}

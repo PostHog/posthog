@@ -104,6 +104,8 @@ export interface BoxPlotProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function BoxPlot<Meta = unknown>({ onError, ...rest }: BoxPlotProps<Meta>): React.ReactElement {
@@ -123,6 +125,7 @@ function BoxPlotInner<Meta = unknown>({
     onBoxClick,
     className,
     dataAttr,
+    syncWithGroup,
     children,
 }: Omit<BoxPlotProps<Meta>, 'onError'>): React.ReactElement {
     const {
@@ -431,6 +434,7 @@ function BoxPlotInner<Meta = unknown>({
                 valueRangeSeries={valueRangeSeries.length > 0 ? valueRangeSeries : undefined}
                 className={className}
                 dataAttr={dataAttr}
+                syncWithGroup={syncWithGroup}
             >
                 {children}
             </Chart>

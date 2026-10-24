@@ -3,6 +3,8 @@ export { clickAtIndex, dragSelection, hoverAtIndex, hoverUntilTooltip, rawDrag }
 export { getHogChart } from './accessor'
 export type { GetHogChartOptions, HogChart, TooltipSnapshot } from './accessor'
 export { renderHogChart } from './render'
+export { trackStaticRepaints } from './repaints'
+export type { StaticRepaintTracker } from './repaints'
 export type { RenderHogChartOptions } from './render'
 export { makeOverlayContext, renderOverlayInChart } from './overlay'
 export type { OverlayContextOverrides } from './overlay'

@@ -348,6 +348,8 @@ function ScatterChartInner<Meta = unknown>({
                 onAreaSelect={onAreaSelect ? handleAreaSelect : undefined}
                 className={className}
                 dataAttr={dataAttr}
+                // Scatter x is continuous and its labels are synthetic, so nothing lines up with it.
+                syncWithGroup={false}
             >
                 {!xAxis.hide && <ScatterXAxisLabels />}
                 {children}

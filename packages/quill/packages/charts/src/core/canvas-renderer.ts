@@ -1497,7 +1497,8 @@ export function composeDrawHoverWithCrosshair(
 ): DrawHoverFn {
     const { crosshairColor, crosshairDash, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
-        if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
+        // A mirrored group hover has no pointer here, so the crosshair is what ties it to the hovered chart.
+        if ((showCrosshair || args.hoverSource === 'group') && crosshairColor && args.hoverIndex >= 0) {
             const label = args.labels[args.hoverIndex]
             const coord = labelToCoord ? labelToCoord(label) : args.scales.x(label)
             if (coord != null && isFinite(coord)) {

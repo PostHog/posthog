@@ -21,6 +21,8 @@ import type {
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
+    columnHighlightFill,
+    drawColumnHighlight,
     drawColumnHighlights,
     drawOutlinedCell,
     resolveCellStyles,
@@ -50,7 +52,8 @@ export interface HeatmapRowMeta {
 /** Tooltip context handed to consumer-supplied `tooltip` callbacks — `TooltipContext` with
  *  the row meta baked in. Each `seriesData` entry is one row at the hovered column; use
  *  `findClosestSeriesKey(ctx.seriesData, ctx.hoverPosition.y)` (as the built-in tooltip does)
- *  to narrow to the single hovered cell. */
+ *  to narrow to the single hovered cell. `hoverPosition` is null for a tooltip mirrored from
+ *  another chart in a `ChartGroup`, where no cell is hovered. */
 export type HeatmapTooltipContext = TooltipContext<HeatmapRowMeta>
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover/
@@ -60,6 +63,7 @@ interface HeatmapPrivate {
         layout: HeatmapLayout
         cells: number[][]
         accent: string
+        columnFill: string
         maxValue: number
         colorScale: ResolvedHeatmapColorScale
         styles: HeatmapResolvedCellStyles
@@ -164,6 +168,8 @@ export interface HeatmapProps {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    /** Set false to keep this chart out of the enclosing `ChartGroup`. Defaults to true. */
+    syncWithGroup?: boolean
 }
 
 export function Heatmap({ onError, ...rest }: HeatmapProps): React.ReactElement {
@@ -186,6 +192,7 @@ function HeatmapInner({
     className,
     dataAttr,
     children,
+    syncWithGroup,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
     const { colorScale: requestedColorScale = 'auto' } = config ?? {}
     // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
@@ -264,6 +271,7 @@ function HeatmapInner({
                     layout,
                     cells: grid,
                     accent,
+                    columnFill: columnHighlightFill(accent),
                     maxValue,
                     colorScale,
                     styles,
@@ -290,7 +298,7 @@ function HeatmapInner({
             return
         }
         const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
-        drawColumnHighlights(ctx, layout, priv.highlightedColumns, drawAccent)
+        drawColumnHighlights(ctx, layout, priv.highlightedColumns, priv.columnFill)
         // One ramp per accent in play, because parsing the accent per cell is the expensive part.
         const ramps = new Map<string, (t: number) => string>()
         const rampFor = (color: string): ((t: number) => string) => {
@@ -327,9 +335,19 @@ function HeatmapInner({
     }, [])
 
     const drawHover = useCallback(
-        ({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean => {
+        ({ ctx, scales, hoverIndex, hoverPosition, hoverSource, hoverProgress }: ChartDrawArgs): boolean => {
             const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-            if (!priv || hoverIndex < 0 || !hoverPosition) {
+            if (!priv || hoverIndex < 0) {
+                return false
+            }
+            if (hoverSource === 'group') {
+                ctx.save()
+                ctx.globalAlpha = hoverProgress
+                drawColumnHighlight(ctx, priv.layout, hoverIndex, priv.columnFill)
+                ctx.restore()
+                return true
+            }
+            if (!hoverPosition) {
                 return false
             }
             const row = rowAtY(priv.layout, hoverPosition.y)
@@ -512,6 +530,8 @@ function HeatmapInner({
             valueRangeSeries={valueRangeSeries}
             className={className}
             dataAttr={dataAttr}
+            syncWithGroup={syncWithGroup}
+            groupLabels={xLabels}
         >
             {config?.cellLabel && (
                 <HeatmapCellLabels
