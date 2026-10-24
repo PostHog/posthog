@@ -8,11 +8,14 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.workflows.backend.facade.contracts import EmailSendingState, EmailSendingSuspensionChange
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
 
-def ensure_workflows_config(team_id: int) -> None:
-    get_or_create_team_extension(Team.objects.get(pk=team_id), TeamWorkflowsConfig)
+def ensure_workflows_config(team_id: int) -> Team:
+    team = Team.objects.get(pk=team_id)
+    get_or_create_team_extension(team, TeamWorkflowsConfig)
+    return team
 
 
 def get_email_sending_state(team_id: int) -> EmailSendingState | None:
@@ -28,17 +31,20 @@ def get_email_sending_state(team_id: int) -> EmailSendingState | None:
     )
 
 
-def suspend_email_sending(team_id: int, reason: str) -> EmailSendingSuspensionChange:
+def suspend_email_sending(
+    team_id: int, reason: str, *, user_id: int | None = None, was_impersonated: bool = False
+) -> EmailSendingSuspensionChange:
     # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
     # two open admin tabs) can't both pass the idempotency check and both dispatch the
     # customer email + notification. Side effects stay with the caller, outside the atomic block.
-    ensure_workflows_config(team_id)
+    team = ensure_workflows_config(team_id)
     with transaction.atomic():
         config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team_id)
         if config.email_sending_suspended_at is not None:
             return EmailSendingSuspensionChange(
                 changed_at=None, previously_suspended_at=config.email_sending_suspended_at
             )
+        previous_tier = config.email_sending_tier
         suspended_at = timezone.now()
         config.email_sending_suspended_at = suspended_at
         config.email_sending_suspension_reason = reason
@@ -58,6 +64,14 @@ def suspend_email_sending(team_id: int, reason: str) -> EmailSendingSuspensionCh
                 "email_sending_tier_updated_at",
             ]
         )
+    log_email_sending_tier_change(
+        team,
+        previous_tier=previous_tier,
+        new_tier=MIN_EMAIL_SENDING_TIER,
+        reason="staff_suspension",
+        user_id=user_id,
+        was_impersonated=was_impersonated,
+    )
     return EmailSendingSuspensionChange(changed_at=suspended_at)
 
 
@@ -75,12 +89,15 @@ def unsuspend_email_sending(team_id: int) -> EmailSendingSuspensionChange:
     return EmailSendingSuspensionChange(changed_at=unsuspended_at)
 
 
-def set_email_sending_tier(team_id: int, *, tier: int, pinned: bool) -> int:
+def set_email_sending_tier(
+    team_id: int, *, tier: int, pinned: bool, user_id: int | None = None, was_impersonated: bool = False
+) -> int:
     """Write a staff-chosen tier and pin state, and return the tier the team had before."""
-    ensure_workflows_config(team_id)
+    team = ensure_workflows_config(team_id)
     with transaction.atomic():
         config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team_id)
         previous_tier = config.email_sending_tier
+        previous_pinned = config.email_sending_tier_pinned
         config.email_sending_tier = tier
         config.email_sending_tier_pinned = pinned
         if tier != previous_tier:
@@ -94,4 +111,13 @@ def set_email_sending_tier(team_id: int, *, tier: int, pinned: bool) -> int:
                 "email_sending_tier_updated_at",
             ]
         )
+    log_email_sending_tier_change(
+        team,
+        previous_tier=previous_tier,
+        new_tier=tier,
+        reason="staff_set",
+        pin_change=(previous_pinned, pinned),
+        user_id=user_id,
+        was_impersonated=was_impersonated,
+    )
     return previous_tier
