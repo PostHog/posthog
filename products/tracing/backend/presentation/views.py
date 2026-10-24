@@ -12,6 +12,7 @@ No business logic here - that belongs in logic.py via the facade.
 
 import json
 import base64
+import datetime as dt
 from collections.abc import Callable
 from typing import cast
 
@@ -1160,6 +1161,11 @@ def _encode_after_cursor(timestamp: str, **secondary: str) -> str:
     return base64.b64encode(json.dumps({"timestamp": timestamp, **secondary}).encode("utf-8")).decode("utf-8")
 
 
+def _cursor_timestamp(value: dt.datetime | str) -> str:
+    # A response served from the query cache, such as a single-flight follower's, carries ISO strings, not datetimes.
+    return value if isinstance(value, str) else value.isoformat()
+
+
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -1367,7 +1373,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             results = all_results[:requested_limit]
             if has_more and not by_duration and results:
                 last = results[-1]
-                next_cursor = _encode_after_cursor(last["timestamp"].isoformat(), span_id=last["span_id"])
+                next_cursor = _encode_after_cursor(_cursor_timestamp(last["timestamp"]), span_id=last["span_id"])
         else:
             descending = order_direction == "DESC"
             sort_key = "trace_duration" if by_duration else "trace_start"
@@ -1385,7 +1391,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             # Duration ordering paginates via `offset`; only the timestamp keyset emits an `after` cursor.
             if has_more and not by_duration:
                 boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
-                next_cursor = _encode_after_cursor(boundary_ts.isoformat(), trace_id=boundary_trace_id)
+                next_cursor = _encode_after_cursor(
+                    _cursor_timestamp(cast(dt.datetime | str, boundary_ts)), trace_id=boundary_trace_id
+                )
 
         report_user_action(
             request.user,
