@@ -13,3 +13,7 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 metrics = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

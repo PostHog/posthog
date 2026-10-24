@@ -374,8 +374,8 @@ pub async fn evaluate_for_request(
             distinct_id,
             device_id,
             feature_flags: filtered_flags,
-            persons_reader: state.database_pools.persons_reader.clone(),
-            persons_writer: state.database_pools.persons_writer.clone(),
+            persons_reader: state.database_pools.persons_reader_client.clone(),
+            persons_writer: state.database_pools.persons_writer_client.clone(),
             non_persons_reader: state.database_pools.non_persons_reader.clone(),
             non_persons_writer: state.database_pools.non_persons_writer.clone(),
             cohort_cache: state.cohort_cache_manager.clone(),
@@ -405,6 +405,7 @@ pub async fn evaluate_for_request(
             only_use_override_person_properties: only_use_override_person_properties
                 .unwrap_or(false),
             persons_db_deadline: persons_db_deadline.map(|deadline| deadline.at),
+            fail_on_realtime_cohort_lookup_error: *state.config.persons_db_gate_enabled,
         };
 
         evaluation::evaluate_feature_flags(ctx, request_id).await?

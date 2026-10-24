@@ -274,6 +274,7 @@ The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement t
 Realtime cohort evaluation degrades gracefully at every layer, always treating people as non-members rather than failing flag evaluation:
 when `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is not set a `NoOpCohortMembershipProvider` returns `false` for all checks (with a startup warning if `REALTIME_COHORT_EVALUATION_TEAM_IDS` is set at the same time),
 and when the database is unavailable at runtime, query errors and lookups exceeding `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` also resolve to non-membership.
+With `PERSONS_DB_GATE_ENABLED`, a failed lookup instead fails the flags that target those cohorts with `realtime_cohort_lookup_failed`.
 Cache and query health are observable via the `flags_cohort_membership_cache_*` and `flags_realtime_cohort_*` metrics — see [database-interaction-patterns.md](database-interaction-patterns.md#prometheus-metrics).
 
 ### Redis

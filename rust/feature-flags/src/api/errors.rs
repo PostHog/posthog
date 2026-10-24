@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use common_cookieless::{CookielessManagerError, SaltCacheError};
 use common_database::{
-    extract_timeout_type, is_timeout_error, is_transient_error, CustomDatabaseError,
+    extract_timeout_type, is_timeout_error, is_transient_error, CustomDatabaseError, GateRejection,
 };
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
@@ -205,6 +205,27 @@ impl FlagError {
         FlagError::Unavailable {
             code: CODE_PERSON_NOT_FOUND,
             cause: anyhow::anyhow!("Person not found"),
+        }
+    }
+
+    /// The pool's operation gate refused the call before it reached the database.
+    pub fn db_gate_rejected(rejection: GateRejection) -> Self {
+        let code = match rejection {
+            GateRejection::Open => "db_gate_open",
+            GateRejection::HalfOpenBusy => "db_gate_half_open_busy",
+            GateRejection::Saturated => "db_gate_saturated",
+        };
+        FlagError::Unavailable {
+            code,
+            cause: anyhow::Error::new(rejection).context("database unavailable"),
+        }
+    }
+
+    /// A realtime cohort membership lookup failed, so membership in those cohorts is unknown.
+    pub fn realtime_cohort_lookup_failed() -> Self {
+        FlagError::Unavailable {
+            code: "realtime_cohort_lookup_failed",
+            cause: anyhow::anyhow!("Realtime cohort membership lookup failed"),
         }
     }
 
@@ -679,6 +700,7 @@ impl From<CustomDatabaseError> for FlagError {
     fn from(e: CustomDatabaseError) -> Self {
         match e {
             CustomDatabaseError::Timeout(_) => FlagError::client_timeout(),
+            CustomDatabaseError::GateRejected(rejection) => FlagError::db_gate_rejected(rejection),
             CustomDatabaseError::Other(sqlx_error) => {
                 // Check if it's a timeout-related SQL error
                 if is_timeout_error(&sqlx_error) {

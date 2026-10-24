@@ -427,7 +427,7 @@ pub struct Config {
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
     // pool's full acquire timeout plus statement timeout. On timeout the lookup degrades to
-    // non-membership.
+    // non-membership, or fails the flags that target those cohorts with PERSONS_DB_GATE_ENABLED.
     // The default matches the pool's 1s statement timeout: a tighter client-side bound
     // would discard answers the DB would still deliver, flipping flags for the person,
     // so this bound only adds cover where statement_timeout cannot reach (pool acquire
@@ -456,6 +456,49 @@ pub struct Config {
     // timeout.
     #[envconfig(from = "PERSONS_DB_DEADLINE_RESERVE_MS", default = "500")]
     pub persons_db_deadline_reserve_ms: u64,
+
+    // Puts an operation gate in front of the persons reader and writer pools. The gate caps the
+    // operations in flight at the pool size, and a caller waits at most
+    // PERSONS_DB_GATE_MAX_WAIT_MS for a slot. A per-pod circuit breaker per pool opens when the
+    // share of availability failures (slot waits past the cap, failed or abandoned connection
+    // acquires) in the pool's window reaches PERSONS_DB_GATE_FAILURE_RATE_PERCENT, after at least
+    // the pool's minimum call count. While open, /flags skips the persons DB, and the flags that
+    // need persons data return `failed`. After the open period, PERSONS_DB_GATE_HALF_OPEN_TRIALS
+    // real requests test the pool. Each failed test doubles the open period, up to
+    // PERSONS_DB_GATE_MAX_OPEN_MS. This switch also makes a failed realtime cohort lookup fail
+    // the flags that target those cohorts, instead of reading as non-membership.
+    #[envconfig(from = "PERSONS_DB_GATE_ENABLED", default = "false")]
+    pub persons_db_gate_enabled: FlexBool,
+
+    #[envconfig(from = "PERSONS_DB_GATE_MAX_WAIT_MS", default = "100")]
+    pub persons_db_gate_max_wait_ms: u64,
+
+    #[envconfig(from = "PERSONS_DB_GATE_FAILURE_RATE_PERCENT", default = "50")]
+    pub persons_db_gate_failure_rate_percent: u8,
+
+    #[envconfig(from = "PERSONS_DB_GATE_BASE_OPEN_MS", default = "1000")]
+    pub persons_db_gate_base_open_ms: u64,
+
+    #[envconfig(from = "PERSONS_DB_GATE_MAX_OPEN_MS", default = "30000")]
+    pub persons_db_gate_max_open_ms: u64,
+
+    #[envconfig(from = "PERSONS_DB_GATE_HALF_OPEN_TRIALS", default = "3")]
+    pub persons_db_gate_half_open_trials: u32,
+
+    // The reader serves every /flags request that needs persons data, so it fills a short window.
+    #[envconfig(from = "PERSONS_READER_GATE_WINDOW_SECS", default = "10")]
+    pub persons_reader_gate_window_secs: u64,
+
+    #[envconfig(from = "PERSONS_READER_GATE_MIN_CALLS", default = "50")]
+    pub persons_reader_gate_min_calls: u32,
+
+    // The writer serves only hash key override writes, so it needs a longer window and fewer
+    // calls to judge.
+    #[envconfig(from = "PERSONS_WRITER_GATE_WINDOW_SECS", default = "30")]
+    pub persons_writer_gate_window_secs: u64,
+
+    #[envconfig(from = "PERSONS_WRITER_GATE_MIN_CALLS", default = "20")]
+    pub persons_writer_gate_min_calls: u32,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -1266,6 +1309,16 @@ impl Config {
             realtime_cohort_lookup_timeout_ms: 1000,
             persons_db_deadline_ms: 30_000,
             persons_db_deadline_reserve_ms: 500,
+            persons_db_gate_enabled: FlexBool(false),
+            persons_db_gate_max_wait_ms: 100,
+            persons_db_gate_failure_rate_percent: 50,
+            persons_db_gate_base_open_ms: 1000,
+            persons_db_gate_max_open_ms: 30_000,
+            persons_db_gate_half_open_trials: 3,
+            persons_reader_gate_window_secs: 10,
+            persons_reader_gate_min_calls: 50,
+            persons_writer_gate_window_secs: 30,
+            persons_writer_gate_min_calls: 20,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
