@@ -793,6 +793,55 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         })
 
+        it('leaves the page storage alone when the browser extension mounts it', () => {
+            const floatingToolbarSession = JSON.stringify({
+                accessToken: 'page-access',
+                refreshToken: 'page-refresh',
+                clientId: 'page-client',
+                uiHost: 'http://localhost',
+            })
+            localStorage.setItem(OAUTH_LOCALSTORAGE_KEY, floatingToolbarSession)
+            const logic = toolbarConfigLogic.build({
+                source: 'extension',
+                uiHost: 'http://localhost',
+                accessToken: 'extension-access',
+                refreshToken: 'extension-refresh',
+                clientId: 'extension-client',
+            })
+            logic.mount()
+
+            logic.actions.setOAuthTokens('rotated-access', 'rotated-refresh', 'extension-client')
+            expect(logic.values.accessToken).toEqual('rotated-access')
+            logic.actions.tokenExpired()
+            logic.actions.logout()
+
+            expect(localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)).toEqual(floatingToolbarSession)
+            expect(localStorage.getItem('_postHogToolbarParams')).toBeNull()
+        })
+
+        it.each(['authenticate', 'confirmAuthenticate'] as const)(
+            'expires the session instead of redirecting the page on %s when the browser extension mounts it',
+            async (action) => {
+                const pageHref = window.location.href
+                const logic = toolbarConfigLogic.build({
+                    source: 'extension',
+                    uiHost: 'https://us.posthog.com',
+                    accessToken: 'extension-access',
+                    clientId: 'extension-client',
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions[action]()
+                })
+                    .toDispatchActions(['tokenExpired'])
+                    .toMatchValues({ accessToken: null, authStatus: 'idle' })
+
+                expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+                expect(window.location.href).toEqual(pageHref)
+            }
+        )
+
         it('logout clears both localStorage keys', () => {
             const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost' })
             logic.mount()

@@ -1,9 +1,18 @@
+import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from './pageToolbarBridge'
+
 // Firefox and Chrome both expose the promise-based `chrome.*` namespace to Manifest V3 extensions.
-// Only the calls the side panel and the background script make are typed here.
+// Only the calls the side panel, the background script and the content script make are typed here.
 interface ExtensionTab {
     id?: number
     url?: string
 }
+
+// Returning true keeps sendResponse open for an async response.
+type RuntimeMessageListener = (
+    message: unknown,
+    sender: unknown,
+    sendResponse: (response: unknown) => void
+) => boolean | void
 
 interface ExtensionPermissions {
     origins: string[]
@@ -19,6 +28,14 @@ interface TabChangeInfo {
     status?: string
 }
 
+export interface ExtensionPort {
+    name: string
+    postMessage: (message: unknown) => void
+    disconnect: () => void
+    onMessage: ExtensionEvent<(message: unknown) => void>
+    onDisconnect: ExtensionEvent<() => void>
+}
+
 interface ExtensionEvent<Listener> {
     addListener: (listener: Listener) => void
     removeListener: (listener: Listener) => void
@@ -27,8 +44,12 @@ interface ExtensionEvent<Listener> {
 interface ExtensionBrowserApi {
     tabs: {
         query: (query: { active: true; windowId?: number; currentWindow?: true }) => Promise<ExtensionTab[]>
-        create: (properties: { url: string }) => Promise<unknown>
+        create: (properties: { url: string; active?: boolean }) => Promise<ExtensionTab>
+        remove: (tabId: number) => Promise<void>
+        connect: (tabId: number, connectInfo: { name: string }) => ExtensionPort
+        sendMessage: (tabId: number, message: unknown) => Promise<unknown>
         onActivated: ExtensionEvent<(activeInfo: TabActiveInfo) => void>
+        onRemoved: ExtensionEvent<(tabId: number) => void>
         onUpdated: ExtensionEvent<
             (
                 tabId: number,
@@ -45,6 +66,22 @@ interface ExtensionBrowserApi {
             get: (key: string) => Promise<Record<string, unknown>>
             set: (items: Record<string, unknown>) => Promise<void>
         }
+    }
+    scripting: {
+        executeScript: <Args extends unknown[], Result>(injection: {
+            target: { tabId: number }
+            files?: string[]
+            world?: 'ISOLATED' | 'MAIN'
+            func?: (...args: Args) => Result
+            args?: Args
+        }) => Promise<{ result?: Result }[]>
+    }
+    runtime: {
+        onMessage: {
+            addListener: (listener: RuntimeMessageListener) => void
+        }
+        onConnect: ExtensionEvent<(port: ExtensionPort) => void>
+        getURL: (path: string) => string
     }
     permissions: {
         contains: (permissions: ExtensionPermissions) => Promise<boolean>
@@ -67,6 +104,8 @@ const extensionBrowser = ((globalThis as unknown as { browser?: ExtensionBrowser
 
 // pinned: extension storage key, renaming it resets the saved PostHog host
 const UI_HOST_STORAGE_KEY = 'posthogUiHost'
+
+const CONTENT_SCRIPT_FILE = 'content.js'
 
 export function openPanelFromToolbarButton(): void {
     if (extensionBrowser.sidePanel) {
@@ -140,6 +179,112 @@ export async function hasHostPermission(uiHost: string): Promise<boolean> {
 }
 
 /** Must run inside the click handler: browsers show the permission prompt only for a user gesture. */
-export async function requestHostPermission(uiHost: string): Promise<boolean> {
-    return await extensionBrowser.permissions.request(originPattern(uiHost))
+export async function requestHostPermission(url: string): Promise<boolean> {
+    return await extensionBrowser.permissions.request(originPattern(url))
+}
+
+// pinned: extension message, the panel and an already injected content script must agree on it
+const CONTENT_SCRIPT_PING = 'posthog-toolbar-extension-ping'
+
+export async function ensureContentScript(tabId: number): Promise<void> {
+    const installed = await extensionBrowser.tabs.sendMessage(tabId, CONTENT_SCRIPT_PING).then(
+        (response) => response === true,
+        () => false
+    )
+    if (!installed) {
+        await extensionBrowser.scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT_FILE] })
+    }
+}
+
+export function answerContentScriptPing(): void {
+    extensionBrowser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        if (message === CONTENT_SCRIPT_PING) {
+            sendResponse(true)
+        }
+    })
+}
+
+export function extensionFileUrl(path: string): string {
+    return extensionBrowser.runtime.getURL(path)
+}
+
+export function connectToPageToolbar(tabId: number): ExtensionPort {
+    return extensionBrowser.tabs.connect(tabId, { name: PAGE_TOOLBAR_PORT })
+}
+
+export function onPageToolbarConnect(handler: (port: ExtensionPort) => void): void {
+    extensionBrowser.runtime.onConnect.addListener((port) => {
+        if (port.name === PAGE_TOOLBAR_PORT) {
+            handler(port)
+        }
+    })
+}
+
+const PAGE_AGENT_FILE = 'page-agent.js'
+
+/** Runs the page agent in the page's own world, where it can call the page's posthog-js for the content script. */
+export async function injectPageAgent(tabId: number): Promise<void> {
+    await extensionBrowser.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: [PAGE_AGENT_FILE] })
+}
+
+export async function waitForTabUrl(
+    url: string,
+    matches: (tabUrl: string) => boolean,
+    { timeoutMs, active }: { timeoutMs: number; active: boolean }
+): Promise<string> {
+    const tab = await extensionBrowser.tabs.create({ url, active })
+    const tabId = tab.id
+    if (tabId === undefined) {
+        throw new Error('The browser did not open the tab')
+    }
+    return await new Promise((resolve, reject) => {
+        const finish = (result: { url: string } | { error: Error }): void => {
+            clearTimeout(timeout)
+            extensionBrowser.tabs.onUpdated.removeListener(onUpdated)
+            extensionBrowser.tabs.onRemoved.removeListener(onRemoved)
+            if ('url' in result) {
+                void extensionBrowser.tabs.remove(tabId).catch(() => undefined)
+                resolve(result.url)
+            } else {
+                reject(result.error)
+            }
+        }
+        const onUpdated = (updatedTabId: number, changeInfo: TabChangeInfo): void => {
+            if (updatedTabId === tabId && changeInfo.url && matches(changeInfo.url)) {
+                finish({ url: changeInfo.url })
+            }
+        }
+        const onRemoved = (removedTabId: number): void => {
+            if (removedTabId === tabId) {
+                finish({ error: new Error('The tab closed before it finished') })
+            }
+        }
+        const timeout = setTimeout(() => {
+            void extensionBrowser.tabs.remove(tabId).catch(() => undefined)
+            finish({ error: new Error('The tab did not finish in time') })
+        }, timeoutMs)
+        extensionBrowser.tabs.onUpdated.addListener(onUpdated)
+        extensionBrowser.tabs.onRemoved.addListener(onRemoved)
+    })
+}
+
+// pinned: extension storage key, renaming it signs every project out of the toolbar
+const TOKENS_STORAGE_KEY = 'posthogToolbarTokens'
+
+export async function getStoredTokens(key: string): Promise<PageToolbarTokens | null> {
+    const stored = await extensionBrowser.storage.local.get(TOKENS_STORAGE_KEY)
+    const tokensByKey = stored[TOKENS_STORAGE_KEY] as Record<string, PageToolbarTokens> | undefined
+    const tokens = tokensByKey?.[key]
+    return tokens && typeof tokens.accessToken === 'string' && typeof tokens.clientId === 'string' ? tokens : null
+}
+
+export async function setStoredTokens(key: string, tokens: PageToolbarTokens | null): Promise<void> {
+    const stored = await extensionBrowser.storage.local.get(TOKENS_STORAGE_KEY)
+    const tokensByKey = { ...(stored[TOKENS_STORAGE_KEY] as Record<string, PageToolbarTokens> | undefined) }
+    if (tokens) {
+        tokensByKey[key] = tokens
+    } else {
+        delete tokensByKey[key]
+    }
+    await extensionBrowser.storage.local.set({ [TOKENS_STORAGE_KEY]: tokensByKey })
 }

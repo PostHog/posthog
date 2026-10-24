@@ -8,14 +8,15 @@ description: Builds, watches, checks and verifies the PostHog toolbar in both of
 One source tree, `frontend/src/toolbar/`, ships in two forms.
 Both builds live in `frontend/toolbar-config.mjs` and share its toolbar module plugin, which swaps app modules for the toolbar's shims and keeps denylisted packages out.
 
-| Form              | Entry                                  | Output (under `frontend/dist/`)                     | Runs in                                          |
-| ----------------- | -------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
-| Floating toolbar  | `src/toolbar/index.tsx`                | `toolbar.js` loader, `toolbar/` app chunks          | Customer pages, loaded by posthog-js             |
-| Browser extension | `src/toolbar/extension/panel.tsx` etc. | `toolbar-extension/<browser>/`, one zip per browser | Chrome side panel, Firefox sidebar (Manifest V3) |
+| Form              | Entry                                            | Output (under `frontend/dist/`)                     | Runs in                                          |
+| ----------------- | ------------------------------------------------ | --------------------------------------------------- | ------------------------------------------------ |
+| Floating toolbar  | `src/toolbar/index.tsx`                          | `toolbar.js` loader, `toolbar/` app chunks          | Customer pages, loaded by posthog-js             |
+| Browser extension | `src/toolbar/extension/panel.tsx`, `content.tsx` | `toolbar-extension/<browser>/`, one zip per browser | Chrome side panel, Firefox sidebar (Manifest V3) |
 
 ## Build both, every time
 
-Its panel imports the floating toolbar's own modules, such as `toolbarConfigLogic`, `toolbarEntitlementsLogic` and `toolbarPosthogJS`, and goes through the same module plugin.
+The extension's content script, `extension/content.tsx`, runs the floating toolbar's own kea logics and components on the page, such as `toolbarConfigLogic`, `elementsLogic` and `ElementOverlays`.
+The panel imports toolbar modules too, and both go through the same module plugin.
 So any change under `frontend/src/toolbar/`, or in `toolbar-config.mjs`, can break either form, even when you only meant to touch one.
 
 - Build and check both forms for every toolbar change.
@@ -71,7 +72,7 @@ Tests and builds don't show a broken overlay, a missing style, or a CSP refusal.
 - **Extension.** Load `dist/toolbar-extension/chrome` unpacked in Chrome and `dist/toolbar-extension/firefox` as a temporary add-on in Firefox.
   The steps are in [the extension README](../../../frontend/src/toolbar/extension/README.md#build-and-install); read it before you load the extension the first time.
   After a rebuild, reload the extension, then close and open the panel.
-  Check both browsers when you change the extension.
+  Check both browsers when you change the extension, and walk the README's [manual checks](../../../frontend/src/toolbar/extension/README.md#check-the-flows-by-hand) for the tools you touched.
 - **Floating toolbar.** Start the dev stack (see `/run-posthog`), open the Toolbar page at `http://localhost:8010/toolbar`, add a test site that loads posthog-js to the authorized URLs, and launch the toolbar on it.
   `Toolbar.stories.tsx` renders the floating toolbar in Storybook when you only need to look at a component.
 

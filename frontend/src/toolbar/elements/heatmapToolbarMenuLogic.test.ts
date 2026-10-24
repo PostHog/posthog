@@ -8,6 +8,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ElementsEventType } from '~/toolbar/types'
+import { TOOLBAR_ROOT_ATTRIBUTE } from '~/toolbar/utils'
 
 import {
     LOAD_ALL_MAX_PAGES,
@@ -260,6 +261,14 @@ describe('heatmapToolbarMenuLogic', () => {
             addElement('span', { top: 0, left: 0, width: 400, height: 400 }) // not a container tag
 
             expect(computeAreaCandidates()).toEqual([big, nav])
+        })
+
+        it('skips a toolbar overlay root that covers the page', () => {
+            const toolbarRoot = addElement('div', { top: 0, left: 0, width: 800, height: 600 })
+            toolbarRoot.setAttribute(TOOLBAR_ROOT_ATTRIBUTE, '')
+            const main = addElement('main', { top: 0, left: 0, width: 600, height: 400 })
+
+            expect(computeAreaCandidates()).toEqual([main])
         })
 
         it('collapses a same-rect wrapper chain to its deepest element', () => {

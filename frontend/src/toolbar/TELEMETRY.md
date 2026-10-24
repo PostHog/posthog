@@ -348,3 +348,38 @@ Fired after a successful screenshot/media upload.
 | `source` | `'toolbar'` | Always `'toolbar'` |
 
 **File:** `screenshot-upload/screenshotUploadLogic.ts`
+
+## Browser extension
+
+### `toolbar extension panel state`
+
+Fired when the side panel shows a new state.
+
+| Property             | Type                  | Description                                                     |
+| -------------------- | --------------------- | --------------------------------------------------------------- |
+| `state`              | `string`              | The state kind, for example `'ready'` or `'unauthorized-url'`   |
+| `unsupported_reason` | `string \| undefined` | Why the toolbar can't run on the page, for `'unsupported-page'` |
+
+**File:** `extension/extensionPanelLogic.ts`
+
+### `toolbar extension page tool used`
+
+Fired when the user runs a tool on the page from the extension.
+
+| Property | Type     | Description                                   |
+| -------- | -------- | --------------------------------------------- |
+| `tool`   | `string` | `'inspect'`, `'heatmap'`, or `'save-heatmap'` |
+
+**File:** `extension/extensionTelemetry.ts`
+
+### `toolbar extension authenticated`
+
+Fired when the extension finishes the toolbar OAuth flow for a project, which gives the page tools their own access.
+
+| Property      | Type                  | Description                                                                 |
+| ------------- | --------------------- | --------------------------------------------------------------------------- |
+| `status`      | `string`              | `'success'` or `'error'`                                                    |
+| `interactive` | `boolean`             | `true` when the user clicked **Connect**, `false` when the panel started it |
+| `error`       | `string \| undefined` | The error message, for `'error'`                                            |
+
+**File:** `extension/extensionAuthLogic.ts`

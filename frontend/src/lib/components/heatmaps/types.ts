@@ -96,3 +96,6 @@ export type HeatmapEventsResponse = {
     total_count: number
     has_more: boolean
 }
+
+/** `missing` when the page has no posthog-js, which the browser extension can run without. */
+export type ScrollDepthPosthogJsError = 'version' | 'disabled' | 'missing' | null

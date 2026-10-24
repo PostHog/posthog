@@ -13,6 +13,24 @@ import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+// The browser extension's content script draws its overlay in this host.
+export const TOOLBAR_EXTENSION_ID = '__POSTHOG_TOOLBAR_EXTENSION__'
+// pinned: DOM attribute, the floating toolbar and the extension mark their roots with it so neither counts as page content
+export const TOOLBAR_ROOT_ATTRIBUTE = 'data-posthog-toolbar-root'
+
+export function isToolbarRootElement(element: Element): boolean {
+    return element.hasAttribute(TOOLBAR_ROOT_ATTRIBUTE)
+}
+
+/** True for a toolbar root and everything inside it, shadow DOM included. */
+export function isInToolbarRoot(element: HTMLElement): boolean {
+    for (let current: HTMLElement | null = element; current; current = getParent(current)) {
+        if (isToolbarRootElement(current)) {
+            return true
+        }
+    }
+    return false
+}
 
 // Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
@@ -67,11 +85,15 @@ export interface ToolbarAuthParams {
  * Returns the matched params if found, or null.
  */
 export function readToolbarAuthHash(): ToolbarAuthParams | null {
+    return parseToolbarAuthHash(window.location.hash)
+}
+
+export function parseToolbarAuthHash(rawHash: string): ToolbarAuthParams | null {
     let hash: string
     try {
-        hash = decodeURIComponent(window.location.hash)
+        hash = decodeURIComponent(rawHash)
     } catch {
-        hash = window.location.hash
+        hash = rawHash
     }
     const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&]+)/)
     if (!codeMatch) {
@@ -123,6 +145,38 @@ export function cleanToolbarAuthHash(): void {
     }
 
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
+}
+
+/** Exchanges a toolbar OAuth code for tokens, for the floating toolbar and the browser extension. Rejects on a network failure. */
+export async function requestOAuthTokens({
+    uiHost,
+    code,
+    clientId,
+    verifier,
+}: {
+    uiHost: string
+    code: string
+    clientId: string
+    verifier: string
+}): Promise<{ status: number; accessToken: string | null; refreshToken: string | null; error: string | null }> {
+    const response = await safeFetch(`${uiHost}/oauth/token/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: clientId,
+            code,
+            redirect_uri: `${uiHost}/toolbar_oauth/callback`,
+            code_verifier: verifier,
+        }).toString(),
+    })
+    const data = await response.json().catch(() => null)
+    return {
+        status: response.status,
+        accessToken: asNonEmptyString(data?.access_token),
+        refreshToken: asNonEmptyString(data?.refresh_token),
+        error: asNonEmptyString(data?.error),
+    }
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
@@ -229,10 +283,6 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     }
 }
 
-export function getToolbarRootElement(): HTMLElement | null {
-    return window.document.getElementById(TOOLBAR_ID) || null
-}
-
 export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
@@ -258,8 +308,8 @@ export function trimElement(
     if (!element) {
         return null
     }
-    const rootElement = getToolbarRootElement()
-    if (rootElement && isParentOf(element, rootElement)) {
+    const parent = getParent(element)
+    if (parent && isInToolbarRoot(parent)) {
         return null
     }
 
@@ -392,7 +442,7 @@ export function getAllClickTargets(
     })
 
     const shadowElements = allElements
-        .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
+        .filter((el) => el.shadowRoot && !isToolbarRootElement(el))
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
         .reduce((a, b) => {
             a.push(...b)
