@@ -4,9 +4,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { nodeEndpointUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
+import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { NodeDetailQueryEditorActions } from './NodeDetailQueryEditorActions'
 import { QuillNodeDetailActions } from './QuillNodeDetailActions'
 
@@ -26,7 +26,7 @@ export function NodeDetailActions({
     return (
         <>
             {node.type === 'endpoint' ? (
-                <LemonButton type="secondary" size="small" to={nodeEndpointUrl(node)}>
+                <LemonButton type="secondary" size="small" to={lineageNodeUrl(node, 'query')}>
                     Open endpoint
                 </LemonButton>
             ) : (

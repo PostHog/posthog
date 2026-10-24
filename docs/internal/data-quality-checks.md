@@ -98,6 +98,12 @@ Previously saved definitions that cannot be enumerated remain hidden and unrunna
 
 ## History and discovery
 
+A supported endpoint version publishes a saved model with lineage and data quality checks, including when it executes inline.
+The endpoint's Data quality tab uses the same checks as the model.
+A new version copies the previous version's check definitions without copying results.
+Checks that no longer resolve have the `needs_review` status and cannot run until an authorized edit repairs them.
+Disabling materialization retains the model and its checks.
+
 A run is authorized using the subject identities recorded when it executed. Editing a check does not authorize its earlier results. Deleted subjects, unreadable recorded references, and missing dependency records on cross-subject checks remain inaccessible. An authorized edit can return the updated check with historical status fields redacted.
 
 The REST endpoints and `information_schema.data_quality_checks`, `information_schema.data_quality_check_runs`, and `information_schema.data_quality_health` share visibility rules. Their query-cache boundary includes catalog, warehouse, and source permissions.

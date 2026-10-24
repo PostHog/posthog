@@ -63,6 +63,19 @@ describe('lineageSearch', () => {
         expect(ordered?.at(-1)?.id).toEqual('terminal')
     })
 
+    it('anchors endpoint lineage on the displayed version name', () => {
+        const endpoint = {
+            ...node('published', 'internal_query_name'),
+            type: 'endpoint' as const,
+            endpoint: { name: 'weekly_activity', version: 2, is_materialized: false },
+        }
+        const nodes = [node('source', 'events'), endpoint]
+        expect(matchNodesByName(nodes, 'weekly_activity v2')).toEqual([endpoint])
+        expect(
+            nodeIdsForLineageSearch(nodes, [edge('source', 'published')], parseLineageSearch('+weekly_activity v2+'))
+        ).toEqual(new Set(['source', 'published']))
+    })
+
     it('anchors on the exact name over a longer one that contains it', () => {
         const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')

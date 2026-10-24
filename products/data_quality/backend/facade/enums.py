@@ -110,6 +110,7 @@ class SubjectStatus(StrEnum):
 
     ACTIVE = "active"
     ORPHANED = "orphaned"
+    NEEDS_REVIEW = "needs_review"
 
 
 class SubjectHealth(StrEnum):

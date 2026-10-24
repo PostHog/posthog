@@ -22,10 +22,10 @@ export function EndpointOverview(): JSX.Element {
     const versionUrl = isViewingOldVersion ? `${endpoint.endpoint_path}?version=${viewingVersion.version}` : null
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container/endpoint-overview flex flex-col gap-4">
             {/* Row 1: Endpoint info (always shown) */}
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
-                <div className="inline-flex deprecated-space-x-8">
+            <div className="grid gap-3 grid-cols-1 @min-[64rem]/endpoint-overview:grid-cols-[1fr_auto]">
+                <div className="inline-flex flex-wrap gap-x-8 gap-y-3 min-w-0">
                     <div className="flex flex-col w-28">
                         <LemonLabel>Endpoint status</LemonLabel>
                         <LemonTag type={endpoint.is_active ? 'success' : 'danger'} className="w-fit">
@@ -49,7 +49,7 @@ export function EndpointOverview(): JSX.Element {
                         <span className="text-sm font-semibold">v{endpoint.current_version}</span>
                     </div>
                     {!isViewingOldVersion && (
-                        <div className="flex flex-col">
+                        <div className="flex flex-col min-w-0 max-w-full">
                             <LemonLabel>Endpoint URL</LemonLabel>
                             <LemonButton
                                 type="secondary"
@@ -57,13 +57,13 @@ export function EndpointOverview(): JSX.Element {
                                 onClick={() => void copyToClipboard(endpoint.endpoint_path, 'endpoint URL')}
                                 className="font-mono text-xs"
                             >
-                                {endpoint.endpoint_path}
+                                <span className="break-all whitespace-normal text-left">{endpoint.endpoint_path}</span>
                             </LemonButton>
                         </div>
                     )}
                 </div>
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1200px]:items-end">
-                    <div className="inline-flex deprecated-space-x-8">
+                <div className="flex flex-col gap-4 items-start @min-[64rem]/endpoint-overview:items-end">
+                    <div className="inline-flex flex-wrap gap-x-8 gap-y-3">
                         <div className="flex flex-col">
                             <LemonLabel>Last executed</LemonLabel>
                             {endpoint.last_executed_at ? (
@@ -82,7 +82,7 @@ export function EndpointOverview(): JSX.Element {
 
             {/* Row 2: Version info (only when viewing old version) */}
             {isViewingOldVersion && (
-                <div className="inline-flex deprecated-space-x-8">
+                <div className="inline-flex flex-wrap gap-x-8 gap-y-3">
                     <div className="flex flex-col w-28">
                         <LemonLabel>Version status</LemonLabel>
                         <LemonTag type={viewingVersion.is_active ? 'success' : 'danger'} className="w-fit">
@@ -93,7 +93,7 @@ export function EndpointOverview(): JSX.Element {
                         <LemonLabel>Viewing version</LemonLabel>
                         <span className="text-sm font-semibold">v{viewingVersion.version}</span>
                     </div>
-                    <div className="flex flex-col">
+                    <div className="flex flex-col min-w-0 max-w-full">
                         <LemonLabel>Version URL</LemonLabel>
                         <LemonButton
                             type="secondary"
@@ -101,7 +101,7 @@ export function EndpointOverview(): JSX.Element {
                             onClick={() => void copyToClipboard(versionUrl!, 'version URL')}
                             className="font-mono text-xs"
                         >
-                            {versionUrl}
+                            <span className="break-all whitespace-normal text-left">{versionUrl}</span>
                         </LemonButton>
                     </div>
                 </div>

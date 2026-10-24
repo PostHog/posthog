@@ -1,3 +1,4 @@
+from products.data_modeling.backend.facade.contracts import UnknownParentError
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
@@ -22,6 +23,7 @@ __all__ = [
     "ResolutionCycleError",
     "ResolutionDepthExceededError",
     "ResolutionTimeoutError",
+    "UnknownParentError",
     "bounded_resolver_factory_for_view",
     "get_parents_from_model_query",
 ]
