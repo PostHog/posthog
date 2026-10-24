@@ -61,5 +61,14 @@ assert PUBLIC_OUTCOME_NAMES == get_args(PublicOutcomeName), (
     "PUBLIC_OUTCOMES and PublicOutcomeName must list the same outcomes"
 )
 
+
 # The API's choice set for an outcome name. A Choices class gives the OpenAPI enum a stable name of its own.
-RankingOutcome = TextChoices("RankingOutcome", [(name.upper(), name) for name in PUBLIC_OUTCOME_NAMES])
+class RankingOutcome(TextChoices):
+    OPEN = "open"
+    ACTION = "action"
+    FIX = "fix"
+
+
+assert tuple(RankingOutcome.values) == PUBLIC_OUTCOME_NAMES, (
+    "RankingOutcome and PUBLIC_OUTCOMES must list the same outcomes"
+)
