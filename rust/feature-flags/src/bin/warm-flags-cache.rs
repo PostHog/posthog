@@ -34,7 +34,7 @@ const REDIS_CONNECT_RETRIES: u32 = 3;
 const TEAM_ID_PAGE_SIZE: i64 = 1000;
 
 #[derive(Parser, Debug)]
-#[command(name = "warm-flags-cache")]
+#[command(name = "warm-flags-cache", version)]
 struct Cli {
     #[arg(long, num_args = 1..)]
     team_ids: Option<Vec<TeamId>>,

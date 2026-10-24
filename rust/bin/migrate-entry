@@ -187,6 +187,9 @@ case "$MIGRATION_TYPE" in
         run_cyclotron_node_migrations
         run_behavioral_cohorts_migrations
         ;;
+    --version)
+        exec sqlx --version
+        ;;
     *)
         log_json "error" "Invalid migration type specified" "failed" "$MIGRATION_TYPE"
         show_usage

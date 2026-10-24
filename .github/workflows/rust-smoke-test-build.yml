@@ -29,7 +29,9 @@ on:
             - '.github/rust-images.yml'
 
 concurrency:
-    group: rust-smoke-test-${{ github.event.pull_request.number || github.run_id }}
+    # GitHub cannot filter a label trigger by name. Any other label gets a group of its
+    # own, so adding it does not cancel a smoke test build that is in progress.
+    group: rust-smoke-test-${{ (github.event.action == 'labeled' && !startsWith(github.event.label.name, 'smoke_test')) && github.run_id || github.event.pull_request.number || github.run_id }}
     cancel-in-progress: true
 
 jobs:
@@ -37,10 +39,12 @@ jobs:
         name: authorize smoke test
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # Only adding a smoke_test label starts a build. Any other label changes no code.
         if: |
             (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') ||
             (github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
+             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test') &&
+             (github.event.action != 'labeled' || startsWith(github.event.label.name, 'smoke_test')))
         permissions: {}
         steps:
             - run: echo "Authorized"

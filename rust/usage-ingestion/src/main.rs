@@ -22,6 +22,10 @@ use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIng
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     // Without this, the first TLS handshake to Valkey panics the task that made it, which
     // takes the counter flush loop down before it reports anything.
     rustls::crypto::aws_lc_rs::default_provider()

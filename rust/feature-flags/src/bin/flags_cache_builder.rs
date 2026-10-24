@@ -275,6 +275,10 @@ impl<O> TeamBatch<O> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     init_tracing();
 
     let infra = InfraConfig::init_from_env().expect("Invalid infrastructure configuration");

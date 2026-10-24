@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Debug)]
 #[command(
     name = "pgapi",
+    version,
     about = "API + MCP server over the pgcollector stats database"
 )]
 struct Cli {

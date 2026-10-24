@@ -94,6 +94,8 @@ jobs:
             id-token: write
             contents: read
             packages: write
+        env:
+            PLATFORMS: linux/arm64,linux/amd64
 
         defaults:
             run:
@@ -202,7 +204,7 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   annotations: ${{ steps.meta.outputs.annotations }}
-                  platforms: linux/arm64,linux/amd64
+                  platforms: ${{ env.PLATFORMS }}
                   build-args: |
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
@@ -216,6 +218,19 @@ jobs:
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
                       posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
+
+            # Starts the pushed image on each platform it ships. This catches a missing
+            # binary, a wrong BIN or ENTRYPOINT, a missing shared library, and a wrong-arch
+            # binary before the deploy. The time limit fails a binary that ignores
+            # --version and starts serving.
+            - name: Smoke test image
+              if: inputs.push
+              env:
+                  IMAGE: ghcr.io/posthog/posthog/${{ matrix.image }}@${{ steps.docker_build.outputs.digest }}
+              run: |
+                  for platform in ${PLATFORMS//,/ }; do
+                      timeout 120 docker run --rm --platform "$platform" "$IMAGE" --version
+                  done
 
             - name: Build failure properties
               if: failure()

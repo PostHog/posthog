@@ -31,7 +31,7 @@ const POOL_NAME: &str = "flags_read_store";
 const SERVICE_NAME: &str = "flags-consumer";
 
 #[derive(Parser)]
-#[command(name = "flags-consumer")]
+#[command(name = "flags-consumer", version)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

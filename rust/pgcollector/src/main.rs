@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "pgcollector", about = "Postgres telemetry collector")]
+#[command(name = "pgcollector", version, about = "Postgres telemetry collector")]
 struct Cli {
     /// Path to pgcollector.toml
     #[arg(
