@@ -67,6 +67,20 @@ describe('ApiClient.requestSSE', () => {
         expect(onEvent).toHaveBeenNthCalledWith(3, 'done', { completed: ['abc', 'def'], failed: [] })
     })
 
+    it('propagates a callback failure without invoking it again with raw data', async () => {
+        const failure = new Error('Could not process summary')
+        const onEvent = vi.fn().mockImplementationOnce(() => {
+            throw failure
+        })
+        vi.stubGlobal(
+            'fetch',
+            makeMockFetch(new Response(createMockStream(['event: summary\ndata: {"session_id":"abc"}\n\n'])))
+        )
+
+        await expect(client.requestSSE({ method: 'GET', path: '/api/stream', onEvent })).rejects.toBe(failure)
+        expect(onEvent).toHaveBeenCalledExactlyOnceWith('summary', { session_id: 'abc' })
+    })
+
     it('should skip keepalive comments and only call onEvent for real events', async () => {
         const sseBody = [
             'event: summary\ndata: {"session_id": "abc"}\n\n',

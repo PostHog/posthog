@@ -70,6 +70,8 @@ server failures as tool errors so MCP Analytics measures genuine failures rather
 
 Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
 Copying only the message loses the HTTP status and retry guidance.
+The shared API client classifies error responses consistently for JSON, text, and SSE requests.
+Missing-scope errors include recovery steps for both Personal API keys and OAuth connections.
 For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
 It does not retry these requests automatically.
 
