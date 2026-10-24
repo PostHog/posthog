@@ -158,6 +158,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 None,
                 "HogQL column `missing_property` could not be resolved",
                 None,
+                False,
             ),
             (
                 "clickhouse",
@@ -165,6 +166,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "no_common_type",
                 "There is no supertype for types String, UInt64",
                 "Stack trace",
+                True,
             ),
         ]
     )
@@ -175,6 +177,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         code_name: str | None,
         expected_detail: str,
         forbidden_detail: str | None,
+        expect_captured: bool,
     ):
         endpoint = create_endpoint_with_version(
             name=f"{_name}_safe_error",
@@ -191,7 +194,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
             mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
         ):
             response = self.client.post(
@@ -199,6 +202,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_capture.called, expect_captured)
         detail = response.json()["detail"]
         self.assertIn(expected_detail, detail)
         self.assertNotIn("Query execution failed.", detail)

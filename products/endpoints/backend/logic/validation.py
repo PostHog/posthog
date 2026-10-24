@@ -40,6 +40,7 @@ from products.endpoints.backend.models import (
     can_materialize_query,
 )
 from products.product_analytics.backend.facade.api import insight_variables_by_code_names, insight_variables_by_ids
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
 
 def validate_data_freshness(data_freshness_seconds: int | None) -> None:
@@ -126,6 +127,12 @@ def _validate_query_access(
         raise
 
 
+def _fill_default_value(variable: HogQLVariable, definition: InsightVariableDefinition) -> None:
+    if variable.value is None and variable.isNull is not True:
+        variable.value = definition.default_value
+        variable.isNull = definition.default_value is None
+
+
 def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
     """Sync query variable definitions with the placeholders used in the query string."""
     try:
@@ -158,14 +165,16 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
 
     synced_variables: dict[str, HogQLVariable] = {}
     existing_code_names: set[str] = set()
+    # Entries whose variable was deleted or recreated: rebind them by code name below.
+    stale_variables: dict[str, tuple[str, HogQLVariable]] = {}
 
     for variable_id, variable in existing_variables.items():
         if variable.code_name and variable.code_name in placeholder_names:
-            if variable.value is None and variable.isNull is not True:
-                team_variable = team_variables_by_id.get(variable.variableId)
-                if team_variable:
-                    variable.value = team_variable.default_value
-                    variable.isNull = team_variable.default_value is None
+            team_variable = team_variables_by_id.get(variable.variableId)
+            if team_variable is None:
+                stale_variables[variable.code_name] = (variable_id, variable)
+                continue
+            _fill_default_value(variable, team_variable)
             synced_variables[variable_id] = variable
             existing_code_names.add(variable.code_name)
 
@@ -176,12 +185,19 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
         for definition in missing_variables:
             if not definition.code_name:
                 continue
-            synced_variables[str(definition.id)] = HogQLVariable(
+            _, stale_variable = stale_variables.pop(definition.code_name, (None, None))
+            variable = HogQLVariable(
                 variableId=str(definition.id),
                 code_name=definition.code_name,
-                value=definition.default_value,
-                isNull=definition.default_value is None,
+                value=stale_variable.value if stale_variable else None,
+                isNull=stale_variable.isNull if stale_variable else None,
             )
+            _fill_default_value(variable, definition)
+            synced_variables[str(definition.id)] = variable
+
+    # No team variable has this code name, so keep the entry and let validation name the bad id.
+    for variable_id, variable in stale_variables.values():
+        synced_variables[variable_id] = variable
 
     query.variables = synced_variables or None
 
