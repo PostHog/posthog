@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import type { Series } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import {
@@ -13,12 +14,90 @@ import {
 } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { dataModelingJobsList } from 'products/data_warehouse/frontend/generated/api'
-import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import {
+    DataModelingJobsListEngine,
+    DataModelingJobsListStatus,
+    type PaginatedDataModelingJobListApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import * as api from './generated/api'
-import type { ModelUsageApi } from './generated/api.schemas'
+import { DataModelingUsageListEngine, type ModelUsageApi } from './generated/api.schemas'
 
 export const MATERIALIZATION_JOBS_PAGE_SIZE = 20
+export const DEFAULT_MODELS_USAGE_DATE_FROM = '-30d'
+export const MATERIALIZATION_ENGINE_LABELS: Record<string, string> = {
+    all: 'All engines',
+    clickhouse: 'ClickHouse',
+    duckgres: 'Duckgres',
+    managed_warehouse: 'Managed warehouse',
+}
+
+const JOB_ENGINE_BY_USAGE_ENGINE: Partial<Record<DataModelingUsageListEngine, DataModelingJobsListEngine>> = {
+    [DataModelingUsageListEngine.Clickhouse]: DataModelingJobsListEngine.Clickhouse,
+    [DataModelingUsageListEngine.ManagedWarehouse]: DataModelingJobsListEngine.ManagedWarehouse,
+}
+
+function normalizeModelsUsageDateRange(
+    dateFrom: string | null,
+    dateTo: string | null
+): { dateFrom: string; dateTo: string | null } {
+    const normalizedDateFrom = dateFrom ?? DEFAULT_MODELS_USAGE_DATE_FROM
+    if (dateTo === null && /^-(\d+)d$/.test(normalizedDateFrom)) {
+        return { dateFrom: normalizedDateFrom, dateTo }
+    }
+
+    const today = dayjs.utc().startOf('day')
+    const lastCompleteDay = today.subtract(1, 'day')
+    const parsedDateFrom = dayjs.utc(normalizedDateFrom).startOf('day')
+    const parsedDateTo = dateTo ? dayjs.utc(dateTo).startOf('day') : null
+    const effectiveDateTo = parsedDateTo?.isBefore(today) ? parsedDateTo : lastCompleteDay
+    const exclusiveDateTo = effectiveDateTo.add(1, 'day')
+    const earliestDateFrom = exclusiveDateTo.subtract(366, 'day')
+    const latestDateFrom = exclusiveDateTo.subtract(1, 'day')
+    const effectiveDateFrom = parsedDateFrom.isBefore(earliestDateFrom)
+        ? earliestDateFrom
+        : parsedDateFrom.isAfter(latestDateFrom)
+          ? latestDateFrom
+          : parsedDateFrom
+
+    return {
+        dateFrom: effectiveDateFrom.format('YYYY-MM-DD'),
+        dateTo: dateTo === null ? null : effectiveDateTo.format('YYYY-MM-DD'),
+    }
+}
+
+function completeUtcUsageDateRange(
+    dateFrom: string,
+    dateTo: string | null
+): {
+    days?: number
+    date_from?: string
+    date_to?: string
+} {
+    const normalizedRange = normalizeModelsUsageDateRange(dateFrom, dateTo)
+    dateFrom = normalizedRange.dateFrom
+    dateTo = normalizedRange.dateTo
+    const relativeDays = dateTo === null ? /^-(\d+)d$/.exec(dateFrom) : null
+    if (relativeDays) {
+        return { days: Number(relativeDays[1]) }
+    }
+
+    const start = dayjs.utc(dateFrom).startOf('day')
+    return {
+        date_from: start.format('YYYY-MM-DD'),
+        date_to: dateTo ? dayjs.utc(dateTo).format('YYYY-MM-DD') : undefined,
+    }
+}
+
+function materializationJobsDateFrom(dateFrom: string, dateTo: string | null): string {
+    const normalizedRange = normalizeModelsUsageDateRange(dateFrom, dateTo)
+    const relativeDays = normalizedRange.dateTo === null ? /^-(\d+)d$/.exec(normalizedRange.dateFrom) : null
+    const start = relativeDays
+        ? dayjs.utc().startOf('day').subtract(Number(relativeDays[1]), 'day')
+        : dayjs.utc(normalizedRange.dateFrom).startOf('day')
+
+    return start.toISOString()
+}
 
 export interface MaterializedViewOption {
     id: string
@@ -33,7 +112,8 @@ export interface modelsUsageLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     chartLabels: string[]
     chartSeries: Series[]
-    days: number
+    dateFrom: string
+    dateTo: string | null
     failed: boolean
     jobsFailed: boolean
     jobsLoading: boolean
@@ -44,7 +124,8 @@ export interface modelsUsageLogicValues {
     materializationJobsLoading: boolean
     materializedViewOptions: MaterializedViewOption[]
     page: number
-    savedQueryNameById: Record<string, string>
+    selectedEngine: DataModelingUsageListEngine
+    selectedJobStatus: DataModelingJobsListStatus | null
     selectedSavedQueryId: string | null
     usage: ModelUsageApi | null
     usageLoading: boolean
@@ -92,14 +173,24 @@ export interface modelsUsageLogicActions {
     refreshJobs: () => {
         value: true
     }
-    setDays: (days: number) => {
-        days: number
+    setDateRange: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string
+        dateTo: string | null
     }
     setJobsPage: (page: number) => {
         page: number
     }
     setPage: (page: number) => {
         page: number
+    }
+    setSelectedEngine: (engine: DataModelingUsageListEngine) => {
+        engine: DataModelingUsageListEngine
+    }
+    setSelectedJobStatus: (status: DataModelingJobsListStatus | null) => {
+        status: DataModelingJobsListStatus | null
     }
     setSelectedSavedQueryId: (savedQueryId: string | null) => {
         savedQueryId: string | null
@@ -113,7 +204,6 @@ export interface modelsUsageLogicMeta {
         materializedViewOptions: (
             dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         ) => MaterializedViewOption[]
-        savedQueryNameById: (dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]) => Record<string, string>
         jobsFailed: (materializationJobsFailed: boolean, dataWarehouseSavedQueriesFailed: boolean) => boolean
         jobsLoading: (materializationJobsLoading: boolean, dataWarehouseSavedQueriesLoading: boolean) => boolean
         chartLabels: (usage: ModelUsageApi | null) => string[]
@@ -140,23 +230,49 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
     actions({
-        setDays: (days: number) => ({ days }),
+        setDateRange: (dateFrom: string | null, dateTo: string | null) =>
+            normalizeModelsUsageDateRange(dateFrom, dateTo),
         setPage: (page: number) => ({ page }),
         setJobsPage: (page: number) => ({ page }),
+        setSelectedEngine: (engine: DataModelingUsageListEngine) => ({ engine }),
+        setSelectedJobStatus: (status: DataModelingJobsListStatus | null) => ({ status }),
         setSelectedSavedQueryId: (savedQueryId: string | null) => ({ savedQueryId }),
         openModel: true,
         refresh: true,
         refreshJobs: true,
     }),
     reducers({
-        days: [30, { setDays: (_, { days }) => days }],
-        page: [1, { setPage: (_, { page }) => page, setDays: () => 1 }],
+        dateFrom: [
+            DEFAULT_MODELS_USAGE_DATE_FROM as string,
+            { setDateRange: (_, { dateFrom }) => dateFrom ?? DEFAULT_MODELS_USAGE_DATE_FROM },
+        ],
+        dateTo: [null as string | null, { setDateRange: (_, { dateTo }) => dateTo }],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setDateRange: () => 1,
+                setSelectedEngine: () => 1,
+                setSelectedSavedQueryId: () => 1,
+            },
+        ],
         jobsPage: [
             1,
             {
                 setJobsPage: (_, { page }) => page,
+                setDateRange: () => 1,
+                setSelectedEngine: () => 1,
+                setSelectedJobStatus: () => 1,
                 setSelectedSavedQueryId: () => 1,
             },
+        ],
+        selectedEngine: [
+            DataModelingUsageListEngine.All as DataModelingUsageListEngine,
+            { setSelectedEngine: (_, { engine }) => engine },
+        ],
+        selectedJobStatus: [
+            null as DataModelingJobsListStatus | null,
+            { setSelectedJobStatus: (_, { status }) => status },
         ],
         selectedSavedQueryId: [
             null as string | null,
@@ -173,10 +289,17 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             null as ModelUsageApi | null,
             {
                 loadUsage: async (_: void, breakpoint): Promise<ModelUsageApi> => {
+                    const dateRange = completeUtcUsageDateRange(values.dateFrom, values.dateTo)
                     const result = await api.dataModelingUsageList(String(getCurrentTeamId()), {
-                        days: values.days,
+                        days: dateRange.days,
+                        date_from: dateRange.date_from,
+                        date_to: dateRange.date_to,
+                        engine: values.managedWarehouseEnabled
+                            ? values.selectedEngine
+                            : DataModelingUsageListEngine.Clickhouse,
                         page: values.page,
                         page_size: 20,
+                        saved_query_id: values.selectedSavedQueryId ?? undefined,
                     })
                     breakpoint()
                     return result
@@ -188,10 +311,16 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
             {
                 loadMaterializationJobs: async (_: void, breakpoint): Promise<PaginatedDataModelingJobListApi> => {
                     const result = await dataModelingJobsList(String(getCurrentTeamId()), {
+                        after: materializationJobsDateFrom(values.dateFrom, values.dateTo),
                         limit: MATERIALIZATION_JOBS_PAGE_SIZE,
                         offset: (values.jobsPage - 1) * MATERIALIZATION_JOBS_PAGE_SIZE,
                         saved_query_id: values.selectedSavedQueryId ?? undefined,
                         all_engines: values.managedWarehouseEnabled || undefined,
+                        engine:
+                            values.managedWarehouseEnabled && values.selectedEngine !== DataModelingUsageListEngine.All
+                                ? JOB_ENGINE_BY_USAGE_ENGINE[values.selectedEngine]
+                                : undefined,
+                        status: values.selectedJobStatus ?? undefined,
                     })
                     breakpoint()
                     return result
@@ -202,8 +331,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
     selectors({
         managedWarehouseEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] || !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY],
         ],
         materializedViewOptions: [
             (s) => [s.dataWarehouseSavedQueries],
@@ -212,11 +340,6 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                     .filter((view) => view.is_materialized)
                     .map((view) => ({ id: view.id, name: view.name ?? 'Untitled view' }))
                     .sort((a, b) => a.name.localeCompare(b.name)),
-        ],
-        savedQueryNameById: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (savedQueries: DataWarehouseSavedQuerySummary[]): Record<string, string> =>
-                Object.fromEntries(savedQueries.map((view) => [view.id, view.name ?? 'Untitled view'])),
         ],
         jobsFailed: [
             (s) => [s.materializationJobsFailed, s.dataWarehouseSavedQueriesFailed],
@@ -234,19 +357,37 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         ],
         chartSeries: [
             (s) => [s.usage],
-            (usage: ModelUsageApi | null): Series[] => [
-                { key: 'bytes', label: 'Bytes read', data: usage?.trends.map((day) => day.read_bytes ?? NaN) ?? [] },
-            ],
+            (usage: ModelUsageApi | null): Series[] =>
+                (usage?.trends[0]?.engines ?? []).map(({ engine }) => ({
+                    key: engine,
+                    label: MATERIALIZATION_ENGINE_LABELS[engine] ?? engine,
+                    data:
+                        usage?.trends.map(
+                            (day) => day.engines.find((item) => item.engine === engine)?.read_bytes ?? NaN
+                        ) ?? [],
+                })),
         ],
     }),
     listeners(({ actions, values }) => ({
-        setDays: () => {
-            posthog.capture('models usage date range changed', { days: values.days })
+        setDateRange: () => {
+            posthog.capture('models usage date range changed', {
+                date_from: values.dateFrom,
+                date_to: values.dateTo,
+            })
             actions.loadUsage()
+            actions.loadMaterializationJobs()
         },
         setPage: () => actions.loadUsage(),
         setJobsPage: () => actions.loadMaterializationJobs(),
-        setSelectedSavedQueryId: () => actions.loadMaterializationJobs(),
+        setSelectedEngine: () => {
+            actions.loadUsage()
+            actions.loadMaterializationJobs()
+        },
+        setSelectedJobStatus: () => actions.loadMaterializationJobs(),
+        setSelectedSavedQueryId: () => {
+            actions.loadUsage()
+            actions.loadMaterializationJobs()
+        },
         refreshJobs: () => {
             actions.loadDataWarehouseSavedQueries()
             actions.loadMaterializationJobs()
@@ -257,7 +398,8 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         },
         loadUsageSuccess: ({ usage }) => {
             posthog.capture('models usage loaded', {
-                days: values.days,
+                date_from: values.dateFrom,
+                date_to: values.dateTo,
                 has_runs: usage.overview.runs > 0,
                 has_measurements: usage.overview.measured_runs > 0,
             })

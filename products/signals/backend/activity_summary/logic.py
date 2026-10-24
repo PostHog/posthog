@@ -13,6 +13,7 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
@@ -77,6 +78,7 @@ class ActivitySummaryUpdate:
     latency_ms: int | None = None
     error: str | None = None
     inputs_used: dict[str, Any] | None = None
+    computed: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
     # The pair had no generated summary before this update.
@@ -152,6 +154,7 @@ _VERSION_FIELDS = (
     "render_version",
     "input_watermark",
     "inputs_used",
+    "computed",
     "tokens_in",
     "tokens_out",
     "cost_usd",
@@ -264,6 +267,7 @@ def update_activity_summary(
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
     rebuild = is_stale(stored, rebuild_before)
+    window_start = _input_start(None, now, limits.window_days)
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
@@ -295,6 +299,15 @@ def update_activity_summary(
         "limits": dataclasses.asdict(limits),
     }
     watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
+    # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
+    if start == window_start:
+        computed = compute_fields(tasks, activity, views).as_json()
+    else:
+        computed = compute_fields(
+            user_tasks(team_id, user_id, window_start, now),
+            user_activity(team_id, user_id, window_start, now),
+            user_views(team_id, user_id, window_start, now),
+        ).as_json()
     previous = stored.summary if stored is not None and not rebuild else None
     model = DEFAULT_MODEL
     outcome = summarize(
@@ -305,6 +318,7 @@ def update_activity_summary(
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
         profile_max_chars=limits.profile_max_chars,
+        computed=computed,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(
@@ -317,6 +331,7 @@ def update_activity_summary(
         latency_ms=outcome.latency_ms,
         error=outcome.error,
         inputs_used=inputs_used,
+        computed=computed if outcome.summary is not None else None,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
         new_summary=stored is None or stored.generated_at is None,
@@ -353,6 +368,7 @@ def update_activity_summary(
                 "status": UserActivitySummary.Status.OK,
                 "summary": outcome.summary,
                 "summary_text": summary_text(outcome.summary),
+                "computed": computed,
                 "generated_at": now,
                 "model": model,
                 "prompt_version": PROMPT_VERSION,
