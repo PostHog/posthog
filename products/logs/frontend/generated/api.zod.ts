@@ -732,6 +732,72 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const logsContextCreateBodyQueryOneLimitDefault = 100
+export const logsContextCreateBodyQueryOneLimitMax = 500
+
+export const LogsContextCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            anchor: zod
+                .object({
+                    logUuid: zod.string().optional().describe('uuid of one log line. Needs `timestamp`.'),
+                    timestamp: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe('ISO 8601 timestamp of the `logUuid` log line.'),
+                    traceId: zod.string().optional().describe('Trace id, 32 hex characters or base64.'),
+                    attribute: zod
+                        .object({
+                            key: zod.string().describe('Log attribute key, e.g. \"workflow_run_id\".'),
+                            value: zod.string().describe('Exact attribute value to follow.'),
+                        })
+                        .optional()
+                        .describe('Follow every log with this attribute value.'),
+                    around: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe(
+                            'ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans.'
+                        ),
+                })
+                .describe('Exactly one anchor: a log line, a trace, or an attribute value.'),
+            padding: zod
+                .string()
+                .optional()
+                .describe(
+                    'Time on each side of the anchor: \"30s\", \"5m\", \"1h\" (max 6h). Default 30s for a trace, 5m otherwise.'
+                ),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Keep only these severities in the timeline.'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Restrict the timeline to these services. Default: the trace's services, the log's service, or all."
+                ),
+            include: zod
+                .array(zod.enum(['spans']).describe('\* `spans` - Spans'))
+                .optional()
+                .describe('\"spans\" adds spans_summary for a trace anchor.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsContextCreateBodyQueryOneLimitMax)
+                .default(logsContextCreateBodyQueryOneLimitDefault)
+                .describe('Maximum timeline rows.'),
+            after: zod.string().optional().describe('`next_cursor` of a previous call with the same anchor.'),
+        })
+        .describe('The context query.'),
+})
+
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({

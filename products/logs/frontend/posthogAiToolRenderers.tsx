@@ -28,6 +28,7 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
         requiresPostHogOrigin: true,
     },
     ...labelled(['logs-services-create'], 'Logs services', <IconServer />),
+    ...labelled(['logs-context'], 'Log context', <IconStack />),
     ...labelled(['logs-patterns', 'logs-patterns-diff'], 'Log patterns', <IconStack />),
     ...labelled(
         ['logs-count', 'logs-count-ranges', 'logs-sparkline-query', 'logs-group-by'],

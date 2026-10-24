@@ -73,6 +73,11 @@ from products.logs.backend.logs_query_runner import (
 from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
+from products.logs.backend.presentation.views.context_api import (
+    LogsContextRequestSerializer,
+    LogsContextResponseSerializer,
+    logs_context_response,
+)
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
 from products.logs.backend.presentation.views.patterns_diff_fields import (
@@ -2320,3 +2325,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             date_part = timezone.now().strftime("%Y-%m-%d")
 
         return f"logs-{service_part}-{date_part}"
+
+    @extend_schema(request=LogsContextRequestSerializer, responses={200: LogsContextResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def context(self, request: Request, *args, **kwargs) -> Response:
+        tracing_access = self.user_access_control.check_access_level_for_resource("tracing", "viewer")
+        return logs_context_response(self.team, request, tracing_access=tracing_access)
