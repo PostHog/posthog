@@ -46,6 +46,12 @@ const IDLE_REFRESH_INTERVAL_MS = 60000
 const STARTING_TIMEOUT_MS = 120000
 export const DEFAULT_JOBS_PAGE_SIZE = 10
 
+interface OlderJobsPageResult {
+    engine: DataModelingJobsListEngine
+    page: number
+    jobs: PaginatedDataModelingJobListApi
+}
+
 function runHistoryEngineParams(engine: DataModelingJobsListEngine): {
     all_engines?: boolean
     engine?: DataModelingJobsListEngine
@@ -82,7 +88,7 @@ export interface materializationJobsLogicValues {
     latestCompletedJob: PaginatedDataModelingJobListApi | null
     latestCompletedJobLoading: boolean
     materializationRefreshPending: boolean
-    olderJobsPage: PaginatedDataModelingJobListApi | null
+    olderJobsPage: OlderJobsPageResult | null
     olderJobsPageError: boolean
     olderJobsPageLoading: boolean
     refreshModeChanged: boolean
@@ -213,10 +219,18 @@ export interface materializationJobsLogicActions {
         errorObject?: any
     }
     loadOlderJobsPageSuccess: (
-        olderJobsPage: PaginatedDataModelingJobListApi,
+        olderJobsPage: {
+            engine: DataModelingJobsListEngine
+            jobs: PaginatedDataModelingJobListApi
+            page: number
+        },
         payload?: void
     ) => {
-        olderJobsPage: PaginatedDataModelingJobListApi
+        olderJobsPage: {
+            engine: DataModelingJobsListEngine
+            jobs: PaginatedDataModelingJobListApi
+            page: number
+        }
         payload?: void
     }
     loadRunHistoryJobs: (_: void) => void
@@ -307,7 +321,7 @@ export interface materializationJobsLogicMeta {
             selectedRunHistoryEngine: DataModelingJobsListEngine,
             dataModelingJobs: PaginatedDataModelingJobListApi | null,
             runHistoryJobs: PaginatedDataModelingJobListApi | null,
-            olderJobsPage: PaginatedDataModelingJobListApi | null
+            olderJobsPage: OlderJobsPageResult | null
         ) => PaginatedDataModelingJobListApi | null
         runHistoryError: (
             selectedRunHistoryEngine: DataModelingJobsListEngine,
@@ -463,17 +477,19 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             },
         ],
         olderJobsPage: [
-            null as PaginatedDataModelingJobListApi | null,
+            null as OlderJobsPageResult | null,
             {
                 loadOlderJobsPage: async (_: void, breakpoint) => {
+                    const engine = values.selectedRunHistoryEngine
+                    const page = values.jobsPage
                     const jobs = await dataModelingJobsList(String(ApiConfig.getCurrentTeamId()), {
                         saved_query_id: props.viewId,
                         limit: DEFAULT_JOBS_PAGE_SIZE,
-                        offset: (values.jobsPage - 1) * DEFAULT_JOBS_PAGE_SIZE,
-                        ...runHistoryEngineParams(values.selectedRunHistoryEngine),
+                        offset: (page - 1) * DEFAULT_JOBS_PAGE_SIZE,
+                        ...runHistoryEngineParams(engine),
                     })
                     breakpoint()
-                    return jobs
+                    return { engine, page, jobs }
                 },
             },
         ],
@@ -625,9 +641,13 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 engine: DataModelingJobsListEngine,
                 latest: PaginatedDataModelingJobListApi | null,
                 filtered: PaginatedDataModelingJobListApi | null,
-                older: PaginatedDataModelingJobListApi | null
-            ): PaginatedDataModelingJobListApi | null =>
-                page === 1 ? (engine === DataModelingJobsListEngine.Clickhouse ? latest : filtered) : older,
+                older: OlderJobsPageResult | null
+            ): PaginatedDataModelingJobListApi | null => {
+                if (page === 1) {
+                    return engine === DataModelingJobsListEngine.Clickhouse ? latest : filtered
+                }
+                return older?.engine === engine && older.page === page ? older.jobs : null
+            },
         ],
         runHistoryError: [
             (s) => [

@@ -104,6 +104,7 @@ class ModelUsage:
         latest_jobs = (
             jobs.filter(saved_query_id__isnull=False)
             .select_related("saved_query")
+            .only("saved_query_id", "engine", "status", "error", "saved_query__name", "saved_query__deleted")
             .order_by("saved_query_id", "engine", "-last_run_at", "-created_at")
             .distinct("saved_query_id", "engine")
         )

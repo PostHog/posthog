@@ -437,8 +437,8 @@ export function MaterializationStatusPanel({
                     // A timer reloads page 1 in the background, and LemonTable's loading overlay blocks
                     // pointer events over the rows and the pager, so page 1 shows the loader only before it
                     // has rows. Only a user action loads an older page, so that loader always shows.
-                    loading={runHistoryLoading && !jobsPageResults?.results?.length}
-                    dataSource={runHistoryError ? [] : jobsPageResults?.results || []}
+                    loading={runHistoryLoading && (jobsPage > 1 || !jobsPageResults?.results?.length)}
+                    dataSource={jobsPage > 1 && runHistoryError ? [] : jobsPageResults?.results || []}
                     columns={[
                         {
                             title: 'Status',

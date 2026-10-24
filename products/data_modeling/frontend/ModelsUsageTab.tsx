@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { BarChart, TimeSeriesBarChart, type BarChartConfig } from '@posthog/quill-charts'
@@ -83,23 +83,22 @@ export function ModelsUsageTab({
         statusChartSeries,
         jobsLoading,
         managedWarehouseEnabled,
-        materializedViewOptions,
         selectedEngine,
+        selectedMaterializedViewOptions,
         selectedSavedQueryIds,
+        viewFilterOptions,
     } = useValues(modelsUsageLogic)
     const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryIds } =
         useActions(modelsUsageLogic)
     const viewFilterRef = useRef<HTMLButtonElement>(null)
-    const selectedViews = useMemo(
-        () => materializedViewOptions.filter((option) => selectedSavedQueryIds.includes(option.id)),
-        [materializedViewOptions, selectedSavedQueryIds]
-    )
     const selectedViewsLabel =
         selectedSavedQueryIds.length === 0
             ? 'All materialized views'
             : selectedSavedQueryIds.length === 1
-              ? (selectedViews[0]?.name ?? '1 materialized view')
+              ? (selectedMaterializedViewOptions[0]?.name ?? '1 materialized view')
               : `${selectedSavedQueryIds.length} materialized views`
+    const chartSeriesKey = chartSeries.map((series) => series.key).join('|')
+    const statusChartSeriesKey = statusChartSeries.map((series) => series.key).join('|')
     const theme = useChartTheme()
     const chartConfig = useChartConfig(
         () => ({
@@ -136,8 +135,8 @@ export function ModelsUsageTab({
                 <div className="flex flex-wrap gap-2">
                     <Combobox
                         multiple
-                        items={materializedViewOptions}
-                        value={selectedViews}
+                        items={viewFilterOptions}
+                        value={selectedMaterializedViewOptions}
                         itemToStringValue={(option: MaterializedViewOption) => option.name}
                         isItemEqualToValue={(option, value) => option.id === value.id}
                         onValueChange={(options: MaterializedViewOption[]) =>
@@ -307,6 +306,7 @@ export function ModelsUsageTab({
                                 <CardContent>
                                     <div className="h-64 flex flex-col">
                                         <TimeSeriesBarChart
+                                            key={chartSeriesKey}
                                             series={chartSeries}
                                             labels={chartLabels}
                                             theme={theme}
@@ -331,6 +331,7 @@ export function ModelsUsageTab({
                                 <CardContent>
                                     <div className="flex h-64 flex-col">
                                         <BarChart
+                                            key={statusChartSeriesKey}
                                             series={statusChartSeries}
                                             labels={statusChartLabels}
                                             theme={theme}

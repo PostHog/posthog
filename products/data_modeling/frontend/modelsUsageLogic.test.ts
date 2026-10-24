@@ -116,6 +116,42 @@ describe('modelsUsageLogic', () => {
         expect(logic.values.selectedSavedQueryIds).toEqual([])
     })
 
+    it('keeps selected status models that are absent from the materialized view options', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setSelectedSavedQueryIds(['deleted-view'])).toDispatchActions([
+            'loadUsageSuccess',
+            'loadMaterializationJobsSuccess',
+        ])
+
+        logic.actions.loadUsageSuccess({
+            ...emptyUsage,
+            status_breakdown: [
+                {
+                    engine: 'clickhouse',
+                    status: 'Failed',
+                    count: 1,
+                    models: [
+                        {
+                            saved_query_id: 'deleted-view',
+                            name: 'Deleted view',
+                            deleted: true,
+                            error: 'Query failed',
+                        },
+                    ],
+                },
+            ],
+        })
+
+        expect(logic.values.viewFilterOptions).toContainEqual({ id: 'deleted-view', name: 'Deleted view' })
+        expect(logic.values.selectedMaterializedViewOptions).toEqual([{ id: 'deleted-view', name: 'Deleted view' }])
+
+        logic.actions.setSelectedSavedQueryIds(['deleted-view', 'view-a'])
+        expect(logic.values.selectedMaterializedViewOptions).toEqual([
+            { id: 'deleted-view', name: 'Deleted view' },
+            { id: 'view-a', name: 'Alpha view' },
+        ])
+    })
+
     it('filters all tab requests by engine', async () => {
         await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
 
