@@ -4,6 +4,7 @@
 
 mod capped;
 mod collector;
+mod completed_polls;
 mod continuous;
 #[cfg(test)]
 mod harness;

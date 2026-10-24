@@ -9,6 +9,7 @@ use tokio::time::Instant;
 
 use super::collector::tests::message;
 use super::{CollectedBatch, InFlightPoll, Parts, PollLimits, PollingStrategy, Step};
+use crate::debug_recorder::{DebugEventKind, DebugRecorder};
 use crate::partition_budget::BudgetLimits;
 use crate::settlement::{GroupSettlement, Settlement};
 
@@ -18,7 +19,9 @@ pub(super) struct Harness<P> {
     pub(super) poller: P,
     pub(super) settlement: Arc<dyn Settlement>,
     pub(super) ledger: Arc<TopicOffsetLedger>,
+    pub(super) recorder: Arc<DebugRecorder>,
     pub(super) now: Instant,
+    submitted: usize,
 }
 
 impl<P: PollingStrategy> Harness<P> {
@@ -29,6 +32,7 @@ impl<P: PollingStrategy> Harness<P> {
             Duration::ZERO,
             BudgetLimits::unset(),
         ));
+        let recorder = DebugRecorder::new(1_000, Duration::from_secs(3600));
         let poller = make(Parts {
             limits: PollLimits {
                 batch_size: 100,
@@ -37,14 +41,30 @@ impl<P: PollingStrategy> Harness<P> {
             },
             settlement: Arc::clone(&settlement),
             group_id: "test".to_string(),
-            debug_recorder: None,
+            debug_recorder: Some(Arc::clone(&recorder)),
         });
         Self {
             poller,
             settlement,
             ledger,
+            recorder,
             now: Instant::now(),
+            submitted: 0,
         }
+    }
+
+    /// `(poll id, accepted)` in completion order. The n-th submitted poll is `poll-n`.
+    pub(super) fn completed_polls(&self) -> Vec<(String, u32)> {
+        self.recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::PollCompleted {
+                    batch_id, accepted, ..
+                } => Some((batch_id, accepted)),
+                _ => None,
+            })
+            .collect()
     }
 
     pub(super) fn receive(&mut self, partition: i32, offsets: &[i64]) {
@@ -89,8 +109,10 @@ impl<P: PollingStrategy> Harness<P> {
                 )
             })
             .collect();
+        let poll_id = format!("poll-{}", self.submitted);
+        self.submitted += 1;
         self.poller.submitted(InFlightPoll {
-            poll_id: "poll".to_string(),
+            poll_id,
             assignment_epoch: 1,
             partitions,
             uncommitted,
