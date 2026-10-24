@@ -600,17 +600,29 @@ def record_agent_server_step_ms(
     origin_product: str | None = None,
     runtime: str | None = None,
 ) -> None:
+    _record_step_ms(
+        step,
+        duration_ms,
+        {"used_snapshot": _bool_label(used_snapshot), "status": status, "boot_path": boot_path},
+        origin_product=origin_product,
+        runtime=runtime,
+    )
+
+
+def _record_step_ms(
+    step: str,
+    duration_ms: int,
+    labels: Mapping[str, str],
+    *,
+    origin_product: str | None,
+    runtime: str | None,
+) -> None:
+    attributes: Attributes = {"step": step, **labels}
+    if origin_product is not None:
+        attributes["origin_product"] = origin_product
+    if runtime is not None:
+        attributes["runtime"] = runtime
     try:
-        attributes: Attributes = {
-            "step": step,
-            "used_snapshot": _bool_label(used_snapshot),
-            "status": status,
-            "boot_path": boot_path,
-        }
-        if origin_product is not None:
-            attributes["origin_product"] = origin_product
-        if runtime is not None:
-            attributes["runtime"] = runtime
         _metric_meter(attributes).create_histogram_timedelta(
             "tasks_process_sandbox_step_latency",
             "Latency for get_sandbox_for_repository sub-steps",
@@ -635,6 +647,23 @@ def record_agent_server_boot_phases_ms(
             duration_ms,
             boot_path,
             used_snapshot=used_snapshot,
+            origin_product=origin_product,
+            runtime=runtime,
+        )
+
+
+def record_repository_clone_phases_ms(
+    clone_mode: str,
+    phases_ms: Mapping[str, int],
+    *,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in phases_ms.items():
+        _record_step_ms(
+            f"repository_clone_{phase}",
+            duration_ms,
+            {"used_snapshot": _bool_label(False), "status": "COMPLETED", "clone_mode": clone_mode},
             origin_product=origin_product,
             runtime=runtime,
         )

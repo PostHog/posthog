@@ -98,11 +98,13 @@ from products.tasks.backend.logic.services.sandbox import (
     CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
+    ClonePhases,
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
     SandboxWorkload,
     health_check_timeout_seconds,
+    parse_clone_phases,
 )
 
 
@@ -1462,14 +1464,20 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,blobless,baked_repo_clone,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "--depth 1", "--filter=blob:"),
+            (False, False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, False, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "git checkout -q -f", "/posthog/posthog/.git ]"),
+            (True, False, False, "git checkout -q -f", "checkout.workers"),
+            (True, False, True, "git -c checkout.workers=0 checkout -q -f;", None),
+            (False, False, True, "--filter=blob:limit=128k", "/posthog/posthog/.git ]"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(
+        self, shallow, blobless, baked_repo_clone, expected_in_command, not_expected_in_command
+    ):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1478,13 +1486,34 @@ class TestModalSandboxCommandEscaping:
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
                 sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                    "PostHog/posthog",
+                    github_token="test-token",
+                    shallow=shallow,
+                    blobless=blobless,
+                    baked_repo_clone=baked_repo_clone,
                 )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
                 if not_expected_in_command:
                     assert not_expected_in_command not in command
+
+    @pytest.mark.parametrize(
+        "stdout,expected",
+        [
+            (
+                "clone_phases_ms mode=baked fetch=6012 checkout=640\n",
+                ClonePhases(mode="baked", fetch_ms=6012, checkout_ms=640),
+            ),
+            (
+                "Cloning into 'posthog'...\nclone_phases_ms mode=fallback fetch=9100 checkout=1500",
+                ClonePhases(mode="fallback", fetch_ms=9100, checkout_ms=1500),
+            ),
+            ("", None),
+        ],
+    )
+    def test_parse_clone_phases(self, stdout, expected):
+        assert parse_clone_phases(stdout) == expected
 
     @pytest.mark.parametrize(
         "repository,task_id,run_id,mode",

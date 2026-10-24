@@ -6,6 +6,7 @@ import time_machine
 
 from django.db import OperationalError
 
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     OrganizationExecutionError,
@@ -34,6 +35,8 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
+    _restore_native_git_stat_checks,
+    _spawn_post_ready_diagnostics,
     await_agent_server_ready,
     collect_agent_shadow_result,
     launch_agent_server,
@@ -1292,3 +1295,69 @@ def test_emit_agent_server_log_tail_reports_empty_log(mocker, stdout, expected_m
     _emit_agent_server_log_tail(context, sandbox)
 
     emit.assert_called_once_with(context.run_id, "debug", expected_message)
+
+
+def _baked_context(
+    *,
+    baked_repo_clone_enabled: bool = True,
+    custom_image_name: str | None = DEV_STACK_IMAGE_NAME,
+    repository: str | None = "posthog/posthog",
+) -> TaskProcessingContext:
+    context = _context(repository=repository)
+    context.baked_repo_clone_enabled = baked_repo_clone_enabled
+    context.custom_image_name = custom_image_name
+    return context
+
+
+@pytest.mark.parametrize(
+    "baked_repo_clone_enabled,custom_image_name,repository,expects_unset",
+    [
+        (True, DEV_STACK_IMAGE_NAME, "posthog/posthog", True),
+        (False, DEV_STACK_IMAGE_NAME, "posthog/posthog", False),
+        (True, "team-custom-image", "posthog/posthog", False),
+        (True, None, "posthog/posthog", False),
+        (True, DEV_STACK_IMAGE_NAME, None, False),
+    ],
+)
+def test_restore_native_git_stat_checks_only_runs_for_baked_checkouts(
+    mocker, baked_repo_clone_enabled, custom_image_name, repository, expects_unset
+) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+
+    _restore_native_git_stat_checks(
+        _baked_context(
+            baked_repo_clone_enabled=baked_repo_clone_enabled,
+            custom_image_name=custom_image_name,
+            repository=repository,
+        ),
+        sandbox,
+    )
+
+    assert sandbox.execute.called is expects_unset
+
+
+def test_restore_native_git_stat_checks_unsets_both_settings_in_the_repository(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+
+    _restore_native_git_stat_checks(_baked_context(), sandbox)
+
+    repo_path = sandbox_repo_path("posthog/posthog")
+    assert sandbox.execute.call_args.args[0] == (
+        f"git -C {repo_path} config --unset core.checkStat; git -C {repo_path} config --unset core.trustctime; true"
+    )
+
+
+def test_post_ready_step_survives_a_failing_git_settings_restore(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.side_effect = RuntimeError("sandbox gone")
+    emit_agent_server = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.threading.Thread",
+        side_effect=lambda target, **kwargs: mocker.Mock(start=target),
+    )
+
+    _spawn_post_ready_diagnostics(_baked_context(), sandbox, None)
+
+    emit_agent_server.assert_called_once()

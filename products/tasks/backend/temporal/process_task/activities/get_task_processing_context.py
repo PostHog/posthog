@@ -21,6 +21,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -151,6 +152,7 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    baked_repo_clone_enabled: bool = False
     agent_shadow_enabled: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
@@ -396,6 +398,7 @@ RUN_FEATURE_FLAG_KEYS: list[str] = [
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
@@ -789,6 +792,21 @@ def _is_desktop_workspace_warm_enabled(
         "desktop_workspace_warm_flag_checked",
         run_id=run_id,
         desktop_workspace_warm_enabled=enabled,
+    )
+    return enabled
+
+
+def _is_baked_repo_clone_enabled(
+    *,
+    flags: FlagsAndPayloads,
+    run_id: str,
+) -> bool:
+    enabled = _flag_enabled(flags, BAKED_REPO_CLONE_FEATURE_FLAG)
+
+    log_with_activity_context(
+        "baked_repo_clone_flag_checked",
+        run_id=run_id,
+        baked_repo_clone_enabled=enabled,
     )
     return enabled
 
@@ -1194,6 +1212,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context(
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
+    baked_repo_clone_enabled = _is_baked_repo_clone_enabled(
+        flags=flags,
+        run_id=run_id,
+    )
     agent_shadow_enabled = input.launches_agent and _is_agent_shadow_enabled(flags=flags)
     rtk_enabled = _is_rtk_enabled(
         flags=flags,
@@ -1335,6 +1357,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
         agent_shadow_enabled=agent_shadow_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,

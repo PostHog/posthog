@@ -23,7 +23,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -694,6 +694,10 @@ def _spawn_post_ready_diagnostics(
 ) -> None:
     def _run() -> None:
         try:
+            _restore_native_git_stat_checks(ctx, sandbox)
+        except Exception:
+            logger.warning("restore_native_git_stat_checks_failed", run_id=ctx.run_id, exc_info=True)
+        try:
             if agentsh_domains is not None:
                 emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
                 _emit_agentsh_log_tail(ctx, sandbox)
@@ -707,6 +711,17 @@ def _spawn_post_ready_diagnostics(
                 pass
 
     threading.Thread(target=_run, name=f"post-ready-diag-{ctx.run_id}", daemon=True).start()
+
+
+def _restore_native_git_stat_checks(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    if not ctx.baked_repo_clone_enabled or ctx.custom_image_name != DEV_STACK_IMAGE_NAME or not ctx.repositories:
+        return
+    unset_commands = [
+        f"git -C {shlex.quote(sandbox_repo_path(repository))} config --unset {setting}"
+        for repository in ctx.repositories
+        for setting in ("core.checkStat", "core.trustctime")
+    ]
+    sandbox.execute("; ".join([*unset_commands, "true"]), timeout_seconds=30)
 
 
 def _record_boot_total(input: StartAgentServerInput) -> int | None:

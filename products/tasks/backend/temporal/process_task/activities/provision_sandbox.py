@@ -62,6 +62,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
+    parse_clone_phases,
     parse_requested_sandbox_template,
     pinned_agent_version,
     sandbox_repo_path,
@@ -75,6 +76,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
+    record_repository_clone_phases_ms,
     record_sandbox_created,
     resume_mode_label,
     sandbox_runtime_label,
@@ -1180,6 +1182,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                baked_repo_clone=ctx.baked_repo_clone_enabled,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -1194,6 +1197,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    baked_repo_clone=ctx.baked_repo_clone_enabled,
                 )
 
             if _is_repository_access_denied_clone_error(clone_result):
@@ -1222,6 +1226,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     },
                     cause=RuntimeError(error_output[:200]),
                 )
+
+        clone_phases = parse_clone_phases(clone_result.stdout)
+        if clone_phases is not None:
+            record_repository_clone_phases_ms(
+                clone_phases.mode,
+                {"fetch": clone_phases.fetch_ms, "checkout": clone_phases.checkout_ms},
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            )
 
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
