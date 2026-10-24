@@ -26,10 +26,13 @@ from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
+    ADMISSION_RULE_FIELDS,
+    ADMISSION_RULES_KEY,
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
+    parse_admission_rules,
     scope_ids_problem,
 )
 from products.signals.backend.enums import (
@@ -190,7 +193,13 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
-    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The Linear issue source also reads `admission_rules`: a group `{operator: AND|OR, rules: [...]}` "
+    "where each rule is a nested group (max 3 levels) or `{field, operator, value}` (max 20 rules). "
+    "Fields: `labels` with operators `any`, `all`, `none` and a list of label names; `priority` "
+    "(0 none, 1 urgent, 2 high, 3 normal, 4 low), `state_name` and `state_type` with operators `eq`, "
+    "`neq` (one value) or `in`, `not_in` (a list). Only issues that match become signals, and they are "
+    "dropped before any AI call. Pass null or an empty group to admit every issue."
 )
 
 
@@ -309,6 +318,18 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+            # Null clears the rules. A source without an allowlist rejects the key, because nothing would read it.
+            if config.get(ADMISSION_RULES_KEY) is not None:
+                admission_fields = (
+                    ADMISSION_RULE_FIELDS.get((source_product, source_type)) if source_product and source_type else None
+                )
+                if admission_fields is None:
+                    raise serializers.ValidationError(
+                        {"config": f"{ADMISSION_RULES_KEY} is not supported for this source"}
+                    )
+                _, problem = parse_admission_rules(config[ADMISSION_RULES_KEY], admission_fields)
+                if problem is not None:
+                    raise serializers.ValidationError({"config": f"{ADMISSION_RULES_KEY} {problem}"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):

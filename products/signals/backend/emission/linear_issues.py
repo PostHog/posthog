@@ -144,6 +144,14 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
     # Every Linear issue belongs to exactly one team, so a team allowlist covers the whole workspace.
     scope_field="JSONExtractString(team, 'id')",
     scope_config_key=SCOPE_CONFIG_KEYS[(SignalSourceProduct.LINEAR, SignalSourceType.ISSUE)],
+    # ifNull keeps a nullable column from breaking the array functions, and gives a missing value
+    # an empty label list, empty state and Linear's "no priority" 0 rather than a NULL no rule matches.
+    admission_fields={
+        "labels": "arrayMap(node -> JSONExtractString(node, 'name'), JSONExtractArrayRaw(ifNull(labels, ''), 'nodes'))",
+        "priority": "ifNull(toInt(priority), 0)",
+        "state_name": "JSONExtractString(ifNull(state, ''), 'name')",
+        "state_type": "JSONExtractString(ifNull(state, ''), 'type')",
+    },
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,

@@ -13,6 +13,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.signals.backend.contracts import scope_ids_problem
+from products.signals.backend.emission.admission import admission_filter_from_source_config
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,8 @@ def data_warehouse_record_fetcher(
     last_synced_at: str | None = context.get("last_synced_at")
     extra: dict[str, Any] = context.get("extra", {})
     scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
+    # Raises on invalid stored rules before any query runs: a broken filter must admit nothing.
+    admission_filter = admission_filter_from_source_config(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
     # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
@@ -84,6 +87,9 @@ def data_warehouse_record_fetcher(
     if scope_ids:
         where_parts.append(f"{config.scope_field} IN {{scope_ids}}")
         placeholders["scope_ids"] = ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids])
+    if admission_filter is not None:
+        where_parts.append("{admission_filter}")
+        placeholders["admission_filter"] = admission_filter
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
@@ -103,6 +109,7 @@ def data_warehouse_record_fetcher(
         table_name=table_name,
         where_clause=where_sql,
         scope_ids_count=len(scope_ids),
+        admission_filter_applied=admission_filter is not None,
         max_records=config.max_records,
         signals_type="data-import-signals",
         **extra,

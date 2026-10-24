@@ -19,12 +19,14 @@ from posthog.hogql import ast
 
 from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
 from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
+from products.signals.backend.emission.admission import InvalidAdmissionRulesError
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
     emit_data_import_signals_activity,
 )
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
@@ -195,6 +197,80 @@ class TestQueryNewRecords:
                 )
 
         assert "scope_ids" not in mock_parse.call_args[0][0]
+
+    @pytest.mark.parametrize(
+        "source_config,expected_filter",
+        [
+            (
+                {
+                    "admission_rules": {
+                        "operator": "AND",
+                        "rules": [{"field": "labels", "operator": "any", "value": ["bug"]}],
+                    }
+                },
+                "hasAny(arrayMap(node -> JSONExtractString(node, 'name'), JSONExtractArrayRaw(ifNull(labels, ''), 'nodes')), ['bug'])",
+            ),
+            ({"admission_rules": {"operator": "AND", "rules": []}}, None),
+            ({"admission_rules": None}, None),
+            ({}, None),
+        ],
+    )
+    def test_admission_rules_filter_the_query_before_the_limit(self, source_config, expected_filter):
+        config = _make_config(
+            source_product="linear", source_type="issue", admission_fields=LINEAR_ISSUES_CONFIG.admission_fields
+        )
+        mock_result = MagicMock()
+        mock_result.columns = []
+        mock_result.results = []
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_execute:
+            data_warehouse_record_fetcher(
+                team=MagicMock(),
+                config=config,
+                context={
+                    "table_name": "test_table",
+                    "last_synced_at": "2025-01-01T00:00:00Z",
+                    "extra": {},
+                    "source_config": source_config,
+                },
+            )
+
+        query = mock_execute.call_args.kwargs["query"]
+        where_sql = query.where.to_hogql()
+        assert "greater(created_at, " in where_sql
+        assert query.limit is not None
+        if expected_filter is None:
+            assert "hasAny" not in where_sql
+        else:
+            assert expected_filter in where_sql
+
+    @pytest.mark.parametrize(
+        "rules",
+        [
+            {"operator": "AND", "rules": [{"field": "team", "operator": "eq", "value": "x"}]},
+            {"operator": "AND", "rules": [{"field": "labels", "operator": "eq", "value": "bug"}]},
+            "labels = bug",
+        ],
+    )
+    def test_invalid_stored_admission_rules_fail_closed(self, rules):
+        config = _make_config(
+            source_product="linear", source_type="issue", admission_fields=LINEAR_ISSUES_CONFIG.admission_fields
+        )
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query") as mock_execute:
+            with pytest.raises(InvalidAdmissionRulesError):
+                data_warehouse_record_fetcher(
+                    team=MagicMock(),
+                    config=config,
+                    context={
+                        "table_name": "test_table",
+                        "last_synced_at": "2025-01-01T00:00:00Z",
+                        "extra": {},
+                        "source_config": {"admission_rules": rules},
+                    },
+                )
+
+        mock_execute.assert_not_called()
 
     def test_first_sync_uses_lookback_window(self):
         config = _make_config(partition_field="time", first_sync_lookback_days=14)
