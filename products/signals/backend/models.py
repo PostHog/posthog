@@ -365,6 +365,10 @@ class SignalReport(UUIDModel):
         POSTHOG_ONBOARDING = "posthog_onboarding", "PostHog onboarding"
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
+    # Bounds on `tags`, the same as scout finding and task tags.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     triggering_signal_id = models.UUIDField(null=True, blank=True)
     pending_triggering_signal_id = models.UUIDField(null=True, blank=True)
@@ -438,6 +442,10 @@ class SignalReport(UUIDModel):
     # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
     # `db_default` alongside `default` for the reason spelled out on `charts`.
     suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
+    # Free-form slug tags (lowercase kebab-case) for grouping and filtering reports. Writers go
+    # through `report_tags.set_report_tags`, which normalizes and caps them; report_tags.py holds
+    # the lifecycle rules. `db_default` for the reason spelled out on `charts`.
+    tags = ArrayField(models.CharField(max_length=MAX_TAG_LENGTH), default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1334,6 +1342,8 @@ class SignalEmissionRecord(UUIDModel):
     source_type = models.CharField(max_length=100)
     source_id = models.CharField(max_length=200)
     emitted_at = models.DateTimeField()
+    signal_id = models.CharField(max_length=200, null=True, blank=True)
+    report_id = models.CharField(max_length=200, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -1383,6 +1393,7 @@ class SignalReportArtefact(UUIDModel):
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         REVIEWER_CORRECTIONS = "reviewer_corrections"
+        PR_OWNER_ASSIGNMENT = "pr_owner_assignment"
         CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
@@ -1442,7 +1453,9 @@ class SignalReportArtefact(UUIDModel):
     # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
-    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.REVIEWER_CORRECTIONS})
+    INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT}
+    )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1453,6 +1466,7 @@ class SignalReportArtefact(UUIDModel):
     MAX_REPORT_LINK_GRAPH_LEVELS = 50
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
+            ArtefactType.PR_OWNER_ASSIGNMENT,
             ArtefactType.CODE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
@@ -1629,12 +1643,12 @@ class SignalReportArtefact(UUIDModel):
         if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
             raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
         if attribution.task_id and not claim_id and artefact_type_for(content) in {"commit", "note", "task_run"}:
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
 
             active = get_active_claim(team_id=team_id, report_id=report_id)
             if (
                 active
-                and actor_owns_claim(active, attribution)
+                and actor_works_under_claim(active, attribution)
                 and cls.objects.filter(team_id=team_id, id=active.claim_id).exists()
             ):
                 claim_id = str(active.claim_id)
@@ -1689,7 +1703,7 @@ class SignalReportArtefact(UUIDModel):
             # The rules import this model; load them only on a reviewer write.
             from posthog.models.team.team import Team
 
-            from products.signals.backend.report_claims import actor_owns_claim, get_active_claim
+            from products.signals.backend.report_claims import actor_works_under_claim, get_active_claim
             from products.signals.backend.reviewer_rules import ReviewerRules
 
             rules = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
@@ -1699,7 +1713,11 @@ class SignalReportArtefact(UUIDModel):
                 )
                 if claim_id:
                     claim = get_active_claim(team_id=team_id, report_id=report_id)
-                    if claim is None or str(claim.claim_id) != claim_id or not actor_owns_claim(claim, attribution):
+                    if (
+                        claim is None
+                        or str(claim.claim_id) != claim_id
+                        or not actor_works_under_claim(claim, attribution)
+                    ):
                         raise ArtefactContentValidationError("Claim is stale or belongs to another actor.")
                 update = rules.prepare(content, attribution=attribution, proposal=reviewer_proposal, edit=reviewer_edit)
                 if update.corrections is not None:
@@ -2449,10 +2467,8 @@ class SignalReportCheck(UUIDModel):
     days, and the check carries its own `next_run_at` rather than deriving one from a merged pull
     request — plenty of fixes land with no pull request to date the window from.
 
-    A check on a report that has not resolved has no date worth carrying, because the fix it tests is
-    not live yet. Such a check is stored PENDING with a `soak_minutes` window, and the report's
-    transition to RESOLVED sets its `next_run_at`. That makes the resolve the clock for every kind of
-    fix, including the ones that never had a pull request.
+    Enabled Monitoring anchors pending checks to the implementation-complete timestamp. Resolved
+    reports execute no checks, even when a legacy row still carries an active schedule.
 
     Terminal statuses are final. A check that passed, failed, errored out, ended inconclusive,
     expired, or was cancelled is never rescheduled; the author writes a new check instead, so a result artefact always refers
@@ -2469,7 +2485,7 @@ class SignalReportCheck(UUIDModel):
 
     class Status(models.TextChoices):
         # Written while its report was still open, so it carries a soak rather than a date and
-        # waits for the report to resolve. Not due, not expired, and not terminal: the resolve
+        # waits for Monitoring. Not due, not expired, and not terminal: Monitoring entry
         # transition arms it into ACTIVE (`report_check_authoring.arm_pending_checks`).
         PENDING = "pending"
         ACTIVE = "active"
@@ -2526,7 +2542,7 @@ class SignalReportCheck(UUIDModel):
 
     next_run_at = models.DateTimeField()
     measurement_start_at = models.DateTimeField(null=True, blank=True)
-    # Minimum wait after resolution, separate from the query window a metric check must fill.
+    # Each check's Monitoring window, anchored to implementation completion.
     soak_minutes = models.PositiveIntegerField(null=True, blank=True)
     # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
     # reaches its expiry.
@@ -3507,9 +3523,18 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 opclasses=["int4_ops", "varchar_pattern_ops"],
             ),
             # Back the `text` search. On UPPER(...) because icontains compiles to
-            # UPPER(col::text) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("content"), name="gin_trgm_ops"), name="signal_scratchpad_content_trgm"),
-            GinIndex(OpClass(Upper("key"), name="gin_trgm_ops"), name="signal_scratchpad_key_trgm"),
+            # UPPER(col::text) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("content"), name="gin_trgm_ops"),
+                name="signal_scratchpad_content_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("key"), name="gin_trgm_ops"),
+                name="signal_scratchpad_key_trgm",
+                fastupdate=False,
+            ),
         ]
 
 
@@ -3870,6 +3895,10 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     latency_ms = models.IntegerField(null=True, blank=True)
     # Line counts per section and drop counts per filter rule of the latest update.
     inputs_used = models.JSONField(default=dict, blank=True)
+    # Exact fields from `activity_summary/computed.py` over the full window of the latest good update:
+    # owned and watched objects with ids, product pages, products and the task count. Carries its own
+    # `schema_version`. Null before the first update that computed it.
+    computed = models.JSONField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed error strings of `summaries.py`, never model output.
@@ -3919,6 +3948,8 @@ class UserActivitySummaryVersion(TeamScopedRootMixin, UUIDModel):
     render_version = models.PositiveSmallIntegerField()
     input_watermark = models.DateTimeField()
     inputs_used = models.JSONField(default=dict, blank=True)
+    # See `UserActivitySummary.computed`. Null on versions written before the field existed.
+    computed = models.JSONField(null=True, blank=True)
     tokens_in = models.IntegerField(null=True, blank=True)
     tokens_out = models.IntegerField(null=True, blank=True)
     cost_usd = models.FloatField(null=True, blank=True)

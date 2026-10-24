@@ -89,11 +89,17 @@ def summarize(
     as_of: datetime.date,
     max_completion_tokens: int = MAX_COMPLETION_TOKENS,
     profile_max_chars: int = PROFILE_MAX_CHARS,
+    computed: dict[str, Any] | None = None,
 ) -> SummaryOutcome:
-    """One summary. Tokens and latency add up over the attempts, because the retry costs too."""
+    """One summary. Tokens and latency add up over the attempts, because the retry costs too.
+
+    `computed` holds the refs the themes can cite. Without it, every theme is dropped."""
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt(profile_max_chars)},
-        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of, profile_max_chars)},
+        {
+            "role": "user",
+            "content": user_message(rendered_input, previous_summary, as_of, profile_max_chars, computed),
+        },
     ]
     tokens_in: int | None = None
     tokens_out: int | None = None
@@ -122,6 +128,7 @@ def summarize(
             summary = normalize_summary(
                 choice.message.content if choice is not None else None,
                 had_previous_summary=previous_summary is not None,
+                computed=computed,
                 profile_max_chars=profile_max_chars,
             )
         except MalformedSummaryError as malformed:

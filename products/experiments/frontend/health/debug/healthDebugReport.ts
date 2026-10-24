@@ -333,6 +333,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         noMetricCheck(input),
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
+        serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

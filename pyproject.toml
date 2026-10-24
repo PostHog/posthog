@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.75.6",
+    "posthoganalytics==7.75.11",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -168,6 +168,8 @@ dependencies = [
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.2",
     "chdb==4.3.0",
+    # chdb allows any chdb-core>=26.7.0, and engines before 26.9.0 accept a TLS certificate issued for another host.
+    "chdb-core==26.9.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0b11",
@@ -320,7 +322,7 @@ proto-codegen = [
 ]
 
 [tool.uv]
-required-version = ">=0.10.2"
+required-version = ">=0.13.4"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, grpcio = false }
@@ -749,22 +751,9 @@ ignore_imports = [
     # -> serialize and delete each entry. backend:contract-check stays off until this list is
     # empty. Only delete entries here: a new import from these views goes through the facade.
     "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.temporal.destinations.constants",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.filters",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.hogql_source",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.destinations.constants",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
-    # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
-    # with their ORM access: the product's own subscription models and the dashboard models
-    # behind dashboard and tile selection. Thin them to parse -> facade -> serialize and delete
-    # each entry. backend:contract-check stays off until this list is empty.
-    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard",
-    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard_tile",
-    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription",
-    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription_context",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

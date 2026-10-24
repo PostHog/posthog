@@ -120,6 +120,7 @@ from .aws_inspector.source import AwsInspectorSource
 from .aws_macie.source import AwsMacieSource
 from .aws_organizations.source import AwsOrganizationsSource
 from .aws_rds_performance_insights.source import AwsRdsPerformanceInsightsSource
+from .aws_s3_tables.source import AwsS3TablesSource
 from .aws_sagemaker.source import AwsSagemakerSource
 from .aws_savings_plans.source import AwsSavingsPlansSource
 from .aws_security_hub.source import AwsSecurityHubSource
@@ -392,6 +393,7 @@ from .drchrono.source import DrchronoSource
 from .dreamdata.source import DreamdataSource
 from .dremio.source import DremioSource
 from .drip.source import DripSource
+from .dripify.source import DripifySource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource

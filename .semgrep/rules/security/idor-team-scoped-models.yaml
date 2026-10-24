@@ -70,6 +70,7 @@ rules:
                               |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
+                              |AEOPromptVersion
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -462,6 +463,7 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
                               |UserActivitySummaryQueueState
                               |UserActivitySummaryVersion
@@ -932,6 +934,7 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
                         |UserActivitySummaryQueueState
                         |UserActivitySummaryVersion

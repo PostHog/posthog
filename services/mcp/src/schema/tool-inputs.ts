@@ -45,6 +45,21 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
+export const DashboardInsightTileIdsSchema = z
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids): string | undefined => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
     x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
     y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
@@ -552,7 +567,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )

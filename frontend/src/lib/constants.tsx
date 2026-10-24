@@ -252,6 +252,7 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
+    AI_OBSERVABILITY_EVALUATIONS_OVERVIEW: 'ai-observability-evaluations-overview', // owner: #team-ai-observability
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
     AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
@@ -297,8 +298,11 @@ export const FEATURE_FLAGS = {
     CUSTOMER_ANALYTICS_TRACK_RULES: 'customer-analytics-track-rules', // owner: @arthurdedeus #team-customer-analytics
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
+    DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
+    DATA_MODELING_USAGE: 'data-modeling-usage', // owner: #team-data-modeling, gates the Models usage tab
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
+    DATA_WAREHOUSE_RENAME_SAVED_VIEW: 'data-warehouse-rename-saved-view', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
     DISCUSSIONS_SLACK_SYNC: 'discussions-slack-sync', // owner: #team-platform-features
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
@@ -307,7 +311,6 @@ export const FEATURE_FLAGS = {
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
     EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
-    ENDPOINTS_AI_MATERIALIZATION_FIX: 'endpoints-ai-materialization-fix', // owner: @sakce #team-data-modeling, gates the AI materialization rewrite (UI button + API action + MCP tools)
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
@@ -423,7 +426,6 @@ export const FEATURE_FLAGS = {
     METRICS_DASHBOARD_IMPORT: 'metrics-dashboard-import', // owner: #team-apm — gates the dashboard import from a Grafana JSON model or a screenshot, which bills AI credits
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
-    METRICS_FACET_RAIL: 'metrics-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in the metrics viewer
     METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
@@ -567,6 +569,7 @@ export const FEATURE_FLAGS = {
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
+    WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_AGENT_ANALYTICS: 'web-analytics-agent-analytics', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
@@ -584,6 +587,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_MARKETING_CROSS_SELL_V2: 'web-analytics-marketing-cross-sell-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_PAGE_PERFORMANCE: 'web-analytics-page-performance', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_PRECOMPUTED_AT: 'web-analytics-precomputed-at', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_RECAP: 'web-analytics-recap', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_REMOVE_REPLAY_TILE: 'web-analytics-remove-replay-tile', // owner: @lricoy #team-web-analytics multivariate=control,test

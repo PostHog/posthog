@@ -104,6 +104,7 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
+    own_subscription_cloud_enabled as own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
     run_stream_presence_gated,
 )
@@ -141,6 +142,10 @@ from products.tasks.backend.logic.services.space_setup import (
     SpaceSetupUnavailableError as SpaceSetupUnavailableError,
     build_space_setup_prompt,
     space_setup_task_title,
+)
+from products.tasks.backend.logic.services.unattended_plan import (
+    can_bill_plan_unattended as can_bill_plan_unattended,
+    unattended_model_access_state as unattended_model_access_state,
 )
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
@@ -259,6 +264,11 @@ __all__ = [
     "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "ensure_subscription_owner",
+    "get_run_plan",
+    "own_subscription_cloud_enabled",
+    "can_bill_plan_unattended",
+    "unattended_model_access_state",
+    "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
     "SANDBOX_REPOSITORIES_ROOT",
@@ -299,6 +309,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_user_attachment_max_size_bytes",
     "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
@@ -348,6 +359,7 @@ __all__ = [
     "list_task_run_living_artifacts",
     "list_task_run_peers",
     "list_task_repositories",
+    "list_task_run_ids",
     "list_task_runs",
     "list_tasks",
     "list_workflow_last_runs",
@@ -366,10 +378,19 @@ __all__ = [
     "get_task_run_log_size",
     "read_task_run_log_content",
     "read_task_run_conversation_logs",
+    "thread_view_of_log_content",
     "read_task_run_conversation_log_slice",
     "mark_task_run_stream_watched",
     "read_task_run_logs",
     "record_comment_activity",
+    "record_task_mobile_pickup",
+    "task_mobile_push_taken_over",
+    "task_mobile_push_delivery_allowed",
+    "task_mobile_push_user_ids",
+    "task_mobile_push_suppressed_token_ids",
+    "enqueue_task_mobile_pr_outcome",
+    "claim_mobile_push_cooldown",
+    "release_mobile_push_cooldown",
     "record_run_failure_cause",
     "signal_task_run_client_activity",
     "redispatch_task_run",
@@ -2241,14 +2262,22 @@ def create_run(
     extra_state: dict | None = None,
     branch: str | None = None,
     acting_user_id: int | None = None,
+    subscription_owner_id: int | None = None,
 ) -> contracts.TaskRunDTO:
     """Create a new run for an existing task (e.g. resuming an interactive sandbox session).
 
     ``acting_user_id`` attributes the run to the user whose AI run preferences should apply
     when ``extra_state`` pins no runtime selection; it falls back to the task's creator.
+    ``subscription_owner_id`` names whose plan the run bills to, when that is not the acting user.
     """
     task = Task.objects.get(id=task_id)
-    run = task.create_run(mode=mode, extra_state=extra_state, branch=branch, acting_user_id=acting_user_id)
+    run = task.create_run(
+        mode=mode,
+        extra_state=extra_state,
+        branch=branch,
+        acting_user_id=acting_user_id,
+        subscription_owner_id=subscription_owner_id,
+    )
     return _task_run_to_dto(run, task=task)
 
 
@@ -3024,6 +3053,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # interaction_origin is "slack"; a removed actor falls back to the task creator.
         "interaction_origin",
         "slack_actor_user_id",
+        "slack_actor_slack_user_id",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
     }
@@ -3198,6 +3228,11 @@ def task_accessible_for_run_view(
     if task is not None and task["is_trial"]:
         tag_queries(is_scout_experiment=True)
     return task is not None and bool(task["accessible"])
+
+
+def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
+    """Ids of every run of a task, team-scoped. Caller enforces task visibility."""
+    return list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("id", flat=True))
 
 
 def list_task_runs(
@@ -4091,6 +4126,23 @@ def _delete_task_session_object(task_session_id: UUID, object_storage_key: str) 
         )
 
 
+def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
+    """The plan a run bills to, or `None` for a run on PostHog credits."""
+    try:
+        access = resolve_model_access(state or {})
+    except InvalidModelAccess:
+        return None
+    if access.adapter is None:
+        return None
+    return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
+
+
+def uses_own_subscription(state: dict[str, Any] | None) -> bool:
+    """Whether a run bills to its owner's plan rather than to PostHog credits."""
+    run_state = state or {}
+    return any(run_state.get(f"{adapter}_model_access") == "own-subscription" for adapter in SUBSCRIPTION_PLAN_NAMES)
+
+
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
     """Refuse anyone but the owner of the plan a run bills to. A run on PostHog credits allows everyone."""
     run_state = state or {}
@@ -4365,6 +4417,15 @@ def _append_versions(manifest: list[dict], entries: list[dict]) -> list[dict]:
 def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
     run.artifacts = manifest
     run.save(update_fields=["artifacts", "updated_at"])
+
+
+def get_user_attachment_max_size_bytes(name: str, content_type: str) -> int:
+    """The largest file a user may attach to a task run, the same on every surface that attaches one."""
+    from products.tasks.backend.presentation.serializers import (  # noqa: PLC0415 — pure size helpers, kept off the api import path
+        get_task_run_artifact_max_size_bytes,
+    )
+
+    return get_task_run_artifact_max_size_bytes(name, content_type, "user_attachment")
 
 
 def upload_task_run_artifacts(
@@ -5242,6 +5303,44 @@ def mark_task_run_stream_watched(run_id: str | UUID, task_id: str | UUID, team_i
         logger.warning("task_run_stream_mark_watched_failed run_id=%s", info.id, exc_info=True)
 
 
+_KEPT_TOOL_RESPONSE_FIELDS = ("decisionReason", "message")
+
+
+def _drop_tool_response_copy(entry: object) -> bool:
+    notification = entry.get("notification") if isinstance(entry, dict) else None
+    params = notification.get("params") if isinstance(notification, dict) else None
+    update = params.get("update") if isinstance(params, dict) else None
+    meta = update.get("_meta") if isinstance(update, dict) else None
+    claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
+    if not isinstance(claude_code, dict) or "toolResponse" not in claude_code:
+        return False
+    tool_response = claude_code["toolResponse"]
+    kept = (
+        {key: tool_response[key] for key in _KEPT_TOOL_RESPONSE_FIELDS if isinstance(tool_response.get(key), str)}
+        if isinstance(tool_response, dict)
+        else {}
+    )
+    if kept:
+        claude_code["toolResponse"] = kept
+    else:
+        del claude_code["toolResponse"]
+    return True
+
+
+def thread_view_of_log_content(log_content: str) -> str:
+    lines = log_content.split("\n")
+    for index, line in enumerate(lines):
+        if '"toolResponse"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if _drop_tool_response_copy(entry):
+            lines[index] = json.dumps(entry, separators=(",", ":"))
+    return "\n".join(lines)
+
+
 def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -5714,8 +5813,13 @@ def signal_task_run_user_message(
     steer: bool = False,
     rpc_timeout: timedelta | None = None,
     workflow_id: str | None = None,
+    plan_owner_consented: bool = False,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
+
+    ``plan_owner_consented`` lets someone other than the plan owner message a run on the owner's
+    plan. Only a caller that collected the owner's consent may set it, such as the Slack app,
+    where the thread creator chooses who may join their threads.
 
     Returns ``True`` on success, ``False`` when the target workflow is gone
     (completed or evicted — a terminal outcome), ``None`` when the run isn't
@@ -5735,7 +5839,8 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    ensure_subscription_owner(run.state, actor_user_id)
+    if not plan_owner_consented:
+        ensure_subscription_owner(run.state, actor_user_id)
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -6319,6 +6424,7 @@ def relay_task_run_message(
             message_id=message_id,
             trace_id=trace_id,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -8059,6 +8165,9 @@ def create_task(
             description = (validated_data.get("description") or "").strip()
             requested_title = (validated_data.get("title") or "").strip()
             update_fields: list[str] = []
+            if "created_on_mobile" not in (warm_task.state or {}):
+                warm_task.state = {**(warm_task.state or {}), **validated_data.get("state", {})}
+                update_fields.append("state")
             if requested_title and not (warm_task.title or "").strip():
                 warm_task.title = requested_title
                 warm_task.title_manually_set = True
@@ -8226,6 +8335,7 @@ def create_task(
                 report_id=signal_report_id,
                 relationship=signal_report_task_relationship,
                 description=validated_data.get("description"),
+                created_by_id=user_id,
             )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
@@ -9045,7 +9155,11 @@ def _reserve_report_warm_activation(
         enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
         enforce_report_task_cap(
-            team_id=task.team_id, report_id=report_id, relationship=relationship, description=description
+            team_id=task.team_id,
+            report_id=report_id,
+            relationship=relationship,
+            description=description,
+            created_by_id=task.created_by_id,
         )
         return record_report_task(
             team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
@@ -12563,3 +12677,88 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
     actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
+
+
+def record_task_mobile_pickup(*, task_id: str, team_id: int, user_id: int | None) -> None:
+    from products.tasks.backend.mobile_push import (
+        record_mobile_pickup,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    if user_id is None:
+        return
+
+    try:
+        record_mobile_pickup(task_id=task_id, team_id=team_id, user_id=user_id)
+    except Exception:
+        logger.exception(
+            "mobile_push.pickup_failed", extra={"task_id": task_id, "team_id": team_id, "user_id": user_id}
+        )
+
+
+def task_mobile_push_taken_over(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return task is not None and user_id in mobile_push_user_ids(task)
+
+
+def task_mobile_push_delivery_allowed(*, task_id: str, team_id: int, user_id: int) -> bool:
+    from products.tasks.backend.mobile_push import (
+        task_mobile_push_eligible,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = (
+        Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
+        .filter(task_visibility_q(user_id))
+        .select_related("team")
+        .first()
+    )
+    if task is None or not task_mobile_push_eligible(task, user_id):
+        return False
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    return user is not None and UserAccessControl(user=user, team=task.team).check_access_level_for_resource(
+        "task", "viewer"
+    )
+
+
+def task_mobile_push_user_ids(*, task_id: str, team_id: int) -> set[int]:
+    from products.tasks.backend.mobile_push import (
+        mobile_push_user_ids,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("state").first()
+    return mobile_push_user_ids(task) if task is not None else set()
+
+
+def task_mobile_push_suppressed_token_ids(*, user_id: int, task_id: str, team_id: int) -> list[str]:
+    from products.tasks.backend.mobile_push import (
+        suppressed_push_token_ids_for_task,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return suppressed_push_token_ids_for_task(user_id=user_id, task_id=task_id, team_id=team_id)
+
+
+def enqueue_task_mobile_pr_outcome(
+    *, task_id: str, team_id: int, user_id: int, pr_url: str, kind: str, enqueue: Callable[[], None]
+) -> bool:
+    from products.tasks.backend.mobile_push import (
+        enqueue_mobile_pr_outcome,  # noqa: PLC0415 — keep notification helpers off the facade import path
+    )
+
+    return enqueue_mobile_pr_outcome(
+        task_id=task_id, team_id=team_id, user_id=user_id, pr_url=pr_url, kind=kind, enqueue=enqueue
+    )
+
+
+def claim_mobile_push_cooldown(key: str, *, timeout_seconds: int) -> bool:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    return bool(get_tasks_cache().add(key, True, timeout=timeout_seconds))
+
+
+def release_mobile_push_cooldown(key: str) -> None:
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    get_tasks_cache().delete(key)

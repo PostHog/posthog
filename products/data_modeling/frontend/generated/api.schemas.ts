@@ -234,11 +234,181 @@ export interface NodeResumeApi {
     resumed: boolean
 }
 
+/**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+export interface NodeRunApi {
+    /** Run this view with all upstream dependencies or all downstream dependents.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction: MaterializationRunDirectionEnumApi
+}
+
+export interface NodeRunResponseApi {
+    /** The nodes included in the dependency run. */
+    node_ids: string[]
+}
+
 export interface LineageResponseApi {
     /** Every node reachable from the requested one, plus the node itself. */
     nodes: NodeApi[]
     /** Every edge between two of those nodes. */
     edges: EdgeApi[]
+}
+
+export interface ModelUsageTotalsApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+}
+
+export interface ModelUsageEngineApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** Materialization engine: clickhouse or managed_warehouse. */
+    engine: string
+}
+
+export interface ModelUsageDayApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /** UTC day on which the runs finished. */
+    day: string
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
+}
+
+export interface ModelUsageRowApi {
+    /** Finished materialization runs, including failures and cancellations. */
+    runs: number
+    /** Runs with recorded usage. Other runs have unknown cost. */
+    measured_runs: number
+    /**
+     * Measured bytes read, including probes and retries. Null if unmeasured.
+     * @nullable
+     */
+    read_bytes: number | null
+    /**
+     * Measured rows read. Null if unmeasured.
+     * @nullable
+     */
+    read_rows: number | null
+    /**
+     * Measured CPU microseconds. Null if unmeasured.
+     * @nullable
+     */
+    cpu_microseconds: number | null
+    /**
+     * Measured ClickHouse query count. Null if unmeasured.
+     * @nullable
+     */
+    query_count: number | null
+    /**
+     * Model ID, or null if permanently deleted.
+     * @nullable
+     */
+    saved_query_id: string | null
+    /** Model name. */
+    name: string
+    /** Whether this model has been deleted. */
+    deleted: boolean
+    /** Usage totals for each selected engine. */
+    engines: ModelUsageEngineApi[]
+}
+
+export interface ModelUsageApi {
+    /** Inclusive UTC start date. */
+    date_from: string
+    /** Exclusive UTC end date. Today's incomplete usage is excluded. */
+    date_to: string
+    /** Totals over the whole date range. */
+    overview: ModelUsageTotalsApi
+    /** Daily usage, attributed to when each run finished. */
+    trends: ModelUsageDayApi[]
+    /** Model breakdown, highest measured bytes first. */
+    models: ModelUsageRowApi[]
+    /** Total number of models in the breakdown. */
+    count: number
+    /**
+     * Latest usage collection timestamp in this range.
+     * @nullable
+     */
+    usage_updated_at: string | null
 }
 
 export type DataModelingEdgesListParams = {
@@ -290,3 +460,53 @@ export type DataModelingNodesLineageRetrieveParams = {
      */
     saved_query_id?: string
 }
+
+export type DataModelingUsageListParams = {
+    /**
+     * Inclusive UTC start date for a custom range, up to 366 complete days.
+     */
+    date_from?: string
+    /**
+     * Inclusive UTC end date for a custom range. Today is always excluded.
+     */
+    date_to?: string
+    /**
+     * Number of complete UTC days, up to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * Materialization engine. All combines ClickHouse and managed warehouse usage.
+     *
+     * * `all` - All
+     * * `clickhouse` - ClickHouse
+     * * `managed_warehouse` - Managed warehouse
+     * @minLength 1
+     */
+    engine?: DataModelingUsageListEngine
+    /**
+     * Model breakdown page, starting at 1.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Models per page, up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Limit usage to one accessible materialized view.
+     * @nullable
+     */
+    saved_query_id?: string | null
+}
+
+export type DataModelingUsageListEngine = (typeof DataModelingUsageListEngine)[keyof typeof DataModelingUsageListEngine]
+
+export const DataModelingUsageListEngine = {
+    All: 'all',
+    Clickhouse: 'clickhouse',
+    ManagedWarehouse: 'managed_warehouse',
+} as const

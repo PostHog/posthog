@@ -1914,15 +1914,7 @@ class LLMDetectorConfig(BaseModel):
         default=None,
         description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
     )
-    threshold: confloat(ge=0.0, le=1.0) | None = Field(
-        default=None,
-        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
-    )
     type: Literal["llm"] = "llm"
-    window: conint(ge=5, le=400) | None = Field(
-        default=None,
-        description="How many recent points the model is shown (default: 90)",
-    )
 
 
 class LLMSentimentMessage(BaseModel):
@@ -2725,6 +2717,13 @@ class MetricsQuerySeries(BaseModel):
     clause: str | None = Field(
         default=None,
         description=("Clause alias that produced this series (`formula` for the formula result)"),
+    )
+    histogramBounds: list[float] | None = Field(
+        default=None,
+        description=(
+            "Bucket upper edges a histogram quantile series was estimated from. The"
+            " true quantile can be anywhere between two edges."
+        ),
     )
     labels: dict[str, str] = Field(
         ...,
@@ -6669,7 +6668,18 @@ class MCPToolQualityDailyStatItem(BaseModel):
     calls: int
     day: str
     errors: int
+    max: float | None = None
+    mean: float | None = None
+    min: float | None = Field(
+        default=None,
+        description=(
+            "Latency spread for the box plot view. Optional so responses cached before"
+            " these fields existed still parse."
+        ),
+    )
+    p25: float | None = None
     p50: float
+    p75: float | None = None
     p95: float
     p99: float
 
@@ -9641,7 +9651,18 @@ class WebGoalsQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9749,7 +9770,18 @@ class WebOverviewQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -9867,6 +9899,10 @@ class WebStatsTableQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -16398,7 +16434,18 @@ class CachedWebGoalsQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16536,7 +16583,18 @@ class CachedWebOverviewQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16684,6 +16742,10 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16755,7 +16817,18 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -17101,7 +17174,18 @@ class Response4(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17169,6 +17253,10 @@ class Response5(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17334,7 +17422,18 @@ class Response8(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17391,7 +17490,18 @@ class Response9(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21542,7 +21652,18 @@ class QueryResponseAlternative21(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21610,6 +21731,10 @@ class QueryResponseAlternative22(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21775,7 +21900,18 @@ class QueryResponseAlternative26(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21832,7 +21968,18 @@ class QueryResponseAlternative27(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22527,7 +22674,18 @@ class QueryResponseAlternative41(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22595,6 +22753,10 @@ class QueryResponseAlternative42(BaseModel):
         ),
     )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22760,7 +22922,18 @@ class QueryResponseAlternative45(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -22817,7 +22990,18 @@ class QueryResponseAlternative46(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26332,7 +26516,18 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
             " refused it. Unset when the query was eligible."
         ),
     )
+    preComputeStale: bool | None = Field(
+        default=None,
+        description=(
+            "Whether a lazy-precompute read was served from expired-within-grace"
+            " (stale) jobs instead of recomputing inline."
+        ),
+    )
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
+    preComputedAt: str | None = Field(
+        default=None,
+        description=("When the oldest precomputed window this response used was computed. Unset for live responses."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -27532,10 +27727,7 @@ class DashboardFilter(BaseModel):
         default=None,
         description=("Time granularity forced onto every insight that supports one. Absent/null = inherit."),
     )
-    metricFilters: list[MetricsQueryFilter] | None = Field(
-        default=None,
-        description=("Metric label matchers ANDed into every metrics tile. Other tiles ignore them."),
-    )
+    metricFilters: list[MetricsQueryFilter] | None = None
     metricVariables: list[MetricsDashboardVariable] | None = Field(
         default=None,
         description=("Variables that metrics tiles refer to as `$name`. Other tiles ignore them."),
