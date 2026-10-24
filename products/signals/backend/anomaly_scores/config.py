@@ -35,6 +35,8 @@ class IntervalScoring:
 
     min_points: int
     detector: dict[str, Any]
+    # Completed buckets that a train step fits the detector on. The scoring without the split ignores it.
+    training_buckets: int
 
 
 @frozen
@@ -64,10 +66,10 @@ def _zscore(window: int) -> dict[str, Any]:
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
     intervals={
-        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
-        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
-        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52)),
-        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24)),
+        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336), training_buckets=168),
+        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56), training_buckets=90),
+        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52), training_buckets=52),
+        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24), training_buckets=24),
     },
 )
 
@@ -84,18 +86,15 @@ def resolve_profile(team: "Team", insight: "Insight") -> ScoringProfile:
 class ScoringRun(StrEnum):
     """The kind of visit when the train and score split is on."""
 
-    # Fetch the full detector history, score the new buckets, and store the series tail.
+    # Fetch the training history, fit and store one artifact per series, and score the new buckets with them.
     TRAIN = "train"
-    # Fetch only the refresh and new buckets, merge them into the stored tail, and score the new buckets.
+    # Fetch only the new buckets and the context that preprocessing reads, and score them with the stored artifacts.
     SCORE = "score"
 
 
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
 DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}
-# Stored buckets that a score step fetches again, so late events reach the stored values.
-DEFAULT_REFRESH_BUCKETS = {IntervalType.HOUR: 3, IntervalType.DAY: 3, IntervalType.WEEK: 2, IntervalType.MONTH: 1}
-MAX_REFRESH_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 14, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 
 
 # Hourly insights are left out by default: with many eligible insights, the time between two visits of
@@ -123,7 +122,6 @@ class AnomalyScoringConfig:
     train_every_buckets: dict[IntervalType, int] = dataclasses.field(
         default_factory=lambda: dict(DEFAULT_TRAIN_EVERY_BUCKETS)
     )
-    refresh_buckets: dict[IntervalType, int] = dataclasses.field(default_factory=lambda: dict(DEFAULT_REFRESH_BUCKETS))
     # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
     max_score_queries_per_hour: int = 600
     max_score_queries_per_project_per_hour: int = 150
@@ -225,9 +223,6 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         train_score_split=payload.get("train_score_split") is True,
         train_every_buckets=_buckets_per_interval(
             payload.get("train_every_buckets"), DEFAULT_TRAIN_EVERY_BUCKETS, MAX_TRAIN_EVERY_BUCKETS
-        ),
-        refresh_buckets=_buckets_per_interval(
-            payload.get("refresh_buckets"), DEFAULT_REFRESH_BUCKETS, MAX_REFRESH_BUCKETS
         ),
         max_score_queries_per_hour=min(
             _positive_int(payload.get("max_score_queries_per_hour"), defaults.max_score_queries_per_hour),
