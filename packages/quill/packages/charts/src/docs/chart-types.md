@@ -154,6 +154,55 @@ There is no `series` or `labels`.
   It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
   Links resolve their endpoints by array index by default; for links that name string node ids, call `sankeyLayout().nodeId((node) => node.id)` first.
 
+## FlameGraph
+
+A call tree drawn as nested rectangles on canvas: profiles, aggregated span trees, LLM agent runs.
+`data` is one root or an array of roots, each `{ name, value, children?, baselineValue?, count?, baselineCount?, group?, id?, meta? }`.
+There is no `series` or `labels`.
+
+```tsx
+<FlameGraph data={root} theme={theme} config={{ valueFormatter: formatMs }} />
+```
+
+- `value` is the **total** (inclusive) value: the node plus everything under it.
+  The chart derives self value as `value` minus the children's values, floored at 0.
+  Children that add up to more than their parent (concurrent spans in a trace) scale down to fit inside it, and the parent's self value is then 0.
+  Widths use the larger of `value` and `baselineValue`, so a node present in only one window still gets room.
+- Ids default to the path of names from the root (`main/parse/lex`), with `#2`, `#3` appended to repeated sibling names.
+  Set `id` when names repeat and the host needs a stable key, for `defaultFocusedId` or its own state.
+  The focus is kept by id, so it survives a data update that still has the node.
+  A node object reached twice is skipped, which also guards against cyclic input.
+- `config.colorBy` defaults to `auto`: `diff` when any node has a `baselineValue`, else `group` when any node has a `group`, else `name`.
+  `group` and `name` give each distinct key a palette color in first-seen order, blended toward the background so labels stay readable in both themes.
+  The `group` legend shows each group's share of total self value, largest first.
+  `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
+  A change within `diff.threshold` (default 0.1) is neutral, and so is a node with fewer than `diff.minCount` samples in `count` or `baselineCount`.
+  A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
+  `diff.slowerColor` / `diff.fasterColor` override the palette's red (`theme.colors[4]`) and blue (`theme.colors[0]`).
+- `config.preset` picks defaults for the kind of data.
+  `profile` (default) suits call trees of durations: monospace labels, children in input order, and a self row in the tooltip.
+  `breakdown` suits counts nested by property, such as a trend broken down by country and then browser, drawn as an icicle with the total on top: proportional labels, siblings sorted widest first, and a tooltip of value, share of parent and share of total.
+  `labelFont` (`monospace` | `sans`), `sort` (`input` | `value`) and `tooltip.showSelf` override the preset one at a time.
+  Format values, such as `12.3K pageviews`, with `valueFormatter`.
+- Labels truncate with an ellipsis; a node scrolled off the left edge keeps its label at the edge.
+  Nodes narrower than 3px merge with their narrow siblings into one "+N more" cell, and the children of a narrow node are not drawn.
+  Two or more children under 1% of their parent move to the end of the row, so they sit together and merge into one cell.
+- Hover shows the name, the group when it differs from the name, the count, and the baseline and change when comparing.
+  With `tooltip.showSelf` on it adds total with its share of all roots, self, and share of parent; with it off, value, share of parent and share of total.
+  A `tooltip` render prop replaces the content and receives `FlameTooltipContext`: `hit` is either `{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`, plus `valueFormatter`, `comparing`, `canFocus`, `showSelf` and `totalValue`.
+- Click zooms into a node over 280ms (instant under reduced motion): it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
+  A "+N more" cell zooms to just the bundled nodes.
+  The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
+  `onNodeClick` fires after the zoom with the resolved `FlameNodeDatum`; set `clickToFocus: false` to only report clicks.
+  `onFocusChange` reports every zoom change, with `null` for the whole graph.
+- `search` is a case-insensitive substring matched against names.
+  Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
+  The host renders the search input.
+- `height: 'auto'` (default) grows with the deepest row in view up to `maxHeight` (480px), then scrolls vertically; `fill` takes the parent's height; a number fixes it.
+  Only the rows in the scroll viewport are drawn, and only the nodes inside the zoom window, so a 50,000-node tree stays smooth.
+  `direction: 'bottom-up'` draws the roots at the bottom, as a classic flame graph.
+- Memoize `data`: a new reference rebuilds the flattened tree, which takes tens of milliseconds at 50,000 nodes.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.
