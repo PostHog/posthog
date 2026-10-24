@@ -7,12 +7,15 @@ from posthog.hogql.direct_connection import (
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     raw_query_denied_by_table_access,
+    resolve_database_for_connection,
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, SharingConfiguration, Team
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
@@ -253,6 +256,92 @@ class TestGetDirectConnectionSource(APIBaseTest):
             self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
             self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
 
+    def test_shared_link_user_bypasses_source_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            access_level="none",
+        )
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(source.id), user=self.user))
+
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        shared_user = SharedLinkUser(sharing_config)
+        resolved = get_direct_connection_source(self.team, str(source.id), user=shared_user)
+
+        self.assertEqual(resolved, source)
+
+    def test_synthetic_user_bypasses_source_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            access_level="none",
+        )
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(source.id), user=self.user))
+
+        synthetic_user = SyntheticUser(team=self.team, distinct_id="test-key")
+        resolved = get_direct_connection_source(self.team, str(source.id), user=synthetic_user)
+
+        self.assertEqual(resolved, source)
+
+    def test_bypass_warehouse_access_control_skips_source_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            access_level="none",
+        )
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(source.id), user=self.user))
+
+        resolved = get_direct_connection_source(
+            self.team, str(source.id), user=self.user, bypass_warehouse_access_control=True
+        )
+
+        self.assertEqual(resolved, source)
+
+    def test_resolve_database_for_connection_allows_shared_link_user(self) -> None:
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        shared_user = SharedLinkUser(sharing_config)
+
+        resolved_source, database = resolve_database_for_connection(
+            self.team,
+            str(source.id),
+            user=shared_user,
+            error_factory=ExposedHogQLError,
+        )
+
+        self.assertEqual(resolved_source, source)
+        self.assertIsNotNone(database)
+
 
 class TestRawQueryTableAccess(APIBaseTest):
     def _create_source(self) -> ExternalDataSource:
@@ -345,3 +434,15 @@ class TestRawQueryTableAccess(APIBaseTest):
 
         with patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True):
             assert raw_query_denied_by_table_access(self.team, source, user=None) is True
+
+    def test_allows_raw_query_for_shared_link_user(self):
+        self._enable_access_control()
+        source = self._create_source()
+        table = self._create_table(source)
+        self._deny_table(table)
+
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        shared_user = SharedLinkUser(sharing_config)
+
+        with patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True):
+            assert raw_query_denied_by_table_access(self.team, source, user=shared_user) is False

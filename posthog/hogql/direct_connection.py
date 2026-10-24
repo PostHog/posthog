@@ -81,7 +81,12 @@ def raw_query_denied_by_table_access(
 
 
 def get_direct_connection_source(
-    team: "Team", connection_id: str | None, *, user: Optional["User"] = None, require_pure_direct: bool = False
+    team: "Team",
+    connection_id: str | None,
+    *,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
+    bypass_warehouse_access_control: bool = False,
+    require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
     if not connection_id:
         return None
@@ -121,6 +126,8 @@ def get_direct_connection_source(
 
     if (
         user is not None
+        and not bypass_warehouse_access_control
+        and not isinstance(user, SyntheticUser | SharedLinkUser)
         and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
         and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
@@ -133,11 +140,18 @@ def get_direct_connection_source_none_or_raise(
     team: "Team",
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
     error_factory: Callable[[str], Exception],
+    bypass_warehouse_access_control: bool = False,
     require_pure_direct: bool = False,
 ) -> ExternalDataSource | None:
-    source = get_direct_connection_source(team, connection_id, user=user, require_pure_direct=require_pure_direct)
+    source = get_direct_connection_source(
+        team,
+        connection_id,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+        require_pure_direct=require_pure_direct,
+    )
     if connection_id and source is None:
         raise error_factory(INVALID_CONNECTION_ID_ERROR)
     return source
@@ -147,14 +161,21 @@ def resolve_database_for_connection(
     team: "Team",
     connection_id: str | None,
     *,
-    user: Optional["User"] = None,
+    user: Optional["User | SyntheticUser | SharedLinkUser"] = None,
     modifiers: HogQLQueryModifiers | None = None,
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
     use_cached_sources: bool = False,
     schema_table_names: set[str] | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> tuple[ExternalDataSource | None, Database]:
-    source = get_direct_connection_source_none_or_raise(team, connection_id, user=user, error_factory=error_factory)
+    source = get_direct_connection_source_none_or_raise(
+        team,
+        connection_id,
+        user=user,
+        error_factory=error_factory,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
     database = Database.create_for(
         team=team,
         user=user,
@@ -163,5 +184,6 @@ def resolve_database_for_connection(
         connection_id=str(source.id) if source else None,
         use_cached_sources=use_cached_sources,
         schema_table_names=schema_table_names,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
     return source, database
