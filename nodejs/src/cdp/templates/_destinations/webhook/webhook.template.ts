@@ -33,7 +33,14 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
-if (res.status >= 400) {
+let isNonFailure := false
+for (let code in inputs.non_failure_status_codes ?? []) {
+  if (code == res.status or lower(toString(code)) == f'{floor(res.status / 100)}xx') {
+    isNonFailure := true
+  }
+}
+
+if (res.status >= 400 and not isNonFailure) {
   throw Error(f'Webhook failed with status {res.status}: {res.body}');
 }
 
@@ -117,6 +124,15 @@ if (inputs.debug) {
             secret: true,
             required: false,
             description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
+        },
+        {
+            key: 'non_failure_status_codes',
+            type: 'non_failure_status_codes',
+            label: 'Non-failure status codes',
+            secret: false,
+            required: false,
+            description:
+                'Response codes that do not fail the run, such as 409 or 4xx. Use this when the endpoint returns an error code for an expected result.',
         },
         {
             key: 'debug',
