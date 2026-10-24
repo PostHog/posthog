@@ -18928,6 +18928,41 @@ export namespace Schemas {
       products: ProductSpend[];
     }
 
+    /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingSpendTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: number;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
+      total_count?: number;
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
+    }
+
     export interface Trial {
       type: string;
       status: string;
@@ -18974,29 +19009,6 @@ export namespace Schemas {
     export interface BillingTeamOptionsResponse {
       /** Project ids that appear in the organization's usage reports. */
       team_id_options: number[];
-    }
-
-    /**
-     * * `type` - type
-     * * `team` - team
-     * * `multiple` - multiple
-     */
-    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
-
-
-    export const BreakdownTypeEnum = {
-      Type: 'type',
-      Team: 'team',
-      Multiple: 'multiple',
-    } as const;
-
-    export interface BillingTimeSeriesPoint {
-      id?: number;
-      label?: string;
-      data?: number[];
-      dates?: string[];
-      breakdown_type?: BreakdownTypeEnum | null;
-      breakdown_value?: unknown;
     }
 
     export interface BillingTimeSeriesResponse {
@@ -74459,6 +74471,17 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BillingAlertEvent[];
+    }
+
+    export interface PaginatedBillingSpendTimeSeriesList {
+      count: number;
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingTimeSeriesPoint[];
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
     }
 
     export interface PaginatedBillingTimeSeriesPointList {

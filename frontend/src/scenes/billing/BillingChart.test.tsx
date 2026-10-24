@@ -70,7 +70,22 @@ describe('BillingChart', () => {
             />
         )
 
-        expect(await screen.findByText('New billing period')).toBeTruthy()
+        expect(await screen.findByText('Billing period starts')).toBeTruthy()
+    })
+
+    it('labels spend markers as pricing resets', async () => {
+        render(
+            <BillingChart
+                series={SERIES}
+                dates={DATES}
+                hiddenSeries={[]}
+                billingPeriodMarkers={[{ date: dayjs.utc('2026-01-02') }]}
+                periodMarkerKind="pricing_reset"
+            />
+        )
+
+        expect(await screen.findByText('Pricing tiers reset')).toBeTruthy()
+        expect(screen.queryByText('Billing period starts')).toBeNull()
     })
 
     it('draws a dashed line per in-range marker but labels only the most recent one', async () => {
@@ -87,7 +102,7 @@ describe('BillingChart', () => {
             />
         )
 
-        await screen.findByText('New billing period')
+        await screen.findByText('Billing period starts')
 
         const lines = container.querySelectorAll('[data-attr="billing-period-marker-line"]')
         expect(lines).toHaveLength(2)
@@ -106,7 +121,7 @@ describe('BillingChart', () => {
             const { container, unmount } = render(
                 <BillingChart series={SERIES} dates={DATES} hiddenSeries={[]} billingPeriodMarkers={[{ date }]} />
             )
-            await screen.findByText('New billing period')
+            await screen.findByText('Billing period starts')
             const line = container.querySelector<HTMLElement>('[data-attr="billing-period-marker-line"]')
             const left = line!.style.left
             unmount()
@@ -149,7 +164,7 @@ describe('BillingChart', () => {
         )
 
         await waitFor(() => expect(getHogChart().seriesCount).toBe(2))
-        expect(screen.queryByText('New billing period')).toBeNull()
+        expect(screen.queryByText('Billing period starts')).toBeNull()
     })
 
     describe('the series cap', () => {

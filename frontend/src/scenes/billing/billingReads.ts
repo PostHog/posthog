@@ -61,8 +61,14 @@ export const organizationBillingReads: BillingReads = {
         return { count, next, previous, results: chartSeries<BillingUsageResponse>(results) }
     },
     spendSeries: async (params) => {
-        const { count, next, previous, results } = await billingSpendTimeseriesRetrieve('@current', params)
-        return { count, next, previous, results: chartSeries<BillingSpendResponse>(results) }
+        const {
+            count,
+            next,
+            previous,
+            results,
+            pricing_reset_dates = [],
+        } = await billingSpendTimeseriesRetrieve('@current', params)
+        return { count, next, previous, results: chartSeries<BillingSpendResponse>(results), pricing_reset_dates }
     },
     usageExportUrl: (params) => getBillingUsageExportDownloadUrl('@current', params),
     spendExportUrl: (params) => getBillingSpendExportDownloadUrl('@current', params),
@@ -82,12 +88,13 @@ export const legacyBillingReads: BillingReads = {
         }
     },
     spendSeries: async (params) => {
-        const { results, next } = await billingSpendRetrieve(params)
+        const { results, next, pricing_reset_dates = [] } = await billingSpendRetrieve(params)
         return {
             count: results.length,
             next: next ?? null,
             previous: null,
             results: chartSeries<BillingSpendResponse>(results),
+            pricing_reset_dates,
         }
     },
     usageExportUrl: (params) => `/api/billing/usage/export/?${toParams(params)}`,

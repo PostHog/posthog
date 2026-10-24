@@ -577,6 +577,19 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     total_count = serializers.IntegerField(required=False)
 
 
+class BillingSpendTimeSeriesResponseSerializer(BillingTimeSeriesResponseSerializer):
+    pricing_reset_dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text=(
+            "Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period "
+            "assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on "
+            "filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list "
+            "does not establish whether a renewal occurred."
+        ),
+    )
+
+
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):
     team_id_options = serializers.ListField(
         child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
@@ -1223,7 +1236,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
-        responses={200: BillingTimeSeriesResponseSerializer},
+        responses={200: BillingSpendTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""
