@@ -14,15 +14,16 @@ schema/
 
 ## Staged rollout
 
-This catalogue is additive during the foundation stage. Existing Python migrations, HCL checks, test setup and Hobby initialization remain the active paths. Run `bin/clickhouse-schema` only against a dedicated test database until ownership cutover.
+Local, test and Hobby setup now use OpenTofu. Cloud deployment hooks do not apply ClickHouse schema. The legacy Python definitions, migration history and HCL tools remain dormant pending cleanup.
 
+Do not merge this cutover until the infrastructure canary migration succeeds and all cloud schemas have a verified owner, including objects intentionally outside the catalogue. Adopt existing objects with zero DDL before disabling their previous owner. Production rollout requires reviewed live plans; local convergence does not replace that review.
 The catalogue includes migrations through 0360 and the current query-log archive chain schema. Provider v0.5.4 names one node on each resource; it no longer fans statements out from a provider-level cluster.
 
 The `custom_metrics*` views that Prometheus scrapes, and the counter table `MetricsClient` writes to, are monitoring objects of PostHog Cloud and are declared in posthog-cloud-infra, not here. Without the table, `MetricsClient.increment` does nothing.
 
 The separate catalogue canary changes only the `read_count` column comment of the warehouse read rollup. After importing the foundation on the dev aux nodes, review and apply that metadata change and verify that the next plan is empty before adopting production. The original custom-metrics canary now belongs to the infrastructure catalogue, so it is no longer a PostHog module change.
 
-Switch local, test and Hobby setup only after the cloud handover is verified. Delete the legacy implementations in a separate cleanup pull request.
+Delete the legacy implementations in a separate cleanup pull request after the cloud handover is verified.
 
 ## Standard table families
 

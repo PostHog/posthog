@@ -1,27 +1,8 @@
 from django.core.management.base import BaseCommand
 from django.test.runner import DiscoverRunner as TestRunner
 
-from infi.clickhouse_orm import Database
-
-from posthog.clickhouse.schema import (
-    CREATE_DATA_QUERIES,
-    CREATE_DICTIONARY_QUERIES,
-    CREATE_DISTRIBUTED_TABLE_QUERIES,
-    CREATE_KAFKA_TABLE_QUERIES,
-    CREATE_MERGETREE_TABLE_QUERIES,
-    CREATE_MV_TABLE_QUERIES,
-    CREATE_VIEW_QUERIES,
-    build_query,
-)
-from posthog.settings import (
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
-    TEST,
-)
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
+from posthog.settings import TEST
 
 
 class Command(BaseCommand):
@@ -52,39 +33,11 @@ class Command(BaseCommand):
             return
 
         print("\nCreating test ClickHouse database...")  # noqa: T201
-        database = Database(
-            CLICKHOUSE_DATABASE,
-            db_url=CLICKHOUSE_HTTP_URL,
-            username=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            cluster=CLICKHOUSE_CLUSTER,
-            verify_ssl_cert=CLICKHOUSE_VERIFY,
-            autocreate=False,
-            randomize_replica_paths=True,
-            # don't use the egress proxy, clickhouse is internal
-            trust_env=False,
-        )
-        if database.db_exists:
-            print(  # noqa: T201
-                f'Got an error creating the test ClickHouse database: database "{CLICKHOUSE_DATABASE}" already exists\n'
-            )
-            print("Destroying old test ClickHouse database...")  # noqa: T201
-            database.drop_database()
-        database.create_database()
-        create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_KAFKA_TABLE_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_VIEW_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES())
-
-
-def create_clickhouse_schema_in_parallel(queries):
-    from posthog.test.base import run_clickhouse_statement_in_parallel
-
-    queries = list(map(build_query, queries))
-    run_clickhouse_statement_in_parallel(queries)
+        database = ClickHouseDatabase()
+        database.drop()
+        database.create()
+        database.apply_schema(kafka=True)
+        database.seed()
 
 
 def disable_migrations() -> None:

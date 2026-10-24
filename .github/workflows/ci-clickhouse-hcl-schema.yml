@@ -6,16 +6,6 @@ name: ClickHouse HCL Schema Guard
 # golden cluster dump with zero drift. No live cluster is contacted.
 
 on:
-    push:
-        branches:
-            - master
-        paths:
-            - 'posthog/clickhouse/hcl/**'
-            - '.github/workflows/ci-clickhouse-hcl-schema.yml'
-    pull_request:
-        paths:
-            - 'posthog/clickhouse/hcl/**'
-            - '.github/workflows/ci-clickhouse-hcl-schema.yml'
     workflow_dispatch:
 
 concurrency:
