@@ -101,9 +101,7 @@ class TestSummarizeAndSaveActivity:
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize"
             ) as mock_summarize,
-            patch(
-                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.create_event"
-            ) as mock_create_event,
+            patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as mock_create_event,
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_class,
@@ -155,9 +153,7 @@ class TestSummarizeAndSaveActivity:
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize"
             ) as mock_summarize,
-            patch(
-                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.create_event"
-            ) as mock_create_event,
+            patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as mock_create_event,
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_class,
@@ -207,7 +203,7 @@ class TestSummarizeAndSaveActivity:
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize",
                 side_effect=record_thread,
             ),
-            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.create_event"),
+            patch("posthog.temporal.ai_observability.generated_event_usage.create_event"),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
             ),
@@ -232,7 +228,7 @@ class TestSummarizeAndSaveActivity:
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize"
             ) as mock_summarize,
-            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.create_event"),
+            patch("posthog.temporal.ai_observability.generated_event_usage.create_event"),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
             ) as mock_embedder_class,

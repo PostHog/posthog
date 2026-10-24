@@ -890,13 +890,13 @@ async def store_report_run_activity(
     def store() -> str:
         import uuid
 
-        from posthog.models.event.util import create_event
         from posthog.models.team import Team
         from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (  # noqa: PLC0415 -- keeps report agent dependencies off the activity import path
             EvalReportGenerationStatus,
             EvalReportMetrics,
             normalize_report_content_payload,
         )
+        from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
@@ -966,7 +966,7 @@ async def store_report_run_activity(
                 }
             )
 
-        create_event(
+        create_generated_ai_event(
             event_uuid=uuid.uuid4(),
             event="$ai_evaluation_report",
             team=team,

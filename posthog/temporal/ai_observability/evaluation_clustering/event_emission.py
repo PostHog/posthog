@@ -14,9 +14,9 @@ import dataclasses
 
 import numpy as np
 
-from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_clustering.constants import EVENT_NAME_EVALUATION_CLUSTERS
+from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 from posthog.temporal.ai_observability.trace_clustering.event_emission import _build_cluster_data
 from posthog.temporal.ai_observability.trace_clustering.models import (
     ClusterAggregateMetrics,
@@ -81,7 +81,7 @@ def emit_evaluation_cluster_events(
     if clustering_params:
         properties["$ai_clustering_params"] = dataclasses.asdict(clustering_params)
 
-    create_event(
+    create_generated_ai_event(
         event_uuid=uuid.uuid4(),
         event=EVENT_NAME_EVALUATION_CLUSTERS,
         team=team,
