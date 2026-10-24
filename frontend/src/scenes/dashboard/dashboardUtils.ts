@@ -338,6 +338,50 @@ export class TaskQueue {
     }
 }
 
+/**
+ * Running and queued tile loads by tile, each with its own signal under the signal of the refresh that started it.
+ * Stopping one tile's load leaves the other loads of that refresh running.
+ */
+export class TileLoads<Refresh> {
+    private readonly loads = new Map<number, { controller: AbortController; stop: () => void; refresh: Refresh }>()
+
+    start(tileIds: number[], refreshSignal: AbortSignal, refresh: Refresh): AbortSignal {
+        const controller = new AbortController()
+        const abort = (): void => controller.abort()
+        const stop = (): void => refreshSignal.removeEventListener('abort', abort)
+        if (refreshSignal.aborted) {
+            abort()
+        } else {
+            refreshSignal.addEventListener('abort', abort, { once: true })
+        }
+        tileIds.forEach((tileId) => this.loads.set(tileId, { controller, stop, refresh }))
+        return controller.signal
+    }
+
+    finish(tileIds: number[], signal: AbortSignal): void {
+        for (const tileId of tileIds) {
+            const load = this.loads.get(tileId)
+            if (load?.controller.signal === signal) {
+                load.stop()
+                this.loads.delete(tileId)
+            }
+        }
+    }
+
+    /** Aborts the loads of these tiles, and returns the tiles that had one with the refresh that started it. */
+    cancel(tileIds: number[]): { tileId: number; refresh: Refresh }[] {
+        return tileIds.flatMap((tileId) => {
+            const load = this.loads.get(tileId)
+            if (!load) {
+                return []
+            }
+            this.loads.delete(tileId)
+            load.controller.abort()
+            return [{ tileId, refresh: load.refresh }]
+        })
+    }
+}
+
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
