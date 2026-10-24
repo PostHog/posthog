@@ -179,3 +179,11 @@ Lower `INBOX_RANKING_SCORING_BATCH_SIZE` or pause the schedule.
 **Local development.**
 With `DEBUG` on, every queue collapses to `development-task-queue`.
 The local worker runs the sweep with all other workflows.
+
+## GitHub-blocked Self-Driving work
+
+GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed.
+
+The self-driving config API exposes effective `github_readiness` from cached state, using the same project and eligible organization-owner connections as execution. Reading this status never calls GitHub.
+
+Research and implementation blockers each have a timestamp for the first blocked attempt. Recovery uses a seven-day window from that timestamp; subsequent readiness checks must not extend it.

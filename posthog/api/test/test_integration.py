@@ -6979,6 +6979,20 @@ class TestGitHubIntegrationListStatusFields:
 
         assert row["installation_shared"] is False
         assert row["installation_status"] == "connected"
+        assert row["github_readiness"] == "temporarily_unavailable"
+
+    @pytest.mark.parametrize("has_repositories,expected", [(True, "ready"), (False, "no_repositories")])
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_readiness_uses_cached_repository_access(
+        self, client: HttpClient, has_repositories: bool, expected: str
+    ) -> None:
+        integration = self._create_github_integration(self.team)
+        integration.repository_cache = (
+            [{"id": 1, "name": "application", "full_name": "example/application"}] if has_repositories else []
+        )
+        integration.repository_cache_updated_at = timezone.now()
+        integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        assert self._list_github_row(client, integration.id)["github_readiness"] == expected
 
     def test_installation_shared_true_when_another_team_uses_the_installation(self, client: HttpClient):
         integration = self._create_github_integration(self.team)
@@ -7012,6 +7026,7 @@ class TestGitHubIntegrationListStatusFields:
         row = self._list_github_row(client, integration.id)
 
         assert row["installation_status"] == "unavailable"
+        assert row["github_readiness"] == "reconnect_required"
 
     def test_status_fields_are_null_for_other_kinds(self, client: HttpClient):
         integration = Integration.objects.create(
@@ -7025,6 +7040,7 @@ class TestGitHubIntegrationListStatusFields:
         row = next(row for row in response.json()["results"] if row["id"] == integration.id)
         assert row["installation_shared"] is None
         assert row["installation_status"] is None
+        assert row["github_readiness"] is None
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_list_heals_a_placeholder_account_name(self, mock_client_request, client: HttpClient):

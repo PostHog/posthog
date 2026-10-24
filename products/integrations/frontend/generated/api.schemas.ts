@@ -268,6 +268,17 @@ export const InstallationStatusEnumApi = {
     Unavailable: 'unavailable',
 } as const
 
+export type GitHubReadinessStatusEnumApi =
+    (typeof GitHubReadinessStatusEnumApi)[keyof typeof GitHubReadinessStatusEnumApi]
+
+export const GitHubReadinessStatusEnumApi = {
+    Ready: 'ready',
+    NotConnected: 'not_connected',
+    ReconnectRequired: 'reconnect_required',
+    NoRepositories: 'no_repositories',
+    TemporarilyUnavailable: 'temporarily_unavailable',
+} as const
+
 /**
  * Standard Integration serializer.
  */
@@ -288,6 +299,8 @@ export interface IntegrationConfigApi {
     readonly installation_shared: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status: InstallationStatusEnumApi | null
+    /** GitHub connection and repository readiness for code research; null for other integrations. */
+    readonly github_readiness: GitHubReadinessStatusEnumApi | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -346,6 +359,8 @@ export interface PatchedIntegrationConfigApi {
     readonly installation_shared?: boolean | null
     /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
     readonly installation_status?: InstallationStatusEnumApi | null
+    /** GitHub connection and repository readiness for code research; null for other integrations. */
+    readonly github_readiness?: GitHubReadinessStatusEnumApi | null
 }
 
 export interface IntegrationAssigneeApi {

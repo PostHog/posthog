@@ -20,6 +20,7 @@ row for the installation mirrors so the UI can say "all repositories" instead of
 
 from typing import Any
 
+from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -28,6 +29,7 @@ import structlog
 from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
+from posthog.tasks.integrations import revalidate_github_installation
 
 logger = structlog.get_logger(__name__)
 
@@ -37,10 +39,15 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     Registered by the GitHub incarnation as the ``installation_lifecycle`` consumer, so it
     runs after signature verification and JSON parsing. ``action == "deleted"`` triggers integration cleanup; ``"created"``
-    resolves matching pending install requests. Reversible actions (suspend/unsuspend)
-    and other lifecycle noise are ignored.
+    resolves matching pending install requests. Unsuspension revalidates access before clearing
+    an unavailable marker. Other lifecycle actions are ignored.
     """
     action = payload.get("action")
+    if action == "unsuspend":
+        installation_id = (payload.get("installation") or {}).get("id")
+        if installation_id is not None:
+            transaction.on_commit(lambda: revalidate_github_installation.delay(str(installation_id)), robust=True)
+        return HttpResponse(status=200)
     if action == "created":
         return _handle_installation_created(payload)
     if action != "deleted":

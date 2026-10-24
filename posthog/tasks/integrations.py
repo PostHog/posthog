@@ -1,8 +1,9 @@
 from celery import Task, shared_task
+from requests import RequestException
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
@@ -177,3 +178,46 @@ def refresh_github_branch_cache(
         github.release_branch_refresh_lock(repo, lock_token)
         raise
     github.release_branch_refresh_lock(repo, lock_token)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.INTEGRATIONS.value,
+    soft_time_limit=240,
+    time_limit=300,
+    autoretry_for=(GitHubIntegrationError, GitHubEgressBudgetExhausted, GitHubRateLimitError, RequestException),
+    retry_backoff=True,
+    max_retries=5,
+)
+@skip_team_scope_audit
+def revalidate_github_installation(
+    installation_id: str, *, personal: bool = False, after_id: str | None = None
+) -> None:
+    integrations: list[GitHubIntegrationBase]
+    if personal:
+        users = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
+        if after_id:
+            users = users.filter(id__gt=after_id)
+        integrations = [
+            UserGitHubIntegration(row, source="integration_token_refresh", priority=Priority.BATCH)
+            for row in users.order_by("id")[:25]
+        ]
+    else:
+        projects = Integration.objects.filter(kind="github", integration_id=installation_id)
+        if after_id:
+            projects = projects.filter(id__gt=after_id)
+        integrations = [
+            GitHubIntegration(row, source="integration_token_refresh", priority=Priority.BATCH)
+            for row in projects.order_by("id")[:25]
+        ]
+    for github in integrations:
+        github.refresh_access_token()
+        github.sync_repository_cache()
+    if len(integrations) == 25:
+        revalidate_github_installation.apply_async(
+            args=[installation_id],
+            kwargs={"personal": personal, "after_id": str(integrations[-1].integration.pk)},
+            countdown=60,
+        )
+    elif not personal:
+        revalidate_github_installation.delay(installation_id, personal=True)
