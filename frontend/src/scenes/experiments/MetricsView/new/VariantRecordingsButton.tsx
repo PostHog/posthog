@@ -11,7 +11,7 @@ import {
     experimentRecordingsUrl,
 } from 'scenes/experiments/ExperimentView/experimentRecordingsDeepLink'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 /** Where the results table is rendered, so telemetry can tell the inline table from the modal. */
@@ -47,6 +47,28 @@ export function VariantRecordingsButton({
     modes,
 }: VariantRecordingsButtonProps): JSX.Element {
     const { metricSelectable, unselectableReason, unselectableCode, defaultMode, menuItems } = modes
+
+    // The Recordings tab refuses a group-aggregated experiment, so a link to it would only open that
+    // refusal. A funnel chart's participant list still lists each group's recordings.
+    if (experiment.feature_flag?.filters?.aggregation_group_type_index != null) {
+        return (
+            <LemonButton
+                size="xsmall"
+                type="secondary"
+                truncate
+                icon={<IconRewindPlay />}
+                data-attr="experiment-metrics-view-recordings"
+                disabledReason={
+                    isExperimentFunnelMetric(metric)
+                        ? "This experiment counts groups rather than people, so the Recordings tab can't list its recordings. Click a step in the funnel chart to see each group's recordings."
+                        : "This experiment counts groups rather than people, so the Recordings tab can't list its recordings. A funnel metric's chart lists each group's recordings."
+                }
+            >
+                View recordings
+            </LemonButton>
+        )
+    }
+
     // A metric the tab would drop must not reach the URL, or the list would answer without the
     // filter the label promised.
     const metricUuid = metricSelectable ? (metric.uuid ?? null) : null
