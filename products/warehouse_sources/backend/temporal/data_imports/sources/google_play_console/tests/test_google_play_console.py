@@ -490,6 +490,7 @@ def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy() -> No
     source = GooglePlayConsoleSource()
     error = str(result.raised)
     assert not error_message_matches(error, source.get_non_retryable_errors().keys())
+    assert error_message_matches(error, source.get_retryable_errors())
     messages = [
         message
         for pattern, message in source.get_retry_exhausted_errors().items()

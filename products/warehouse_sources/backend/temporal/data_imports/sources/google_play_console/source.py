@@ -101,6 +101,9 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return set(self.get_retry_exhausted_errors())
+
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         # The Reporting API answers its own outages with a 500 "Internal error encountered" on every
         # metric set at once, which clears without any change on the customer's side. Left unmapped,
