@@ -35,6 +35,25 @@ tools:
             point at. A 404 means activity summaries are not available for this project, or that the requested version
             does not exist.
         feature_flag: activity-summary
+    anomaly-insight-get:
+        operation: signals_anomalies_insight_retrieve
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the scored anomaly history of an insight
+        description: >
+            Get the full anomaly scoring history of one saved trends insight: every scored series with its anomaly rate,
+            baseline rate and coverage, and each bucket of the range oldest first with its value, score, flag and
+            detector `details`. A completed bucket that was not scored has `scored: false` and null value, score and
+            flag; it is unknown, not zero. Seeing every series together tells a global cause (every breakdown value
+            flags on the same day) from a segment cause (one series flags alone). Pass `series_key` from an
+            anomaly-search row to narrow to one series, and `include_buckets: false` for the per-series summary only.
+            Values are as they were at scoring time, so they can differ from the live chart after late data arrives.
+            The keys of `details` depend on the detector. A 404 means the insight does not exist, you cannot read it,
+            or anomaly search is not available for this project.
+        feature_flag: anomalies-search
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
         enabled: true
