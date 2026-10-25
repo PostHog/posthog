@@ -223,7 +223,9 @@ jobs:
             # gate reads this output, so the label cannot reach them while the paths
             # filter says false. Nothing under .github/ is in the backend filter, so
             # a sharding or timing script change was untestable on its own PR.
-            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
+            # markdown_test_inputs is OR-ed on because the backend filter vetoes every
+            # .md file, and a test that reads one must still run when only it changes.
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.markdown_test_inputs == 'true' && 'true') || (steps.filter.outputs.backend || 'true') }}
             timing_scripts: ${{ fromJSON(toJSON(steps.filter.outputs)).timing_scripts }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
@@ -488,6 +490,12 @@ jobs:
                         - 'products/db_routing.yaml'
                         - 'posthog/product_db_config.py'
                         - 'posthog/product_db_router.py'
+                      markdown_test_inputs:
+                        # Backend tests that run code or SQL from these markdown files. Each one is
+                        # also a turbo input of its reader's backend:test task, so turbo-discover
+                        # selects that product. Add a file here only with that wiring.
+                        - products/workflows/skills/designing-email-templates/references/unlayer-design-json.md
+                        - products/workflows/skills/measuring-email-performance/references/recipes.md
                       timing_scripts:
                         - '.github/scripts/optimize_test_durations.py'
                         - '.github/scripts/turbo-discover.js'
