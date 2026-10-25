@@ -5718,16 +5718,24 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         experiment = create_experiment(self.team, "restricted-flag")
         scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
         self._succeeded_observation(scanner, "restricted-sess", 1, self._monitor_result("yes"))
+        self._succeeded_observation(scanner, "restricted-sess-2", 2, self._monitor_result("yes"))
         scanner.experiment_targeting = None
         scanner.save()
-        self._succeeded_observation(scanner, "open-sess", 2, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess", 3, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        # The newest rows fill the first candidate page and are all restricted, so the feed must read on.
+        with (
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+                side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            ),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2),
         ):
             resp = self.client.get(self.feed_url)
-        self.assertEqual([item["observation"]["session_id"] for item in resp.json()["results"]], ["open-sess"])
+        self.assertEqual(
+            sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
+        )
 
     def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
         scanner = self._create_scanner(name="m")
