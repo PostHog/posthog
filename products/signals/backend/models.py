@@ -4016,10 +4016,10 @@ class UserActivitySummaryQueueCursor(models.Model):
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
-    """The stored series tail of one insight and scoring profile of the anomaly scoring tick.
+    """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
 
-    A train step fetches the full detector history and writes the tail. A score step fetches only the
-    newest buckets, merges them into the tail, and scores the new buckets on it. See
+    A train step fits one artifact per series and writes them as one blob to object storage. A score
+    step fetches only the newest buckets and scores them with the stored artifacts. See
     `anomaly_scores/state.py`. `$anomaly_score` events stay output only.
     """
 
@@ -4039,8 +4039,12 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     scored_through = models.DateTimeField(null=True, blank=True)
     # Stored series that the last score step did not get back. More than half of them makes the next visit train.
     missing_series = models.PositiveIntegerField(default=0)
-    # Series key to `{"first_bucket": ISO bucket start, "values": [...]}`, with the newest values the detector reads.
-    series = models.JSONField(default=dict)
+    # Object storage key of the artifact blob. Keys are never reused, so a loaded blob can be cached by key.
+    artifact_key = models.CharField(max_length=255, default="", db_default="")
+    # Checked before every load. A mismatch or a missing blob makes the next visit train.
+    artifact_sha256 = models.CharField(max_length=64, default="", db_default="")
+    # The series keys that the blob has an artifact for.
+    series_keys = models.JSONField(default=list, db_default=[])
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
