@@ -496,7 +496,7 @@ export function captureInboxReportsImpressed(params: {
             signal_count: report.signal_count,
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
-            ...(rankingSort ? { ranking_served_key: report.ranking?.served_key ?? null } : {}),
+            ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
         })),
     })
 }

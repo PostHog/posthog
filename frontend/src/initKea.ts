@@ -124,6 +124,11 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The prompts view shows its own error, and falls back to an unfiltered list when topics fail to load
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     loadAeoPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
+    // The prompt detail modal shows an error state for each section it loads
+    loadAeoPrompt: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptLatestChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
+    loadAeoPromptChecks: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     // llmProviderKeysLogic toasts each of these failures itself, or shows a rejected field under its input
     loadProviderKeys: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadEvaluationConfig: 'products.ai_observability.settings.llmProviderKeysLogic',

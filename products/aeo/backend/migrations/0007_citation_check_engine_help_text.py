@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("aeo", "0004_prompt_topic_and_rotation"),
+        ("aeo", "0006_backfill_prompt_versions"),
     ]
 
     operations = [
