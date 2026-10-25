@@ -100220,18 +100220,6 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
-    /**
-     * * `weighted-score` - weighted-score
-     * * `jev` - jev
-     */
-    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
-
-
-    export const RankerEnum = {
-      WeightedScore: 'weighted-score',
-      Jev: 'jev',
-    } as const;
-
     export interface RankingOutcomeInfo {
       /** Name of the outcome in the `ranking` field's predictions.
        *
@@ -120370,6 +120358,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
+
+
+    export const WatchFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
      * * `notable` - Notable
@@ -120379,6 +120381,7 @@ export namespace Schemas {
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
      * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
@@ -120395,6 +120398,7 @@ export namespace Schemas {
       NovelSummary: 'novel_summary',
       Friction: 'friction',
       JevWatchable: 'jev_watchable',
+      EmbeddingPick: 'embedding_pick',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
@@ -120413,7 +120417,7 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
@@ -120424,6 +120428,7 @@ export namespace Schemas {
        * * `novel_summary` - Novel Summary
        * * `friction` - Friction
        * * `jev_watchable` - Jev Watchable
+       * * `embedding_pick` - Embedding Pick
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
@@ -120495,6 +120500,17 @@ export namespace Schemas {
          * @nullable
          */
       tag_share?: number | null;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: WatchFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
     }
 
     /**
@@ -120508,18 +120524,33 @@ export namespace Schemas {
     }
 
     /**
+     * * `weighted-score` - Weighted Score
+     * * `jev` - Jev
+     * * `embedding` - Embedding
+     */
+    export type WatchFeedRankerEnum = typeof WatchFeedRankerEnum[keyof typeof WatchFeedRankerEnum];
+
+
+    export const WatchFeedRankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+      Embedding: 'embedding',
+    } as const;
+
+    /**
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
-      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
        *
-       * * `weighted-score` - weighted-score
-       * * `jev` - jev */
-      ranker: RankerEnum;
+       * * `weighted-score` - Weighted Score
+       * * `jev` - Jev
+       * * `embedding` - Embedding */
+      ranker: WatchFeedRankerEnum;
       /**
-         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
          * @nullable
          */
       ranker_variant: string | null;
