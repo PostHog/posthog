@@ -181,7 +181,7 @@ describe('bootTiming', () => {
             },
         },
         {
-            name: 'reports no TLS time on a reused connection',
+            name: 'reports no connection or TLS time on a reused connection',
             navigationEntries: [
                 {
                     type: 'reload',
@@ -189,7 +189,7 @@ describe('bootTiming', () => {
                     domainLookupStart: 5,
                     domainLookupEnd: 5,
                     connectStart: 5,
-                    secureConnectionStart: 0,
+                    secureConnectionStart: 5,
                     connectEnd: 5,
                     requestStart: 6,
                     responseStart: 150,
@@ -200,7 +200,7 @@ describe('bootTiming', () => {
                 navigation_type: 'reload',
                 next_hop_protocol: 'h3',
                 dns_ms: 0,
-                connect_ms: 0,
+                connect_ms: null,
                 tls_ms: null,
                 request_start_ms: 6,
                 response_start_ms: 150,
