@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -207,6 +208,104 @@ describe('watchFeedLogic', () => {
         await undo?.()
         expect(jest.mocked(lemonToast.error)).toHaveBeenCalledTimes(1)
         expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o3'])
+    })
+
+    it('pages through one load, counting the offset from what was served', async () => {
+        useMocks({ post: { '/api/projects/:team/vision/observations/:id/feed_dismissal/': () => [204] } })
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick'), item('o2', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        // Hiding a card shortens the list, but the next page still starts after both served cards.
+        await expectLogic(logic, () =>
+            logic.actions.dismissItem(logic.values.feedItems![0], 0, null)
+        ).toFinishAllListeners()
+
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o2', 'embedding_pick'), item('o3', 'recent')], has_more: true, as_of: 'T0' },
+        ])
+        await expectLogic(logic, () => logic.actions.loadMoreFeed({}))
+            .toDispatchActions(['loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+
+        const pageUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
+        expect(pageUrl.searchParams.get('offset')).toBe('2')
+        expect(pageUrl.searchParams.get('as_of')).toBe('T0')
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2', 'o3'])
+        expect(logic.values.feedLoad?.positions).toEqual({ o1: 0, o2: 1, o3: 2 })
+
+        // The deduplicated o2 still counts toward the offset, and an empty page ends paging instead of repeating.
+        feedSpy.mockImplementation(() => [200, { results: [], has_more: true, as_of: 'T0' }])
+        await expectLogic(logic, () => logic.actions.loadMoreFeed({}))
+            .toDispatchActions(['loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+
+        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('offset')).toBe('4')
+        expect(logic.values.feedHasMore).toBe(false)
+    })
+
+    it('drops a next page that fails after the filters changed', async () => {
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        let failPage: () => void = () => {}
+        // The next page (it carries an offset) stays pending until the test fails it; a fresh load answers at once.
+        feedSpy.mockImplementation(({ request }) =>
+            new URL(request.url).searchParams.has('offset')
+                ? new Promise((resolve) => {
+                      failPage = () => resolve([500, { detail: 'nope' }])
+                  })
+                : [200, { results: [item('o2', 'recent')], has_more: true, as_of: 'T1' }]
+        )
+        logic.actions.loadMoreFeed({})
+        // Waiting for every listener would wait on the held page too, so wait for the new load alone.
+        await expectLogic(logic, () => logic.actions.setScannerTypeFilter('monitor')).toDispatchActions([
+            'loadFeedSuccess',
+        ])
+
+        failPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.feedMoreFailed).toBe(false)
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o2'])
+        expect(logic.values.feedHasMore).toBe(true)
+    })
+
+    it('appends a next page once when it is requested again while in flight', async () => {
+        feedSpy.mockImplementation(() => [
+            200,
+            { results: [item('o1', 'embedding_pick')], has_more: true, as_of: 'T0' },
+        ])
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        const pending: (() => void)[] = []
+        feedSpy.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    pending.push(() =>
+                        resolve([200, { results: [item('o2', 'recent')], has_more: false, as_of: 'T0' }])
+                    )
+                })
+        )
+        logic.actions.loadMoreFeed({})
+        logic.actions.loadMoreFeed({})
+        await expectLogic(logic).toMatchValues({ feedItemsLoading: true })
+        await waitFor(() => expect(pending).toHaveLength(2))
+        // The newer request lands first, then the older one would append the same page again.
+        pending[1]()
+        await expectLogic(logic).toDispatchActions(['loadMoreFeedSuccess'])
+        pending[0]()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.feedItems?.map((i) => i.observation.id)).toEqual(['o1', 'o2'])
     })
 
     it('flags a failed load and clears the flag on retry', async () => {
