@@ -31,7 +31,9 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
                 lead: 'Score your generations, traces, or sessions in production. Use an LLM as a judge, Hog code, or sentiment analysis for a wide range of checks. Start with a template, from scratch, or with PostHog AI, then view pass rates over time and jump straight into the runs that failed.',
             },
         },
-        PrimaryAction: EvaluationQuickStart,
+        // Owns the primary-action slot so the shared fallback button doesn't come back; the quick start below is the only CTA.
+        PrimaryAction: () => null,
+        SetupActions: EvaluationQuickStart,
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
         previewLabel: 'Example: how your evaluations will score',

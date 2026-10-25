@@ -176,16 +176,12 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                         <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
                         <div className="h-px flex-1 bg-border-primary" />
                     </div>
-                    {config.PrimaryAction ? (
-                        <config.PrimaryAction mode={mode} preview={preview} />
-                    ) : (
-                        guardedPrimaryAction
-                    )}
+                    {config.PrimaryAction ? <config.PrimaryAction /> : guardedPrimaryAction}
                 </>
             ) : null}
         </>
     ) : config.PrimaryAction ? (
-        <config.PrimaryAction mode={mode} preview={preview} />
+        <config.PrimaryAction />
     ) : guardedPrimaryAction ? (
         guardedPrimaryAction
     ) : manualUrl && mode === 'needs-setup' ? (
