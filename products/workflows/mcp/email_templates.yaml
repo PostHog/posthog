@@ -9,6 +9,12 @@ ui_apps:
     email-template:
         type: detail
         view_prop: template
+        # Images uploaded in the email editor are served from the media CDN. Older templates link the app host.
+        resource_domains:
+            - https://us-media.posthog.com
+            - https://eu-media.posthog.com
+            - https://us.posthog.com
+            - https://eu.posthog.com
 tools:
     workflows-create-email-template:
         operation: messaging_templates_create

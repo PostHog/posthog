@@ -187,6 +187,12 @@ export const UI_APPS: Array<{
         uri: EMAIL_TEMPLATE_RESOURCE_URI,
         description: 'Email Template detail view',
         appDir: 'generated/email-template',
+        resourceDomains: [
+            'https://us-media.posthog.com',
+            'https://eu-media.posthog.com',
+            'https://us.posthog.com',
+            'https://eu.posthog.com',
+        ],
     },
     {
         name: 'PostHog Error Details',
@@ -271,6 +277,12 @@ export const UI_APPS: Array<{
         uri: RENDER_UI_RESOURCE_URI,
         description: 'Renders the visualization for a PostHog MCP tool result',
         appDir: 'render-ui',
+        resourceDomains: [
+            'https://us-media.posthog.com',
+            'https://eu-media.posthog.com',
+            'https://us.posthog.com',
+            'https://eu.posthog.com',
+        ],
     },
     {
         name: 'PostHog Session Recording',

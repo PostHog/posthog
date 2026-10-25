@@ -156,25 +156,27 @@ describe('ui-apps', () => {
             expect(registration._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
-        it('allows Visual Review artifacts without widening other app CSPs', async () => {
+        it.each([
+            {
+                appKey: 'visual-review-snapshots' as const,
+                source: 'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/',
+            },
+            { appKey: 'email-template' as const, source: 'https://us-media.posthog.com' },
+            { appKey: 'render-ui' as const, source: 'https://us-media.posthog.com' },
+        ])('allows $source in $appKey without widening other app CSPs', async ({ appKey, source }) => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()
             const context = createMockContext({ MCP_APPS_BASE_URL: 'https://mcp.posthog.com' })
 
             await registerUiAppResources(server as any, context as any)
 
-            const visualReviewRegistration = server.registerResource.mock.calls.find(
-                (call: unknown[]) => call[1] === URI_MAP['visual-review-snapshots']
-            )
-            const debugRegistration = server.registerResource.mock.calls.find(
-                (call: unknown[]) => call[1] === URI_MAP.debug
-            )
-            const artifactSource =
-                'https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/'
+            const registrationFor = (uri: string): any =>
+                server.registerResource.mock.calls.find((call: unknown[]) => call[1] === uri)![2]
+            const appRegistration = registrationFor(URI_MAP[appKey])
 
-            expect(visualReviewRegistration![2]._meta.ui.csp.resourceDomains).toContain(artifactSource)
-            expect(visualReviewRegistration![2]._meta['openai/widgetCSP'].resource_domains).toContain(artifactSource)
-            expect(debugRegistration![2]._meta.ui.csp.resourceDomains).not.toContain(artifactSource)
+            expect(appRegistration._meta.ui.csp.resourceDomains).toContain(source)
+            expect(appRegistration._meta['openai/widgetCSP'].resource_domains).toContain(source)
+            expect(registrationFor(URI_MAP.debug)._meta.ui.csp.resourceDomains).not.toContain(source)
         })
 
         it('includes analytics URL in CSP when set', async () => {
