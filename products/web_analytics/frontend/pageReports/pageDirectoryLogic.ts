@@ -17,7 +17,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { uuid } from 'lib/utils/dom'
-import { isAbortedRequest } from 'lib/utils/requests'
+import { isAbortedRequest, isTimedOutRequest } from 'lib/utils/requests'
 import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/common'
 import { DateFilterState, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -45,7 +45,14 @@ export const PAGE_DIRECTORY_PAGE_SIZE = 25
 
 export type PageDirectorySortDirection = 'ASC' | 'DESC'
 
-export type PageDirectoryState = 'loading' | 'error' | 'no-events' | 'no-traffic' | 'no-matches' | 'ready'
+export type PageDirectoryState =
+    | 'loading'
+    | 'error'
+    | 'no-events'
+    | 'no-traffic'
+    | 'no-matches'
+    | 'no-metric-rows'
+    | 'ready'
 
 const PAGE_DIRECTORY_METRICS: WebPageDirectoryMetric[] = [
     WebPageDirectoryMetric.Visitors,
@@ -232,6 +239,7 @@ export interface pageDirectoryLogicMeta {
             driverError: string | null,
             search: string,
             pageIndex: number,
+            sortBy: WebPageDirectorySortBy,
             currentTeam: TeamPublicType | TeamType | null
         ) => PageDirectoryState
     }
@@ -470,12 +478,13 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             (search: string): string | null => (looksLikePageUrl(search) ? search.trim() : null),
         ],
         directoryState: [
-            (s) => [s.driverRows, s.driverError, s.search, s.pageIndex, s.currentTeam],
+            (s) => [s.driverRows, s.driverError, s.search, s.pageIndex, s.sortBy, s.currentTeam],
             (
                 driverRows: WebPageDirectoryRow[] | null,
                 driverError: string | null,
                 search: string,
                 pageIndex: number,
+                sortBy: WebPageDirectorySortBy,
                 currentTeam: TeamPublicType | TeamType | null
             ): PageDirectoryState => {
                 if (driverError) {
@@ -490,12 +499,17 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 if (search.trim()) {
                     return 'no-matches'
                 }
+                if (sortBy !== WebPageDirectorySortBy.Page && sortBy !== WebPageDirectorySortBy.Visitors) {
+                    return 'no-metric-rows'
+                }
                 return currentTeam?.ingested_event ? 'no-traffic' : 'no-events'
             },
         ],
     }),
     listeners(({ values, actions, cache }) => {
-        const startRequest = (key: string): { signal: AbortSignal; queryId: string; finish: () => void } => {
+        const startRequest = (
+            key: string
+        ): { signal: AbortSignal; queryId: string; track: <T>(request: Promise<T>) => Promise<T> } => {
             const abortController = new AbortController()
             const queryId = uuid()
             let finished = false
@@ -512,9 +526,20 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             return {
                 signal: abortController.signal,
                 queryId,
-                finish: () => {
-                    finished = true
-                },
+                track: (request) =>
+                    request.then(
+                        (result) => {
+                            finished = true
+                            return result
+                        },
+                        (error) => {
+                            if (isTimedOutRequest(error)) {
+                                void cancelQueryOnServer(values.currentTeam?.id ?? null, queryId)
+                            }
+                            finished = true
+                            throw error
+                        }
+                    ),
             }
         }
         const isCancellation = (error: unknown): boolean =>
@@ -525,15 +550,12 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         return {
             loadDriver: async ({ refresh }, breakpoint) => {
                 await breakpoint(300)
-                const { signal, queryId, finish } = startRequest('driverRequest')
+                const { signal, queryId, track } = startRequest('driverRequest')
                 const query = values.driverQuery
                 try {
-                    const response = (await performQuery(
-                        query,
-                        { signal },
-                        refresh ? 'force_blocking' : 'blocking',
-                        queryId
-                    ).finally(finish)) as WebPageDirectoryQueryResponse
+                    const response = (await track(
+                        performQuery(query, { signal }, refresh ? 'force_blocking' : 'blocking', queryId)
+                    )) as WebPageDirectoryQueryResponse
                     breakpoint()
                     actions.loadDriverSuccess(response.results ?? [], !!response.hasMore, refresh)
                     if (query.search) {
@@ -565,17 +587,19 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 }
             },
             loadMetric: async ({ metric, pageKeys, refresh }) => {
-                const { signal, queryId, finish } = startRequest(`metricRequest-${metric}`)
+                const { signal, queryId, track } = startRequest(`metricRequest-${metric}`)
                 const isStale = (): boolean =>
                     cache.disposables.isDisposed ||
                     (values.driverRows ?? []).map((row) => row.page).join('\n') !== pageKeys.join('\n')
                 try {
-                    const response = (await performQuery(
-                        { ...values.baseQuery, pageKeys, metrics: [metric] },
-                        { signal },
-                        refresh ? 'force_blocking' : 'blocking',
-                        queryId
-                    ).finally(finish)) as WebPageDirectoryQueryResponse
+                    const response = (await track(
+                        performQuery(
+                            { ...values.baseQuery, pageKeys, metrics: [metric] },
+                            { signal },
+                            refresh ? 'force_blocking' : 'blocking',
+                            queryId
+                        )
+                    )) as WebPageDirectoryQueryResponse
                     if (!isStale()) {
                         actions.loadMetricSuccess(metric, response.results ?? [])
                     }
@@ -588,14 +612,16 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             },
             loadSiteTotals: async ({ refresh }, breakpoint) => {
                 await breakpoint(300)
-                const { signal, queryId, finish } = startRequest('siteTotalsRequest')
+                const { signal, queryId, track } = startRequest('siteTotalsRequest')
                 try {
-                    const response = (await performQuery(
-                        values.siteTotalsQuery,
-                        { signal },
-                        refresh ? 'force_blocking' : 'blocking',
-                        queryId
-                    ).finally(finish)) as WebPageDirectoryQueryResponse
+                    const response = (await track(
+                        performQuery(
+                            values.siteTotalsQuery,
+                            { signal },
+                            refresh ? 'force_blocking' : 'blocking',
+                            queryId
+                        )
+                    )) as WebPageDirectoryQueryResponse
                     breakpoint()
                     actions.loadSiteTotalsSuccess(response.siteTotals ?? null)
                 } catch (error) {
