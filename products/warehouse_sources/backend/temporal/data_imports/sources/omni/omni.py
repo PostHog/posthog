@@ -45,7 +45,7 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 HOST_NOT_ALLOWED_ERROR = "Omni host is not allowed"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OmniResumeConfig:
     # Documents/Folders/Schedules resume via an opaque `nextCursor`; the SCIM Users/UserGroups
     # endpoints resume via a numeric `startIndex`; fan-out endpoints resume via the framework's
