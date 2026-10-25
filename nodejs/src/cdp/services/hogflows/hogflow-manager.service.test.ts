@@ -366,40 +366,21 @@ describe('HogFlowManager', () => {
             })
         })
 
-        it.each<{ name: string; actions?: unknown; encryptedInputs: string | Record<string, unknown> }>([
-            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
-            { name: 'encrypted_inputs cannot be decrypted', encryptedInputs: 'not-a-valid-fernet-token' },
-            // A malformed row must load, because a throw fails the batched load for every flow in it.
-            {
-                name: 'actions is not a list',
-                actions: { trigger: { type: 'trigger' } },
-                encryptedInputs: { trigger: { api_key: { value: 'secret' } } },
-            },
-            {
-                name: 'actions holds a null entry',
-                actions: [null],
-                encryptedInputs: { trigger: { api_key: { value: 'secret' } } },
-            },
-        ])('keeps the flow (fail-open) when $name', async ({ actions, encryptedInputs }) => {
+        it('keeps the flow (fail-open) when encrypted_inputs cannot be decrypted', async () => {
             const flow = await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
-                    .withName('Flow that cannot take its secrets')
+                    .withName('Undecryptable flow')
                     .withTeamId(teamId1)
                     .withStatus('active')
                     .build()
             )
 
+            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_hogflow SET encrypted_inputs = $2, actions = COALESCE($3::jsonb, actions) WHERE id = $1`,
-                [
-                    flow.id,
-                    typeof encryptedInputs === 'string'
-                        ? encryptedInputs
-                        : hub.encryptedFields.encrypt(JSON.stringify(encryptedInputs)),
-                    actions === undefined ? null : JSON.stringify(actions),
-                ],
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [flow.id, 'not-a-valid-fernet-token'],
                 'testKey'
             )
             manager['onHogFlowsReloaded'](teamId1, [flow.id])
@@ -409,5 +390,45 @@ describe('HogFlowManager', () => {
             expect(loaded).not.toBeNull()
             expect(loaded).not.toHaveProperty('encrypted_inputs')
         })
+
+        it.each<{ name: string; actions: unknown }>([
+            { name: 'actions is not a list', actions: { trigger: { type: 'trigger' } } },
+            { name: 'actions holds a null entry', actions: [null] },
+            {
+                name: 'the trigger action has a null config',
+                actions: [{ id: 'trigger', type: 'trigger', config: null }],
+            },
+        ])(
+            'leaves out a flow whose secrets cannot be merged when $name, and loads the rest of its batch',
+            async ({ actions }) => {
+                // Served without its secrets, a webhook trigger would skip its auth header check.
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder()
+                        .withName('Flow that cannot take its secrets')
+                        .withTeamId(teamId1)
+                        .withStatus('active')
+                        .build()
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET encrypted_inputs = $2, actions = $3::jsonb WHERE id = $1`,
+                    [
+                        flow.id,
+                        hub.encryptedFields.encrypt(
+                            JSON.stringify({ trigger: { auth_header: { value: 'Bearer secret' } } })
+                        ),
+                        JSON.stringify(actions),
+                    ],
+                    'testKey'
+                )
+                manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+                const loaded = await manager.getHogFlows([flow.id, hogFlows[0].id])
+
+                expect(loaded[flow.id]).toBeNull()
+                expect(loaded[hogFlows[0].id]?.id).toBe(hogFlows[0].id)
+            }
+        )
     })
 })

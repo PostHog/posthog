@@ -205,14 +205,14 @@ export class HogFlowManagerService {
             try {
                 this.mergeEncryptedInputs(item)
             } catch (error) {
-                // A throw here fails the batched load for every flow in it, so a flow whose stored
-                // shape breaks the merge loads without its secrets instead.
-                logger.warn('[HogFlowManager]', 'Could not merge encrypted inputs - flow will run without them', {
+                // A throw here would fail the batched load for every flow in it. Only this flow is left
+                // out, because serving it without its secrets would skip a webhook trigger's auth check.
+                logger.warn('[HogFlowManager]', 'Could not merge encrypted inputs - flow is left out', {
                     hogFlowId: item.id,
                     error: error instanceof Error ? error.message : 'Unknown error',
                 })
                 captureException(error)
-                delete item.encrypted_inputs
+                return acc
             }
             acc[item.id] = item
             return acc

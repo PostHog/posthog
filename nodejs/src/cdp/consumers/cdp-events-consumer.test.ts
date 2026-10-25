@@ -17,7 +17,13 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import {
+    HOG_EXAMPLES,
+    HOG_FILTERS_EXAMPLES,
+    HOG_FLOW_MASK_EXAMPLES,
+    HOG_INPUTS_EXAMPLES,
+    HOG_MASK_EXAMPLES,
+} from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
@@ -861,6 +867,43 @@ describe('CdpEventsConsumer', () => {
                     expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
                 }
             )
+
+            it.each([
+                {
+                    name: 'destination',
+                    insert: () =>
+                        insertHogFunction({
+                            ...HOG_EXAMPLES.simple_fetch,
+                            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                            ...HOG_FILTERS_EXAMPLES.no_filters,
+                            ...HOG_MASK_EXAMPLES.all,
+                        }),
+                },
+                {
+                    name: 'workflow',
+                    insert: () =>
+                        _insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder()
+                                .withTeamId(team.id)
+                                .withSimpleWorkflow({
+                                    trigger: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                                })
+                                .withTriggerMasking(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+                                .build()
+                        ),
+                },
+            ])('releases the masking claims of a $name when the batch fails before queueing', async ({ insert }) => {
+                await insert()
+                const globals = await processor._parseKafkaBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                await expect(
+                    processor.processBatch(globals, () => Promise.reject(new Error('dead-letter write failed')))
+                ).rejects.toThrow('dead-letter write failed')
+
+                const { invocations } = await processor.processBatch(globals)
+                expect(invocations).toHaveLength(1)
+            })
 
             it('parks nothing when every function builds', async () => {
                 await insertHogFunction({

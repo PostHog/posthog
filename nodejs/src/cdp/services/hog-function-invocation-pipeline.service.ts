@@ -9,6 +9,7 @@ import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterHogFunctionStateOnEvent, counterRateLimited } from '../consumers/metrics'
 import { shouldBlockInvocationDueToQuota } from '../consumers/quota-limiting-helper'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
     HogFunctionType,
@@ -77,11 +78,25 @@ export class HogFunctionInvocationPipeline {
         this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
     public async buildInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[],
         opts: BuildHogFunctionInvocationsOptions
     ): Promise<CyclotronJobInvocationHogFunction[]> {
+        return (await this.buildInvocationsWithRelease(invocationGlobals, opts)).invocations
+    }
+
+    /**
+     * Also returns the masker's `release`. Masking claims are written before the caller queues the invocations,
+     * so a caller that retries after a failed queue must release them, or the retry masks every invocation.
+     */
+    @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
+    public async buildInvocationsWithRelease(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        opts: BuildHogFunctionInvocationsOptions
+    ): Promise<{
+        invocations: CyclotronJobInvocationHogFunction[]
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
+    }> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.deps.hogFunctionManager.getHogFunctionsForTeams(
             teamsToLoad,
@@ -213,7 +228,11 @@ export class HogFunctionInvocationPipeline {
             })
         )
 
-        const { masked, notMasked: notMaskedInvocations } = await this.deps.hogMasker.filterByMasking(validInvocations)
+        const {
+            masked,
+            notMasked: notMaskedInvocations,
+            release,
+        } = await this.deps.hogMasker.filterByMasking(validInvocations)
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(
             masked.map((item) => ({
@@ -264,6 +283,6 @@ export class HogFunctionInvocationPipeline {
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
 
-        return notMaskedInvocations
+        return { invocations: notMaskedInvocations, release }
     }
 }

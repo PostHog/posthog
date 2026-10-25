@@ -91,22 +91,31 @@ export class CdpEventsConsumer<
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
-            this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
+        const [hogBuild, hogflowBuild] = await Promise.all([
+            this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
             }),
             // Source-compatibility lives in the consumer. The events consumer matches event-triggered
             // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
             // are dispatched from their respective consumers and never reach the executor from here.
-            this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+            this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 eligibilityFn: (flow) => flow.trigger.type === 'event',
             }),
         ])
+        const hogInvocations = hogBuild.invocations
+        const hogflowInvocations = hogflowBuild.invocations
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
 
-        await beforeQueue?.()
+        try {
+            await beforeQueue?.()
+        } catch (error) {
+            // The build already wrote the masking claims. The batch is read again after this throw. A
+            // claim left in place would mask the retried event as a duplicate.
+            await Promise.all([hogBuild.release(), hogflowBuild.release()])
+            throw error
+        }
 
         // Emit a `running` lifecycle row for each freshly-created invocation.
         // This fires ONCE per invocation_id at creation — not on every dequeue
