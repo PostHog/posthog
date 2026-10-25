@@ -4880,6 +4880,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-intersection-observer:
+        specifier: ^9.5.3
+        version: 9.5.3(react@18.3.1)
       typescript:
         specifier: 6.0.3
         version: 6.0.3

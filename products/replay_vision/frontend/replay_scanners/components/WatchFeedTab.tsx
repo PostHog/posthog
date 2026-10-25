@@ -1,165 +1,118 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { useInView } from 'react-intersection-observer'
 
-import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
-import { dateMapping } from 'lib/utils/dateFilters'
-import { pluralize } from 'lib/utils/strings'
-
-import { FilterPill } from '../../components/FilterPill'
-import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
-import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { FILLER_REASON_KINDS, WatchFeedRow } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
-const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
-    value,
-    label,
-}))
-
-// The endpoint caps the window at 90 days and rejects "All time" style bounds, so offer only ranges it accepts.
-const FEED_DATE_OPTION_KEYS = new Set([
-    'Today',
-    'Yesterday',
-    'Last 24 hours',
-    'Last 7 days',
-    'Last 14 days',
-    'Last 30 days',
-    'Last 90 days',
-])
-const FEED_DATE_OPTIONS = dateMapping.filter((option) => FEED_DATE_OPTION_KEYS.has(option.key))
+const FEED_DATE_OPTIONS = [
+    { value: '-24h', label: 'Last 24 hours' },
+    { value: '-7d', label: 'Last 7 days' },
+    { value: '-30d', label: 'Last 30 days' },
+    { value: '-90d', label: 'Last 90 days' },
+]
 
 function FeedSkeleton(): JSX.Element {
     return (
-        <div className="flex flex-col gap-3" aria-busy>
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-4" aria-busy>
             {[0, 1, 2].map((i) => (
-                <LemonSkeleton key={i} className="h-32 rounded" />
+                <LemonSkeleton key={i} className="h-80 rounded-lg" />
             ))}
         </div>
     )
 }
 
+/** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
+function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
+    const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(watchFeedLogic)
+    const { loadMoreFeed } = useActions(watchFeedLogic)
+    // Starts the request a little before the end is on screen, so a steady scroll rarely waits.
+    const { ref, inView } = useInView({ rootMargin: '600px 0px' })
+
+    useEffect(() => {
+        if (inView && feedHasMore && !feedItemsLoading && !feedMoreFailed) {
+            loadMoreFeed({})
+        }
+    }, [inView, feedHasMore, feedItemsLoading, feedMoreFailed, loadMoreFeed])
+
+    if (feedMoreFailed) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-secondary border rounded p-4">
+                <span>Couldn't load more sessions.</span>
+                <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed({})}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+    if (feedHasMore) {
+        return (
+            <div ref={ref} aria-busy>
+                <LemonSkeleton className="h-80 rounded-lg" />
+            </div>
+        )
+    }
+    return itemCount > 3 ? (
+        <p className="text-sm text-secondary text-center m-0 py-4" data-attr="vision-watch-feed-end">
+            You're caught up. New sessions show up here as your scanners find them.
+        </p>
+    ) : null
+}
+
 export function WatchFeedTab(): JSX.Element {
-    const {
-        feedItems,
-        feedItemsLoading,
-        feedLoad,
-        feedFailed,
-        dateFrom,
-        dateTo,
-        scannerTypeFilter,
-        scannerIdsFilter,
-        tagsFilter,
-        tagOptions,
-        createdByFilter,
-        search,
-        hasFeedFilters,
-        emptyReason,
-    } = useValues(watchFeedLogic)
-    const {
-        setDateRange,
-        setScannerTypeFilter,
-        setScannerIdsFilter,
-        setTagsFilter,
-        setCreatedByFilter,
-        setSearch,
-        clearFeedFilters,
-        loadFeed,
-    } = useActions(watchFeedLogic)
-    const { scanners: allScanners } = useValues(visionScannersListLogic)
-    const scannerOptions = allScanners.map((scanner) => ({
-        value: scanner.id,
-        label: scanner.name || '(untitled)',
-    }))
+    const { feedItems, feedItemsLoading, feedLoad, feedFailed, dateFrom, onlyMyScanners, emptyReason } =
+        useValues(watchFeedLogic)
+    const { setDateFrom, setOnlyMyScanners, loadFeed } = useActions(watchFeedLogic)
 
     const items = feedItems ?? []
-    // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
-    const narrowedToScanners =
-        scannerIdsFilter.length > 0 && scannerIdsFilter.length < allScanners.length ? scannerIdsFilter.length : 0
-    const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
 
     return (
         <div className="@container flex flex-col gap-4">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="flex flex-col gap-1 flex-1 min-w-[16rem]">
-                    <h2 className="text-xl font-semibold m-0">
-                        {items.length === 0 ? 'What to watch' : `Top ${pluralize(items.length, 'session')}`}
-                    </h2>
-                    <p className="text-muted text-sm m-0">
-                        {narrowedToScanners > 0
-                            ? `Following ${pluralize(narrowedToScanners, 'scanner')} of ${allScanners.length}. `
-                            : ''}
-                        {items.length > 0
-                            ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each session opens at the moment its scan cites.`
-                            : 'The observations most worth a look, picked across your scanners.'}
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search sessions..."
-                        value={search}
-                        onChange={setSearch}
-                        prefix={<IconSearch />}
-                        className="max-w-xs"
-                        data-attr="vision-watch-feed-search"
-                    />
-                    <FilterPill<string>
-                        label="Scanners"
-                        dataAttr="vision-watch-feed-scanners-filter"
-                        searchable
-                        searchPlaceholder="Search scanners..."
-                        selectAllLabel="All scanners"
-                        options={scannerOptions}
-                        value={scannerIdsFilter}
-                        onChange={setScannerIdsFilter}
-                    />
-                    <span data-attr="vision-watch-feed-created-by-filter">
-                        <MemberSelectMultiplePopover
-                            value={createdByFilter.map(Number)}
-                            onChange={(ids) => setCreatedByFilter(ids.map(String))}
-                        />
-                    </span>
-                    <FilterPill<string>
-                        label="Tags"
-                        dataAttr="vision-watch-feed-tags-filter"
-                        searchable
-                        options={tagOptions}
-                        value={tagsFilter}
-                        onChange={setTagsFilter}
-                    />
-                    <FilterPill<ScannerType>
-                        label="Type"
-                        dataAttr="vision-watch-feed-type-filter"
-                        options={TYPE_OPTIONS}
-                        value={scannerTypeFilter ? [scannerTypeFilter] : []}
-                        onChange={(values) => setScannerTypeFilter(values[values.length - 1] ?? null)}
-                    />
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        dateOptions={FEED_DATE_OPTIONS}
-                        showRollingRangePicker={false}
-                        onChange={(from, to) => setDateRange(from ?? null, to ?? null)}
-                    />
-                    {hasFeedFilters && (
-                        <LemonButton type="tertiary" size="small" onClick={() => clearFeedFilters()}>
-                            Clear filters
+            <p className="mx-auto w-full max-w-xl text-sm text-secondary m-0 -mb-2">
+                Sessions that stand out in your scanner results.
+            </p>
+            <LemonTabs
+                size="small"
+                // The small size packs tabs two units apart below md, too tight for two labels this long.
+                className="mx-auto w-full max-w-xl -mb-2 [&_ul>div]:gap-x-6"
+                activeKey={onlyMyScanners ? 'mine' : 'all'}
+                onChange={(key) => setOnlyMyScanners(key === 'mine')}
+                data-attr="vision-watch-feed-scope"
+                tabs={[
+                    { key: 'all', label: 'All scanners', 'data-attr': 'vision-watch-feed-scope-all' },
+                    { key: 'mine', label: 'My scanners', 'data-attr': 'vision-watch-feed-scope-mine' },
+                ]}
+                rightSlotClassName="bg-transparent pr-0"
+                rightSlot={
+                    <LemonMenu
+                        items={FEED_DATE_OPTIONS.map((option) => ({
+                            label: option.label,
+                            active: option.value === dateFrom,
+                            onClick: () => setDateFrom(option.value),
+                        }))}
+                    >
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            sideIcon={<IconChevronDown />}
+                            data-attr="vision-watch-feed-range"
+                        >
+                            {FEED_DATE_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom}
                         </LemonButton>
-                    )}
-                </div>
-            </div>
-
+                    </LemonMenu>
+                }
+            />
             {feedItemsLoading && feedItems === null ? (
                 <FeedSkeleton />
             ) : (
-                <div className="flex flex-col gap-3">
+                <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
                         with cards still on screen. Show the error above them rather than replacing them. */}
                     {feedFailed && (
@@ -183,13 +136,16 @@ export function WatchFeedTab(): JSX.Element {
                         </p>
                     )}
                     {items.length > 0 ? (
-                        items.map((item, index) => (
-                            <WatchFeedRow
-                                key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
-                                item={item}
-                                position={index}
-                            />
-                        ))
+                        <>
+                            {items.map((item, index) => (
+                                <WatchFeedRow
+                                    key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
+                                    item={item}
+                                    position={index}
+                                />
+                            ))}
+                            <FeedEnd itemCount={items.length} />
+                        </>
                     ) : feedFailed ? null : emptyReason ? (
                         <WatchFeedEmptyState reason={emptyReason} />
                     ) : (
