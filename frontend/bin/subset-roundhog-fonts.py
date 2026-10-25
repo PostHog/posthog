@@ -44,6 +44,14 @@ class CodepointRange:
         return f"U+{self.first:04X}" if self.first == self.last else f"U+{self.first:04X}-{self.last:04X}"
 
 
+# Both faces carry the combining marks. A browser draws a letter and its marks with one face,
+# so a mark missing from the letter's face sends the whole cluster to a fallback font.
+COMBINING_MARKS = CodepointRange(0x0300, 0x036F)
+
+# The app turns on only the browser default features and the numeric ones. Leaving out the
+# stylistic sets and character variants keeps their alternate glyphs out of the subset.
+LAYOUT_FEATURES = [*subset.Options().layout_features, "tnum", "pnum", "case"]
+
 # Keep in sync with the latin unicode-range in src/styles/fonts.scss.
 # The Google Fonts latin range, plus the arrows, math, keyboard, box drawing and dingbat blocks that the UI uses.
 LATIN_RANGES = [
@@ -54,9 +62,7 @@ LATIN_RANGES = [
     CodepointRange(0x02C6, 0x02C6),
     CodepointRange(0x02DA, 0x02DA),
     CodepointRange(0x02DC, 0x02DC),
-    CodepointRange(0x0304, 0x0304),
-    CodepointRange(0x0308, 0x0308),
-    CodepointRange(0x0329, 0x0329),
+    COMBINING_MARKS,
     CodepointRange(0x2000, 0x206F),
     CodepointRange(0x20AC, 0x20AC),
     CodepointRange(0x2122, 0x2122),
@@ -87,7 +93,7 @@ def subset_font(name: str) -> str:
     source = SOURCE / f"{name}.woff2"
     options = subset.Options()
     options.flavor = "woff2"
-    options.layout_features = ["*"]
+    options.layout_features = LAYOUT_FEATURES
     font = TTFont(source, recalcTimestamp=False)
     subsetter = subset.Subsetter(options)
     subsetter.populate(unicodes=[cp for r in LATIN_RANGES for cp in range(r.first, r.last + 1)])
@@ -101,7 +107,8 @@ def main() -> None:
     manifest = {"sources": {f"{name}.woff2": subset_font(name) for name in FONTS}}
     MANIFEST.write_text(json.dumps(manifest, indent=4) + "\n")
     sys.stdout.write(f"latin range: {css_range(LATIN_RANGES)}\n")
-    sys.stdout.write(f"other range: {css_range(complement(LATIN_RANGES))}\n")
+    other = sorted([*complement(LATIN_RANGES), COMBINING_MARKS], key=lambda r: r.first)
+    sys.stdout.write(f"other range: {css_range(other)}\n")
 
 
 if __name__ == "__main__":

@@ -41,7 +41,9 @@
 
 // The latin subsets come from bin/subset-roundhog-fonts.py and cover the characters on almost every page.
 // The full @posthog/brand files load only for characters outside that range.
-// Keep the latin unicode-range in sync with LATIN_RANGES in that script, and the other unicode-range as its complement.
+// Keep both unicode-ranges in sync with the ranges that script prints.
+// Both ranges hold the combining marks. Browsers try the last matching @font-face first,
+// so the latin rule comes last to keep a mark on latin text from loading the full file.
 $roundhog-faces: (
     'RoundHog' normal 400,
     'RoundHog-Italic' italic 400,
@@ -58,22 +60,21 @@ $roundhog-faces: (
         font-family: RoundHog;
         font-style: $style;
         font-weight: $weight;
-        src: url('../../public/fonts/roundhog/#{$file}-latin.woff2') format('woff2');
+        src: url('../../node_modules/@posthog/brand/dist/fonts/#{$file}.woff2') format('woff2');
         font-display: swap;
         unicode-range:
-            U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
-            U+20AC, U+2122, U+2190-23FF, U+2500-27BF, U+FEFF, U+FFFD;
+            U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-02FF, U+0300-036F,
+            U+0370-1FFF, U+2070-20AB, U+20AD-2121, U+2123-218F, U+2400-24FF, U+27C0-FEFE, U+FF00-FFFC, U+FFFE-10FFFF;
     }
 
     @font-face {
         font-family: RoundHog;
         font-style: $style;
         font-weight: $weight;
-        src: url('../../node_modules/@posthog/brand/dist/fonts/#{$file}.woff2') format('woff2');
+        src: url('../../public/fonts/roundhog/#{$file}-latin.woff2') format('woff2');
         font-display: swap;
         unicode-range:
-            U+0100-0130, U+0132-0151, U+0154-02BA, U+02BD-02C5, U+02C7-02D9, U+02DB, U+02DD-0303, U+0305-0307,
-            U+0309-0328, U+032A-1FFF, U+2070-20AB, U+20AD-2121, U+2123-218F, U+2400-24FF, U+27C0-FEFE, U+FF00-FFFC,
-            U+FFFE-10FFFF;
+            U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-036F, U+2000-206F, U+20AC,
+            U+2122, U+2190-23FF, U+2500-27BF, U+FEFF, U+FFFD;
     }
 }
