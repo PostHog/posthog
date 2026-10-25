@@ -656,6 +656,7 @@ describe('HogFunctionHandler', () => {
         { billingType: 'push' as const, outcome: 'sent', expected: 3 },
         { billingType: 'fetch' as const, outcome: 'sent', expected: 1 },
         { billingType: 'email' as const, outcome: 'failed', expected: 1 },
+        { billingType: 'email' as const, outcome: 'sent nothing', expected: 1 },
         { billingType: 'push' as const, outcome: 'reached no device', expected: 1 },
     ])(
         'a $billingType step that $outcome leaves the attribution version at $expected',
@@ -671,6 +672,9 @@ describe('HogFunctionHandler', () => {
             jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
                 async (hogFunctionInvocation, options) => {
                     const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                    if (outcome === 'sent') {
+                        functionResult.deliveredToRecipient = true
+                    }
                     if (outcome === 'failed') {
                         functionResult.error = 'send failed'
                     }

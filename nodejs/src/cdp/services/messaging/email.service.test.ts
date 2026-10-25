@@ -1108,6 +1108,7 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_suppressed')
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
+                expect(result.deliveredToRecipient).not.toBe(true)
             })
 
             it('calls SES when the recipient is not suppressed', async () => {
@@ -1118,6 +1119,7 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+                expect(result.deliveredToRecipient).toBe(true)
             })
         })
 
@@ -1196,6 +1198,7 @@ describe('EmailService', () => {
                     reason: 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.',
                 })
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+                expect(result.deliveredToRecipient).not.toBe(true)
             })
 
             it('blocks editor test sends while suspended without recording metrics', async () => {

@@ -3899,9 +3899,13 @@ describe('Workflows E2E (email queue)', () => {
         await cyclotronPool.query(
             `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available' AND scheduled > NOW()`
         )
+        // The worker marks the job completed before it flushes the watcher update, so wait on the row.
         await waitForExpect(async () => {
-            const jobs = await queryCyclotronJobs()
-            expect(jobs.every((j: any) => j.status === 'completed')).toBe(true)
+            const { rows } = await cyclotronPool.query(
+                `SELECT flow_version FROM conversion_watchers WHERE function_id = $1`,
+                [hogFlow.id]
+            )
+            expect(rows).toEqual([{ flow_version: 2 }])
         }, 15000)
 
         matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
