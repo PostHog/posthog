@@ -509,6 +509,22 @@ class TestTrinoIncrementalMaterialization(BaseTest):
                 'row("a" bigint, "date" varchar, "3" row("1" bigint))',
             ),
             ("named_row", 'row("a" bigint)', None),
+            ("named_row_with_percent", 'row("discount %" bigint)', None),
+            (
+                "named_field_with_percent_kept",
+                'row("discount %" bigint, bigint)',
+                'row("discount %" bigint, "2" bigint)',
+            ),
+            (
+                "quoted_parenthesis_in_nested_row",
+                'row(row("metric)" bigint), row("metric(" bigint), bigint)',
+                'row("1" row("metric)" bigint), "2" row("metric(" bigint), "3" bigint)',
+            ),
+            (
+                "quoted_parenthesis_in_nested_array",
+                'row(array(row("x)" bigint)), array(row("x(" bigint)))',
+                'row("1" array(row("x)" bigint)), "2" array(row("x(" bigint)))',
+            ),
             ("plain_column", "array(varchar)", None),
         ]
     )

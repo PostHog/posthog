@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -238,27 +239,39 @@ def _named_row_type(type_text: str) -> str | None:
             renamed = renamed or named_type is not None or (prefix == "row(" and field_name is None)
             argument = named_type or field_type
             if prefix == "row(":
-                argument = f"{escape_trino_identifier(field_name or str(position))} {argument}"
+                argument = f"{_quote_row_field(field_name or str(position))} {argument}"
             arguments.append(argument)
         return f"{prefix}{', '.join(arguments)})" if renamed else None
     return None
 
 
-def _split_type_arguments(text: str) -> list[str]:
-    parts: list[str] = []
+def _quote_row_field(name: str) -> str:
+    # Field names come from Trino's own type text, so they skip escape_trino_identifier's limits on user input.
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _unquoted_characters(text: str) -> Iterator[tuple[int, str, int]]:
+    """Yield each character outside quoted identifiers with its parenthesis depth after it."""
     depth = 0
     quoted = False
-    start = 0
     for index, character in enumerate(text):
         if character == '"':
             quoted = not quoted
-        elif quoted:
             continue
-        elif character == "(":
+        if quoted:
+            continue
+        if character == "(":
             depth += 1
         elif character == ")":
             depth -= 1
-        elif character == "," and depth == 0:
+        yield index, character, depth
+
+
+def _split_type_arguments(text: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    for index, character, depth in _unquoted_characters(text):
+        if character == "," and depth == 0:
             parts.append(text[start:index])
             start = index + 1
     parts.append(text[start:])
@@ -289,10 +302,8 @@ def _is_type(text: str) -> bool:
         return False
     rest = text[match.end() :]
     if rest.startswith("("):
-        depth = 0
-        for index, character in enumerate(rest):
-            depth += {"(": 1, ")": -1}.get(character, 0)
-            if depth == 0:
+        for index, character, depth in _unquoted_characters(rest):
+            if character == ")" and depth == 0:
                 rest = rest[index + 1 :]
                 break
     return rest.strip().lower() in _ROW_TYPE_SUFFIXES
