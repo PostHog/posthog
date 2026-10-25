@@ -1,8 +1,10 @@
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     CharField,
@@ -1649,6 +1651,8 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 # each id__in list bounded while the walk stops as soon as the page is covered.
 WATCH_FEED_BYPASS_CHUNK = 200
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
+# Long enough to cover a reader scrolling one load; a new load gets a new `as_of` and a fresh ranking.
+WATCH_FEED_PICKS_CACHE_TTL_S = 15 * 60
 
 
 def select_watch_feed_candidates(
@@ -2748,19 +2752,37 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
         if ranker == "embedding":
-            # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
-            candidate_rows = select_embedding_picks(
-                walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
+            # Every page of one load ranks the same window as of the same `as_of`, so later pages reuse the first's picks.
+            picks_key = (
+                "replay_vision:watch_picks:"
+                + hashlib.sha256(
+                    json.dumps(
+                        [
+                            self.team_id,
+                            viewer_id,
+                            as_of.isoformat(),
+                            str(date_from),
+                            str(window_end),
+                            sorted(map(str, allowed_ids)),
+                            params.get("search"),
+                            params.get("scanner_type"),
+                        ]
+                    ).encode()
+                ).hexdigest()
             )
-            if len(candidate_rows) < WATCH_FEED_MIN_ITEMS:
-                candidate_rows += select_embedding_filler(
-                    walkable,
-                    allowed_ids,
-                    viewed,
-                    self.user_access_control,
-                    self.team_id,
-                    [row["id"] for row in candidate_rows],
+            candidate_rows = cache.get(picks_key)
+            if candidate_rows is None:
+                # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
+                candidate_rows = select_embedding_picks(
+                    walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
                 )
+                # Picks in one duplicate group collapse into one card, so the floor counts groups.
+                pick_roots = {row["watch_group_root"] for row in candidate_rows}
+                if len(pick_roots) < WATCH_FEED_MIN_ITEMS:
+                    candidate_rows += select_embedding_filler(
+                        walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
+                    )
+                cache.set(picks_key, candidate_rows, WATCH_FEED_PICKS_CACHE_TTL_S)
         else:
             candidate_rows = select_watch_feed_candidates(
                 walkable, allowed_ids, viewed, self.user_access_control, self.team_id

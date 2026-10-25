@@ -24,7 +24,6 @@ from django.db.models import (
     Func,
     IntegerField,
     QuerySet,
-    Sum,
     Value,
     When,
     Window,
@@ -114,7 +113,7 @@ WATCH_PICK_SEEN_PENALTY = 0.3
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
 WATCH_PICK_IMPRESSION_DECAY = 0.8
-# Each doubling of the people a finding reached adds this share to its score, up to the cap, so a problem
+# A pick's score grows by this factor times the log of the people its group reached, up to the cap, so a problem
 # that hit six people outranks an equally strong one-off without burying everything else.
 WATCH_PICK_PEOPLE_BOOST = 0.25
 WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
@@ -346,6 +345,11 @@ def people_boost(people: int) -> float:
     return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
 
 
+def _embedding_group_root() -> Coalesce:
+    """A ranked row's duplicate group: the observation it duplicates, or itself."""
+    return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
+
+
 def select_embedding_picks(
     walkable: QuerySet[ReplayObservation],
     scanner_ids: list[Any],
@@ -354,22 +358,21 @@ def select_embedding_picks(
     team_id: int,
     cap: int,
 ) -> list[dict[str, Any]]:
-    """The window's pick rows for the embedding ranker, with each row's percentile and duplicate-group size.
+    """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its duplicate group.
 
     The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
     longer window reaches further back instead of re-ranking the same newest rows.
     """
     contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
     category = KeyTextTransform("category", "watch_rank")
-    group_root = Coalesce(
-        KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
-    )
-    is_issue = Case(
-        When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
-    )
-    ranked = (
-        # The explicit null check lets Postgres match the partial `rlo_scanner_ranked_idx`.
-        walkable.filter(scanner_id__in=scanner_ids, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION)
+    group_root = _embedding_group_root()
+    current_ranks = (
+        walkable.filter(
+            # The explicit null check lets Postgres match the partial `rlo_scanner_ranked_idx`.
+            scanner_id__in=scanner_ids,
+            watch_rank__isnull=False,
+            watch_rank__anchor_version=ANCHOR_VERSION,
+        )
         .alias(
             watch_category=category,
             contrast_type=Func(
@@ -377,13 +380,20 @@ def select_embedding_picks(
             ),
         )
         .filter(contrast_type="number")
-        .annotate(
+    )
+    is_issue = Case(
+        When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
+    )
+    ranked = (
+        current_ranks.annotate(
             scanner_rows=Window(Count("id"), partition_by=[F("scanner_id")]),
             scanner_position=Window(
-                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), Cast("id", CharField()).asc()]
+                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
             ),
-            # Duplicates below the cutoff still count toward the size of the group a pick stands for.
-            watch_group_size=Window(Sum(is_issue), partition_by=[group_root]),
+            # One row per duplicate group reaches the cap, so copies of one finding never crowd out others.
+            group_position=Window(
+                RowNumber(), partition_by=[group_root], order_by=[is_issue.desc(), contrast.desc(), F("id").desc()]
+            ),
         )
         .annotate(
             watch_percentile=(F("scanner_position") - Value(0.5)) / Cast(F("scanner_rows"), FloatField()),
@@ -393,29 +403,35 @@ def select_embedding_picks(
                 default=Value(0),
                 output_field=IntegerField(),
             ),
+            watch_group_root=group_root,
         )
-        .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
-        .annotate(watch_group_root=group_root)
+        .filter(
+            issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS,
+            watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE,
+            group_position=1,
+        )
         .order_by("-watch_percentile", "-created_at")
-        .values("id", "watch_percentile", "watch_group_size", "watch_group_root")[:cap]
+        .values("id", "watch_percentile", "watch_group_root")[:cap]
     )
     window_values = {row["id"]: row for row in ranked}
     if not window_values:
         return []
-    # A person who hit the problem twice counts once; a session with no person counts as its own.
+    # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
+    # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
-    people_by_root = dict(
-        walkable.filter(scanner_id__in=scanner_ids, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION)
-        .alias(watch_category=category)
-        .annotate(watch_group_root=group_root)
-        .filter(
-            watch_category__in=ISSUE_CATEGORIES,
-            watch_group_root__in={row["watch_group_root"] for row in window_values.values()},
+    group_reach = {
+        row["watch_group_root"]: row
+        for row in accessible_observations(
+            access,
+            team_id,
+            current_ranks.annotate(watch_group_root=group_root).filter(
+                watch_category__in=ISSUE_CATEGORIES,
+                watch_group_root__in={row["watch_group_root"] for row in window_values.values()},
+            ),
         )
         .values("watch_group_root")
-        .annotate(people=Count(person, distinct=True))
-        .values_list("watch_group_root", "people")
-    )
+        .annotate(sessions=Count("id"), people=Count(person, distinct=True))
+    }
     # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
     rows = list(
         accessible_observations(
@@ -425,9 +441,12 @@ def select_embedding_picks(
         .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
     )
     for row in rows:
-        row["watch_percentile"] = window_values[row["id"]]["watch_percentile"]
-        row["watch_group_size"] = window_values[row["id"]]["watch_group_size"]
-        row["watch_group_people"] = people_by_root.get(window_values[row["id"]]["watch_group_root"], 1)
+        window = window_values[row["id"]]
+        reach = group_reach.get(window["watch_group_root"], {})
+        row["watch_percentile"] = window["watch_percentile"]
+        row["watch_group_root"] = window["watch_group_root"]
+        row["watch_group_size"] = reach.get("sessions", 1)
+        row["watch_group_people"] = reach.get("people", 1)
     return rows
 
 
@@ -437,12 +456,13 @@ def select_embedding_filler(
     viewed: Exists,
     access: UserAccessControl,
     team_id: int,
-    exclude_ids: list[Any],
+    pick_roots: set[str],
 ) -> list[dict[str, Any]]:
-    """The newest readable rows that are not picks, enough to bring a thin feed up to its floor."""
+    """The newest readable rows outside the picks' duplicate groups, enough to bring a thin feed up to its floor."""
     return list(
         accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
-        .exclude(id__in=exclude_ids)
+        .annotate(watch_group_root=_embedding_group_root())
+        .exclude(watch_group_root__in=pick_roots)
         .annotate(feed_viewed=viewed)
         .order_by("-created_at", "-id")
         .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")[:WATCH_FEED_MIN_ITEMS]

@@ -5231,6 +5231,36 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(picks[0]["reason"]["similar_count"], 1)
         self.assertEqual(picks[0]["reason"]["affected_people"], 2)
 
+    def test_a_thin_embedding_feed_pads_by_group_and_never_pads_with_a_copy_of_a_pick(self) -> None:
+        scanner = self._create_scanner(name="m")
+
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+            obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": contrast,
+                    "duplicate_of": duplicate_of,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            return obs
+
+        root = ranked("pick", 500, "failure", 0.9)
+        # Two copies of the one finding: one above the cut, one newest of all and below it.
+        ranked("copy-above", 400, "failure", 0.8, duplicate_of=str(root.id))
+        ranked("copy-newest", 0, "failure", -0.9, duplicate_of=str(root.id))
+        for index in range(10):
+            ranked(f"routine-{index}", 10 + index, "routine", -0.1)
+
+        with patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"):
+            items = self.client.get(self.feed_url).json()["results"]
+        sessions = [item["observation"]["session_id"] for item in items]
+        self.assertEqual(sessions[0], "pick")
+        self.assertEqual(len(sessions), 3)
+        self.assertNotIn("copy-above", sessions)
+        self.assertNotIn("copy-newest", sessions)
+
     def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
         scanner = self._create_scanner(name="m")
         rows = {}
