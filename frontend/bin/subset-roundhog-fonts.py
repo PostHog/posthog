@@ -6,7 +6,7 @@ all other characters, so a browser fetches a full file only when a page needs it
 
 Run this after a @posthog/brand upgrade changes the fonts:
 
-    uv run --with fonttools python frontend/bin/subset-roundhog-fonts.py
+    uv run --with 'fonttools[woff]==4.62.1' python frontend/bin/subset-roundhog-fonts.py
 """
 
 import sys
@@ -104,7 +104,10 @@ def subset_font(name: str) -> str:
 
 def main() -> None:
     TARGET.mkdir(parents=True, exist_ok=True)
-    manifest = {"sources": {f"{name}.woff2": subset_font(name) for name in FONTS}}
+    manifest = {
+        "sources": {f"{name}.woff2": subset_font(name) for name in FONTS},
+        "script": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
     MANIFEST.write_text(json.dumps(manifest, indent=4) + "\n")
     sys.stdout.write(f"latin range: {css_range(LATIN_RANGES)}\n")
     other = sorted([*complement(LATIN_RANGES), COMBINING_MARKS], key=lambda r: r.first)
