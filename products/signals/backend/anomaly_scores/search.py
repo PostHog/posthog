@@ -61,12 +61,12 @@ class AnomalyGroupBy(models.TextChoices):
     INSIGHT = "insight", "Insight"
 
 
-class DashboardNotFound(Exception):
+class AnomalyDashboardNotFound(Exception):
     pass
 
 
 @frozen
-class SearchFilters:
+class AnomalySearchFilters:
     date_from: datetime.datetime
     date_to: datetime.datetime
     insight_id: int | None = None
@@ -112,7 +112,7 @@ class AnomalySearchResult:
 
 
 @frozen
-class HistoryFilters:
+class AnomalyHistoryFilters:
     insight_id: int
     date_from: datetime.datetime
     date_to: datetime.datetime
@@ -134,7 +134,7 @@ class SeriesHistory:
 
 
 @frozen
-class InsightHistory:
+class AnomalyInsightHistory:
     scoring_enabled: bool
     insight: ViewableInsight
     insight_url: str
@@ -185,12 +185,12 @@ def _importance(team: Team, insight_ids: Collection[int], now: datetime.datetime
     }
 
 
-def _requested_insight_ids(team: Team, user: User, filters: SearchFilters) -> set[int] | None:
+def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters) -> set[int] | None:
     """The insights the filters allow, or None for every insight."""
     insight_ids: set[int] | None = None
     if filters.dashboard_id is not None:
         if viewable_dashboard_ref(filters.dashboard_id, team=team, user=user) is None:
-            raise DashboardNotFound()
+            raise AnomalyDashboardNotFound()
         insight_ids = set(live_tile_insight_ids(filters.dashboard_id))
     if filters.insight_id is not None:
         insight_ids = {filters.insight_id} if insight_ids is None else insight_ids & {filters.insight_id}
@@ -208,7 +208,7 @@ def _empty_message(*, scoring_enabled: bool, watched: int, scored_in_range: int)
     )
 
 
-def search(team: Team, user: User, filters: SearchFilters, now: datetime.datetime) -> AnomalySearchResult:
+def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.datetime) -> AnomalySearchResult:
     """The anomaly rate of each series in the range, most anomalous first, by series or by insight."""
     config = parse_config(read_payload())
     scoring_enabled = covers_team(config, team)
@@ -310,7 +310,9 @@ def _series_buckets(
     return [by_start[start] for start in sorted(by_start)]
 
 
-def insight_history(team: Team, user: User, filters: HistoryFilters, now: datetime.datetime) -> InsightHistory | None:
+def insight_history(
+    team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime.datetime
+) -> AnomalyInsightHistory | None:
     """Every series of one insight with its scored buckets, or None when the user cannot read the insight."""
     readable = viewable_insights(team=team, user=user, insight_ids=[filters.insight_id])
     if not readable:
@@ -370,7 +372,7 @@ def insight_history(team: Team, user: User, filters: HistoryFilters, now: dateti
     message = None
     if newest is None:
         message = "No bucket of this insight was scored in this range." if scoring_enabled else SCORING_DISABLED_MESSAGE
-    return InsightHistory(
+    return AnomalyInsightHistory(
         scoring_enabled=scoring_enabled,
         insight=insight,
         insight_url=insight_url(team, insight, _flagged_starts(ranked), newest.interval if newest else None),
