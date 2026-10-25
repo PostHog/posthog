@@ -286,6 +286,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             widgetTilesShown,
         ]
     )
+    const smLayoutsByTileId = useMemo(() => new Map((layouts['sm'] ?? []).map((l) => [l.i, l])), [layouts])
     const decorationsByTileId = useMemo(
         () =>
             new Map(
@@ -570,9 +571,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
         const { insight, text, button_tile, widget } = tile
         const tileActions = tileActionsById.get(tile.id)!
-        const smLayout = layouts['sm']?.find((l) => {
-            return l.i == tile.id.toString()
-        })
+        const smLayout = smLayoutsByTileId.get(tile.id.toString())
 
         const decorations = decorationsByTileId.get(tile.id)
 
