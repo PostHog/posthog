@@ -49,17 +49,19 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
     def _person(self, name: str) -> str:
         return str(_create_person(team=self.team, distinct_ids=[name]).uuid)
 
-    def _email_event(self, name: str, event: str, at: datetime, step: str = STEP_ID, **properties: Any) -> None:
+    def _email_event(
+        self, name: str, event: str, at: datetime, step: str = STEP_ID, properties: dict[str, Any] | None = None
+    ) -> None:
         _create_event(
             team=self.team,
             distinct_id=name,
             event=f"$workflows_email_{event}",
             timestamp=at,
-            properties={"$workflow_id": WORKFLOW_ID, "$workflow_action_id": step, **properties},
+            properties={"$workflow_id": WORKFLOW_ID, "$workflow_action_id": step, **(properties or {})},
         )
 
     def _sent(self, name: str, at: datetime, tracked: bool = True) -> None:
-        self._email_event(name, "sent", at, **{"$email_tracking_enabled": tracked})
+        self._email_event(name, "sent", at, properties={"$email_tracking_enabled": tracked})
 
     def _product_event(self, name: str, at: datetime) -> None:
         _create_event(team=self.team, distinct_id=name, event=OUTCOME_EVENT, timestamp=at)
@@ -77,7 +79,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._email_event("ada", "opened", sent_at + timedelta(hours=1))
         self._email_event("ada", "opened", sent_at + timedelta(hours=5))
         self._sent("bo", sent_at, tracked=True)
-        self._email_event("bo", "sent", sent_at, step=OTHER_STEP_ID, **{"$email_tracking_enabled": True})
+        self._email_event("bo", "sent", sent_at, step=OTHER_STEP_ID, properties={"$email_tracking_enabled": True})
 
         rows = {row["step"]: row for row in self._run("Step engagement")}
 
@@ -91,7 +93,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._person("ada")
         clicked_at = WINDOW_START + timedelta(days=3)
         for url in ("https://example.com/pricing?token=secret-1", "https://example.com/pricing?token=secret-2"):
-            self._email_event("ada", "link_clicked", clicked_at, **{"$link_url": url, "$link_index": 0})
+            self._email_event("ada", "link_clicked", clicked_at, properties={"$link_url": url, "$link_index": 0})
 
         rows = self._run("Clicked links")
 
