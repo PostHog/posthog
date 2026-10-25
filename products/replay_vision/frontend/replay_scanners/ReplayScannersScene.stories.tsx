@@ -1273,6 +1273,7 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
             },
         }),
     ],
+    parameters: { featureFlags: { [FEATURE_FLAGS.VISION_WATCH_FEED_RANKER]: 'embedding' } },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
