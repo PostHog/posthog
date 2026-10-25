@@ -100,7 +100,6 @@ class TestDimensionEndpoints:
             ("feeds", "/api/v2/feeds"),
             ("notifications", "/api/v2/notifications"),
             ("org_members", "/api/v2/org/members"),
-            ("agency_workspaces", "/api/v2/agency/workspaces"),
         ],
     )
     def test_single_get_request_per_endpoint(self, endpoint: str, path: str) -> None:
@@ -164,27 +163,28 @@ class TestFanOut:
         # The single-search endpoint takes no page size.
         assert result.requests[1].query == {}
 
-    def test_agency_workspace_members_carry_the_workspace_id(self) -> None:
-        result = _driver().run(
-            "agency_workspace_members",
+    def test_search_results_resume_skips_completed_searches(self) -> None:
+        searches = _mentions_page([{"searchId": "s1"}, {"searchId": "s2"}])
+        first = _driver().run(
+            "search_results",
             [
-                ScriptedResponse(json={"data": [{"organizationId": "org_1"}]}),
-                ScriptedResponse(
-                    json={
-                        "members": [{"userId": "u1"}],
-                        "invitations": [{"id": "inv_1"}],
-                        "pendingGrants": [],
-                    }
-                ),
+                searches,
+                ScriptedResponse(json={"mentions": [{"sourceId": "reddit_1"}]}),
+                ScriptedResponse(json={"mentions": [{"sourceId": "reddit_2"}]}),
             ],
         )
+        after_first_search = first.saved_states[0]
+        assert after_first_search.fanout_state is not None
 
-        assert result.raised is None
-        assert result.rows == [{"userId": "u1", "organizationId": "org_1"}]
-        assert [request.path for request in result.requests] == [
-            "/api/v2/agency/workspaces",
-            "/api/v2/agency/workspaces/org_1/members",
-        ]
+        resumed = _driver().run(
+            "search_results",
+            [searches, ScriptedResponse(json={"mentions": [{"sourceId": "reddit_2"}]})],
+            resume_state=after_first_search,
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"sourceId": "reddit_2", "searchId": "s2"}]
+        assert [request.path for request in resumed.requests] == ["/api/v2/search", "/api/v2/search/s2"]
 
 
 class TestUsage:

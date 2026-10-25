@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class OctolensEndpointConfig:
     name: str
     """Table name we expose to the user (snake_case)."""
@@ -68,26 +68,6 @@ OCTOLENS_ENDPOINTS: dict[str, OctolensEndpointConfig] = {
             include_from_parent=["searchId"],
             parent_field_renames={"searchId": "searchId"},
             parent_params={"limit": PAGE_SIZE},
-        ),
-    ),
-    # The agency endpoints need an agency master API key. A workspace key gets a 403 on them.
-    "agency_workspaces": OctolensEndpointConfig(
-        name="agency_workspaces",
-        path="/agency/workspaces",
-        primary_key=["organizationId"],
-        partition_key="createdAt",
-    ),
-    "agency_workspace_members": OctolensEndpointConfig(
-        name="agency_workspace_members",
-        path="/agency/workspaces/{orgId}/members",
-        primary_key=["organizationId", "userId"],
-        data_selector="members",
-        fanout=DependentEndpointConfig(
-            parent_name="agency_workspaces",
-            resolve_param="orgId",
-            resolve_field="organizationId",
-            include_from_parent=["organizationId"],
-            parent_field_renames={"organizationId": "organizationId"},
         ),
     ),
 }

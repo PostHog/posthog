@@ -133,33 +133,4 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "alreadyInWorkspace": "Whether the post is already in the workspace's monitored mentions.",
         },
     },
-    "agency_workspaces": {
-        "description": "Client workspaces of an Octolens agency, with usage, limit overrides and flex pricing settings. Needs an agency master API key.",
-        "docs_url": "https://octolens.com/docs/api/v2/overview",
-        "columns": {
-            "organizationId": "Workspace id.",
-            "name": "Workspace name.",
-            "plan": "Subscription plan of the workspace.",
-            "count": "Mentions the workspace consumed in the current cycle.",
-            "countFrom": "Start of the current counting cycle.",
-            "countResetAt": "When the mention counter resets.",
-            "createdAt": "When the workspace was created.",
-            "mentionsLimitOverride": "Mention limit set by the agency for this workspace. Null uses the default.",
-            "keywordsLimitOverride": "Keyword limit set by the agency for this workspace. Null uses the default.",
-            "flexPricingEnabled": "Whether usage-based pricing is on for the workspace.",
-            "flexPricingBudgetCents": "Usage-based pricing budget per cycle, in cents.",
-        },
-    },
-    "agency_workspace_members": {
-        "description": "Current members of each agency client workspace. Needs an agency master API key.",
-        "docs_url": "https://octolens.com/docs/api/v2/overview",
-        "columns": {
-            "organizationId": "Id of the agency workspace the member belongs to.",
-            "userId": "User id of the member.",
-            "email": "Email of the member.",
-            "firstName": "First name, if set on the profile.",
-            "lastName": "Last name, if set on the profile.",
-            "role": "Role of the member in the workspace.",
-        },
-    },
 }

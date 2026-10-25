@@ -35,9 +35,11 @@ OCTOLENS_BASE_URL = "https://app.octolens.com"
 AUTH_PROBE_PATH = "/auth"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OctolensResumeConfig:
-    cursor: str
+    cursor: str = ""
+    # Fan-out progress (completed parents, current parent, child page) for the search_results table.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _api_path(api_version: str, path: str) -> str:
@@ -98,7 +100,12 @@ def _client_config(api_key: str) -> ClientConfig:
 
 
 def _dependent_resource(
-    config: OctolensEndpointConfig, api_key: str, api_version: str, team_id: int, job_id: str
+    config: OctolensEndpointConfig,
+    api_key: str,
+    api_version: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OctolensResumeConfig],
 ) -> Iterable[Any]:
     assert config.fanout is not None
     parent_config = OCTOLENS_ENDPOINTS[config.fanout.parent_name]
@@ -106,6 +113,17 @@ def _dependent_resource(
         name: dataclasses.replace(endpoint, path=_api_path(api_version, endpoint.path))
         for name, endpoint in OCTOLENS_ENDPOINTS.items()
     }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(OctolensResumeConfig(fanout_state=dict(state)))
+
     return build_dependent_resource(
         endpoint_configs=versioned_endpoints,
         child_endpoint=config.name,
@@ -125,6 +143,8 @@ def _dependent_resource(
             "paginator": SinglePagePaginator(),
             "data_selector": config.data_selector,
         },
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
 
 
@@ -150,8 +170,8 @@ def octolens_source(
     config = OCTOLENS_ENDPOINTS[endpoint]
 
     if config.fanout is not None:
-        # Dependent resources carry no resume state, so the manager is not threaded into this path.
-        return _source_response(endpoint, config, _dependent_resource(config, api_key, api_version, team_id, job_id))
+        resource = _dependent_resource(config, api_key, api_version, team_id, job_id, resumable_source_manager)
+        return _source_response(endpoint, config, resource)
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
@@ -162,7 +182,7 @@ def octolens_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if config.paginated and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.cursor:
             initial_paginator_state = {"cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
