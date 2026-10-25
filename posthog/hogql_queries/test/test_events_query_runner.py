@@ -9,6 +9,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
     also_test_with_different_timezones,
     flush_persons_and_events,
@@ -25,9 +26,14 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryActionStep,
+    FilterLogicalOperator,
     GroupPropertyFilter,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
 )
 
@@ -56,6 +62,18 @@ FLAG_EVALUATIONS_DISTINCT_ID = "flag-evaluations-user"
 FLAG_EVALUATIONS_EMAIL = "flag-user@example.com"
 FLAG_EVALUATIONS_GROUP_KEY = "flag-org"
 FLAG_CALL_TIMESTAMP = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
+FLAG_KEY_MATCHER = PropertyGroupFilterValue(
+    type=FilterLogicalOperator.AND_,
+    values=[
+        EventPropertyFilter(key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT),
+        HogQLPropertyFilter(key="event = '$feature_flag_called'"),
+    ],
+)
+PERSON_EMAIL_MATCHER = PropertyGroupFilterValue(
+    type=FilterLogicalOperator.AND_,
+    values=[PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
+)
+FLAG_EVALUATIONS_PERSONS_JOIN = re.compile(r"\bAS\s+flag_evaluations__person\s+ON\b")
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1375,7 +1393,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
         assert len(page_queries) == 1
-        assert len(re.findall(r"\bAS\s+flag_evaluations__person\s+ON\b", page_queries[0])) == 1
+        assert len(FLAG_EVALUATIONS_PERSONS_JOIN.findall(page_queries[0])) == 1
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         expect_pushdown = person_id_pushdown is not False
@@ -1497,6 +1515,114 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(from_events, CachedEventsQueryResponse)
         assert [row[0] for row in from_flag_evaluations.results] == [FLAG_EVALUATIONS_FLAG_KEY]
         assert [row[0] for row in from_events.results] == [EVENTS_FLAG_KEY]
+
+    @parameterized.expand(
+        [
+            ("a_flag_key_matcher", [FLAG_KEY_MATCHER], [("2020-01-10", 2), ("2020-01-11", 1)], True),
+            # The flag_key filter stays inside its OR branch, so the all-events branch still counts the other flag.
+            (
+                "a_flag_key_matcher_or_all_events",
+                [
+                    FLAG_KEY_MATCHER,
+                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[HogQLPropertyFilter(key="true")]),
+                ],
+                [("2020-01-10", 2), ("2020-01-11", 2)],
+                True,
+            ),
+            # A destination with no event or action matcher sends an empty OR, which matches every flag call.
+            ("no_matcher", [], [("2020-01-10", 2), ("2020-01-11", 2)], False),
+            (
+                "a_person_filter_with_a_query_mode_that_reads_stored_properties",
+                [PERSON_EMAIL_MATCHER],
+                [("2020-01-11", 1)],
+                False,
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+            (
+                "a_person_filter_with_the_other_query_mode_that_reads_stored_properties",
+                [PERSON_EMAIL_MATCHER],
+                [("2020-01-11", 1)],
+                False,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+            (
+                "a_person_filter_with_no_query_mode_on_a_team_that_defaults_to_stored_properties",
+                [PERSON_EMAIL_MATCHER],
+                [("2020-01-10", 1)],
+                False,
+                None,
+                True,
+            ),
+        ]
+    )
+    def test_flag_evaluations_only_organization_counts_matched_flag_calls_per_day(
+        self,
+        _name: str,
+        matchers: list[PropertyGroupFilterValue],
+        expected: list[tuple[str, int]],
+        reads_flag_key: bool,
+        query_mode: PersonsOnEventsMode | None = None,
+        joins_persons: bool = False,
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS}
+        self.team.save()
+        self._create_events(
+            data=[("events-user", FLAG_CALL_TIMESTAMP.isoformat(), {"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY})],
+            event="$feature_flag_called",
+        )
+        stored_match = _create_person(
+            team_id=self.team.pk, distinct_ids=["stored-match-user"], properties={"email": "renamed@example.com"}
+        )
+        current_match = _create_person(
+            team_id=self.team.pk, distinct_ids=["current-match-user"], properties={"email": FLAG_EVALUATIONS_EMAIL}
+        )
+        flush_persons_and_events()
+        for timestamp in [FLAG_CALL_TIMESTAMP - timedelta(days=1), FLAG_CALL_TIMESTAMP]:
+            _create_flag_evaluations(
+                self.team.pk, FLAG_EVALUATIONS_FLAG_KEY, timestamp=timestamp, distinct_id=FLAG_EVALUATIONS_DISTINCT_ID
+            )
+        _create_flag_evaluations(
+            self.team.pk,
+            "another-flag",
+            timestamp=FLAG_CALL_TIMESTAMP,
+            distinct_id="stored-match-user",
+            person_id=stored_match.uuid,
+            person_properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        _create_flag_evaluations(
+            self.team.pk,
+            FLAG_EVALUATIONS_FLAG_KEY,
+            timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=1),
+            distinct_id="current-match-user",
+            person_id=current_match.uuid,
+            person_properties={"email": "before-rename@example.com"},
+        )
+        # The shape a destination's volume estimate sends: one OR branch per matcher, ANDed with the global filters.
+        matcher = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=matchers)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                event="$feature_flag_called",
+                select=["toDate(timestamp)", "count()"],
+                fixedProperties=[matcher],
+                after="-8d",
+                orderBy=["toDate(timestamp) ASC"],
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=query_mode),
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [(str(day), count) for day, count in response.results] == expected
+        assert (f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in (response.hogql or "")) is reads_flag_key
+        page_queries = [sql for sql in queries if re.search(r"\bFROM\s+flag_evaluations\b", sql)]
+        assert len(page_queries) == 1
+        assert bool(FLAG_EVALUATIONS_PERSONS_JOIN.search(page_queries[0])) is joins_persons
 
     @parameterized.expand([("range_older_than_retention", "-180d"), ("all_time", "all")])
     def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):

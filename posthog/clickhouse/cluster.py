@@ -371,7 +371,13 @@ class ClickhouseCluster:
             )
 
         if self.__retry_policy is not None:
-            fn = self.__retry_policy(fn)
+            retry_policy = self.__retry_policy
+            credential_provider = self.__connection_overrides.get("credential_provider")
+            if credential_provider is not None:
+                # A task can hold its client for hours, so a reconnect would otherwise resend an expired token.
+                fn = _FreshCredential(callable=fn, credential_provider=credential_provider)
+                retry_policy = retry_policy.also_retrying(_is_authentication_failure)
+            fn = retry_policy(fn)
 
         def task():
             with pool.get_client() as client:
@@ -771,6 +777,16 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
                     raise
 
         raise RuntimeError("unexpected fallthrough")
+
+
+@frozen
+class _FreshCredential(Generic[T]):
+    callable: Callable[[Client], T]
+    credential_provider: Callable[[], str] = field(repr=False)
+
+    def __call__(self, client: Client) -> T:
+        client.connection.password = self.credential_provider()
+        return self.callable(client)
 
 
 class MutationNotFound(Exception):

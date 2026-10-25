@@ -177,6 +177,7 @@ def _check_prompt(
                     target_domains=target_domains,
                 ),
                 "prompt_topic": prompt.topic,
+                "prompt_version": prompt.current_version,
             }
         )
     return PromptCheckResult(prompt=prompt, fields_per_engine=fields_per_engine, failures=failures)
@@ -203,7 +204,7 @@ def _record_prompt_checks(
 
 
 def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
-    """Pick up to `limit` active prompts, alternating between topics.
+    """Pick up to `limit` active, unarchived prompts, alternating between topics.
 
     Each run samples every topic: it takes one prompt per topic in turn, so a
     single large topic cannot fill the run. Within a topic, prompts never checked
@@ -216,7 +217,7 @@ def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
     # The round-robin never takes more than `limit` prompts from one topic, so load no more than that.
     for prompt in (
         AEOPrompt.objects.for_team(team.id)
-        .filter(active=True)
+        .filter(active=True, archived_at__isnull=True)
         .annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
         .filter(position_in_topic__lte=limit)
         .order_by(*freshness)

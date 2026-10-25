@@ -21,7 +21,6 @@ from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
 
 from posthog.credentials_service.errors import (
-    CredentialsServiceMisconfiguredError,
     CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
@@ -1700,7 +1699,6 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[s
         (SecretInRecoveryError("HUBSPOT_APP_CLIENT_SECRET"), False),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET"), True),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET", disabled_reason="unconfigured"), True),
-        (CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
         (CredentialsServiceUnreachableError("connection refused"), False),
     ],
 )

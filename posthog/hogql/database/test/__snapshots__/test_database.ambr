@@ -195,6 +195,7 @@
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."query_revision",
+         "posthog_datawarehousesavedquery"."query_updated_at",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
@@ -396,6 +397,7 @@
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."query_revision",
+         "posthog_datawarehousesavedquery"."query_updated_at",
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
@@ -2746,6 +2748,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "prompt_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_version",
+                  "id": null,
+                  "name": "prompt_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "engine": {
                   "chain": null,
@@ -17364,6 +17376,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "prompt_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "prompt_version",
+                  "id": null,
+                  "name": "prompt_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "engine": {
                   "chain": null,

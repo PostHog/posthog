@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from django.db.models import Q
 
-import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -26,6 +25,7 @@ from posthog.utils import absolute_uri
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
+from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
@@ -58,37 +58,6 @@ logger = structlog.get_logger(__name__)
 
 
 _MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable("table")
-
-# defense-in-depth on top of html=False: allow only the tags commonmark emits
-_ALLOWED_EMAIL_TAGS = {
-    "a",
-    "p",
-    "br",
-    "hr",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "ul",
-    "ol",
-    "li",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "code",
-    "pre",
-    "blockquote",
-    "table",
-    "thead",
-    "tbody",
-    "tr",
-    "th",
-    "td",
-}
-_ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
@@ -540,11 +509,6 @@ def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback:
     # (feedback_delivery, feedback, feedback_source) and captures an `ai_report_feedback` event.
     params = urlencode({"feedback_delivery": str(delivery_id), "feedback": feedback, "feedback_source": source})
     return f"{subscription_url}?{params}"
-
-
-def render_ai_email_html(markdown: str) -> str:
-    rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
-    return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
 
 
 def send_email_ai_subscription_report(

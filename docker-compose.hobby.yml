@@ -110,6 +110,7 @@ services:
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -176,6 +177,7 @@ services:
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -309,9 +311,11 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            # Must resolve to the same value as the web and worker services, which send it as
-            # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
-            # stays on the legacy shared secret until that scheme is rolled out.
+            # Both must resolve to the same values as on the web, worker and temporal-django-worker
+            # services. Those services sign a team-scoped token with RECORDING_API_JWT_SECRET, and
+            # this service verifies it. They also send INTERNAL_API_SECRET as X-Internal-Api-Secret,
+            # which this service still accepts in place of a token.
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
             - db
@@ -520,10 +524,11 @@ services:
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
             # This worker runs the recording deletion Temporal activities, which call
-            # recording-api. Without these two the calls go out unauthenticated and
-            # recording-api rejects them with a 401.
+            # recording-api. Without the URL and a credential the calls go out unauthenticated
+            # and recording-api rejects them with a 401.
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             # Point Django at the Rust feature-flags container; the setting
