@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -493,6 +494,38 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
         select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
+def _wrap_select_query_with_column(
+    select_query: ast.SelectQuery,
+    source_column: str,
+    target_alias: str,
+) -> None:
+    """Wrap `select_query` in `SELECT <source_column> AS <target_alias> FROM (<select_query>)` in place.
+
+    Collapsing `select_query.select` to a single column in place strips sibling SELECT aliases and
+    grouping columns, which breaks queries whose GROUP BY, HAVING, WHERE, bounded ORDER BY, or
+    LIMIT BY clauses reference those columns or aliases. Wrapping in an outer SELECT preserves the
+    inner query's column list and semantics while projecting only the target column, and keeps CTEs
+    on the outer node so root CTEs remain visible across UNION branches.
+    """
+    inner = copy.copy(select_query)
+    inner.ctes = None
+    inner.select = [
+        ast.Alias(alias=source_column, expr=expr)
+        if isinstance(expr, ast.Field) and len(expr.chain) > 1 and str(expr.chain[-1]) == source_column
+        else expr
+        for expr in inner.select
+    ]
+
+    for field in dataclasses.fields(ast.SelectQuery):
+        if field.name in ("start", "end", "type", "ctes", "select"):
+            continue
+        default = field.default if field.default is not dataclasses.MISSING else field.default_factory()  # type: ignore[misc]
+        setattr(select_query, field.name, default)
+
+    select_query.select = [ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_column]))]
+    select_query.select_from = ast.JoinExpr(table=inner)
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -535,12 +568,18 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             elif isinstance(expr, ast.Field):
                 columns[str(expr.chain[-1])] = expr
 
-        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
-        if isinstance(column, ast.Alias):
-            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
-            uses_actor_id = True
-        elif isinstance(column, ast.Field):
-            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+        actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
+        is_aggregating_or_multi_column = bool(
+            select_query.group_by
+            or select_query.having
+            or select_query.group_by_mode == "all"
+            or len(select_query.select) > 1
+        )
+        if actor_column is not None:
+            if is_aggregating_or_multi_column:
+                _wrap_select_query_with_column(select_query, actor_column, "actor_id")
+            else:
+                select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
             uses_actor_id = True
         else:
             # Support the most common use cases
@@ -556,7 +595,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
                 distinct_id_column = columns.get("distinct_id")
                 if distinct_id_column is not None:
                     # Use distinct_id and mark that we need to resolve it to person_id
-                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+                    if is_aggregating_or_multi_column:
+                        _wrap_select_query_with_column(select_query, "distinct_id", "distinct_id")
+                    else:
+                        select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
                     uses_distinct_id = True
                 else:
                     raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
@@ -572,8 +614,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
-    # Apply HogQL global settings to ensure consistency with regular queries
-    settings = HogQLGlobalSettings()
+    # Apply HogQL global settings with the offline cohort calculation timeout (1200s)
+    settings = HogQLGlobalSettings(max_execution_time=COHORT_QUERY_TIMEOUT_SECONDS)
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
@@ -1215,6 +1257,14 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        settings={
+            "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+            "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+            "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+        team_id=team_id,
     )
 
 

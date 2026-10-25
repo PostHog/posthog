@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, cast
 
-from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
@@ -469,7 +469,7 @@ class TestCohortUtils(BaseTest):
 
         # Also check for other critical settings
         self.assertIn("readonly=2", sql)
-        self.assertIn("max_execution_time=60", sql)
+        self.assertIn("max_execution_time=1200", sql)
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
@@ -911,6 +911,177 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("group by 1", sql)
         self.assertIn("order by 2", sql)
+
+    def test_insert_actors_into_cohort_by_query_uses_offline_workload_and_cohort_timeout_settings(self):
+        from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+
+        from products.cohorts.backend.models.util import (
+            COHORT_QUERY_TIMEOUT_SECONDS,
+            insert_actors_into_cohort_by_query,
+        )
+
+        cohort = Cohort.objects.create(team=self.team, name="Static Query Cohort", is_static=True)
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        with patch("products.cohorts.backend.models.util.sync_execute") as mock_sync_execute:
+            insert_actors_into_cohort_by_query(
+                cohort,
+                "SELECT id AS actor_id FROM persons",
+                {"custom_param": "val"},
+                context,
+                team_id=self.team.id,
+            )
+
+        mock_sync_execute.assert_called_once()
+        _, kwargs = mock_sync_execute.call_args
+        self.assertEqual(
+            kwargs["settings"],
+            {
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+            },
+        )
+        self.assertEqual(kwargs["workload"], Workload.OFFLINE)
+        self.assertEqual(kwargs["ch_user"], ClickHouseUser.COHORTS)
+        self.assertEqual(kwargs["team_id"], self.team.id)
+
+    @parameterized.expand(
+        [
+            (
+                "multi_column_with_having_on_select_alias",
+                "SELECT person_id, count() AS msd, any(event) AS domain FROM events GROUP BY person_id HAVING msd >= 2",
+            ),
+            (
+                "multi_column_with_where_on_select_alias",
+                "SELECT id AS person_id, properties.email AS msd, properties.domain AS domain FROM persons WHERE domain IS NOT NULL",
+            ),
+            (
+                "multi_column_with_bounded_order_by_on_select_alias",
+                "SELECT id AS person_id, toStartOfDay(created_at) AS msd, properties.domain AS domain FROM persons ORDER BY msd DESC LIMIT 50",
+            ),
+            (
+                "single_column_non_field_aliased_as_person_id",
+                "SELECT toUUID(person_id) AS person_id FROM events",
+            ),
+            (
+                "grouped_by_non_actor_column_with_aggregated_id",
+                "SELECT properties.email AS email, any(id) AS id FROM persons GROUP BY properties.email",
+            ),
+            (
+                "group_by_all_with_extra_columns",
+                "SELECT person_id, event AS domain, count() AS msd FROM events GROUP BY ALL",
+            ),
+            (
+                "events_person_dot_id_with_extra_columns",
+                "SELECT person.id, count() AS msd FROM events GROUP BY person.id HAVING msd >= 1",
+            ),
+        ]
+    )
+    def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
+        self, _name: str, hogql_query: str
+    ):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f"Test Cohort {_name}",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": hogql_query},
+        )
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("as actor_id", sql.lower())
+        self.assertIn("max_execution_time=1200", sql)
+
+    def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
+        from posthog.hogql import ast
+        from posthog.hogql.parser import parse_select
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Multi-Column Distinct ID Cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            mock_runner.to_query.return_value = cast(
+                ast.SelectQuery,
+                parse_select(
+                    "SELECT distinct_id, count() AS msd FROM raw_person_distinct_ids GROUP BY distinct_id HAVING msd >= 1"
+                ),
+            )
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("person_distinct_id2", sql)
+        self.assertIn("argMax(person_id, version) as actor_id", sql)
+        self.assertIn("HAVING greaterOrEquals(msd, 1)", sql)
+        self.assertIn("max_execution_time=1200", sql)
+
+    def test_print_cohort_hogql_query_preserves_root_ctes_across_union_branches(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test CTE Union Cohort",
+            is_static=True,
+            query={
+                "kind": "HogQLQuery",
+                "query": (
+                    "WITH matched AS (SELECT person_id, event FROM events) "
+                    "SELECT person_id, count() AS msd FROM matched GROUP BY person_id "
+                    "UNION ALL "
+                    "SELECT person_id, count() AS msd FROM matched GROUP BY person_id"
+                ),
+            },
+        )
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("as actor_id", sql.lower())
+        self.assertIn("union all", sql.lower())
+
+    def test_insert_cohort_from_multi_column_aggregating_hogql_query(self):
+        p1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1_distinct"],
+            properties={"email": "p1@example.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p2_distinct"],
+            properties={"email": "p2@example.com"},
+        )
+        _create_event(team=self.team, event="$pageview", distinct_id="p1_distinct")
+        _create_event(team=self.team, event="$pageview", distinct_id="p1_distinct")
+        _create_event(team=self.team, event="$pageview", distinct_id="p2_distinct")
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="multi-column hogql cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": (
+                    "SELECT person_id, count() AS msd, any(event) AS domain "
+                    "FROM events GROUP BY person_id HAVING msd >= 2"
+                ),
+            },
+        )
+
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        self.assertEqual([str(r[0]) for r in rows], [str(p1.uuid)])
 
 
 class TestGetNestedCohortIds(BaseTest):
