@@ -19,7 +19,7 @@ This skill reads and reports. It changes nothing: to edit an email or a workflow
 - **Timezones in the output.** The stats tools label their day buckets in the project's timezone, so a UTC window can come back with a shifted or extra label: sum every bucket returned for the window total. `posthog:execute-sql` prints timestamps in the project's timezone too. A metric missing from a stats series counted zero.
 - **A sample floor.** Below about 20 tracked sends a rate is noise. Report the counts and say there is not enough data yet.
 - **Sends and events are identified by step.** Read one email step at a time with its action id from `posthog:workflows-get` (`instance_id` in the stats tools, `{step_id}` in the recipes). Without it, every step of the workflow shares one denominator. The `conversion` counter is the exception: it belongs to the whole workflow, so read it without `instance_id`.
-- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. Read `posthog:workflows-version-stats` for each version that sent in the window and add them up, or the **Step counters** recipe. Opens and clicks whose message lost its version are missing from both, so their rates read slightly low.
+- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. Read `posthog:workflows-version-stats` for each version that sent in the window and add them up, or the **Step counters** recipe. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing from both, so those rates read slightly low.
 - **Aggregates by default.** Leave email addresses, full link URLs and person UUIDs out of reports. Click events hold each link's full URL, tokens included, so read links only through the **Clicked links** recipe. Name a person by the identifier the user gave you.
 - **Spam complaints are a floor.** `email_blocked` and `$workflows_email_blocked` count spam complaints that mailbox providers report back. Gmail does not report them, so a zero is not proof of zero complaints.
 
@@ -40,7 +40,7 @@ Then run the **Step engagement** recipe in [references/recipes.md](references/re
 
 - Counters show sends but the recipe returns no rows: the project does not capture engagement events. Report from the counters and skip every event-based question, saying why.
 - `email_untracked` is most of `email_sent`: opens and clicks are unreadable for this step. Say so instead of reporting a low open rate.
-- Neither the counters nor the recipe show sends in the window: the step did not send. That is not a 0% rate.
+- Neither the counters nor the recipe show sends in the window: the step did not send. That is not a 0% rate. For a broadcast or batch workflow before 2026-08-05, when versioned counters began, and with no engagement events, say the data cannot tell instead.
 
 Done when you know which sources the rest of the report can use.
 
@@ -64,7 +64,7 @@ List versions with `posthog:workflows-list-versions` and read when each went liv
 Read each version with `posthog:workflows-version-stats` (`version=<n>`, `instance_id=<step id>`, `breakdown_by=name`) from the day it went live to the end of the closed window. Opens and clicks keep the version that sent the email, so a replaced version still collects its late callbacks.
 Compare versions with each other, never with the unversioned `posthog:workflows-stats` read: batch and broadcast runs key that read on the run, so it is not the sum of the versions.
 
-When `posthog:workflows-version-stats` is not available in this project, use the **Engagement by version** recipe instead. Its denominator is `delivered`, because the sent event does not carry a version.
+When `posthog:workflows-version-stats` is not available in this project, run the **Step counters** recipe once per version, with `app_source_id = concat({workflow_id}, '/<n>')` in place of its `startsWith` line. The **Engagement by version** recipe adds openers and clickers per version.
 
 Before and after is a description, not proof that the change caused the difference: the audience, the season and the sending volume move too. Say so in the report.
 When `posthog:workflows-list-proposals` is available, read it and name which versions came from an applied suggestion.
