@@ -6,17 +6,16 @@ The events carry the workflow id for every kind of workflow, broadcasts and batc
 
 Replace every `{placeholder}` with a literal before you run the query:
 
-| Placeholder       | Holds                                                                                                             | Write it as                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `{workflow_id}`   | The workflow's UUID                                                                                               | `'01a1...'`                                |
-| `{step_id}`       | The email step's action id from `posthog:workflows-get`                                                           | `'action_function_email_...'`              |
-| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day                                                         | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
-| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past                                               | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
-| `{outcome_event}` | The product event that counts as the outcome, checked in the schema                                               | `'insight created'`                        |
-| `{outcome_days}`  | How many days after the send the outcome may happen                                                               | `7`                                        |
-| `{run_id}`        | One batch run's id, from `posthog:workflows-list-batch-jobs`                                                      | `'0199...'`                                |
-| `{as_of}`         | The observation cutoff of an outcome read: the last moment the read counts, at the start of a UTC day in the past | `toDateTime('2026-10-24 00:00:00', 'UTC')` |
-| `{person_id}`     | One person's UUID                                                                                                 | `'0189...'`                                |
+| Placeholder       | Holds                                                               | Write it as                                |
+| ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| `{workflow_id}`   | The workflow's UUID                                                 | `'01a1...'`                                |
+| `{step_id}`       | The email step's action id from `posthog:workflows-get`             | `'action_function_email_...'`              |
+| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day           | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
+| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
+| `{outcome_event}` | The product event that counts as the outcome, checked in the schema | `'insight created'`                        |
+| `{outcome_days}`  | How many days after the send the outcome may happen                 | `7`                                        |
+| `{run_ids}`       | One or more batch run ids, from `posthog:workflows-list-batch-jobs` | `('0199...', '019a...')`                   |
+| `{person_id}`     | One person's UUID                                                   | `'0189...'`                                |
 
 ## Recipes
 
@@ -72,26 +71,27 @@ The sent event carries `$email_tracking_enabled` from 2026-07-29. For a window t
 
 ### Run counters
 
-The counters of one broadcast or batch run for one step, read with SQL.
+The counters of one or more broadcast or batch runs for one step, one row per run and metric.
 `posthog:workflows-stats` cannot read them, because it reads the counters keyed by the workflow.
 It works whether or not the project captures engagement events.
 
 ```sql
 SELECT
+    app_source_id AS run_id,
     metric_name,
     sum(count) AS total
 FROM app_metrics
 WHERE app_source = 'hog_flow'
-    AND app_source_id = {run_id}
+    AND app_source_id IN {run_ids}
     AND instance_id IN ({step_id}, {workflow_id})
     AND timestamp >= {window_start}
     AND timestamp < {window_end}
-GROUP BY metric_name
-ORDER BY metric_name
+GROUP BY run_id, metric_name
+ORDER BY run_id, metric_name
 ```
 
 Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` counts the whole workflow's conversions in the run, not this step's.
-Runs before 2026-04-28 recorded their deliveries, opens, clicks, bounces and complaints under the workflow id instead. Read those from `posthog:workflows-stats`.
+For a trend across runs, pass every run in the window and order the rows by the run start times from `posthog:workflows-list-batch-jobs`.
 
 ### Counters by version
 
@@ -153,48 +153,39 @@ The click events keep the full URL, tokens included, so group links only through
 
 ```sql
 SELECT
-    link_index,
-    sum(clicks) AS clicks,
-    count() AS urls,
-    if(count() = 1, any(link), '') AS link
-FROM (
-    SELECT
-        splitByChar('|', instance_id)[2] AS link_index,
-        arrayStringConcat(arraySlice(splitByChar('|', instance_id), 3), '|') AS link,
-        sum(count) AS clicks
-    FROM app_metrics
-    WHERE app_source = 'hog_flow_version'
-        AND startsWith(app_source_id, concat({workflow_id}, '/'))
-        AND metric_name = 'email_link_clicked_by_link'
-        AND startsWith(instance_id, concat({step_id}, '|'))
-        AND timestamp >= {window_start}
-        AND timestamp < {window_end}
-    GROUP BY link_index, link
-)
-GROUP BY link_index
-ORDER BY clicks DESC
-LIMIT 50
+    splitByChar('/', app_source_id)[2] AS version,
+    splitByChar('|', instance_id)[2] AS link_index,
+    sum(count) AS clicks
+FROM app_metrics
+WHERE app_source = 'hog_flow_version'
+    AND startsWith(app_source_id, concat({workflow_id}, '/'))
+    AND metric_name = 'email_link_clicked_by_link'
+    AND startsWith(instance_id, concat({step_id}, '|'))
+    AND timestamp >= {window_start}
+    AND timestamp < {window_end}
+GROUP BY version, link_index
+ORDER BY toInt(version), toInt(link_index)
+LIMIT 500
 ```
 
-`clicks` are occurrences. `link` is empty when a position recorded more than one URL: a short personal path segment, such as a name in an invite link, passes through unchanged, and a version can change a link. Name such a position from the step's email content in `posthog:workflows-get`, never from its URLs.
-The recipe reads the versioned series, so clicks whose message carried no version are missing. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. For one broadcast or batch run, replace the `app_source` and `startsWith(app_source_id, ...)` conditions with `app_source = 'hog_flow' AND app_source_id = {run_id}`. That series holds every click of the run from 2026-08-12 on.
-For people per link position, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index`. When a version changed the link at a position, group by `$workflow_version` too, and report each count against that version's link. Clickers overlap across positions, so never add them up into a count of people who clicked.
+`clicks` are occurrences. Link positions number the links in the email's HTML in order, from 0.
+The recipe returns no URLs, because the counter keeps short path segments and `mailto:` links unchanged, so a URL can hold a name or an address.
+Name the positions of the live version from its email content in `posthog:workflows-get`. A version can add, move or change a link, and no tool returns the content of an older version, so report the positions of older versions by number.
+The recipe reads the versioned series, so clicks whose message carried no version are missing. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. For one broadcast or batch run, read the run's window, and say that the read also counts clicks of other runs in that window.
+For people per link position, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$workflow_version` and `$link_index`. Clickers overlap across positions, so never add them up into a count of people who clicked.
 
 ### Product outcome after the first send
 
 The people a step sent to in the window, and how many did the outcome event within `{outcome_days}` days after their first send in the window.
 The query groups only the recipients, but it still reads every outcome event in the window. For a common outcome event, such as `$pageview`, keep the window and `{outcome_days}` short.
-`recipients` counts only people whose whole outcome window closed by `{as_of}`. `recipients_still_in_window` counts the rest, who had not had the time yet.
-Set `{as_of}` to a closed UTC day, on or after `{window_end}`, and report it with the answer.
+Set `{window_end}` at least `{outcome_days}` days before the end of the last closed UTC day. Then every recipient's outcome window has closed, and the read gives the same answer every time. When the sends are more recent, tell the user it is too early to judge the outcome.
 
 ```sql
 SELECT
-    countIf(window_closed) AS recipients,
-    countIf(window_closed AND reached_outcome) AS reached_outcome,
-    countIf(NOT window_closed) AS recipients_still_in_window
+    count() AS recipients,
+    countIf(reached_outcome) AS reached_outcome
 FROM (
     SELECT
-        first_sent_at + toIntervalDay({outcome_days}) <= {as_of} AS window_closed,
         arrayExists(t -> t > first_sent_at AND t <= first_sent_at + toIntervalDay({outcome_days}), outcome_times) AS reached_outcome
     FROM (
         SELECT

@@ -14,7 +14,7 @@ To edit an email or a workflow, use the `building-workflows` and `designing-emai
 
 - **Two sources, one per table.** `posthog:workflows-stats` and `posthog:workflows-version-stats` read the workflow's own counters. The SQL recipes read the captured `$workflows_email_*` events. The two sources bucket and keep data differently, so their totals need not match. Report one source per table and name it. Before you explain a difference, compare the same metric, step and window in both.
   A send to a person without a distinct ID records a counter but no event, so the events can sit below the counters.
-- **Period ratios, not rates per message.** Opens and clicks repeat, and one person can get the same step many times. Report event counts as "opens" and distinct people as "openers". No event identifies one sent message, and a callback in the window can belong to a send before it. So opens over tracked sends is a **period occurrence ratio**, and openers over people sent tracked email is a **period person ratio**. Name every ratio in the report as one of the two, never as the chance that one message was opened or as the share of one group of recipients.
+- **Period ratios, not rates per message.** Opens and clicks repeat, and one person can get the same step many times. Report event counts as "opens" and distinct people as "openers". No event identifies one sent message, and a callback in the window can belong to a send before it. So opens over tracked sends is a **period occurrence ratio**, and openers over people sent tracked email is a **period person ratio**. Name every open, click, bounce and complaint ratio in the report as one of the two, never as the chance that one message was opened or as the share of one group of recipients. The skill reports a share of recipients only for a product outcome (see [Product outcome](#product-outcome)).
   Mail security scanners also open and click. When a step shows more clickers than openers, say that scanners may inflate its clicks.
 - **Tracked sends are the denominator for opens and clicks.** A send with tracking off can never record an open or a click. Divide opens and clicks by `email_sent - email_untracked` (counters) or `tracked_sent` (events). Divide bounces and spam complaints by every send. Show sent, untracked and tracked sends, and the tracking coverage (tracked / sent), next to every open and click ratio. When coverage is below 100%, say that recipients with tracking on may not behave like the rest.
   In the counters, `email_bounced` already includes `email_bounced_hard`, `email_bounced_transient` and `email_bounced_undetermined`. Report hard bounces from `email_bounced_hard`, and report `email_bounced` as the total of all bounces.
@@ -22,8 +22,10 @@ To edit an email or a workflow, use the `building-workflows` and `designing-emai
 - **Daily buckets.** Read the stats tools with `interval=day`, and add up every bucket returned for the window total. Weekly buckets lost counts in a live check. The tools label their day buckets in the project's timezone, so a UTC window can come back with a shifted or extra label. `posthog:execute-sql` also prints timestamps in the project's timezone. Inside the dates the series covers, a metric missing from a stats series had a count of zero.
 - **A sample floor.** Below about 20 tracked sends, a ratio is noise. Report the counts and say there is not enough data yet.
 - **One step at a time.** Read each email step with its action id: `instance_id` in the stats tools, `{step_id}` in the recipes. Without it, every step of the workflow shares one denominator. The `conversion` counter belongs to the whole workflow, and its `instance_id` is the workflow id. Read it without `instance_id` in the stats tools. The counter recipes include it.
-- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. List its runs and their start times with `posthog:workflows-list-batch-jobs`, and read each run with the **Run counters** recipe. A run's counters hold every send and callback of that run.
+- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. List its runs and their start times with `posthog:workflows-list-batch-jobs`, and read them with the **Run counters** recipe, one row per run and metric. A run's counters hold every send and callback of that run.
+  The events carry no run id, so the event recipes cannot isolate one run: their window holds every run in it. Say so beside their people counts.
 - **Versioned counters have start dates.** `posthog:workflows-version-stats` and the **Counters by version** and **Clicked links** recipes read the versioned counters. They hold sends and `email_untracked` from 2026-08-06, and deliveries, opens, clicks, bounces and complaints from 2026-09-01. Before those dates the versioned series is partial, even when it shows numbers. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing from it, so its ratios read slightly low. Start every versioned read, a version comparison included, on or after the start date of each metric it reports. When the window must start earlier, report those metrics as unknown.
+- **Counters keep 90 days.** The counters behind the stats tools and the counter recipes expire after 90 days. For a window that starts earlier, report the expired counters as unavailable, never as zero, and read the events instead.
 - **Aggregates by default.** Leave email addresses, full link URLs and person UUIDs out of reports. Click events hold each link's full URL, tokens included, so read links only through the **Clicked links** recipe. Name a person by the identifier the user gave you.
 - **Spam complaints are a floor.** `email_blocked` and `$workflows_email_blocked` count the spam complaints that mailbox providers report back. Gmail does not report them, so a zero does not prove that no one complained.
 
@@ -34,7 +36,7 @@ To edit an email or a workflow, use the `building-workflows` and `designing-emai
 Find the workflow with `posthog:workflows-list` (`search=<name>`) and read it with `posthog:workflows-get`.
 From the graph, note each email step's action id and name, the trigger, and whether the workflow sends to a person once or many times.
 Email content can cut off the `posthog:workflows-get` response before the step names. Then list the email steps with the **Email steps** recipe in [references/recipes.md](references/recipes.md).
-A broadcast or batch workflow sends in runs. Judge one run at a time: take its start time from `posthog:workflows-list-batch-jobs`, and read from that day to a closed day at least two days later.
+A broadcast or batch workflow sends in runs. Take each run's start time from `posthog:workflows-list-batch-jobs`, and judge a run only through a closed day at least two days after its start.
 
 Done when you hold the workflow id, the step ids and names the question is about, and a closed window you have told the user.
 
@@ -70,7 +72,8 @@ Done when every number you report has its unit, denominator and window, and ever
 
 List the versions with `posthog:workflows-list-versions` and note when each went live. A workflow that was never republished has one version: the live `version` from `posthog:workflows-get`.
 Read each version with `posthog:workflows-version-stats` (`version=<n>`, `instance_id=<step id>`, `breakdown_by=name`, `interval=day`) to the end of the closed window.
-Start each version's read at 00:00 UTC on the day it went live, or on the start date of the metrics you report, whichever is later. On its first day the read also holds callbacks of the version before it. Say so when that day is a large part of the read.
+Start each version's read at 00:00 UTC on the day it went live, or on the start date of the metrics you report, whichever is later.
+A run that started on the older version and sends after the newer one went live counts its email under the newer version. When the workflow has delay steps, say that the newer version's first days include people who entered on the older one.
 Opens and clicks keep the version that sent the email, so a replaced version still collects its late callbacks.
 Compare versions with each other only. The unversioned `posthog:workflows-stats` read keys batch and broadcast runs on the run, so it is not the sum of the versions.
 
@@ -87,8 +90,8 @@ Check that the event exists with `posthog:read-data-schema` before you query it.
 If the workflow has a conversion goal, its `conversion` counter (read without `instance_id`) and the `$workflows_conversion` event (with `$workflow_version`) already measure it.
 
 Run the **Product outcome after the first send** recipe.
-Report the share of recipients with a closed outcome window who reached the outcome, and how many recipients are still inside their window.
-Name three times in the answer: the send window, the follow-up horizon (`{outcome_days}`), and the observation cutoff (`{as_of}`). A different cutoff gives a different answer from the same sends.
+Report the share of recipients who reached the outcome, `reached_outcome / recipients`.
+Name the send window and the follow-up horizon (`{outcome_days}`) in the answer. The recipe tells you how to choose a send window whose outcomes are final.
 The share is an association. Without a holdout, it also counts people who would have done it anyway, so call it the share that reached the outcome, not lift.
 
 ## What this data cannot answer today
@@ -105,7 +108,7 @@ State each of these plainly, report the nearest measurable thing instead, and gi
 Lead with the answer in one sentence, then a table per source:
 
 - The workflow and step names, the window in UTC, and the source of each table.
-- Counts with their units, and each ratio as `numerator / denominator`, named as a period occurrence ratio or a period person ratio.
+- Counts with their units, and each ratio as `numerator / denominator`. Name open, click, bounce and complaint ratios as period occurrence or period person ratios, and an outcome as a share of recipients.
 - Sent, untracked and tracked sends, and the tracking coverage, beside every open and click ratio.
 - The caveats that apply to these numbers, and the questions above that the data cannot answer.
 
