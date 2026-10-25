@@ -349,6 +349,32 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
 
+    @patch("posthog.hogql.direct_connection.raw_query_denied_by_table_access", return_value=True)
+    def test_validate_query_runner_access_blocks_send_raw_query_when_table_access_denied(self, mock_raw_denied):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select 1", connectionId=str(source.id), sendRawQuery=True),
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
+
     @parameterized.expand(
         [(False, "project_reader"), (False, "duckgres_service"), (True, "duckgres_service"), (True, "project_reader")]
     )

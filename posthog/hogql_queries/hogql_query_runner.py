@@ -91,6 +91,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
                 raise UserAccessControlError("external_data_source", "viewer", resource_id=self.query.connectionId)
+            if source is not None and getattr(self.query, "sendRawQuery", False):
+                from posthog.hogql.direct_connection import raw_query_denied_by_table_access
+
+                if raw_query_denied_by_table_access(self.team, source, user=user):
+                    from products.access_control.backend.facade.user_access_control import UserAccessControlError
+
+                    raise UserAccessControlError("external_data_source", "viewer", resource_id=self.query.connectionId)
         return super().validate_query_runner_access(user)
 
     def _validate_direct_connection(self, *, user: Optional[User | SyntheticUser | SharedLinkUser] = None, force: bool = False) -> None:
