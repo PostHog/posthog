@@ -718,7 +718,7 @@ jobs:
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
                   # an unrebased PR on older pytest-split must not hit an unknown
-                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  # --splitting-algorithm / --split-granularity. See .agents/ci.md.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then

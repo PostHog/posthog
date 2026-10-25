@@ -1,6 +1,6 @@
 # Frontend agent guide (`frontend/src`)
 
-Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
+Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md`, [`.agents/code-style.md`](../../.agents/code-style.md), and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
 
 ## Rule 1 — Reuse before you create
 
@@ -34,7 +34,7 @@ If nothing fits, say so and propose extending the existing component before addi
 
 The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+> LemonUI vs quill lives in [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). If you're working somewhere quill applies (an MCP app, the desktop app, UI behind `today-rail-nav`), [`design.md`](./design.md) and `packages/quill/packages/primitives/AGENTS.md` have its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
 ## Rule 2 — A product's UI goes in `products/<name>/frontend/`
 
@@ -62,7 +62,7 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 ## Rule 4 — Business logic in kea, not React hooks
 
-Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+Covered by [`.agents/code-style.md`](../../.agents/code-style.md) ("Frontend"). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
 ## Rule 5 — Structure and abstraction
 
@@ -127,7 +127,7 @@ These are slow; run them at the right moment, not after every edit.
 
 ## Lint & format
 
-Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
+Run `pnpm --filter=@posthog/frontend fix` before finishing. It applies safe Oxlint fixes, never suggestion fixes, and always runs Oxfmt; it fails if either tool fails. `format` runs Oxfmt only, while `lint` and `format:check` only verify. Config: root `.oxlintrc.json`. CSS and spelling rules live in [`.agents/code-style.md`](../../.agents/code-style.md), and copy-casing rules in `/writing-user-facing-copy`.
 
 ## Adding actions to a scene
 
@@ -137,7 +137,7 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 
 ## Deeper references
 
-- Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
+- [`.agents/code-style.md`](../../.agents/code-style.md) and [`.agents/architecture.md`](../../.agents/architecture.md) — full code style and architecture rules (authoritative).
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
 - `/working-with-charts`: chart consumption workflow with links to the relevant examples and package docs.

@@ -493,7 +493,7 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       repo_invariants:
-                        # posthog/test/repo_invariants/ reads AGENTS.md and the semgrep
+                        # posthog/test/repo_invariants/ reads AGENTS.md, the tagged .agents/ guides, and the semgrep
                         # rule ids it names. Both are excluded from the backend filter
                         # (markdown is dropped outright, .semgrep is not listed), so a
                         # change to either would skip repo-checks and report green while
@@ -503,6 +503,9 @@ jobs:
                         - 'rust/**'
                         - 'products/desktop/**'
                         - 'AGENTS.md'
+                        - '.agents/architecture.md'
+                        - '.agents/code-style.md'
+                        - '.agents/ci.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
                         # A generated file in a frontend-only PR still needs a known producer.
