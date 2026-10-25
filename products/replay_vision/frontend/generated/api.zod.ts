@@ -1580,3 +1580,23 @@ export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
+
+/**
+ * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
+ */
+export const visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax = 100
+
+export const VisionScannersWatchFeedImpressionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        feed_load_id: zod
+            .uuid()
+            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
+        observation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax)
+            .describe(
+                'Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/watch_feed_impressions\/.')
