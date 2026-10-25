@@ -67,11 +67,7 @@ export function PageDirectoryTable(): JSX.Element {
                                 event.stopPropagation()
                                 if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
                                     event.preventDefault()
-                                    openPageReport(
-                                        pageReportUrlForPage(row.page),
-                                        'directory_row',
-                                        pageIndex * PAGE_DIRECTORY_PAGE_SIZE + index
-                                    )
+                                    openPageReport(pageReportUrlForPage(row.page), 'directory_row', index)
                                 }
                             }}
                             data-attr="page-reports-directory-row"
@@ -224,12 +220,7 @@ export function PageDirectoryTable(): JSX.Element {
                 }}
                 onRow={(row, index) => ({
                     className: 'cursor-pointer',
-                    onClick: () =>
-                        openPageReport(
-                            pageReportUrlForPage(row.page),
-                            'directory_row',
-                            pageIndex * PAGE_DIRECTORY_PAGE_SIZE + index
-                        ),
+                    onClick: () => openPageReport(pageReportUrlForPage(row.page), 'directory_row', index),
                 })}
                 pagination={{
                     controlled: true,

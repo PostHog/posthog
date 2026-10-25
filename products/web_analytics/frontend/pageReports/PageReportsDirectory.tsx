@@ -10,8 +10,9 @@ import { PageDirectorySummary } from './PageDirectorySummary'
 import { PageDirectoryTable } from './PageDirectoryTable'
 
 function PageDirectoryContent(): JSX.Element {
-    const { search, pastedUrl, directoryState, driverError, isPathCleaningEnabled } = useValues(pageDirectoryLogic)
-    const { setSearch, loadDriver } = useActions(pageDirectoryLogic)
+    const { search, pastedUrl, directoryState, driverError, failedMetrics, isPathCleaningEnabled } =
+        useValues(pageDirectoryLogic)
+    const { setSearch, loadDriver, retryFailedMetrics } = useActions(pageDirectoryLogic)
     const { openPageReport } = useActions(pageReportsLogic)
 
     return (
@@ -59,7 +60,21 @@ function PageDirectoryContent(): JSX.Element {
                     range.
                 </LemonBanner>
             ) : (
-                <PageDirectoryTable />
+                <>
+                    {failedMetrics.length > 0 ? (
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: 'Try again',
+                                onClick: retryFailedMetrics,
+                                'data-attr': 'page-reports-directory-retry-metrics',
+                            }}
+                        >
+                            Some columns couldn't load.
+                        </LemonBanner>
+                    ) : null}
+                    <PageDirectoryTable />
+                </>
             )}
             <p className="m-0 text-xs text-secondary">
                 Images, scripts and other static files are hidden. Path cleaning is{' '}
