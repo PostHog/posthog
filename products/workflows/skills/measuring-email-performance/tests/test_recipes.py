@@ -10,8 +10,11 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.test.fixtures import create_app_metric2
+
 RECIPES = Path(__file__).resolve().parent.parent / "references" / "recipes.md"
-RECIPE_SECTION = re.compile(r"^### (.+?)\n.*?```sql\n(.*?)\n```", re.DOTALL | re.MULTILINE)
+RECIPE_HEADING = re.compile(r"^### (.+)$", re.MULTILINE)
+SQL_FENCE = re.compile(r"```sql\n(.*?)\n```", re.DOTALL)
 
 WORKFLOW_ID = "01a00000-0000-0000-0000-000000000001"
 STEP_ID = "action_function_email_welcome"
@@ -23,7 +26,12 @@ WINDOW_END = NOW - timedelta(days=1)
 
 
 def _recipes() -> dict[str, str]:
-    return dict(RECIPE_SECTION.findall(RECIPES.read_text(encoding="utf-8")))
+    sections = RECIPE_HEADING.split(RECIPES.read_text(encoding="utf-8"))[1:]
+    recipes = {}
+    for name, body in zip(sections[::2], sections[1::2]):
+        (query,) = SQL_FENCE.findall(body)
+        recipes[name] = query
+    return recipes
 
 
 def _placeholders(person_id: str = "00000000-0000-0000-0000-000000000000") -> dict[str, ast.Expr]:
@@ -75,30 +83,65 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._person("bo")
         sent_at = WINDOW_START + timedelta(days=2)
         self._sent("ada", sent_at)
+        self._sent("ada", sent_at + timedelta(days=1))
         self._sent("bo", sent_at, tracked=False)
         self._email_event("ada", "opened", sent_at + timedelta(hours=1))
         self._email_event("ada", "opened", sent_at + timedelta(hours=5))
-        self._sent("bo", sent_at, tracked=True)
+        self._email_event("ada", "bounced", sent_at + timedelta(days=1, hours=1), properties={"$bounce_type": "soft"})
+        self._email_event("bo", "bounced", sent_at + timedelta(hours=1), properties={"$bounce_type": "hard"})
         self._email_event("bo", "sent", sent_at, step=OTHER_STEP_ID, properties={"$email_tracking_enabled": True})
 
         rows = {row["step"]: row for row in self._run("Step engagement")}
 
-        assert rows[STEP_ID]["sent"] == 3
-        assert rows[STEP_ID]["tracked_sent"] == 2
-        assert rows[STEP_ID]["opens"] == 2
-        assert rows[STEP_ID]["openers"] == 1
+        assert {
+            key: rows[STEP_ID][key]
+            for key in (
+                "sent",
+                "tracked_sent",
+                "people_sent",
+                "people_tracked",
+                "opens",
+                "openers",
+                "bounces",
+                "hard_bounces",
+            )
+        } == {
+            "sent": 3,
+            "tracked_sent": 2,
+            "people_sent": 2,
+            "people_tracked": 1,
+            "opens": 2,
+            "openers": 1,
+            "bounces": 2,
+            "hard_bounces": 1,
+        }
         assert rows[OTHER_STEP_ID]["sent"] == 1
 
-    def test_clicked_links_never_expose_query_strings(self) -> None:
-        self._person("ada")
+    def test_clicked_links_add_up_versions_from_the_redacted_counter(self) -> None:
         clicked_at = WINDOW_START + timedelta(days=3)
-        for url in ("https://example.com/pricing?token=secret-1", "https://example.com/pricing?token=secret-2"):
-            self._email_event("ada", "link_clicked", clicked_at, properties={"$link_url": url, "$link_index": 0})
+        for app_source, app_source_id, instance_id, count in (
+            ("hog_flow_version", f"{WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", 2),
+            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{STEP_ID}|0|https://example.com/pricing", 1),
+            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{STEP_ID}|1|https://example.com/a|b", 1),
+            ("hog_flow", WORKFLOW_ID, f"{STEP_ID}|0|https://example.com/pricing", 3),
+            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{OTHER_STEP_ID}|0|https://example.com/other", 4),
+        ):
+            create_app_metric2(
+                team_id=self.team.pk,
+                app_source=app_source,
+                app_source_id=app_source_id,
+                instance_id=instance_id,
+                metric_kind="email",
+                metric_name="email_link_clicked_by_link",
+                count=count,
+                timestamp=clicked_at,
+            )
 
         rows = self._run("Clicked links")
 
         assert rows == [
-            {"link_index": "0", "link_domain": "example.com", "link_path": "/pricing", "clicks": 2, "clickers": 1}
+            {"link_index": "0", "link": "https://example.com/pricing", "clicks": 3},
+            {"link_index": "1", "link": "https://example.com/a|b", "clicks": 1},
         ]
 
     def test_outcome_counts_each_recipient_once_within_their_own_window(self) -> None:
