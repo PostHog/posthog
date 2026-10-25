@@ -1,7 +1,6 @@
 import { combineUrl } from 'kea-router'
 
 import { applyPathCleaning } from 'lib/components/PathCleanFilters/pathCleaningUtils'
-import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 import { parseWebAnalyticsURL, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -37,6 +36,7 @@ export const buildPageDirectoryBaseQuery = ({
 }: PageDirectoryFilters): WebPageDirectoryQuery => ({
     kind: NodeKind.WebPageDirectoryQuery,
     dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+    interval: dateFilter.interval,
     compareFilter,
     conversionGoal,
     filterTestAccounts,
@@ -68,13 +68,16 @@ export const pageKeyForUrl = (
     isPathCleaningEnabled: boolean,
     pathCleaningFilters: PathCleaningFilter[]
 ): string => {
+    const cleanPath = (pathname: string): string =>
+        isPathCleaningEnabled ? applyPathCleaning(pathname, pathCleaningFilters) : pathname
+    if (url.startsWith('/')) {
+        return cleanPath(url.split(/[?#]/)[0])
+    }
     const parsed = parseWebAnalyticsURL(pageReportUrlForPage(url))
     if (!parsed.isValid || !parsed.pathname) {
         return url
     }
-    const pathname = tryDecodeURIComponent(parsed.pathname)
-    const path = isPathCleaningEnabled ? applyPathCleaning(pathname, pathCleaningFilters) : pathname
-    return `${parsed.host ?? ''}${path}`
+    return `${parsed.host ?? ''}${cleanPath(parsed.pathname)}`
 }
 
 export const splitPageKey = (page: string): { host: string | null; path: string } => {

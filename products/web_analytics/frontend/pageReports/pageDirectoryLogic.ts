@@ -16,6 +16,7 @@ import {
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { uuid } from 'lib/utils/dom'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/common'
@@ -23,6 +24,7 @@ import { DateFilterState, webAnalyticsLogic } from 'scenes/web-analytics/webAnal
 import { WebAnalyticsLogicProps } from 'scenes/web-analytics/webAnalyticsLogicProps'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import {
     CompareFilter,
@@ -104,8 +106,10 @@ export interface pageDirectoryLogicValues {
     driverLoading: boolean
     driverQuery: WebPageDirectoryQuery
     driverRows: WebPageDirectoryRow[] | null
+    failedMetrics: WebPageDirectoryMetric[]
     hasMore: boolean
     hasServerLogs: boolean | null
+    metricErrors: Partial<Record<WebPageDirectoryMetric, boolean>>
     metricLoading: Partial<Record<WebPageDirectoryMetric, boolean>>
     metricRows: Partial<Record<WebPageDirectoryMetric, Record<string, WebPageDirectoryRow>>>
     pageIndex: number
@@ -177,6 +181,9 @@ export interface pageDirectoryLogicActions {
     resetPage: () => {
         value: true
     }
+    retryFailedMetrics: () => {
+        value: true
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -212,6 +219,7 @@ export interface pageDirectoryLogicMeta {
         directoryInput: (driverQuery: WebPageDirectoryQuery) => string
         siteTotalsQuery: (baseQuery: WebPageDirectoryQuery) => WebPageDirectoryQuery
         siteTotalsInput: (siteTotalsQuery: WebPageDirectoryQuery) => string
+        failedMetrics: (metricErrors: Partial<Record<WebPageDirectoryMetric, boolean>>) => WebPageDirectoryMetric[]
         hasServerLogs: (siteTotals: WebPageDirectorySiteTotals | null) => boolean | null
         rows: (
             driverRows: WebPageDirectoryRow[] | null,
@@ -282,6 +290,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         loadSiteTotals: (refresh: boolean = false) => ({ refresh }),
         loadSiteTotalsSuccess: (siteTotals: WebPageDirectorySiteTotals | null) => ({ siteTotals }),
         loadSiteTotalsFailure: true,
+        retryFailedMetrics: true,
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -342,6 +351,14 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             null as WebPageDirectorySiteTotals | null,
             {
                 loadSiteTotalsSuccess: (_, { siteTotals }) => siteTotals,
+            },
+        ],
+        metricErrors: [
+            {} as Partial<Record<WebPageDirectoryMetric, boolean>>,
+            {
+                loadDriverSuccess: () => ({}),
+                loadMetric: (state, { metric }) => ({ ...state, [metric]: false }),
+                loadMetricFailure: (state, { metric }) => ({ ...state, [metric]: true }),
             },
         ],
         siteTotalsError: [
@@ -423,6 +440,11 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             (s) => [s.siteTotalsQuery],
             (siteTotalsQuery: WebPageDirectoryQuery): string => JSON.stringify(siteTotalsQuery),
         ],
+        failedMetrics: [
+            (s) => [s.metricErrors],
+            (metricErrors: Partial<Record<WebPageDirectoryMetric, boolean>>): WebPageDirectoryMetric[] =>
+                PAGE_DIRECTORY_METRICS.filter((metric) => metricErrors[metric]),
+        ],
         hasServerLogs: [
             (s) => [s.siteTotals],
             (siteTotals: WebPageDirectorySiteTotals | null): boolean | null =>
@@ -473,10 +495,27 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         ],
     }),
     listeners(({ values, actions, cache }) => {
-        const signalFor = (key: string): AbortSignal => {
+        const startRequest = (key: string): { signal: AbortSignal; queryId: string; finish: () => void } => {
             const abortController = new AbortController()
-            cache.disposables.add(() => () => abortController.abort(), key, { pauseOnPageHidden: false })
-            return abortController.signal
+            const queryId = uuid()
+            let finished = false
+            cache.disposables.add(
+                () => () => {
+                    abortController.abort()
+                    if (!finished) {
+                        void cancelQueryOnServer(values.currentTeam?.id ?? null, queryId)
+                    }
+                },
+                key,
+                { pauseOnPageHidden: false }
+            )
+            return {
+                signal: abortController.signal,
+                queryId,
+                finish: () => {
+                    finished = true
+                },
+            }
         }
         const isCancellation = (error: unknown): boolean =>
             (error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)
@@ -486,14 +525,15 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         return {
             loadDriver: async ({ refresh }, breakpoint) => {
                 await breakpoint(300)
-                const signal = signalFor('driverRequest')
+                const { signal, queryId, finish } = startRequest('driverRequest')
                 const query = values.driverQuery
                 try {
                     const response = (await performQuery(
                         query,
                         { signal },
-                        refresh ? 'force_blocking' : 'blocking'
-                    )) as WebPageDirectoryQueryResponse
+                        refresh ? 'force_blocking' : 'blocking',
+                        queryId
+                    ).finally(finish)) as WebPageDirectoryQueryResponse
                     breakpoint()
                     actions.loadDriverSuccess(response.results ?? [], !!response.hasMore, refresh)
                     if (query.search) {
@@ -525,7 +565,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 }
             },
             loadMetric: async ({ metric, pageKeys, refresh }) => {
-                const signal = signalFor(`metricRequest-${metric}`)
+                const { signal, queryId, finish } = startRequest(`metricRequest-${metric}`)
                 const isStale = (): boolean =>
                     cache.disposables.isDisposed ||
                     (values.driverRows ?? []).map((row) => row.page).join('\n') !== pageKeys.join('\n')
@@ -533,8 +573,9 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                     const response = (await performQuery(
                         { ...values.baseQuery, pageKeys, metrics: [metric] },
                         { signal },
-                        refresh ? 'force_blocking' : 'blocking'
-                    )) as WebPageDirectoryQueryResponse
+                        refresh ? 'force_blocking' : 'blocking',
+                        queryId
+                    ).finally(finish)) as WebPageDirectoryQueryResponse
                     if (!isStale()) {
                         actions.loadMetricSuccess(metric, response.results ?? [])
                     }
@@ -547,13 +588,14 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             },
             loadSiteTotals: async ({ refresh }, breakpoint) => {
                 await breakpoint(300)
-                const signal = signalFor('siteTotalsRequest')
+                const { signal, queryId, finish } = startRequest('siteTotalsRequest')
                 try {
                     const response = (await performQuery(
                         values.siteTotalsQuery,
                         { signal },
-                        refresh ? 'force_blocking' : 'blocking'
-                    )) as WebPageDirectoryQueryResponse
+                        refresh ? 'force_blocking' : 'blocking',
+                        queryId
+                    ).finally(finish)) as WebPageDirectoryQueryResponse
                     breakpoint()
                     actions.loadSiteTotalsSuccess(response.siteTotals ?? null)
                 } catch (error) {
@@ -561,6 +603,12 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                         return
                     }
                     actions.loadSiteTotalsFailure()
+                }
+            },
+            retryFailedMetrics: () => {
+                const pageKeys = (values.driverRows ?? []).map((row) => row.page)
+                for (const metric of values.failedMetrics) {
+                    actions.loadMetric(metric, pageKeys, true)
                 }
             },
             loadSiteTotalsSuccess: ({ siteTotals }) => {
