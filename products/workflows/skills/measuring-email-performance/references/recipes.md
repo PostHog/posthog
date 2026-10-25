@@ -1,7 +1,7 @@
 # Email performance SQL recipes
 
 Run each recipe with `posthog:execute-sql`.
-All but **Clicked links** read the captured `$workflows_email_*` events, so they return nothing in a project that does not capture engagement events (see "Check the data exists" in the skill).
+All but **Step counters** and **Clicked links** read the captured `$workflows_email_*` events, so they return nothing in a project that does not capture engagement events (see "Check the data exists" in the skill).
 The events carry the workflow id for every kind of workflow, broadcasts and batch runs included.
 
 Replace every `{placeholder}` with a literal before you run the query:
@@ -51,11 +51,33 @@ ORDER BY sent DESC
 
 `tracked_sent` is 0 for sends made before the sent event carried `$email_tracking_enabled`. When it is 0 while opens exist, read opens and clicks against the counters instead.
 
+### Step counters
+
+The workflow's own counters for one step, added up over every version, read with SQL.
+Use it when `posthog:workflows-version-stats` is not available, and for a broadcast or batch workflow, whose unversioned counters are keyed by each run.
+It works whether or not the project captures engagement events.
+
+```sql
+SELECT
+    metric_name,
+    sum(count) AS total
+FROM app_metrics
+WHERE app_source = 'hog_flow_version'
+    AND startsWith(app_source_id, concat({workflow_id}, '/'))
+    AND instance_id = {step_id}
+    AND timestamp >= {window_start}
+    AND timestamp < {window_end}
+GROUP BY metric_name
+ORDER BY metric_name
+```
+
+Read opens and clicks against `email_sent` minus `email_untracked`. Opens and clicks whose message lost its version are missing here, so their rates read slightly low.
+
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
 Use it when `posthog:workflows-version-stats` is not available.
-The sent event carries no version, so `delivered` is the per-version denominator, and the tracked share of each version is unknown.
+The sent event carries no version, so `delivered` is the per-version denominator for opens and clicks, and the tracked share of each version is unknown. Bounced messages are never delivered: report bounces and spam complaints as counts.
 
 ```sql
 SELECT
@@ -83,7 +105,7 @@ A version that went live before the window can still show opens and clicks in it
 ### Clicked links
 
 Which links of one step get clicked, by position in the email and URL.
-It reads the per-link click counter, not the click events: the counter stores each URL without its query string and with personal path segments, such as tokens and ids, replaced by `*`.
+It reads the per-link click counter, not the click events: the counter stores each web URL without its query string, with long token- and id-shaped path segments replaced by `*`.
 The click events keep the full URL, tokens included, so never group them by `$link_url`.
 
 ```sql
@@ -104,7 +126,8 @@ LIMIT 50
 ```
 
 `clicks` are occurrences. It reads the versioned series, because that one is keyed by the workflow for broadcasts and batch runs too, so clicks whose message carried no version are missing.
-For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only.
+Short personal path segments, such as a name in an invite link, and `mailto:` links pass through unchanged: collapse them into one row in your report.
+For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only. Clickers overlap across links, so never add them up into a count of people who clicked.
 
 ### Product outcome after the first send
 
