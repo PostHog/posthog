@@ -322,7 +322,14 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:
             self.expansion_budget.visit(node)
-            return clone_expr(node, clear_types=False)
+            cloned = clone_expr(node, clear_types=False)
+            inner = cloned
+            while isinstance(inner.expr, ast.Alias) and inner.expr.hidden:
+                inner = inner.expr
+            qualified = self._qualified_shadowed_column(inner.expr)
+            if qualified is not None:
+                inner.expr = qualified
+            return cloned
         already_expanding = node.alias in self.expanding
         self.expanding.add(node.alias)
         try:
@@ -364,7 +371,30 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 return self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+        qualified = self._qualified_shadowed_column(node)
+        if qualified is not None:
+            return qualified
         return super().visit_field(node)
+
+    def _qualified_shadowed_column(self, node: ast.Expr) -> ast.Field | None:
+        # After alias inlining, a later resolver pass would bind a bare column named like a projection alias to the
+        # alias. Qualifying it keeps the column the first pass chose.
+        if not (
+            isinstance(node, ast.Field)
+            and len(node.chain) == 1
+            and isinstance(node.chain[0], str)
+            and node.chain[0] in self.aliases
+            and isinstance(node.type, ast.FieldType)
+            and isinstance(node.type.table_type, ast.TableAliasType)
+        ):
+            return None
+        return ast.Field(
+            start=node.start,
+            end=node.end,
+            chain=[node.type.table_type.alias, node.chain[0]],
+            type=node.type,
+            from_asterisk=node.from_asterisk,
+        )
 
 
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):

@@ -198,6 +198,12 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
 
 
+def _is_null_constant(expr: ast.Expr) -> bool:
+    if isinstance(expr, ast.Alias):
+        return _is_null_constant(expr.expr)
+    return isinstance(expr, ast.Constant) and expr.value is None
+
+
 def _escape_regex_class_brackets(pattern: str) -> str:
     """Keep RE2 bracket-expression meaning under Trino's Joni engine.
 
@@ -379,10 +385,25 @@ class TrinoPrinter(PostgresPrinter):
     def _invalid_function_arguments(self, node: ast.Call, detail: str) -> NoReturn:
         self._unsupported("TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED", detail, node)
 
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        # A bare NULL output column has no Trino type, so CREATE TABLE AS rejects it.
+        if len(self.stack) != 1:
+            return super()._print_select_columns(columns)
+        printed: list[str] = []
+        for column in columns:
+            if not _is_null_constant(column):
+                printed.extend(super()._print_select_columns([column]))
+            elif isinstance(column, ast.Alias) and not column.hidden:
+                printed.append(f"CAST(NULL AS VARCHAR) AS {self._print_identifier(column.alias)}")
+            else:
+                printed.append("CAST(NULL AS VARCHAR)")
+        return printed
+
     def _align_set_query_types(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
         branches = self._set_query_branches(node)
         if not branches:
             return node
+        is_top_level = len(self.stack) == 1
         width = min(len(branch.select) for branch in branches)
         targets: dict[int, str] = {}
         for index in range(width):
@@ -391,7 +412,9 @@ class TrinoPrinter(PostgresPrinter):
                 for branch in branches
             ]
             types = [self._resolve_type(expression) for expression in expressions]
-            if any(isinstance(value_type, ast.StringType) for value_type in types) and any(
+            if is_top_level and all(_is_null_constant(expression) for expression in expressions):
+                targets[index] = "varchar"
+            elif any(isinstance(value_type, ast.StringType) for value_type in types) and any(
                 isinstance(
                     value_type,
                     (ast.IntegerType, ast.FloatType, ast.DecimalType, ast.BooleanType, ast.UUIDType),
@@ -861,6 +884,10 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
             if name == "toint" and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
+            # HogQL toInt is accurateCastOrNull: it truncates toward zero and maps NaN or overflow to NULL,
+            # while a Trino CAST rounds and raises.
+            if name == "toint" and isinstance(arg_type, (ast.FloatType, ast.DecimalType)):
+                return f"TRY_CAST(truncate({self.visit(arg)}) AS BIGINT)"
         if name in {"tofloat", "tofloatorzero", "tofloatordefault"} and node.args:
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
@@ -869,7 +896,7 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(arg_type, ast.DateTimeType):
                 return f"to_unixtime({self.visit(arg)})"
             # HogQL defines toFloat as accurateCastOrNull, so unparsable input becomes NULL instead of an error.
-            if name == "tofloat" and len(node.args) == 1 and isinstance(arg_type, ast.StringType):
+            if name == "tofloat" and len(node.args) == 1 and isinstance(arg_type, (ast.StringType, ast.UnknownType)):
                 return f"TRY_CAST({self.visit(arg)} AS DOUBLE)"
         if (
             name == "todate"
@@ -1255,7 +1282,10 @@ class TrinoPrinter(PostgresPrinter):
         left_cast: str | None = None
         right_cast: str | None = None
 
-        if isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.StringType):
+        if isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.UUIDType):
+            # Exported tables can store UUID columns as VARCHAR, while toUUID() yields a real UUID.
+            left_cast = right_cast = "VARCHAR"
+        elif isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.StringType):
             left_cast = "VARCHAR"
         elif isinstance(right_type, ast.UUIDType) and isinstance(left_type, ast.StringType):
             right_cast = "VARCHAR"
@@ -2065,8 +2095,10 @@ class TrinoPrinter(PostgresPrinter):
         value = self.visit(node.args[0])
         timezone = self.visit(node.args[1]) if len(node.args) == 2 else self.context.add_value(self._get_timezone())
         day_month_year = self.context.add_value("%e-%b-%y")
+        # ClickHouse accepts offsets without a colon (+0000); normalize them before Trino's ISO-8601 parser.
+        iso_value = f"regexp_replace({value}, '([+-][0-9]{{2}})([0-9]{{2}})$', '$1:$2')"
         parsed = (
-            f"coalesce(IF(regexp_like({value}, '(Z|[+-][0-9]{{2}}:[0-9]{{2}})$'), TRY(from_iso8601_timestamp({value}))), "
+            f"coalesce(IF(regexp_like({value}, '(Z|[+-][0-9]{{2}}:?[0-9]{{2}})$'), TRY(from_iso8601_timestamp({iso_value}))), "
             f"IF(regexp_like({value}, '^[0-9]{{9,10}}$'), from_unixtime(TRY_CAST({value} AS DOUBLE))), "
             f"with_timezone(TRY(date_parse({value}, {day_month_year})), {timezone}), "
             f"with_timezone(CAST({value} AS TIMESTAMP), {timezone}))"
