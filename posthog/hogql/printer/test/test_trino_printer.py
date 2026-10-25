@@ -1741,6 +1741,11 @@ def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
             "SELECT user_id FROM users ORDER BY user_id LIMIT 10 WITH TIES",
             "FETCH FIRST 10 ROWS WITH TIES",
         ),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647", "ASC LIMIT 2147483647"),
+        # Trino cannot sort with a LIMIT above 2147483647, and a LIMIT that large cannot cut a result.
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000", '"users"."user_id" ASC'),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 OFFSET 4", "ASC OFFSET 4 ROWS"),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 WITH TIES", '"users"."user_id" ASC'),
     ],
 )
 def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
@@ -1749,15 +1754,16 @@ def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
     assert sql.endswith(expected_suffix)
 
 
-def test_prints_trino_limit_syntax_after_set_operation() -> None:
+@pytest.mark.parametrize("limit, expected_suffix", [(10, "OFFSET 4 ROWS LIMIT 10"), (2**40, "OFFSET 4 ROWS")])
+def test_prints_trino_limit_syntax_after_set_operation(limit: int, expected_suffix: str) -> None:
     query = parse_select("SELECT user_id FROM users UNION ALL SELECT user_id FROM users")
     assert isinstance(query, ast.SelectSetQuery)
-    query.limit = ast.Constant(value=10)
+    query.limit = ast.Constant(value=limit)
     query.offset = ast.Constant(value=4)
 
     sql, _ = prepare_and_print_ast(query, _context_with_trino_table(), "trino")
 
-    assert sql.endswith("OFFSET 4 ROWS LIMIT 10")
+    assert sql.endswith(expected_suffix)
 
 
 @pytest.mark.parametrize("pretty", [False, True])

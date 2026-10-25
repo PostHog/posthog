@@ -43,6 +43,9 @@ from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 if TYPE_CHECKING:
     from posthog.hogql.database.models import Table
 
+# Trino refuses a sorted LIMIT above this. A LIMIT that large cannot cut a result, so the printer drops it.
+TRINO_MAX_LIMIT = 2**31 - 1
+
 _TRINO_SIMPLE_TYPES = {
     "bigint": "BIGINT",
     "bool": "BOOLEAN",
@@ -310,6 +313,8 @@ class TrinoPrinter(PostgresPrinter):
         if limit is None:
             return
         count = self._validate_row_count(limit, "LIMIT")
+        if count > TRINO_MAX_LIMIT and not node.limit_percent:
+            return
         if node.limit_percent:
             self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")
         if node.limit_with_ties:
@@ -327,8 +332,8 @@ class TrinoPrinter(PostgresPrinter):
         suffixes: list[str] = []
         if node.offset is not None:
             suffixes.append(f"OFFSET {self._validate_row_count(node.offset, 'OFFSET')} ROWS")
-        if node.limit is not None:
-            count = self._validate_row_count(node.limit, "LIMIT")
+        count = self._validate_row_count(node.limit, "LIMIT") if node.limit is not None else None
+        if count is not None and not (count > TRINO_MAX_LIMIT and not node.limit_percent):
             if node.limit_percent:
                 self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")
             if node.limit_with_ties:
