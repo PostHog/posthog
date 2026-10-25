@@ -6,9 +6,6 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -825,10 +822,7 @@ describe('cohortEditLogic', () => {
         )
     })
 
-    describe.each([
-        ['legacy menu', false],
-        ['rebuilt menu', true],
-    ])('prefilling a recent person filter in the %s', (_, useRebuiltMenu) => {
+    describe('prefilling a recent person filter', () => {
         const recordPersonRecent = (
             recentFilters: ReturnType<typeof recentTaxonomicFiltersLogic.build>,
             key: string,
@@ -850,24 +844,13 @@ describe('cohortEditLogic', () => {
         }
 
         const openRecents = async (): Promise<void> => {
-            if (useRebuiltMenu) {
-                await userEvent.click(await screen.findByTestId('taxonomic-popover-menu-trigger'))
-                await userEvent.click(await screen.findByText('Recent'))
-            } else {
-                await userEvent.click(await screen.findByText('Choose person property'))
-                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
-                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
-            }
+            await userEvent.click(await screen.findByText('Choose person property'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
         }
 
         const recentRows = (): HTMLElement[] =>
-            Array.from(
-                document.querySelectorAll<HTMLElement>(
-                    useRebuiltMenu
-                        ? '[data-slot="taxonomic-filter-menu-row"]'
-                        : '[data-attr^="prop-filter-recent_filters-"]'
-                )
-            )
+            Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-recent_filters-"]'))
         const recentRowTexts = (): string[] => recentRows().map((row) => row.textContent ?? '')
 
         afterEach(() => {
@@ -880,14 +863,6 @@ describe('cohortEditLogic', () => {
         ])(
             'shows supported recents and prefills %s',
             async (key, rowText, operator, expectedValue, expectedOperatorLabel) => {
-                if (useRebuiltMenu) {
-                    featureFlagLogic.mount()
-                    featureFlagLogic.actions.setFeatureFlags([], {
-                        [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true,
-                    })
-                    taxonomicMenuPreferenceLogic.mount()
-                    taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
-                }
                 const definitions = propertyDefinitionsModel.build()
                 definitions.mount()
                 definitions.actions.updatePropertyDefinitions({
