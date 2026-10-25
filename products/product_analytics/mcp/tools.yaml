@@ -147,8 +147,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Viewers see it on the insight page, and it may
-                    appear on dashboard tiles. Max 400 characters (longer values are rejected).
+                    Shown to viewers on the insight page and dashboard tiles when enabled. Max 400 characters.
         response:
             exclude:
                 - result
@@ -270,8 +269,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Viewers see it on the insight page, and it may
-                    appear on dashboard tiles. Max 400 characters (longer values are rejected).
+                    Shown to viewers on the insight page and dashboard tiles when enabled. Max 400 characters.
         response:
             exclude:
                 - result
