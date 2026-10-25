@@ -13,24 +13,62 @@ from products.dashboards.backend.constants import (
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DashboardTileGroupColor,
+)
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
 
+GROUPS_HELP_TEXT = (
+    "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a "
+    "heading that viewers can open and close. Viewers who do not have bands yet see only the group title above "
+    "its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+)
 GROUP_TITLES_HELP_TEXT = (
-    "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. "
-    "A write replaces the whole map. Send an empty object or null to remove all group titles."
+    "Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps "
+    "the other group settings. Send an empty object or null to clear titles. Do not send it with groups."
 )
 GROUP_KEY_HELP_TEXT = (
     "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
-    "Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+    "Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its "
+    "group."
 )
 BADGE_HELP_TEXT = (
     "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. "
     "cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. "
     "More than one tile in a group can have the winner badge."
 )
+
+
+DASHBOARD_TILE_GROUP_DEFAULTS = {"collapsed": False, "color": None}
+
+
+# No field has a default, so a write stores only the settings the client sent.
+class DashboardTileGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=MAX_GROUP_TITLE_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+    )
+    collapsed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
+        ),
+    )
+    color = serializers.ChoiceField(
+        choices=DashboardTileGroupColor.choices,
+        required=False,
+        allow_null=True,
+        help_text="Color of a dot before the group heading. Null or omitted shows no dot.",
+    )
+
 
 WIDGET_BATCH_ADD_OPENAPI_HELP = (
     "Widget tiles to add atomically. Supported widget_type values: "
@@ -49,6 +87,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"
@@ -458,6 +497,12 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
+    )
+    groups = serializers.DictField(
+        child=DashboardTileGroupSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=GROUPS_HELP_TEXT,
     )
     group_titles = serializers.DictField(
         child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),

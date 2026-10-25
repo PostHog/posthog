@@ -95,6 +95,7 @@ def _schema(
     schema.team_id = TEAM_ID
     schema.delta_revive_required = None
     schema.is_append = False
+    schema.max_partition_bytes = None
     schema.sync_frequency_interval = None
     schema.repartition_swap = swap
     schema.repartition_pending = pending

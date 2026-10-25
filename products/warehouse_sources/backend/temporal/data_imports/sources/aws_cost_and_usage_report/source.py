@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     DELIVERY_IN_PROGRESS,
     ERROR_PREFIX,
     MANIFEST_UNREADABLE,
+    UNSUPPORTED_COMPRESSION,
     VALIDATION_ERROR_MESSAGES,
     WRONG_REGION_CODES,
     WRONG_REGION_MESSAGE,
@@ -73,6 +74,10 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         errors.update({f"{ERROR_PREFIX}: {code}": WRONG_REGION_MESSAGE for code in WRONG_REGION_CODES})
         errors["Enter the first billing period as YYYY-MM"] = (
             "The first billing period on the source is not in YYYY-MM form. Fix it and retry the sync."
+        )
+        errors[f"{ERROR_PREFIX}: {UNSUPPORTED_COMPRESSION}"] = (
+            "A file in the export uses Brotli compression, which PostHog can't read. "
+            "Check that only AWS writes to the export's S3 prefix, then retry the sync."
         )
         return errors
 

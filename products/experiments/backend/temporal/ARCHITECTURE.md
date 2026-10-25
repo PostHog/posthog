@@ -1,6 +1,6 @@
 # Recalculation workflow architecture
 
-This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the cache-warming ones in `posthog/temporal/experiments/`), see that package's `README.md`.
+This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `posthog/temporal/experiments/`), see that package's `README.md`.
 
 ## What it does
 
@@ -9,7 +9,7 @@ When a user opens an experiment and the cached results look stale, they click **
 It's distinct from the daily timeseries workflows in two ways:
 
 - **One experiment per run.** Triggered by the user, by experiment lifecycle events like launch/stop, or by the hourly scheduled recalculation for enabled teams. Every trigger starts the same per-experiment run; there is no sweep across experiments inside one workflow. See "Scheduled recalculation".
-- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
+- **Snapshot per run.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family keeps one result per metric per daily window and updates it in place; we keep every run. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
 
 ## End-to-end flow
 
@@ -300,7 +300,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## What this doc doesn't cover
 
-- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows that share the daily cache-warming pattern). See that package's `README.md`.
+- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows). See that package's `README.md`.
 - The Temporal SDK basics. See `posthog/temporal/README.md`.
 - Frontend polling and rendering in depth. The kea logic has landed (`experimentMetricsLogic.ts`, with `RecalculationStatus.tsx` for rendering); this doc covers only the backend contract it polls. See the "GET path" decisions above and the poll loop in that logic.
 - Eviction implementation. The plan above is design intent; the actual workflow is a separate PR.

@@ -150,6 +150,35 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         self.assertTrue(status.complete and status.error)
         self.assertIn(expected_message, status.error_message or "")
 
+    @parameterized.expand(
+        [
+            ("trace_spans_streaming", "select 1 from posthog.trace_spans", False),
+            ("logs_ch_writes", "select 1 from logs", True),
+            ("metrics_streaming", "select 1 from posthog.metrics", False),
+        ]
+    )
+    def test_logs_cluster_table_is_rejected_before_clickhouse(self, _name, query, ch_writes):
+        # These tables exist only on the logs cluster, and neither write path connects there.
+        # Without the early rejection the DESCRIBE fails with an unknown-table error.
+        inputs, manager = _registered_inputs(
+            self.team.id, self.notebook.short_id, self.user.id, query=query, ch_writes=ch_writes
+        )
+
+        with (
+            patch.object(frame_materialize, "_materialize_slots"),
+            patch.object(frame_materialize, "_describe_columns") as describe,
+            patch.object(frame_materialize, "_describe_columns_pooled") as describe_pooled,
+        ):
+            with self.assertRaises(exceptions.ApplicationError) as caught:
+                frame_materialize.materialize_frame(inputs)
+
+        describe.assert_not_called()
+        describe_pooled.assert_not_called()
+        self.assertTrue(caught.exception.non_retryable)
+        status = manager.get_query_status()
+        self.assertTrue(status.complete and status.error)
+        self.assertIn("SQL editor", status.error_message or "")
+
     def test_mid_stream_failure_removes_the_corrupt_object_and_surfaces_the_real_error(self):
         # ClickHouse streams 200 before execution finishes; a mid-stream failure can close
         # the body cleanly with exception text appended instead of tearing the read. Without
