@@ -1,11 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -22,6 +25,7 @@ import {
     BehavioralEventType,
     FilterLogicalOperator,
     InsightShortId,
+    PropertyDefinitionState,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
@@ -31,7 +35,7 @@ import { CohortEdit } from './CohortEdit'
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
-        renderProp({ height: 400, width: 400 }),
+        renderProp({ height: 1000, width: 400 }),
 }))
 
 describe('cohortEditLogic', () => {
@@ -821,100 +825,144 @@ describe('cohortEditLogic', () => {
         )
     })
 
-    it('prefills a complete recent person filter during cohort creation', async () => {
-        const definitions = propertyDefinitionsModel.build()
-        definitions.mount()
-        definitions.actions.updatePropertyDefinitions({
-            'person/$browser': { id: '$browser', name: '$browser', property_type: PropertyType.String },
+    describe.each([
+        ['legacy menu', false],
+        ['rebuilt menu', true],
+    ])('prefilling a recent person filter in the %s', (_, useRebuiltMenu) => {
+        const recordPersonRecent = (
+            recentFilters: ReturnType<typeof recentTaxonomicFiltersLogic.build>,
+            key: string,
+            operator: PropertyOperator,
+            value: string | null,
+            metadata = false
+        ): void => {
+            recentFilters.actions.recordRecentFilter({
+                groupType: metadata
+                    ? TaxonomicFilterGroupType.PersonMetadata
+                    : TaxonomicFilterGroupType.PersonProperties,
+                groupName: metadata ? 'Person metadata' : 'Person properties',
+                value: key,
+                item: { name: key },
+                propertyFilter: metadata
+                    ? { type: PropertyFilterType.PersonMetadata, key, operator, value }
+                    : { type: PropertyFilterType.Person, key, operator, value },
+            })
+        }
+
+        const openRecents = async (): Promise<void> => {
+            if (useRebuiltMenu) {
+                await userEvent.click(await screen.findByTestId('taxonomic-popover-menu-trigger'))
+                await userEvent.click(await screen.findByText('Recent'))
+            } else {
+                await userEvent.click(await screen.findByText('Choose person property'))
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
+            }
+        }
+
+        const recentRows = (): HTMLElement[] =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    useRebuiltMenu
+                        ? '[data-slot="taxonomic-filter-menu-row"]'
+                        : '[data-attr^="prop-filter-recent_filters-"]'
+                )
+            )
+        const recentRowTexts = (): string[] => recentRows().map((row) => row.textContent ?? '')
+
+        afterEach(() => {
+            cleanup()
         })
-        const recentFilters = recentTaxonomicFiltersLogic.build()
-        recentFilters.mount()
-        recentFilters.actions.clearRecentFilters()
-        recentFilters.actions.recordRecentFilter({
-            groupType: TaxonomicFilterGroupType.PersonProperties,
-            groupName: 'Person properties',
-            value: '$os',
-            item: { name: '$os' },
-            propertyFilter: {
-                type: PropertyFilterType.Person,
-                key: '$os',
-                operator: PropertyOperator.StartsWith,
-                value: 'Mac',
-            },
-        })
-        recentFilters.actions.recordRecentFilter({
-            groupType: TaxonomicFilterGroupType.PersonProperties,
-            groupName: 'Person properties',
-            value: 'birth_date',
-            item: { name: 'birth_date' },
-            propertyFilter: {
-                type: PropertyFilterType.Person,
-                key: 'birth_date',
-                operator: PropertyOperator.IsSet,
-                value: null,
-            },
-        })
-        recentFilters.actions.recordRecentFilter({
-            groupType: TaxonomicFilterGroupType.PersonProperties,
-            groupName: 'Person properties',
-            value: '$browser',
-            item: { name: '$browser' },
-            propertyFilter: {
-                type: PropertyFilterType.Person,
-                key: '$browser',
-                operator: PropertyOperator.IContains,
-                value: 'Chrome',
-            },
-        })
-        logic = cohortEditLogic({ id: 'new' })
-        logic.mount()
-        logic.actions.setCohort({
-            ...NEW_COHORT,
-            filters: {
-                properties: {
-                    ...NEW_COHORT.filters.properties,
-                    values: [
-                        {
-                            ...NEW_CRITERIA_GROUP,
+
+        it.each([
+            ['$browser', 'Chrome', PropertyOperator.IContains, 'Chrome', 'contains'],
+            ['$email', 'is set', PropertyOperator.IsSet, undefined, 'is set'],
+        ])(
+            'shows supported recents and prefills %s',
+            async (key, rowText, operator, expectedValue, expectedOperatorLabel) => {
+                if (useRebuiltMenu) {
+                    featureFlagLogic.mount()
+                    featureFlagLogic.actions.setFeatureFlags([], {
+                        [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true,
+                    })
+                    taxonomicMenuPreferenceLogic.mount()
+                    taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
+                }
+                const definitions = propertyDefinitionsModel.build()
+                definitions.mount()
+                definitions.actions.updatePropertyDefinitions({
+                    'person/$browser': { id: '$browser', name: '$browser', property_type: PropertyType.String },
+                    'person/$email': { id: '$email', name: '$email', property_type: PropertyType.String },
+                    'person/$os': { id: '$os', name: '$os', property_type: PropertyType.String },
+                    'person/birth_date': PropertyDefinitionState.Loading,
+                    'person/plan': PropertyDefinitionState.Missing,
+                })
+                const recentFilters = recentTaxonomicFiltersLogic.build()
+                recentFilters.mount()
+                recentFilters.actions.clearRecentFilters()
+                recordPersonRecent(recentFilters, '$os', PropertyOperator.StartsWith, 'Mac')
+                recordPersonRecent(recentFilters, 'birth_date', PropertyOperator.IsDateBefore, '2000-01-01')
+                recordPersonRecent(recentFilters, 'plan', PropertyOperator.IContains, 'pro')
+                recordPersonRecent(recentFilters, 'created_at', PropertyOperator.IsDateBefore, '-30d', true)
+                recordPersonRecent(recentFilters, '$browser', PropertyOperator.IContains, 'Chrome')
+                recordPersonRecent(recentFilters, '$email', PropertyOperator.IsSet, PropertyOperator.IsSet)
+                logic = cohortEditLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    filters: {
+                        properties: {
+                            ...NEW_COHORT.filters.properties,
                             values: [
                                 {
-                                    type: BehavioralFilterKey.Person,
-                                    value: BehavioralEventType.HaveProperty,
-                                    event_type: TaxonomicFilterGroupType.PersonProperties,
+                                    ...NEW_CRITERIA_GROUP,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Person,
+                                            value: BehavioralEventType.HaveProperty,
+                                            event_type: TaxonomicFilterGroupType.PersonProperties,
+                                        },
+                                    ],
                                 },
                             ],
                         },
-                    ],
-                },
-            },
-        })
-
-        render(<CohortEdit id="new" />)
-        await userEvent.click(await screen.findByText('Choose person property'))
-        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
-        await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
-        await waitFor(() => expect(screen.getAllByTestId(/^prop-filter-recent_filters-/)).toHaveLength(2))
-        definitions.actions.updatePropertyDefinitions({
-            'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
-        })
-        expect(screen.getAllByTestId(/^prop-filter-recent_filters-/)).toHaveLength(2)
-        await userEvent.click(await screen.findByTestId('prop-filter-recent_filters-1'))
-
-        await waitFor(() => {
-            const group = logic.values.cohort.filters.properties.values[0] as { values: AnyCohortCriteriaType[] }
-            expect(group.values[0]).toEqual(
-                expect.objectContaining({
-                    key: '$browser',
-                    operator: PropertyOperator.IContains,
-                    value_property: 'Chrome',
+                    },
                 })
-            )
-            expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent('contains')
-            expect(screen.getByText('Chrome')).toBeInTheDocument()
-        })
-        recentFilters.unmount()
-        definitions.unmount()
-        cleanup()
+
+                render(<CohortEdit id="new" />)
+                await openRecents()
+                await waitFor(() => expect(recentRowTexts()).toHaveLength(8))
+                expect(recentRowTexts().join()).not.toMatch(/\$os|birth_date/)
+
+                await act(async () => {
+                    definitions.actions.updatePropertyDefinitions({
+                        'person/birth_date': {
+                            id: 'birth_date',
+                            name: 'birth_date',
+                            property_type: PropertyType.DateTime,
+                        },
+                    })
+                })
+                await waitFor(() => expect(recentRowTexts()).toHaveLength(10))
+                expect(recentRowTexts().join()).toContain('birth_date')
+
+                await userEvent.click(recentRows().find((row) => row.textContent?.includes(rowText))!)
+
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(
+                        expect.objectContaining({ key, operator, value_property: expectedValue })
+                    )
+                    expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent(
+                        expectedOperatorLabel
+                    )
+                })
+                recentFilters.unmount()
+                definitions.unmount()
+            }
+        )
     })
 
     describe('locked type and populate-from controls on existing cohorts', () => {

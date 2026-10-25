@@ -103,7 +103,7 @@ export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'f
     groupTypeFieldKey?: keyof AnyCohortCriteriaType
     placeholder?: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    allowedRecentOperators?: { date: ReadonlySet<string>; other: ReadonlySet<string> }
+    hideUnsupportedRecentOperators?: boolean
     fieldOptionGroupTypes: never
 }
 

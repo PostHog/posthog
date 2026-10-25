@@ -366,11 +366,6 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
     },
 }
 
-const COHORT_PERSON_RECENT_OPERATORS = {
-    date: new Set(Object.keys(FIELD_VALUES[FieldOptionsType.SingleFieldDateOperators].values)),
-    other: new Set(Object.keys(FIELD_VALUES[FieldOptionsType.CohortMathOperators].values)),
-}
-
 export const SCALE_FIELD_VALUES = {
     [FieldOptionsType.EventBehavioral]: {
         label: 'Behavioral',
@@ -981,7 +976,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return (
             <CohortTaxonomicField
                 {...(p as CohortTaxonomicFieldProps)}
-                allowedRecentOperators={COHORT_PERSON_RECENT_OPERATORS}
+                hideUnsupportedRecentOperators
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.PersonMetadata,

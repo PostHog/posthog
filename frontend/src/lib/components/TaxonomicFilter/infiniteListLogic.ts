@@ -9,6 +9,7 @@ import {
     listeners,
     path,
     props,
+    propsChanged,
     reducers,
     selectors,
 } from 'kea'
@@ -278,6 +279,7 @@ export interface infiniteListLogicValues {
     contextFilteredPinnedItems: TaxonomicDefinitionTypes[]
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
+    excludedOperators: ExcludedOperators | undefined
     excludedProperties: string[] | undefined
     excludedPropertiesWithHiddenEvents: ExcludedProperties | undefined
     expandedCount: number
@@ -498,6 +500,9 @@ export interface infiniteListLogicActions {
     selectSelected: () => {
         value: true
     }
+    setExcludedOperators: (excludedOperators: ExcludedOperators | undefined) => {
+        excludedOperators: ExcludedOperators | undefined
+    }
     setHasMore: (hasMore: boolean) => {
         hasMore: boolean
     }
@@ -573,8 +578,8 @@ export interface infiniteListLogicMeta {
         contextFilteredRecentItems: (
             recentFilterItems: TaxonomicDefinitionTypes[],
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            arg: ExcludedOperators | undefined,
-            arg2: SelectingKeyOnly | undefined,
+            excludedOperators: ExcludedOperators | undefined,
+            arg: SelectingKeyOnly | undefined,
             excludedPropertiesWithHiddenEvents:
                 | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                 | undefined
@@ -877,6 +882,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         applyInitialPinnedRow: (rowIndex: number) => ({ rowIndex }),
         reconcilePinnedRowState: true,
         setLimit: (limit: number) => ({ limit }),
+        setExcludedOperators: (excludedOperators: ExcludedOperators | undefined) => ({ excludedOperators }),
         onRowsRendered: (rowInfo: RowInfo) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
@@ -1133,6 +1139,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 setLimit: (_, { limit }) => limit,
             },
         ],
+        // Values are cached per store state, so a new rule passed only as a prop would leave
+        // the Recent list stale until some unrelated action ran.
+        excludedOperators: [
+            props.excludedOperators,
+            {
+                setExcludedOperators: (_, { excludedOperators }) => excludedOperators,
+            },
+        ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
@@ -1205,7 +1219,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (s) => [
                 s.recentFilterItems,
                 s.taxonomicGroupTypes,
-                (_, props: InfiniteListLogicProps) => props.excludedOperators,
+                s.excludedOperators,
                 (_, props: InfiniteListLogicProps) => props.selectingKeyOnly,
                 s.excludedPropertiesWithHiddenEvents,
             ],
@@ -2218,6 +2232,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (index: number, startIndex: number, stopIndex: number) =>
                 typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.excludedOperators !== oldProps.excludedOperators) {
+            actions.setExcludedOperators(props.excludedOperators)
+        }
     }),
     listeners(({ values, actions, props, cache }) => ({
         reconcilePinnedRowState: () => {

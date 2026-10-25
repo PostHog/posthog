@@ -2,12 +2,18 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useCallback, useEffect, useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import {
+    isPersonMetadataPropertyFilter,
+    isPersonPropertyFilter,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { ExcludedOperators, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
@@ -15,7 +21,9 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { formatDate } from 'lib/utils/datetime'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
@@ -32,11 +40,12 @@ import {
 import { determineFilterType } from 'scenes/cohorts/cohortUtils'
 
 import { actionsModel } from '~/models/actionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getPropertyKey, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyCohortCriteriaType,
     AnyPropertyFilter,
     BehavioralEventType,
+    PropertyDefinitionState,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -144,13 +153,16 @@ export function CohortMathOperatorField(props: CohortSelectorFieldProps): JSX.El
             ? PropertyDefinitionType.PersonMetadata
             : PropertyDefinitionType.Person
     const propDef = propertyKey ? getPropertyDefinition(propertyKey, definitionType) : null
-    const isDateTime = propDef?.property_type === PropertyType.DateTime
 
-    const fieldOptionGroupTypes = isDateTime
-        ? [FieldOptionsType.SingleFieldDateOperators]
-        : [FieldOptionsType.CohortMathOperators]
+    return (
+        <CohortSelectorField {...props} fieldOptionGroupTypes={[personOperatorOptionsType(propDef?.property_type)]} />
+    )
+}
 
-    return <CohortSelectorField {...props} fieldOptionGroupTypes={fieldOptionGroupTypes} />
+export function personOperatorOptionsType(propertyType?: PropertyType | null): FieldOptionsType {
+    return propertyType === PropertyType.DateTime
+        ? FieldOptionsType.SingleFieldDateOperators
+        : FieldOptionsType.CohortMathOperators
 }
 
 export function CohortTaxonomicField({
@@ -159,7 +171,7 @@ export function CohortTaxonomicField({
     cohortFilterLogicKey,
     criteria,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-    allowedRecentOperators,
+    hideUnsupportedRecentOperators,
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
@@ -174,53 +186,35 @@ export function CohortTaxonomicField({
 
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
-    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const { getPropertyDefinition, propertyDefinitionStorage } = useValues(propertyDefinitionsModel)
     const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
-    const excludeUnsupportedRecent = useCallback(
-        (filter: AnyPropertyFilter): boolean => {
-            if (!allowedRecentOperators) {
-                return false
-            }
-            if (
-                (filter.type !== PropertyFilterType.Person && filter.type !== PropertyFilterType.PersonMetadata) ||
-                !('operator' in filter) ||
-                !filter.operator
-            ) {
+    const excludedOperators = useMemo<ExcludedOperators | undefined>(() => {
+        if (!hideUnsupportedRecentOperators) {
+            return undefined
+        }
+        const isUnsupportedRecent = (filter: AnyPropertyFilter): boolean => {
+            if (!(isPersonPropertyFilter(filter) || isPersonMetadataPropertyFilter(filter)) || !filter.operator) {
                 return true
             }
-            const key = 'key' in filter ? filter.key : undefined
-            if (typeof key !== 'string') {
-                return true
+            const operator = filter.operator
+            const isOperatorShownFor = (propertyType?: PropertyType): boolean =>
+                operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+            const definitionType = propertyFilterTypeToPropertyDefinitionType(filter.type)
+            const definition = getPropertyDefinition(filter.key, definitionType)
+            if (definition) {
+                return !isOperatorShownFor(definition.property_type)
             }
-            const definitionType =
-                filter.type === PropertyFilterType.PersonMetadata
-                    ? PropertyDefinitionType.PersonMetadata
-                    : PropertyDefinitionType.Person
-            const definition = getPropertyDefinition(key, definitionType)
-            if (!definition) {
-                return !(
-                    allowedRecentOperators.date.has(filter.operator) &&
-                    allowedRecentOperators.other.has(filter.operator)
-                )
+            const lookupState = propertyDefinitionStorage[getPropertyKey(definitionType, filter.key)]
+            if (lookupState === PropertyDefinitionState.Missing || lookupState === PropertyDefinitionState.Error) {
+                return !isOperatorShownFor()
             }
-            const operators =
-                definition.property_type === PropertyType.DateTime
-                    ? allowedRecentOperators.date
-                    : allowedRecentOperators.other
-            return !operators.has(filter.operator)
-        },
-        [allowedRecentOperators, getPropertyDefinition]
-    )
-    const excludedOperators = useMemo<ExcludedOperators | undefined>(
-        () =>
-            allowedRecentOperators
-                ? {
-                      [TaxonomicFilterGroupType.PersonProperties]: excludeUnsupportedRecent,
-                      [TaxonomicFilterGroupType.PersonMetadata]: excludeUnsupportedRecent,
-                  }
-                : undefined,
-        [allowedRecentOperators, excludeUnsupportedRecent]
-    )
+            return !(isOperatorShownFor(PropertyType.DateTime) && isOperatorShownFor())
+        }
+        return {
+            [TaxonomicFilterGroupType.PersonProperties]: isUnsupportedRecent,
+            [TaxonomicFilterGroupType.PersonMetadata]: isUnsupportedRecent,
+        }
+    }, [hideUnsupportedRecentOperators, getPropertyDefinition, propertyDefinitionStorage])
 
     return (
         <TaxonomicPopover
@@ -229,17 +223,18 @@ export function CohortTaxonomicField({
             loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
             onChange={(v, g, item) => {
-                const recentFilter = item?._recentContext?.propertyFilter as AnyPropertyFilter | undefined
-                const selectedGroupType = item?._recentContext?.sourceGroupType ?? g
-                const recentPersonFilter =
+                const recentFilter = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
+                const recentOperatorAndValue =
                     fieldKey === 'key' &&
                     criteria.value === BehavioralEventType.HaveProperty &&
-                    recentFilter?.key === v &&
-                    (recentFilter.type === PropertyFilterType.Person ||
-                        recentFilter.type === PropertyFilterType.PersonMetadata)
-                        ? { operator: recentFilter.operator, value_property: recentFilter.value }
+                    (isPersonPropertyFilter(recentFilter) || isPersonMetadataPropertyFilter(recentFilter)) &&
+                    recentFilter.key === v
+                        ? {
+                              operator: recentFilter.operator,
+                              value_property: isOperatorFlag(recentFilter.operator) ? null : recentFilter.value,
+                          }
                         : {}
-                onChange({ [fieldKey]: v, [groupTypeFieldKey]: selectedGroupType, ...recentPersonFilter })
+                onChange({ [fieldKey]: v, [groupTypeFieldKey]: g, ...recentOperatorAndValue })
             }}
             excludedProperties={{
                 [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
