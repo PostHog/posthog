@@ -224,7 +224,7 @@ export interface DashboardBasicApi {
      * @nullable
      */
     readonly name: string | null
-    /** Description of the dashboard. */
+    /** All dashboard viewers see this description at the top of the dashboard. Keep it to 1–2 plain sentences; leave out change history, tile IDs, and metric definitions. */
     readonly description: string
     /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean

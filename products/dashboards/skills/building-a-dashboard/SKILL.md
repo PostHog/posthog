@@ -87,6 +87,9 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
 - Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
   remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
   To replace an insight tile, add the new insight and delete the old tile.
+- Description on create and update: all viewers see it at the top of the dashboard. Write 1–2 plain sentences about
+  what the dashboard shows. When updating, rewrite it instead of appending changes. Put canonical metric definitions in
+  the Data Catalog and working notes in a text tile's `agent_context`, never in the dashboard description.
 - Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
   each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
   tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
