@@ -1,6 +1,7 @@
 """How often each of the project's events fired in the last week, sampled for large teams, and the values its person
 properties take."""
 
+import json
 import math
 from collections.abc import Iterable
 
@@ -86,15 +87,18 @@ def person_property_values(team: Team, names: Iterable[str]) -> dict[str, tuple[
     keys = list(names)
     if not keys:
         return {}
-    values = _person_property_values(team, keys, sampled=True)
+    values, found_any = _person_property_values(team, keys, sampled=True)
+    if found_any:
+        return values
     # Sampling is by distinct ID, so a small project whose active people all fall outside the sample shows no values.
-    return values or _person_property_values(team, keys, sampled=False)
+    return _person_property_values(team, keys, sampled=False)[0]
 
 
-def _person_property_values(team: Team, keys: list[str], *, sampled: bool) -> dict[str, tuple[str, ...]]:
+def _person_property_values(team: Team, keys: list[str], *, sampled: bool) -> tuple[dict[str, tuple[str, ...]], bool]:
+    """The kept values for each property, and whether the scan saw any value at all."""
     query = parse_select("SELECT 1 FROM events WHERE timestamp >= now() - INTERVAL 1 DAY")
     if not isinstance(query, ast.SelectQuery) or query.select_from is None:
-        return {}
+        return {}, False
     query.select = []
     for key in keys:
         # Aggregates skip NULL, so blank values never take one of the capped slots.
@@ -120,11 +124,26 @@ def _person_property_values(team: Team, keys: list[str], *, sampled: bool) -> di
     response = _run_count(team, query, "workflows_data_suggestions_person_properties")
     row = (response.results or [[]])[0]
     values: dict[str, tuple[str, ...]] = {}
+    found_any = False
     for index, key in enumerate(keys):
         seen, longest = row[2 * index : 2 * index + 2] or ([], None)
-        if 0 < len(seen or []) <= _MAX_BRANCH_VALUES and (longest or 0) <= _MAX_BRANCH_VALUE_LENGTH:
-            values[key] = tuple(sorted(seen))
-    return values
+        found_any = found_any or bool(seen)
+        decoded = _decoded(seen or [])
+        if 0 < len(decoded) <= _MAX_BRANCH_VALUES and (longest or 0) <= _MAX_BRANCH_VALUE_LENGTH:
+            values[key] = tuple(sorted(decoded))
+    return values, found_any
+
+
+def _decoded(raw_values: Iterable[str]) -> list[str]:
+    # Person property reads strip the JSON quotes but keep escapes like `\"`, and a branch filter compares against the
+    # decoded value. A value that does not decode is left out, since its filter could never match.
+    decoded = []
+    for raw in raw_values:
+        try:
+            decoded.append(json.loads(f'"{raw}"'))
+        except ValueError:
+            continue
+    return decoded
 
 
 def _strings(values: Iterable[str]) -> ast.Tuple:
