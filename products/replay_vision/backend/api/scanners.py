@@ -17,9 +17,8 @@ from django.db.models import (
     Subquery,
     Sum,
     Value,
-    Window,
 )
-from django.db.models.functions import Coalesce, NullIf, RowNumber
+from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
 import structlog
@@ -1648,6 +1647,51 @@ WATCH_FEED_BYPASS_CHUNK = 200
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
 
 
+def select_watch_feed_candidates(
+    walkable: QuerySet[ReplayObservation],
+    readable: QuerySet[ReplayObservation],
+    scanner_ids: list[UUID],
+    viewed: Exists,
+) -> list[dict[str, Any]]:
+    """The newest `readable` rows of the window, at most WATCH_FEED_PER_SCANNER_CAP per scanner, without scan results."""
+    # One slice per scanner stops each index walk at the cap, where a window function sorts the whole window first.
+    slices = [
+        walkable.filter(scanner_id=scanner_id)
+        .order_by("-created_at", "-id")
+        .values_list("id", "created_at")[:WATCH_FEED_PER_SCANNER_CAP]
+        for scanner_id in scanner_ids
+    ]
+    if not slices:
+        return []
+    walked = slices[0].union(*slices[1:], all=True) if len(slices) > 1 else slices[0]
+    newest_first = [row_id for row_id, _ in sorted(walked, key=lambda row: (row[1], row[0]), reverse=True)]
+    # The row-gate reads each row's snapshot JSON, so it runs on the newest walked rows only.
+    rows: list[dict[str, Any]] = []
+    for start in range(0, len(newest_first), WATCH_FEED_CANDIDATE_CAP):
+        chunk = newest_first[start : start + WATCH_FEED_CANDIDATE_CAP]
+        found = {
+            row["id"]: row
+            for row in readable.filter(id__in=chunk)
+            .annotate(feed_viewed=viewed)
+            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+        }
+        rows += [found[row_id] for row_id in chunk if row_id in found]
+        if len(rows) >= WATCH_FEED_CANDIDATE_CAP:
+            break
+    return rows[:WATCH_FEED_CANDIDATE_CAP]
+
+
+def attach_scanner_results(team_id: int, rows: list[dict[str, Any]]) -> None:
+    """Load the scan result for each candidate row, by primary key, after the window cap has applied."""
+    results = dict(
+        ReplayObservation.objects.filter(team_id=team_id, id__in=[row["id"] for row in rows]).values_list(
+            "id", "scanner_result"
+        )
+    )
+    for row in rows:
+        row["scanner_result"] = results.get(row["id"])
+
+
 class WatchFeedRanker(models.TextChoices):
     WEIGHTED_SCORE = "weighted-score"
     JEV = "jev"
@@ -2664,18 +2708,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 | Q(scanner_result__model_output__notability_reason__icontains=term)
                 | Q(scanner_snapshot__name__icontains=term)
             )
-        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
-        candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        candidates = candidates.exclude(
+        walkable = candidates.exclude(
             Exists(
                 ReplayObservationFeedDismissal.objects.filter(
                     observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
                 )
             )
         )
+        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
+        candidates = accessible_observations(self.user_access_control, self.team_id, walkable)
         viewed = Exists(
             ReplayObservationView.objects.filter(
                 observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
@@ -2689,23 +2733,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
-        # The embedding ranker reads only the stored rank, so it skips loading every row's scan result.
-        row_fields = ["id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed"]
+        candidate_rows = select_watch_feed_candidates(walkable, candidates, allowed_ids, viewed)
         if ranker != "embedding":
-            row_fields.append("scanner_result")
-        candidate_rows = list(
-            candidates.annotate(
-                feed_viewed=viewed,
-                scanner_recency_rank=Window(
-                    RowNumber(),
-                    partition_by=F("scanner_id"),
-                    order_by=[F("created_at").desc(), F("id").desc()],
-                ),
-            )
-            .filter(scanner_recency_rank__lte=WATCH_FEED_PER_SCANNER_CAP)
-            .values(*row_fields)
-            .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
-        )
+            attach_scanner_results(self.team_id, candidate_rows)
         page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
             impressions = feed_impression_counts(
