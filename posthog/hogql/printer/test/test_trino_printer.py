@@ -1746,6 +1746,10 @@ def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
         ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000", '"users"."user_id" ASC'),
         ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 OFFSET 4", "ASC OFFSET 4 ROWS"),
         ("SELECT user_id FROM users ORDER BY user_id LIMIT 1000000000000 WITH TIES", '"users"."user_id" ASC'),
+        ("SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1", "ASC OFFSET 1 ROWS"),
+        # An unsorted LIMIT has no cap in Trino and can cut a nested result, so it stays.
+        ("SELECT user_id FROM users LIMIT 2147483648", "LIMIT 2147483648"),
+        ("SELECT count() FROM (SELECT user_id FROM users LIMIT 2147483648)", "LIMIT 2147483648)"),
     ],
 )
 def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
@@ -1754,7 +1758,23 @@ def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
     assert sql.endswith(expected_suffix)
 
 
-@pytest.mark.parametrize("limit, expected_suffix", [(10, "OFFSET 4 ROWS LIMIT 10"), (2**40, "OFFSET 4 ROWS")])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
+        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
+    ],
+)
+def test_rejects_nested_sorted_limit_above_trino_cap(query: str) -> None:
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert error.value.feature_code == "TRINO_SORTED_LIMIT_TOO_LARGE"
+
+
+@pytest.mark.parametrize(
+    "limit, expected_suffix", [(10, "OFFSET 4 ROWS LIMIT 10"), (2**40, "OFFSET 4 ROWS LIMIT 1099511627776")]
+)
 def test_prints_trino_limit_syntax_after_set_operation(limit: int, expected_suffix: str) -> None:
     query = parse_select("SELECT user_id FROM users UNION ALL SELECT user_id FROM users")
     assert isinstance(query, ast.SelectSetQuery)
