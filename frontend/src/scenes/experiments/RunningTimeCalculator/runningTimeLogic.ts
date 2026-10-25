@@ -195,7 +195,7 @@ export interface runningTimeLogicMeta {
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
             metricsWithResults: MetricWithResult[],
-            editedMde: any
+            editedMde: number | null
         ) => AutomaticTargetRequest | null
         manualPreviewInput: (
             config: RunningTimeConfig,
