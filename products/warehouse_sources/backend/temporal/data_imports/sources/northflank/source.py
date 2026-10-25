@@ -64,12 +64,13 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # No Northflank list endpoint exposes a server-side timestamp filter, so every table is
-        # full refresh only.
+        # Only endpoints with a server-side timestamp filter advertise incremental fields; the rest
+        # are full refresh only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                # `startTime` is inclusive, so append would duplicate the boundary hour each sync.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
@@ -92,10 +93,15 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
         return validate_northflank_credentials(config.api_token)
 
     def source_for_pipeline(self, config: NorthflankSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        incremental_start: Optional[int] = None
+        if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+            incremental_start = int(inputs.db_incremental_field_last_value)
+
         return northflank_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
+            incremental_start=incremental_start,
         )
 
     @property
@@ -105,9 +111,9 @@ class NorthflankSource(SimpleSource[NorthflankSourceConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Northflank",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Northflank API token to pull your Northflank projects, services, jobs, addons, and volumes into the PostHog Data warehouse.
+            caption="""Enter your Northflank API token to pull your Northflank projects, services, jobs, addons, volumes, builds, job runs, plans, and billing usage into the PostHog Data warehouse.
 
-You can create a personal or team API token in your [Northflank account settings](https://app.northflank.com/). Grant it read access to the resources you want to sync.""",
+You can create a personal or team API token in your [Northflank account settings](https://app.northflank.com/). Grant it read access to the resources you want to sync. The usage table also needs billing read access.""",
             iconPath="/static/services/northflank.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/northflank",
             keywords=["deployment", "containers", "paas", "devops"],

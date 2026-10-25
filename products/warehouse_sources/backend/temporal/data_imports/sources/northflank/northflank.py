@@ -11,8 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
     retry_with_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import NORTHFLANK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
+    NORTHFLANK_ENDPOINTS,
+    NorthflankEndpointConfig,
+)
 
 NORTHFLANK_BASE_URL = "https://api.northflank.com"
 REQUEST_TIMEOUT_SECONDS = 60
@@ -168,19 +172,30 @@ def _iter_pages(
     max_pages: int,
     resource: str,
     data_key: str,
+    params: dict[str, Any] | None = None,
+    page_size_param: str = "per_page",
+    paginated: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield each page's rows for a cursor-paginated list endpoint."""
     cursor: str | None = None
     pages_fetched = 0
 
     while True:
-        params = {"per_page": PAGE_SIZE, "cursor": cursor}
-        body = fetch_page(_build_url(path, params))
+        page_params = dict(params or {})
+        if paginated:
+            page_params.update({page_size_param: PAGE_SIZE, "cursor": cursor})
+        body = fetch_page(_build_url(path, page_params))
         pages_fetched += 1
 
         rows = _extract_rows(body, data_key)
         if rows:
             yield rows
+        else:
+            # Fan-out over parents with no children can otherwise make long runs of empty requests.
+            reach_safe_point()
+
+        if not paginated:
+            return
 
         cursor = _next_cursor(body)
         if not cursor:
@@ -206,10 +221,47 @@ def _iter_project_ids(fetch_page: FetchPageFn, logger: FilteringBoundLogger) -> 
             yield project_id
 
 
+def _iter_parent_children(
+    fetch_page: FetchPageFn,
+    config: NorthflankEndpointConfig,
+    project_id: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    if not config.parent or not config.parent_id_key:
+        raise ValueError(f"Northflank endpoint {config.name} has no parent to fan out over")
+    parent_config = NORTHFLANK_ENDPOINTS[config.parent]
+    parent_id_key = config.parent_id_key
+
+    for parents in _iter_pages(
+        fetch_page,
+        parent_config.path.format(project_id=project_id),
+        logger,
+        max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+        resource=f"{config.parent} of project {project_id}",
+        data_key=parent_config.data_key,
+    ):
+        for parent in parents:
+            if config.include_parent and not config.include_parent(parent):
+                continue
+            parent_id = parent.get("id")
+            if not parent_id:
+                raise ValueError(f"Northflank: {config.parent} row is missing a required 'id' field: {parent!r}")
+            for rows in _iter_pages(
+                fetch_page,
+                config.path.format(project_id=project_id, parent_id=parent_id),
+                logger,
+                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+                resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
+                data_key=config.data_key,
+            ):
+                yield [{**row, "projectId": project_id, parent_id_key: parent_id} for row in rows]
+
+
 def get_rows(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    incremental_start: Optional[int] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint not in NORTHFLANK_ENDPOINTS:
         raise ValueError(f"Unknown Northflank endpoint: {endpoint}")
@@ -218,6 +270,9 @@ def get_rows(
     fetch_page = _make_fetch_page(api_token, logger)
 
     if not config.fan_out_over_projects:
+        params = dict(config.params)
+        if config.incremental_param and incremental_start is not None:
+            params[config.incremental_param] = incremental_start
         yield from _iter_pages(
             fetch_page,
             config.path,
@@ -225,10 +280,16 @@ def get_rows(
             max_pages=MAX_PROJECT_PAGES,
             resource=endpoint,
             data_key=config.data_key,
+            params=params,
+            page_size_param=config.page_size_param,
+            paginated=config.paginated,
         )
         return
 
     for project_id in _iter_project_ids(fetch_page, logger):
+        if config.parent:
+            yield from _iter_parent_children(fetch_page, config, project_id, logger)
+            continue
         path = config.path.format(project_id=project_id)
         for rows in _iter_pages(
             fetch_page,
@@ -247,13 +308,16 @@ def northflank_source(
     api_token: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    incremental_start: Optional[int] = None,
 ) -> SourceResponse:
     config = NORTHFLANK_ENDPOINTS[endpoint]
     partition_key: Optional[str] = config.partition_key
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(api_token=api_token, endpoint=endpoint, logger=logger),
+        items=lambda: get_rows(
+            api_token=api_token, endpoint=endpoint, logger=logger, incremental_start=incremental_start
+        ),
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
