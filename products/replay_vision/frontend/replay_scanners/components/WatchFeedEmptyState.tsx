@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { WATCH_FEED_BLOCKS, type WatchFeedEmptyReason, isWatchFeedBlock } from '../watchFeedEmptyState'
-import { FEED_DATE_OPTIONS, feedWindowPhrase, watchFeedLogic } from '../watchFeedLogic'
+import { feedWindowPhrase, longerFeedWindow, watchFeedLogic } from '../watchFeedLogic'
 import { WatchFeedIntro } from './WatchFeedIntro'
 
 function DashedNote({ children }: { children: React.ReactNode }): JSX.Element {
@@ -20,7 +20,6 @@ function DashedNote({ children }: { children: React.ReactNode }): JSX.Element {
 /**
  * The one screen the What to watch tab shows when it has no clips. Each reason gets the next step
  * that would actually fill the feed, so a reader is never told to wait on scanners that cannot run.
- * A block gets a plain note here; the warning banner is for a feed that still has cards to show.
  */
 export function WatchFeedEmptyState({ reason }: { reason: WatchFeedEmptyReason }): JSX.Element {
     const { setOnlyMyScanners, setDateFrom } = useActions(watchFeedLogic)
@@ -48,21 +47,25 @@ export function WatchFeedEmptyState({ reason }: { reason: WatchFeedEmptyReason }
         )
     }
 
-    const windowIndex = FEED_DATE_OPTIONS.findIndex((option) => option.value === dateFrom)
     const inWindow = feedWindowPhrase(dateFrom)
-    const longerWindow = windowIndex >= 0 ? FEED_DATE_OPTIONS[windowIndex + 1] : undefined
 
     if (reason === 'filtered') {
         return (
             <DashedNote>
                 <span>No sessions from your scanners stood out {inWindow}.</span>
-                <LemonButton type="secondary" size="small" onClick={() => setOnlyMyScanners(false)}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => setOnlyMyScanners(false)}
+                    data-attr="vision-watch-feed-show-all-scanners"
+                >
                     Show all scanners
                 </LemonButton>
             </DashedNote>
         )
     }
 
+    const longerWindow = longerFeedWindow(dateFrom)
     return (
         <DashedNote>
             <span>No sessions stood out {inWindow}.</span>

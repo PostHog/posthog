@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'lib/posthog-typed'
@@ -176,9 +177,19 @@ export const FEED_DATE_OPTIONS: { value: string; label: string }[] = [
     { value: '-30d', label: 'Last 30 days' },
     { value: '-90d', label: 'Last 90 days' },
 ]
+export function feedWindowOption(dateFrom: string): { value: string; label: string } | undefined {
+    return FEED_DATE_OPTIONS.find((option) => option.value === dateFrom)
+}
+
+/** The next longer window the feed offers, or undefined at the longest. */
+export function longerFeedWindow(dateFrom: string): { value: string; label: string } | undefined {
+    const index = FEED_DATE_OPTIONS.findIndex((option) => option.value === dateFrom)
+    return index >= 0 ? FEED_DATE_OPTIONS[index + 1] : undefined
+}
+
 /** "in the last 7 days" for an offered window, for copy that names the window the reader picked. */
 export function feedWindowPhrase(dateFrom: string): string {
-    const option = FEED_DATE_OPTIONS.find((candidate) => candidate.value === dateFrom)
+    const option = feedWindowOption(dateFrom)
     return option ? `in the ${option.label.toLowerCase()}` : 'in this window'
 }
 
@@ -199,7 +210,7 @@ function feedParams(values: watchFeedLogicValues): VisionScannersWatchFeedRetrie
 function reportFiltered(values: watchFeedLogicValues): void {
     posthog.capture('replay_vision_watch_feed_filtered', {
         date_from: values.dateFrom,
-        only_my_scanners: values.onlyMyScanners,
+        only_my_scanners: values.scopedToMine,
     })
 }
 
@@ -447,7 +458,10 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         hasOwnScanners: [
             (s) => [s.scanners, s.scannersLoading, s.user],
             (scanners: ReplayScannerApi[], scannersLoading: boolean, user: UserType | null): boolean | null =>
-                scannersLoading ? null : scanners.some((scanner) => scanner.created_by?.id === user?.id),
+                // A reload keeps the last answer, so only the first load reads as unknown.
+                scannersLoading && scanners.length === 0
+                    ? null
+                    : !!user && scanners.some((scanner) => scanner.created_by?.id === user.id),
         ],
         // A choice persisted while the viewer still had scanners must not narrow a feed whose tabs are hidden.
         scopedToMine: [
@@ -476,6 +490,15 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                       }),
         ],
     }),
+
+    subscriptions(({ actions }) => ({
+        // A feed loaded before the scanner list answered may carry a scope that no longer applies.
+        scopedToMine: (scopedToMine: boolean, previous: boolean | undefined) => {
+            if (previous !== undefined && scopedToMine !== previous) {
+                actions.loadFeed()
+            }
+        },
+    })),
 
     // The tab content mounts only while the tab is active, so mount is the fetch signal.
     afterMount(({ actions, cache }) => {

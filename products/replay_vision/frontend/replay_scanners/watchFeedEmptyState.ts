@@ -16,14 +16,17 @@ export type WatchFeedEmptyReason =
 /** The reasons no new sessions can reach the feed, whether or not it still has older ones to show. */
 export type WatchFeedBlockReason = 'quota-exhausted' | 'all-disabled' | 'all-capped'
 
-export function isWatchFeedBlock(reason: WatchFeedEmptyReason | null): reason is WatchFeedBlockReason {
-    return reason === 'quota-exhausted' || reason === 'all-disabled' || reason === 'all-capped'
-}
-
 /** What blocks the feed, and where the reader lifts the block. Both the banner and the empty note use it. */
 export const WATCH_FEED_BLOCKS: Record<
     WatchFeedBlockReason,
-    { cause: string; fix: string; actionLabel: string; tab: 'scanners' | 'usage'; dataAttr: string }
+    {
+        cause: string
+        fix: string
+        actionLabel: string
+        tab: 'scanners' | 'usage'
+        dataAttr: string
+        bannerDataAttr: string
+    }
 > = {
     'all-disabled': {
         cause: 'All scanners on this project are off.',
@@ -31,6 +34,7 @@ export const WATCH_FEED_BLOCKS: Record<
         actionLabel: 'See scanners',
         tab: 'scanners',
         dataAttr: 'vision-watch-feed-see-scanners',
+        bannerDataAttr: 'vision-watch-feed-banner-see-scanners',
     },
     'quota-exhausted': {
         cause: 'Your Replay Vision credits are used up for this period.',
@@ -38,6 +42,7 @@ export const WATCH_FEED_BLOCKS: Record<
         actionLabel: 'See usage',
         tab: 'usage',
         dataAttr: 'vision-watch-feed-see-usage',
+        bannerDataAttr: 'vision-watch-feed-banner-see-usage',
     },
     'all-capped': {
         cause: 'Every running scanner has reached its credit limit for this period.',
@@ -45,7 +50,12 @@ export const WATCH_FEED_BLOCKS: Record<
         actionLabel: 'See usage',
         tab: 'usage',
         dataAttr: 'vision-watch-feed-see-usage',
+        bannerDataAttr: 'vision-watch-feed-banner-see-usage',
     },
+}
+
+export function isWatchFeedBlock(reason: WatchFeedEmptyReason | null): reason is WatchFeedBlockReason {
+    return reason !== null && reason in WATCH_FEED_BLOCKS
 }
 
 export interface WatchFeedEmptyInput {

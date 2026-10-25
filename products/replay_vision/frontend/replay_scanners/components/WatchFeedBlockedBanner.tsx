@@ -17,10 +17,10 @@ export function WatchFeedBlockedBanner({ reason }: { reason: WatchFeedBlockReaso
             action={{
                 children: block.actionLabel,
                 onClick: () => push(urls.replayVision(), { tab: block.tab }),
-                'data-attr': block.dataAttr,
+                'data-attr': block.bannerDataAttr,
             }}
         >
-            <p className="font-semibold m-0">No new sessions are coming in</p>
+            <p className="font-semibold m-0">New sessions aren't being scanned</p>
             <p className="m-0">
                 {block.cause} {block.fix}
             </p>

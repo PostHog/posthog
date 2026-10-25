@@ -30,10 +30,13 @@ describe('watchFeedLogic', () => {
     })
 
     beforeEach(() => {
+        // The scope choice persists, so one test's choice must not leak into the next.
+        localStorage.clear()
         feedSpy = jest.fn(() => [200, { results: [item('o1', 'signal_emitted'), item('o2', 'recent')] }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/watch_feed/': feedSpy,
+                '/api/projects/:team/vision/scanners/': { results: [], next: null },
             },
         })
         initKeaTests()
@@ -77,6 +80,17 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('created_by')).toBe(String(userLogic.values.user?.id))
+        // Losing the last owned scanner drops the scope, and the narrowed feed must reload without it.
+        await expectLogic(logic, () => {
+            visionScannersListLogic.actions.loadScannersSuccess([])
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')).toBeNull()
+        visionScannersListLogic.actions.loadScannersSuccess([
+            { id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi,
+        ])
+        await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
         // The response names the ranker that ordered the feed, and the feed-viewed event reports the
         // project's variant, which is the exposure the experiment counts.
         expect(logic.values.feedRanker).toBe('jev')

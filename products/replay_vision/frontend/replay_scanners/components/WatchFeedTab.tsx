@@ -6,7 +6,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { isWatchFeedBlock } from '../watchFeedEmptyState'
-import { FEED_DATE_OPTIONS, feedWindowPhrase, watchFeedLogic } from '../watchFeedLogic'
+import { FEED_DATE_OPTIONS, feedWindowOption, feedWindowPhrase, watchFeedLogic } from '../watchFeedLogic'
 import { WatchFeedBlockedBanner } from './WatchFeedBlockedBanner'
 import { FILLER_REASON_KINDS, WatchFeedRow } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
@@ -58,8 +58,6 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
     ) : null
 }
 
-const FEED_EXPLAINER = 'Sessions that stand out in your scanner results.'
-
 export function WatchFeedTab(): JSX.Element {
     const { feedItems, feedItemsLoading, feedLoad, feedFailed, dateFrom, scopedToMine, hasOwnScanners, emptyReason } =
         useValues(watchFeedLogic)
@@ -69,8 +67,6 @@ export function WatchFeedTab(): JSX.Element {
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
-
-    const projectHasNoScanners = emptyReason === 'no-scanners'
 
     const rangeMenu = (
         <LemonMenu
@@ -86,7 +82,7 @@ export function WatchFeedTab(): JSX.Element {
                 sideIcon={<IconChevronDown />}
                 data-attr="vision-watch-feed-range"
             >
-                {FEED_DATE_OPTIONS.find((option) => option.value === dateFrom)?.label ?? dateFrom}
+                {feedWindowOption(dateFrom)?.label ?? dateFrom}
             </LemonButton>
         </LemonMenu>
     )
@@ -94,12 +90,10 @@ export function WatchFeedTab(): JSX.Element {
     return (
         <div className="@container flex flex-col gap-4">
             {/* The intro explains the feed on its own, and a project without scanners has no window to pick. */}
-            {projectHasNoScanners ? null : hasOwnScanners ? (
-                <p className="mx-auto w-full max-w-xl text-sm text-secondary m-0 -mb-2">{FEED_EXPLAINER}</p>
-            ) : (
+            {!(emptyReason === 'no-scanners' && items.length === 0) && (
                 <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-2 -mb-2">
-                    <p className="text-sm text-secondary m-0">{FEED_EXPLAINER}</p>
-                    {rangeMenu}
+                    <p className="text-sm text-secondary m-0">Sessions that stand out in your scanner results.</p>
+                    {!hasOwnScanners && rangeMenu}
                 </div>
             )}
             {hasOwnScanners && (
@@ -118,7 +112,9 @@ export function WatchFeedTab(): JSX.Element {
                     rightSlot={rangeMenu}
                 />
             )}
-            {feedItemsLoading && feedItems === null ? (
+            {/* The first render comes before the mount starts the load, and a filter change keeps the last
+                result until the new one lands, so an empty screen is only drawn from a finished load. */}
+            {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) ? (
                 <FeedSkeleton />
             ) : (
                 <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
@@ -136,6 +132,9 @@ export function WatchFeedTab(): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
+                    {items.length > 0 && isWatchFeedBlock(emptyReason) && (
+                        <WatchFeedBlockedBanner reason={emptyReason} />
+                    )}
                     {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
                         rather than leaving the reader to infer it from three identical reason lines. */}
                     {onlyFiller && (
@@ -145,7 +144,6 @@ export function WatchFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         <>
-                            {isWatchFeedBlock(emptyReason) && <WatchFeedBlockedBanner reason={emptyReason} />}
                             {items.map((item, index) => (
                                 <WatchFeedRow
                                     key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
