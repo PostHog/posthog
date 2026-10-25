@@ -148,7 +148,9 @@ OMNISEND_ENDPOINTS: dict[str, OmnisendEndpointConfig] = {
                 data_key="automations",
                 primary_key="id",
                 cursor_paginated=True,
-                params={"sort": "createdAt", "direction": "asc"},
+                # The summary view drops the `blocks` tree, whose webhook actions carry header values
+                # (often third-party credentials) verbatim.
+                params={"sort": "createdAt", "direction": "asc", "view": "summary"},
             ),
         },
         partition_key="createdAt",

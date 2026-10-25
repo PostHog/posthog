@@ -40,7 +40,9 @@ Other 2026-03-15 changes visible in synced rows: product and variant prices are 
 store currency (v3: integer cents), product `images` are URL strings, and campaign statistics
 moved off the campaign object into the Analytics API.
 
-`automations` and `segments` are cursor paginated and sorted `createdAt` ascending. `/segments`
+`automations` and `segments` are cursor paginated and sorted `createdAt` ascending.
+`automations` uses `view=summary`, which drops the `blocks` tree: webhook action blocks return
+their header values (often third-party credentials) verbatim. `/segments`
 caps `limit` at 50. Each `segments` row also carries `contactsCount` from
 `GET /segments/{segmentID}/statistics`, one request per segment. A segment deleted between the
 two calls keeps a null count. Segment reads share a 100 req/min limit.
@@ -62,6 +64,9 @@ two calls keeps a null count. Segment reads share a 100 req/min limit.
 - Incremental runs re-read a 30-day lookback window (`default_incremental_lookback_seconds`),
   because opens, clicks and attributed orders keep landing on a send date after the send.
   Merge only: append would duplicate the re-read days.
+- A read that returns no rows sets no watermark, so each completed read also stores its end date
+  as a source cursor (`omnisend_analytics_read_through`). The next incremental run without a
+  watermark starts from that date minus the lookback, not 5 years back.
 - Only count metrics are requested. Rates and averages are derivable and can't be summed.
   `analytics_reports` leaves out `totalOrders`/`totalRevenue`, which allow no breakdown.
 

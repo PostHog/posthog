@@ -111,7 +111,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The automation workflow's name.",
             "isEnabled": "Whether the automation workflow is enabled.",
             "trigger": "Trigger configuration: the event and filters that start the workflow.",
-            "blocks": "Workflow blocks: actions, delays, splits and A/B tests.",
             "exitConditions": "Events that remove contacts from the workflow.",
             "settings": "Workflow settings such as frequency and overlap limiters.",
             "brandID": "Identifier of the brand that owns the workflow.",

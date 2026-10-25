@@ -5,6 +5,7 @@ import pytest
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.o
     OMNISEND_API_BASE_URL,
     OMNISEND_BASE_URL,
     UNSUPPORTED_ENDPOINT_ERROR,
+    OmnisendAnalyticsCursor,
     OmnisendResumeConfig,
     validate_credentials,
 )
@@ -90,6 +92,17 @@ class TestPagination:
         assert result.requests[1].param("after") == "c1"
         assert result.rows == [{"id": "1"}, {"id": "2"}]
         assert result.saved_states == [OmnisendResumeConfig(cursor="c1")]
+        assert result.raised is None
+
+    def test_automations_request_the_summary_view_without_webhook_blocks(self) -> None:
+        result = _driver().run(
+            "automations",
+            [_cursor_page([{"id": "a1"}], after=None, has_more=False, key="automations")],
+            api_version=OMNISEND_2026_03_15,
+        )
+
+        assert result.requests[0].param("view") == "summary"
+        assert result.requests[0].param("include") is None
         assert result.raised is None
 
     def test_2026_stops_when_has_more_is_false_even_with_a_cursor(self) -> None:
@@ -227,6 +240,34 @@ class TestAnalytics:
 
         assert result.raised is None
         assert result.requests[0].json()["queries"][0]["dateRange"]["from"] == "2026-03-01T00:00:00Z"
+
+    @pytest.mark.parametrize(
+        ("last_value", "read_through", "expected_from"),
+        [
+            # No rows ever came back, so only the stored read-through date bounds the read.
+            (None, "2026-05-01", "2026-04-01"),
+            (date(2026, 4, 20), "2026-05-01", "2026-04-20"),
+        ],
+    )
+    def test_incremental_read_stores_its_end_for_runs_without_a_watermark(
+        self, last_value: date | None, read_through: str, expected_from: str
+    ) -> None:
+        cursor_manager = SourceCursorManager(
+            OmnisendAnalyticsCursor, OmnisendAnalyticsCursor(read_through=read_through), OmnisendSource()
+        )
+        result = _driver().run(
+            "analytics_reports",
+            lambda request: ScriptedResponse(json={"reports": [{"alias": "window-0", "rows": []}]}),
+            api_version=OMNISEND_2026_03_15,
+            incremental_field="timestamp",
+            db_incremental_field_last_value=last_value,
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].json()["queries"][0]["dateRange"]["from"] == f"{expected_from}T00:00:00Z"
+        tomorrow = datetime.now(UTC).date() + timedelta(days=1)
+        assert cursor_manager.staged == OmnisendAnalyticsCursor(read_through=tomorrow.isoformat())
 
     def test_resume_starts_at_the_saved_window_and_saves_the_next(self) -> None:
         today = datetime.now(UTC).date()

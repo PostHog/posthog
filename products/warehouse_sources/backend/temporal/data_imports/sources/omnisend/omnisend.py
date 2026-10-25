@@ -1,11 +1,14 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from requests import Response
 from requests.exceptions import HTTPError
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -64,6 +67,21 @@ class OmnisendResumeConfig:
     last_segment_id: Optional[str] = None
     # First day of the next analytics request, as an ISO date.
     window_start: Optional[str] = None
+
+
+@frozen
+class OmnisendAnalyticsCursor:
+    """The exclusive end date of the last analytics read that completed."""
+
+    cursor_kind: ClassVar[str] = "omnisend_analytics_read_through"
+
+    read_through: str
+
+
+@frozen
+class _AnalyticsWindow:
+    start: date
+    end: date
 
 
 class _OmnisendCursorPaginator(JSONResponseCursorPaginator):
@@ -232,27 +250,38 @@ def _as_date(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _analytics_start(today: date, should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> date:
+def _analytics_start(
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    stored_cursor: Optional[OmnisendAnalyticsCursor],
+    lookback: timedelta,
+) -> date:
     earliest = today - timedelta(days=ANALYTICS_HISTORY_DAYS)
-    if not should_use_incremental_field or db_incremental_field_last_value is None:
+    if not should_use_incremental_field:
         return earliest
-    return max(earliest, _as_date(db_incremental_field_last_value))
+    if db_incremental_field_last_value is not None:
+        return max(earliest, _as_date(db_incremental_field_last_value))
+    # Reads that returned no rows set no watermark, so the stored read-through date bounds the next read.
+    if stored_cursor is not None:
+        return max(earliest, date.fromisoformat(stored_cursor.read_through) - lookback)
+    return earliest
 
 
-def _analytics_windows(start: date, end: date) -> list[tuple[date, date]]:
+def _analytics_windows(start: date, end: date) -> list[_AnalyticsWindow]:
     windows = []
     window_start = start
     while window_start < end:
         window_end = min(window_start + timedelta(days=ANALYTICS_WINDOW_DAYS), end)
-        windows.append((window_start, window_end))
+        windows.append(_AnalyticsWindow(start=window_start, end=window_end))
         window_start = window_end
     return windows
 
 
-def _analytics_body(query: OmnisendAnalyticsQuery, windows: list[tuple[date, date]]) -> dict[str, Any]:
+def _analytics_body(query: OmnisendAnalyticsQuery, windows: list[_AnalyticsWindow]) -> dict[str, Any]:
     queries = []
-    for index, (window_start, window_end) in enumerate(windows):
-        date_range: dict[str, str] = {"from": f"{window_start}T00:00:00Z", "to": f"{window_end}T00:00:00Z"}
+    for index, window in enumerate(windows):
+        date_range: dict[str, str] = {"from": f"{window.start}T00:00:00Z", "to": f"{window.end}T00:00:00Z"}
         if query.date_range_interval:
             date_range["interval"] = query.date_range_interval
         queries.append(
@@ -277,6 +306,7 @@ def _iter_analytics(
     start: date,
     end: date,
     resumable_source_manager: ResumableSourceManager[OmnisendResumeConfig],
+    cursor_manager: Optional[SourceCursorManager[OmnisendAnalyticsCursor]],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.window_start:
@@ -296,12 +326,14 @@ def _iter_analytics(
             next_offset = offset + ANALYTICS_WINDOWS_PER_REQUEST
             if next_offset < len(windows):
                 resumable_source_manager.save_state(
-                    OmnisendResumeConfig(window_start=windows[next_offset][0].isoformat())
+                    OmnisendResumeConfig(window_start=windows[next_offset].start.isoformat())
                 )
             if rows:
                 yield rows
             else:
                 resumable_source_manager.safe_point()
+        if cursor_manager is not None:
+            cursor_manager.stage(OmnisendAnalyticsCursor(read_through=end.isoformat()))
     finally:
         client.session.close()
 
@@ -326,6 +358,7 @@ def omnisend_source(
     resumable_source_manager: ResumableSourceManager[OmnisendResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    analytics_cursor_manager: Optional[SourceCursorManager[OmnisendAnalyticsCursor]] = None,
 ) -> SourceResponse:
     config = OMNISEND_ENDPOINTS[endpoint]
     wire = _wire(endpoint, api_version)
@@ -334,12 +367,25 @@ def omnisend_source(
     if config.analytics is not None:
         query = config.analytics
         today = datetime.now(UTC).date()
-        start = _analytics_start(today, should_use_incremental_field, db_incremental_field_last_value)
+        start = _analytics_start(
+            today,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            analytics_cursor_manager.load() if analytics_cursor_manager is not None else None,
+            timedelta(seconds=config.default_incremental_lookback_seconds or 0),
+        )
         return SourceResponse(
             name=endpoint,
             # `to` is exclusive, so tomorrow's midnight includes today's completed hours.
             items=lambda: _iter_analytics(
-                api_key, api_version, wire, query, start, today + timedelta(days=1), resumable_source_manager
+                api_key,
+                api_version,
+                wire,
+                query,
+                start,
+                today + timedelta(days=1),
+                resumable_source_manager,
+                analytics_cursor_manager,
             ),
             primary_keys=[wire.primary_key, *query.dimensions],
             partition_count=1,
