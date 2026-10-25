@@ -5637,6 +5637,10 @@ export type DataModelingJobsListParams = {
     offset?: number
     saved_query_id?: string
     /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[]
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed

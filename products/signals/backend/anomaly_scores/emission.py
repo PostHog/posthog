@@ -57,6 +57,7 @@ def _event(
             "$anomaly_profile": scores.profile,
             "$anomaly_scored_at": scored_at.astimezone(datetime.UTC).isoformat(),
             "$anomaly_details": json.dumps(point.details, sort_keys=True),
+            **({"$anomaly_run": scores.run.value} if scores.run else {}),
         },
     }
 

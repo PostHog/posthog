@@ -349,6 +349,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -408,6 +409,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -821,6 +823,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -880,6 +883,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary

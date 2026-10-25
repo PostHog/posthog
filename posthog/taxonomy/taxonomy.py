@@ -3376,6 +3376,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
             "type": "String",
         },
+        "$anomaly_run": {
+            "label": "Anomaly scoring run",
+            "description": "How the bucket was scored. `train` fetched the full history of the series, and `score` scored the bucket on stored history. Empty when scoring fetches the full history on every run.",
+            "examples": ["train", "score"],
+            "type": "String",
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",
