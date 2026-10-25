@@ -1,23 +1,23 @@
 import clsx from 'clsx'
 import { useContext, memo } from 'react'
 
-import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import { MessageTemplate } from '../messages/MessageTemplate'
 import { useQuillThread } from './quill/quillThreadContext'
 import { QuillTurnFeedbackActions } from './quill/QuillTurnFeedbackActions'
+import { TurnFeedbackDialog } from './TurnFeedbackDialog'
 import type { TurnFeedbackActionsProps } from './turnFeedbackTypes'
 import { TurnRevealContext } from './TurnRevealContext'
 import { useTurnRating } from './useTurnRating'
 
 /**
- * Feedback actions under a completed turn: copy, thumbs up/down, the completion time, and a
- * free-text form on thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
+ * Feedback actions under a completed turn: copy, thumbs up/down, the completion time, and the
+ * feedback dialog a thumbs-down opens. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
 export const TurnFeedbackActions = memo(function TurnFeedbackActions(props: TurnFeedbackActionsProps): JSX.Element {
@@ -33,8 +33,12 @@ function LemonTurnFeedbackActions({
     timestamp,
 }: TurnFeedbackActionsProps): JSX.Element {
     const turnHovered = useContext(TurnRevealContext)
-    const { rating, submitRating, feedback, setFeedback, feedbackInputStatus, closeFeedback, submitFeedback } =
-        useTurnRating({ sessionId, turnIndex, run, traceId })
+    const { rating, submitRating, isFeedbackDialogOpen, closeFeedbackDialog } = useTurnRating({
+        sessionId,
+        turnIndex,
+        run,
+        traceId,
+    })
 
     return (
         <>
@@ -54,7 +58,7 @@ function LemonTurnFeedbackActions({
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="Good answer"
+                        tooltip={rating === 'good' ? 'Rated as a good answer' : 'Good answer'}
                         data-attr="posthog-ai-turn-rating-good"
                         onClick={() => submitRating('good')}
                     />
@@ -64,7 +68,7 @@ function LemonTurnFeedbackActions({
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="Bad answer"
+                        tooltip={rating === 'bad' ? 'Rated as a bad answer' : 'Bad answer'}
                         data-attr="posthog-ai-turn-rating-bad"
                         onClick={() => submitRating('bad')}
                     />
@@ -79,38 +83,7 @@ function LemonTurnFeedbackActions({
                     />
                 )}
             </div>
-            {feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate type="ai">
-                    <div className="flex items-center gap-1">
-                        <h4 className="m-0 text-sm grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </h4>
-                        <LemonButton icon={<IconX />} type="tertiary" size="xsmall" onClick={closeFeedback} />
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-1.5 items-center mt-1.5">
-                            <LemonInput
-                                placeholder="Help us improve PostHog AI…"
-                                fullWidth
-                                value={feedback}
-                                onChange={(newValue) => setFeedback(newValue)}
-                                onPressEnter={() => submitFeedback()}
-                                autoFocus
-                            />
-                            <LemonButton
-                                type="primary"
-                                data-attr="posthog-ai-turn-feedback-submit"
-                                onClick={() => submitFeedback()}
-                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                            >
-                                Submit
-                            </LemonButton>
-                        </div>
-                    )}
-                </MessageTemplate>
-            )}
+            <TurnFeedbackDialog isOpen={isFeedbackDialogOpen} onClose={closeFeedbackDialog} />
         </>
     )
 }

@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 import { useEffect } from 'react'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { runStreamLogic } from '../../logics/runStreamLogic'
 import type { StoredLogEntry } from '../../types/wireTypes'
@@ -271,4 +274,19 @@ export const LongRun: Story = {
 export const ComparedWithLemon: Story = {
     args: { streamKey: 'example-quill-compare', skin: 'both' },
     parameters: { testOptions: { skip: true } },
+}
+
+export const FeedbackDialog: Story = {
+    args: { streamKey: 'example-quill-feedback-dialog' },
+    // The dialog renders in a portal outside #storybook-root, so only a full-page snapshot shows it.
+    parameters: { layout: 'fullscreen' },
+    play: async ({ canvasElement }) => {
+        const thumbsDown = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLElement>('[data-attr="posthog-ai-turn-rating-bad"]')
+            expect(element).not.toBeNull()
+            return element!
+        })
+        // The footer ignores the pointer until the turn is hovered.
+        await userEvent.click(thumbsDown, { pointerEventsCheck: 0 })
+    },
 }

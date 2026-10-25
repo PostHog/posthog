@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
-import { useContext, useId } from 'react'
+import { useContext } from 'react'
 
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { Button, ChatMessageFooter, Input, Text, cn } from '@posthog/quill-primitives'
+import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { ChatMessageFooter, cn } from '@posthog/quill-primitives'
 
 import { stripMarkdown } from 'lib/utils/markdown'
 
@@ -14,6 +14,7 @@ import { useTurnRating } from '../useTurnRating'
 import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
 import { QuillFooterTimestamp } from './QuillFooterTimestamp'
+import { QuillTurnFeedbackDialog } from './QuillTurnFeedbackDialog'
 
 export function QuillTurnFeedbackActions({
     sessionId,
@@ -25,9 +26,12 @@ export function QuillTurnFeedbackActions({
 }: TurnFeedbackActionsProps): JSX.Element {
     const turnHovered = useContext(TurnRevealContext)
     const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
-    const { rating, submitRating, feedback, setFeedback, feedbackInputStatus, closeFeedback, submitFeedback } =
-        useTurnRating({ sessionId, turnIndex, run, traceId })
-    const feedbackPromptId = useId()
+    const { rating, submitRating, isFeedbackDialogOpen, closeFeedbackDialog } = useTurnRating({
+        sessionId,
+        turnIndex,
+        run,
+        traceId,
+    })
 
     return (
         <div className="flex flex-col gap-2">
@@ -47,7 +51,7 @@ export function QuillTurnFeedbackActions({
                 )}
                 {rating !== 'bad' && (
                     <QuillFooterButton
-                        label="Good answer"
+                        label={rating === 'good' ? 'Rated as a good answer' : 'Good answer'}
                         dataAttr="posthog-ai-turn-rating-good"
                         onClick={() => submitRating('good')}
                     >
@@ -56,7 +60,7 @@ export function QuillTurnFeedbackActions({
                 )}
                 {rating !== 'good' && (
                     <QuillFooterButton
-                        label="Bad answer"
+                        label={rating === 'bad' ? 'Rated as a bad answer' : 'Bad answer'}
                         dataAttr="posthog-ai-turn-rating-bad"
                         onClick={() => submitRating('bad')}
                     >
@@ -64,45 +68,7 @@ export function QuillTurnFeedbackActions({
                     </QuillFooterButton>
                 )}
             </ChatMessageFooter>
-            {feedbackInputStatus !== 'hidden' && (
-                <div className="flex max-w-4/5 flex-col gap-2 rounded-lg border border-border p-3">
-                    <div className="flex items-center gap-1">
-                        <Text id={feedbackPromptId} size="sm" weight="medium" className="grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </Text>
-                        <QuillFooterButton label="Close" onClick={closeFeedback}>
-                            <IconX />
-                        </QuillFooterButton>
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <form
-                            className="flex items-center gap-1.5"
-                            onSubmit={(event) => {
-                                event.preventDefault()
-                                submitFeedback()
-                            }}
-                        >
-                            <Input
-                                aria-labelledby={feedbackPromptId}
-                                placeholder="Help us improve PostHog AI…"
-                                value={feedback}
-                                onChange={(event) => setFeedback(event.target.value)}
-                                autoFocus
-                            />
-                            <Button
-                                type="submit"
-                                variant="primary"
-                                data-attr="posthog-ai-turn-feedback-submit"
-                                disabled={!feedback}
-                            >
-                                Submit
-                            </Button>
-                        </form>
-                    )}
-                </div>
-            )}
+            <QuillTurnFeedbackDialog isOpen={isFeedbackDialogOpen} onClose={closeFeedbackDialog} />
         </div>
     )
 }

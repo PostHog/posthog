@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
 import type { StoredLogEntry } from '../types/wireTypes'
@@ -214,5 +217,20 @@ export const MessageFooters: Story = {
                 </BindLogic>
             </div>
         )
+    },
+}
+
+export const FeedbackDialog: Story = {
+    ...MessageFooters,
+    args: { streamKey: 'synthetic-feedback-dialog' },
+    // The dialog renders in a portal outside #storybook-root, so only a full-page snapshot shows it.
+    parameters: { ...MessageFooters.parameters, layout: 'fullscreen' },
+    play: async ({ canvasElement }) => {
+        const thumbsDown = await waitFor(() => {
+            const element = canvasElement.querySelector<HTMLElement>('[data-attr="posthog-ai-turn-rating-bad"]')
+            expect(element).not.toBeNull()
+            return element!
+        })
+        await userEvent.click(thumbsDown)
     },
 }

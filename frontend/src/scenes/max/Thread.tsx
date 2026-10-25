@@ -18,7 +18,6 @@ import {
     IconThumbsUpFilled,
     IconWarning,
     IconWrench,
-    IconX,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -27,7 +26,6 @@ import {
     LemonCheckbox,
     LemonDialog,
     LemonDivider,
-    LemonInput,
     LemonSkeleton,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -68,8 +66,8 @@ import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 import { RecordingsWidget } from 'products/posthog_ai/frontend/api/dataWidgets'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
+    FEEDBACK_DIALOG_CLOSED_EVENT,
     getThinkingMessageFromResponse,
-    messageRatingsLogic,
     runStreamLogic,
     useAttachedContext,
     useForegroundStream,
@@ -81,8 +79,10 @@ import {
     MessageTemplate,
     ReasoningAnswer,
     ThreadView,
+    TurnFeedbackDialog,
     TurnTrailerActions,
     type TurnTrailer,
+    useAnswerRating,
     useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
@@ -1341,9 +1341,7 @@ function SuccessActions({
     hideRatingAndRetry?: boolean
     content?: string | null
 }): JSX.Element {
-    const { traceId: logicTraceId } = useValues(maxThreadLogic)
-    const { ratingForKey } = useValues(messageRatingsLogic)
-    const { setRating } = useActions(messageRatingsLogic)
+    const { traceId: logicTraceId, conversationId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
@@ -1352,28 +1350,19 @@ function SuccessActions({
     // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
     const traceId = contextTraceId || logicTraceId
 
-    const rating = ratingForKey(traceId)
-    const [feedback, setFeedback] = useState<string>('')
-    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating || !traceId) {
-            return // Already rated
-        }
-        setRating({ key: traceId, rating: newRating })
-        posthog.captureTraceMetric(traceId, 'quality', newRating)
-        if (newRating === 'bad') {
-            setFeedbackInputStatus('pending')
-        }
-    }
-
-    function submitFeedback(): void {
-        if (!feedback || !traceId) {
-            return // Input is empty
-        }
-        posthog.captureTraceFeedback(traceId, feedback)
-        setFeedbackInputStatus('submitted')
-    }
+    const { rating, submitRating, isFeedbackDialogOpen, closeFeedbackDialog } = useAnswerRating(traceId, {
+        onRate: (newRating) => posthog.captureTraceMetric(traceId!, 'quality', newRating),
+        onFeedbackText: (text) => posthog.captureTraceFeedback(traceId!, text),
+        onFeedbackDialogClosed: (outcome, hasText) =>
+            posthog.capture(FEEDBACK_DIALOG_CLOSED_EVENT, {
+                outcome,
+                has_text: hasText,
+                turn_index: null,
+                $ai_session_id: conversationId,
+                $ai_trace_id: traceId,
+                ai_product: 'posthog_ai',
+            }),
+    })
 
     return (
         <>
@@ -1392,7 +1381,7 @@ function SuccessActions({
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="Good answer"
+                        tooltip={rating === 'good' ? 'Rated as a good answer' : 'Good answer'}
                         onClick={() => submitRating('good')}
                     />
                 )}
@@ -1401,7 +1390,7 @@ function SuccessActions({
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="Bad answer"
+                        tooltip={rating === 'bad' ? 'Rated as a bad answer' : 'Bad answer'}
                         onClick={() => submitRating('bad')}
                     />
                 )}
@@ -1424,44 +1413,7 @@ function SuccessActions({
                     />
                 )}
             </div>
-            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate type="ai">
-                    <div className="flex items-center gap-1">
-                        <h4 className="m-0 text-sm grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </h4>
-                        <LemonButton
-                            icon={<IconX />}
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={() => {
-                                setFeedbackInputStatus('hidden')
-                            }}
-                        />
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-1.5 items-center mt-1.5">
-                            <LemonInput
-                                placeholder="Help us improve PostHog AI…"
-                                fullWidth
-                                value={feedback}
-                                onChange={(newValue) => setFeedback(newValue)}
-                                onPressEnter={() => submitFeedback()}
-                                autoFocus
-                            />
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitFeedback()}
-                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                            >
-                                Submit
-                            </LemonButton>
-                        </div>
-                    )}
-                </MessageTemplate>
-            )}
+            {!hideRatingAndRetry && <TurnFeedbackDialog isOpen={isFeedbackDialogOpen} onClose={closeFeedbackDialog} />}
         </>
     )
 }

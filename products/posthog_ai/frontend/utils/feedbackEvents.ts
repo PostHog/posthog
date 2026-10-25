@@ -46,6 +46,27 @@ export function captureTurnFeedbackText(
     })
 }
 
+// pinned: analytics event name - renaming breaks dashboards
+export const FEEDBACK_DIALOG_CLOSED_EVENT = 'posthog ai feedback dialog closed'
+
+export type FeedbackDialogOutcome = 'submitted' | 'cancelled'
+
+export function captureTurnFeedbackDialogClosed(
+    sessionId: string,
+    traceId: string | null,
+    outcome: FeedbackDialogOutcome,
+    hasText: boolean,
+    turnIndex: number,
+    run?: RunRef
+): void {
+    posthog.capture(FEEDBACK_DIALOG_CLOSED_EVENT, {
+        outcome,
+        has_text: hasText,
+        turn_index: turnIndex,
+        ...feedbackContext(sessionId, traceId, run),
+    })
+}
+
 /** Feedback typed as a `/good`, `/bad`, or `/feedback` command. A rating without text is valid, and so is text without a rating. */
 export function captureCommandFeedback(
     sessionId: string,
