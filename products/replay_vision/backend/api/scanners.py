@@ -63,6 +63,7 @@ from posthog.rate_limit import (
     ReplayVisionWatchFeedSustainedRateThrottle,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -1631,8 +1632,7 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
 WATCH_FEED_DEFAULT_LIMIT = 20
 WATCH_FEED_MAX_LIMIT = 50
 WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
-# Widest window one request may rank. An arbitrarily early `date_from` would make Postgres partition
-# and sort the team's entire observation history before the row caps apply.
+# Widest window one request may rank. A scanner with few rows in the window walks its whole window before the cap stops it.
 WATCH_FEED_MAX_WINDOW_DAYS = 90
 # Rank at most this many of the newest succeeded observations in the window. A very high-volume
 # team ranks only the newest slice, which recency-biases the feed — acceptable for a preview surface.
@@ -1649,13 +1649,14 @@ WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
 
 def select_watch_feed_candidates(
     walkable: QuerySet[ReplayObservation],
-    readable: QuerySet[ReplayObservation],
     scanner_ids: list[UUID],
     viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
 ) -> list[dict[str, Any]]:
-    """The newest `readable` rows of the window, at most WATCH_FEED_PER_SCANNER_CAP per scanner, without scan results."""
+    """The newest readable rows of the window, at most WATCH_FEED_PER_SCANNER_CAP per scanner, without scan results."""
     # One slice per scanner stops each index walk at the cap, where a window function sorts the whole window first.
-    slices = [
+    slices: list[Any] = [
         walkable.filter(scanner_id=scanner_id)
         .order_by("-created_at", "-id")
         .values_list("id", "created_at")[:WATCH_FEED_PER_SCANNER_CAP]
@@ -1663,19 +1664,18 @@ def select_watch_feed_candidates(
     ]
     if not slices:
         return []
-    walked = slices[0].union(*slices[1:], all=True) if len(slices) > 1 else slices[0]
+    walked = slices[0].union(*slices[1:], all=True)
     newest_first = [row_id for row_id, _ in sorted(walked, key=lambda row: (row[1], row[0]), reverse=True)]
     # The row-gate reads each row's snapshot JSON, so it runs on the newest walked rows only.
     rows: list[dict[str, Any]] = []
     for start in range(0, len(newest_first), WATCH_FEED_CANDIDATE_CAP):
         chunk = newest_first[start : start + WATCH_FEED_CANDIDATE_CAP]
-        found = {
-            row["id"]: row
-            for row in readable.filter(id__in=chunk)
+        rows += list(
+            accessible_observations(access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=chunk))
             .annotate(feed_viewed=viewed)
+            .order_by("-created_at", "-id")
             .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
-        }
-        rows += [found[row_id] for row_id in chunk if row_id in found]
+        )
         if len(rows) >= WATCH_FEED_CANDIDATE_CAP:
             break
     return rows[:WATCH_FEED_CANDIDATE_CAP]
@@ -2686,9 +2686,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ).values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
+        # The scanner list stays off this base: every per-scanner walk would otherwise carry the whole list.
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
-            scanner_id__in=allowed_ids,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
             created_at__lte=window_end,
@@ -2719,7 +2719,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         )
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
-        candidates = accessible_observations(self.user_access_control, self.team_id, walkable)
+        candidates = accessible_observations(
+            self.user_access_control, self.team_id, walkable.filter(scanner_id__in=allowed_ids)
+        )
         viewed = Exists(
             ReplayObservationView.objects.filter(
                 observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
@@ -2733,7 +2735,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
-        candidate_rows = select_watch_feed_candidates(walkable, candidates, allowed_ids, viewed)
+        candidate_rows = select_watch_feed_candidates(
+            walkable, allowed_ids, viewed, self.user_access_control, self.team_id
+        )
         if ranker != "embedding":
             attach_scanner_results(self.team_id, candidate_rows)
         page_end = params["offset"] + params["limit"]
