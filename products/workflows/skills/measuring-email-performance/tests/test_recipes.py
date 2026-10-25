@@ -3,13 +3,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    run_clickhouse_statement_in_parallel,
+)
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.test.fixtures import create_app_metric2
 
 RECIPES = Path(__file__).resolve().parent.parent / "references" / "recipes.md"
@@ -51,6 +58,10 @@ def _placeholders() -> dict[str, ast.Expr]:
 
 
 class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
     def _run(self, recipe: str) -> list[dict[str, Any]]:
         response = execute_hogql_query(query=_recipes()[recipe], team=self.team, placeholders=_placeholders())
         assert response.columns is not None
