@@ -488,7 +488,8 @@ if (
     )
 }
 
-type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null }
+type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null; release?: () => void }
+type GroupedSecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate; pending: number; evicted: boolean }
 
 // undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher. The two
 // routes keep separate maps so a caller cannot exhaust one route's budget with timeouts it only ever uses on the other.
@@ -497,8 +498,11 @@ const sharedSecureH2Agents: Record<SecureRoute, Map<number, SecureDispatcher>> =
     proxy: new Map(),
 }
 const MAX_SECURE_H2_AGENTS = 8
-const groupedSecureH2Agents = new Map<string, SecureDispatcher>()
+const groupedSecureH2Agents = new Map<string, GroupedSecureDispatcher>()
 const MAX_GROUPED_SECURE_H2_AGENTS = 1000
+// An evicted dispatcher stays here until its close() finishes, so shutdown can still destroy one that holds an unread
+// body.
+const drainingGroupedSecureH2Agents = new Set<Dispatcher>()
 // Node clamps a setTimeout delay above this value to 1 ms. A session would then close as soon as it goes idle.
 const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
 let sharedAgentsClosed = false
@@ -550,15 +554,46 @@ function getGroupedSecureH2Agent(
         agent = {
             dispatcher: makeSecureDispatcher({ useProxy, allowH2: true, keepAliveTimeoutMs: idleTimeoutMs }),
             gate: new ColdStartGate(idleTimeoutMs),
+            pending: 0,
+            evicted: false,
         }
         if (groupedSecureH2Agents.size >= MAX_GROUPED_SECURE_H2_AGENTS) {
             const [oldestKey, oldest] = groupedSecureH2Agents.entries().next().value!
             groupedSecureH2Agents.delete(oldestKey)
-            void oldest.dispatcher.close().catch(() => {})
+            oldest.evicted = true
+            drainingGroupedSecureH2Agents.add(oldest.dispatcher)
+            if (oldest.pending === 0) {
+                closeDrainingAgent(oldest.dispatcher)
+            }
         }
     }
     groupedSecureH2Agents.set(key, agent)
-    return agent
+    // A request can wait in the cold-start gate before it reaches undici, and close() rejects a request dispatched
+    // after it runs. So an evicted dispatcher closes only once every request that picked it has been dispatched.
+    const picked = agent
+    picked.pending++
+    let released = false
+    return {
+        dispatcher: picked.dispatcher,
+        gate: picked.gate,
+        release: () => {
+            if (released) {
+                return
+            }
+            released = true
+            picked.pending--
+            if (picked.evicted && picked.pending === 0) {
+                closeDrainingAgent(picked.dispatcher)
+            }
+        },
+    }
+}
+
+function closeDrainingAgent(dispatcher: Dispatcher): void {
+    void dispatcher
+        .close()
+        .catch(() => {})
+        .finally(() => drainingGroupedSecureH2Agents.delete(dispatcher))
 }
 
 function getSecureDispatcher(options: {
@@ -605,6 +640,7 @@ export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
         sharedInsecureAgent,
         ...Object.values(sharedSecureH2Agents).flatMap((route) => [...route.values()].map((h2) => h2.dispatcher)),
         ...[...groupedSecureH2Agents.values()].map((h2) => h2.dispatcher),
+        ...drainingGroupedSecureH2Agents,
     ]
     const stillOpen = new Set(agents)
     const closed = Promise.allSettled(agents.map((agent) => agent.close().finally(() => stillOpen.delete(agent)))).then(
@@ -782,8 +818,10 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     let lifecycle: RequestLifecycle | undefined
+    let release: (() => void) | undefined
     try {
-        const { dispatcher, gate } = getSecureDispatcher(options)
+        const { dispatcher, gate, release: releaseDispatcher } = getSecureDispatcher(options)
+        release = releaseDispatcher
         options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
         const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
@@ -793,6 +831,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         lifecycle?.onError()
         throw error
     } finally {
+        release?.()
         inflightExternalRequests.dec()
     }
 }
@@ -903,8 +942,10 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
     inflightExternalRequests.inc()
     let result: Dispatcher.ResponseData
     let lifecycle: RequestLifecycle | undefined
+    let release: (() => void) | undefined
     try {
-        const { dispatcher, gate } = getSecureDispatcher(options)
+        const { dispatcher, gate, release: releaseDispatcher } = getSecureDispatcher(options)
+        release = releaseDispatcher
         const signal = AbortSignal.timeout(options.timeoutMs)
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
         result = await request(parsed.toString(), {
@@ -918,6 +959,8 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         lifecycle?.onError()
         inflightExternalRequests.dec()
         throw error
+    } finally {
+        release?.()
     }
     lifecycle?.onHeaders()
 
