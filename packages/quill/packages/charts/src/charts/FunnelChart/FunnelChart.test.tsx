@@ -41,11 +41,7 @@ describe('FunnelChart', () => {
     })
 
     it('tooltip header shows the step name and value is formatted as X.XX%', async () => {
-        // nativeTooltip preserves config-level formatters (valueFormatter / labelFormatter);
-        // the default renderChart path intercepts the tooltip prop and bypasses them.
-        const { chart } = renderChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />, {
-            nativeTooltip: true,
-        })
+        const { chart } = renderChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />)
         const step = dimensions.plotWidth / STEPS.length
         // Hover at step-index 1 band center — same x as the onStepClick test, lands in control's sub-band.
         const hoverX = dimensions.plotLeft + step * 1.3
