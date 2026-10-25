@@ -73,7 +73,12 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
     # if the job is already in a terminal state, don't overwrite it — preserves the first error
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in (
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.SKIPPED,
+    ):
         return node, job
 
     job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED

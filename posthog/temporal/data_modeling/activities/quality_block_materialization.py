@@ -80,7 +80,12 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
         node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in (
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.SKIPPED,
+    ):
         return
     job.status = DataModelingJobStatus.FAILED
     job.error = error

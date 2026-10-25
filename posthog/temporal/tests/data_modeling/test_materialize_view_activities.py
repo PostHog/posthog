@@ -416,11 +416,23 @@ class TestFailMaterializationActivity:
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
 
-    async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
-        ajob.status = DataModelingJob.Status.COMPLETED
+    @pytest.mark.parametrize(
+        "status,error",
+        [
+            (DataModelingJob.Status.COMPLETED, None),
+            # A Trino shadow saved as skipped, then backstopped as orphaned after the worker died,
+            # would otherwise become a failure that counts toward suspension.
+            (DataModelingJob.Status.SKIPPED, "TABLE_NOT_FOUND: upstream missing"),
+        ],
+    )
+    async def test_does_not_overwrite_already_terminal_job(
+        self, activity_environment, ateam, anode, ajob, adag, status, error
+    ):
+        ajob.status = status
+        ajob.error = error
         await database_sync_to_async(ajob.save)()
         await database_sync_to_async(ajob.refresh_from_db)()
-        completed_last_run_at = ajob.last_run_at
+        terminal_last_run_at = ajob.last_run_at
 
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
@@ -428,12 +440,13 @@ class TestFailMaterializationActivity:
             dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Late failure",
+            update_node=False,
         )
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.status == DataModelingJob.Status.COMPLETED
-        assert ajob.error is None
-        assert ajob.last_run_at == completed_last_run_at
+        assert ajob.status == status
+        assert ajob.error == error
+        assert ajob.last_run_at == terminal_last_run_at
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(

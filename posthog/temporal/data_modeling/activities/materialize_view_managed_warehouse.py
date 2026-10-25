@@ -243,7 +243,12 @@ async def check_managed_warehouse_shadow_eligibility_activity(
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in (
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.SKIPPED,
+    ):
         return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED

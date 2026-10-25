@@ -109,7 +109,12 @@ def _succeed_node_and_data_modeling_job(
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
     # if the job is already in a terminal state, don't overwrite it
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in (
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.SKIPPED,
+    ):
         return SucceedNodeAndJobOutcome(
             node=node,
             job=job,
