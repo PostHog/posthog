@@ -48,9 +48,9 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
-For tools that save a visual artifact, briefly suggest checking the rendered result in a browser when the agent has
-browser access. Keep the suggestion conditional: the tool can save the artifact, but it cannot give an agent browser
-access. Check the saved artifact after the last edit rather than after every tool call.
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
 
 **Good tools**:
 
