@@ -1,5 +1,7 @@
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 
+import { resolveEmailSendingAppSourceVersion } from '../messaging/email-tracking.service'
+
 type HogFlowBillingMetricData = {
     invocation: CyclotronJobInvocationHogFunction
     billingMetricType: 'fetch' | 'email' | 'sms' | 'push'
@@ -15,6 +17,8 @@ export const trackHogFlowBillableInvocation = (
     result: CyclotronJobInvocationResult,
     data: HogFlowBillingMetricData
 ) => {
+    const appSourceVersion =
+        data.billingMetricType === 'email' ? resolveEmailSendingAppSourceVersion(data.invocation) : undefined
     result.metrics.push({
         team_id: data.invocation.teamId,
         app_source_id: data.invocation.functionId,
@@ -22,5 +26,6 @@ export const trackHogFlowBillableInvocation = (
         metric_kind: data.billingMetricType,
         metric_name: 'billable_invocation',
         count: 1,
+        ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
     })
 }
