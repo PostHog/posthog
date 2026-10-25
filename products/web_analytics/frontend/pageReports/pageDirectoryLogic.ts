@@ -114,6 +114,7 @@ export interface pageDirectoryLogicValues {
     search: string
     singleHost: string | null
     siteTotals: WebPageDirectorySiteTotals | null
+    siteTotalsError: boolean
     siteTotalsInput: string
     siteTotalsQuery: WebPageDirectoryQuery
     sortBy: WebPageDirectorySortBy
@@ -132,9 +133,11 @@ export interface pageDirectoryLogicActions {
     }
     loadDriverSuccess: (
         rows: WebPageDirectoryRow[],
-        hasMore: boolean
+        hasMore: boolean,
+        refresh?: boolean
     ) => {
         hasMore: boolean
+        refresh: boolean
         rows: WebPageDirectoryRow[]
     }
     loadMetric: (
@@ -159,6 +162,9 @@ export interface pageDirectoryLogicActions {
     loadSiteTotals: (refresh?: boolean) => {
         refresh: boolean
     }
+    loadSiteTotalsFailure: () => {
+        value: true
+    }
     loadSiteTotalsSuccess: (siteTotals: WebPageDirectorySiteTotals | null) => {
         siteTotals: WebPageDirectorySiteTotals | null
     }
@@ -166,6 +172,9 @@ export interface pageDirectoryLogicActions {
         value: true
     }
     previousPage: () => {
+        value: true
+    }
+    resetPage: () => {
         value: true
     }
     setSearch: (search: string) => {
@@ -255,8 +264,13 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         }),
         nextPage: true,
         previousPage: true,
+        resetPage: true,
         loadDriver: (refresh: boolean = false) => ({ refresh }),
-        loadDriverSuccess: (rows: WebPageDirectoryRow[], hasMore: boolean) => ({ rows, hasMore }),
+        loadDriverSuccess: (rows: WebPageDirectoryRow[], hasMore: boolean, refresh: boolean = false) => ({
+            rows,
+            hasMore,
+            refresh,
+        }),
         loadDriverFailure: (error: string) => ({ error }),
         loadMetric: (metric: WebPageDirectoryMetric, pageKeys: string[], refresh: boolean = false) => ({
             metric,
@@ -267,6 +281,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         loadMetricFailure: (metric: WebPageDirectoryMetric) => ({ metric }),
         loadSiteTotals: (refresh: boolean = false) => ({ refresh }),
         loadSiteTotalsSuccess: (siteTotals: WebPageDirectorySiteTotals | null) => ({ siteTotals }),
+        loadSiteTotalsFailure: true,
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -279,6 +294,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 previousPage: (state) => Math.max(0, state - 1),
                 setSearch: () => 0,
                 setSort: () => 0,
+                resetPage: () => 0,
             },
         ],
         driverRows: [
@@ -316,6 +332,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         metricLoading: [
             {} as Partial<Record<WebPageDirectoryMetric, boolean>>,
             {
+                loadDriverSuccess: () => ({}),
                 loadMetric: (state, { metric }) => ({ ...state, [metric]: true }),
                 loadMetricSuccess: (state, { metric }) => ({ ...state, [metric]: false }),
                 loadMetricFailure: (state, { metric }) => ({ ...state, [metric]: false }),
@@ -325,6 +342,14 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
             null as WebPageDirectorySiteTotals | null,
             {
                 loadSiteTotalsSuccess: (_, { siteTotals }) => siteTotals,
+            },
+        ],
+        siteTotalsError: [
+            false,
+            {
+                loadSiteTotals: () => false,
+                loadSiteTotalsSuccess: () => false,
+                loadSiteTotalsFailure: () => true,
             },
         ],
     }),
@@ -470,7 +495,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                         refresh ? 'force_blocking' : 'blocking'
                     )) as WebPageDirectoryQueryResponse
                     breakpoint()
-                    actions.loadDriverSuccess(response.results ?? [], !!response.hasMore)
+                    actions.loadDriverSuccess(response.results ?? [], !!response.hasMore, refresh)
                     if (query.search) {
                         posthog.capture('web analytics page reports searched', {
                             query_length: query.search.length,
@@ -486,7 +511,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                     actions.loadDriverFailure(failureMessage(error))
                 }
             },
-            loadDriverSuccess: ({ rows }) => {
+            loadDriverSuccess: ({ rows, refresh }) => {
                 const pageKeys = rows.map((row) => row.page)
                 if (pageKeys.length === 0) {
                     return
@@ -495,7 +520,7 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                 for (const metric of values.visibleMetrics) {
                     const notMeasured = metric === WebPageDirectoryMetric.AiCrawls && values.hasServerLogs === false
                     if (metric !== sortMetric && !notMeasured) {
-                        actions.loadMetric(metric, pageKeys)
+                        actions.loadMetric(metric, pageKeys, refresh)
                     }
                 }
             },
@@ -535,7 +560,22 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
                     if (isCancellation(error) || cache.disposables.isDisposed) {
                         return
                     }
-                    actions.loadSiteTotalsSuccess(null)
+                    actions.loadSiteTotalsFailure()
+                }
+            },
+            loadSiteTotalsSuccess: ({ siteTotals }) => {
+                const pageKeys = (values.driverRows ?? []).map((row) => row.page)
+                const crawls = WebPageDirectoryMetric.AiCrawls
+                if (
+                    siteTotals &&
+                    siteTotals.serverLogs > 0 &&
+                    pageKeys.length > 0 &&
+                    values.visibleMetrics.includes(crawls) &&
+                    SORT_METRIC[values.sortBy] !== crawls &&
+                    !values.metricRows[crawls] &&
+                    !values.metricLoading[crawls]
+                ) {
+                    actions.loadMetric(crawls, pageKeys)
                 }
             },
             setSort: ({ sortBy, sortDirection }) => {
@@ -554,6 +594,11 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
         }
     }),
     subscriptions(({ actions }) => ({
+        baseQuery: (_, oldBaseQuery) => {
+            if (oldBaseQuery) {
+                actions.resetPage()
+            }
+        },
         directoryInput: () => {
             actions.loadDriver()
         },
