@@ -27,8 +27,13 @@ function getNavigationProperties(): Record<string, string | number | null> {
     if (!navigation) {
         return { navigation_type: null }
     }
+    const usedNewTlsConnection = navigation.secureConnectionStart > 0
     return {
         navigation_type: navigation.type,
+        next_hop_protocol: navigation.nextHopProtocol || null,
+        dns_ms: Math.round(navigation.domainLookupEnd - navigation.domainLookupStart),
+        connect_ms: Math.round(navigation.connectEnd - navigation.connectStart),
+        tls_ms: usedNewTlsConnection ? Math.round(navigation.connectEnd - navigation.secureConnectionStart) : null,
         request_start_ms: Math.round(navigation.requestStart),
         response_start_ms: Math.round(navigation.responseStart),
         response_end_ms: Math.round(navigation.responseEnd),
