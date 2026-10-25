@@ -23,7 +23,7 @@ function DashedNote({ children }: { children: React.ReactNode }): JSX.Element {
  * that would actually fill the feed, so a reader is never told to wait on scanners that cannot run.
  */
 export function WatchFeedEmptyState({ reason }: { reason: WatchFeedEmptyReason }): JSX.Element {
-    const { clearFeedFilters } = useActions(watchFeedLogic)
+    const { setOnlyMyScanners } = useActions(watchFeedLogic)
     const { scanners } = useValues(visionScannersListLogic)
     const { push } = useActions(router)
 
@@ -95,9 +95,9 @@ export function WatchFeedEmptyState({ reason }: { reason: WatchFeedEmptyReason }
     if (reason === 'filtered') {
         return (
             <DashedNote>
-                <span>No clips match these filters in this window.</span>
-                <LemonButton type="secondary" size="small" onClick={() => clearFeedFilters()}>
-                    Clear filters
+                <span>Your scanners picked nothing in this window.</span>
+                <LemonButton type="secondary" size="small" onClick={() => setOnlyMyScanners(false)}>
+                    Show all scanners
                 </LemonButton>
             </DashedNote>
         )

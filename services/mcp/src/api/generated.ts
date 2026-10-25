@@ -29561,6 +29561,8 @@ export namespace Schemas {
       tags?: string[] | null;
       tiles?: unknown;
       variables?: unknown;
+      /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+      customization?: DashboardCustomization | null;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */
@@ -84406,6 +84408,8 @@ export namespace Schemas {
       tags?: string[] | null;
       tiles?: unknown;
       variables?: unknown;
+      /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+      customization?: DashboardCustomization | null;
       /** @nullable */
       deleted?: boolean | null;
       /** @nullable */
@@ -100219,18 +100223,6 @@ export namespace Schemas {
       /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. Always false for deactivated organizations. */
       code_usage_billing_active: boolean;
     }
-
-    /**
-     * * `weighted-score` - weighted-score
-     * * `jev` - jev
-     */
-    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
-
-
-    export const RankerEnum = {
-      WeightedScore: 'weighted-score',
-      Jev: 'jev',
-    } as const;
 
     export interface RankingOutcomeInfo {
       /** Name of the outcome in the `ranking` field's predictions.
@@ -120370,6 +120362,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
+
+
+    export const WatchFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/watch_feed_impressions/.
+     */
+    export interface WatchFeedImpressions {
+      /** The client's id for the feed load that showed these cards. One load counts each card once. */
+      feed_load_id: string;
+      /**
+         * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+         * @minItems 1
+         * @maxItems 100
+         */
+      observation_ids: string[];
+    }
+
+    /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
      * * `notable` - Notable
@@ -120379,6 +120399,7 @@ export namespace Schemas {
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
      * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
@@ -120395,6 +120416,7 @@ export namespace Schemas {
       NovelSummary: 'novel_summary',
       Friction: 'friction',
       JevWatchable: 'jev_watchable',
+      EmbeddingPick: 'embedding_pick',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
@@ -120413,7 +120435,7 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
@@ -120424,6 +120446,7 @@ export namespace Schemas {
        * * `novel_summary` - Novel Summary
        * * `friction` - Friction
        * * `jev_watchable` - Jev Watchable
+       * * `embedding_pick` - Embedding Pick
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
@@ -120495,6 +120518,17 @@ export namespace Schemas {
          * @nullable
          */
       tag_share?: number | null;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: WatchFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
     }
 
     /**
@@ -120508,18 +120542,37 @@ export namespace Schemas {
     }
 
     /**
+     * * `weighted-score` - Weighted Score
+     * * `jev` - Jev
+     * * `embedding` - Embedding
+     */
+    export type WatchFeedRankerEnum = typeof WatchFeedRankerEnum[keyof typeof WatchFeedRankerEnum];
+
+
+    export const WatchFeedRankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+      Embedding: 'embedding',
+    } as const;
+
+    /**
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
-      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+      has_more: boolean;
+      /** The time this feed ranks as of. Send it back with later pages. */
+      as_of: string;
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
        *
-       * * `weighted-score` - weighted-score
-       * * `jev` - jev */
-      ranker: RankerEnum;
+       * * `weighted-score` - Weighted Score
+       * * `jev` - Jev
+       * * `embedding` - Embedding */
+      ranker: WatchFeedRankerEnum;
       /**
-         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
          * @nullable
          */
       ranker_variant: string | null;
@@ -139619,6 +139672,10 @@ export namespace Schemas {
 
     export type VisionScannersWatchFeedRetrieveParams = {
     /**
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
+     */
+    as_of?: string;
+    /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
      */
@@ -139634,11 +139691,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number;
+    /**
+     * How many ranked items to skip. Send `as_of` with every page after the first.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number;
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1
