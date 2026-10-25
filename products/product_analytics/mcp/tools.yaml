@@ -129,8 +129,8 @@ tools:
             pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
             newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
             already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert.
-            If you have browser access, check how the saved insight chart renders.
+            nothing about alerts. Wait for the user to accept before creating an alert. If you have browser access,
+            check how the saved insight chart renders.
         exclude_params:
             - query
         include_params:
@@ -230,8 +230,7 @@ tools:
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results. Query uses the same format as
             insight-create. Replacing query replaces the entire definition; include all filters and visualization
-            settings you want to retain.
-            If you have browser access, check how the updated insight chart renders.
+            settings you want to retain. If you have browser access, check how the updated insight chart renders.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
