@@ -5198,6 +5198,37 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         assert sessions == [f"hit-{i}" for i in range(6)]
         assert second["has_more"] is False
 
+    def test_embedding_picks_reach_past_the_recency_slice_and_count_hidden_duplicates(self) -> None:
+        scanner = self._create_scanner(name="m")
+
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+            obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": category,
+                    "contrast": contrast,
+                    "duplicate_of": duplicate_of,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            return obs
+
+        oldest = ranked("oldest-failure", 500, "failure", 0.9)
+        # A copy of the pick that scores below the cut still makes the group bigger.
+        ranked("copy", 400, "failure", -0.5, duplicate_of=str(oldest.id))
+        for index in range(10):
+            ranked(f"routine-{index}", index, "routine", -0.1)
+
+        # The candidate slice holds two rows per scanner, so the oldest row only surfaces from the whole window.
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_PER_SCANNER_CAP", 2),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
+        self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
+        self.assertEqual(picks[0]["reason"]["similar_count"], 1)
+
     def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
         scanner = self._create_scanner(name="m")
         rows = {}

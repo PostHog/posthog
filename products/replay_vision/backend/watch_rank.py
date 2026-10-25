@@ -13,6 +13,23 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    FloatField,
+    Func,
+    IntegerField,
+    QuerySet,
+    Sum,
+    Value,
+    When,
+    Window,
+)
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast, Coalesce, RowNumber
 from django.utils import timezone
 
 import numpy as np
@@ -25,6 +42,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
     OBSERVATION_EMBEDDINGS_TABLE,
@@ -32,7 +50,8 @@ from products.replay_vision.backend.embeddings import (
     observation_scope_params,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.watch_feed import WatchFeedEntry, finish_feed
+from products.replay_vision.backend.scanner_access import accessible_observations
+from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
 WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
 
@@ -317,6 +336,90 @@ def _group_root(observation_id: str, parents: dict[str, str]) -> str:
     return observation_id
 
 
+def select_embedding_picks(
+    walkable: QuerySet[ReplayObservation],
+    scanner_ids: list[Any],
+    viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
+    cap: int,
+) -> list[dict[str, Any]]:
+    """The window's pick rows for the embedding ranker, with each row's percentile and duplicate-group size.
+
+    The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
+    longer window reaches further back instead of re-ranking the same newest rows.
+    """
+    contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
+    category = KeyTextTransform("category", "watch_rank")
+    group_root = Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()))
+    is_issue = Case(
+        When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
+    )
+    ranked = (
+        walkable.filter(scanner_id__in=scanner_ids, watch_rank__anchor_version=ANCHOR_VERSION)
+        .alias(
+            watch_category=category,
+            contrast_type=Func(
+                KeyTransform("contrast", "watch_rank"), function="jsonb_typeof", output_field=CharField()
+            ),
+        )
+        .filter(contrast_type="number")
+        .annotate(
+            scanner_rows=Window(Count("id"), partition_by=[F("scanner_id")]),
+            scanner_position=Window(
+                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), Cast("id", CharField()).asc()]
+            ),
+            # Duplicates below the cutoff still count toward the size of the group a pick stands for.
+            watch_group_size=Window(Sum(is_issue), partition_by=[group_root]),
+        )
+        .annotate(
+            watch_percentile=(F("scanner_position") - Value(0.5)) / Cast(F("scanner_rows"), FloatField()),
+            # Reads a window value, so Django filters on it after the windows run rather than before.
+            issue_scanner_rows=Case(
+                When(watch_category__in=ISSUE_CATEGORIES, then=F("scanner_rows")),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+        )
+        .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
+        .order_by("-watch_percentile", "-created_at")
+        .values("id", "watch_percentile", "watch_group_size")[:cap]
+    )
+    window_values = {row["id"]: row for row in ranked}
+    if not window_values:
+        return []
+    # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
+    rows = list(
+        accessible_observations(
+            access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
+        )
+        .annotate(feed_viewed=viewed)
+        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    )
+    for row in rows:
+        row["watch_percentile"] = window_values[row["id"]]["watch_percentile"]
+        row["watch_group_size"] = window_values[row["id"]]["watch_group_size"]
+    return rows
+
+
+def select_embedding_filler(
+    walkable: QuerySet[ReplayObservation],
+    scanner_ids: list[Any],
+    viewed: Exists,
+    access: UserAccessControl,
+    team_id: int,
+    exclude_ids: list[Any],
+) -> list[dict[str, Any]]:
+    """The newest readable rows that are not picks, enough to bring a thin feed up to its floor."""
+    return list(
+        accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
+        .exclude(id__in=exclude_ids)
+        .annotate(feed_viewed=viewed)
+        .order_by("-created_at", "-id")
+        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")[:WATCH_FEED_MIN_ITEMS]
+    )
+
+
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
     """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `watch_rank`, `feed_viewed`,
     and optionally `feed_impressions`) on the embedding rank the watch rank consumer wrote.
@@ -327,7 +430,12 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     of the picks, and one session's picks spaced apart. Every other row is filler, trimmed to the same
     floor as the other rankers.
     """
-    percentiles = _scanner_percentiles(rows)
+    # Rows from `select_embedding_picks` carry their whole-window percentile; a plain candidate slice does not.
+    percentiles = (
+        {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
+        if any("watch_percentile" in row for row in rows)
+        else _scanner_percentiles(rows)
+    )
     parents = {
         str(row["id"]): str(rank["duplicate_of"])
         for row in rows
@@ -364,7 +472,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         reason = {
             "kind": "embedding_pick",
             "watch_category": rank["category"],
-            "similar_count": len(group_members[group]) - 1,
+            "similar_count": max(len(group_members[group]), row.get("watch_group_size") or 0) - 1,
         }
         picks.append(
             (

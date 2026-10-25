@@ -188,9 +188,13 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
-from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, rank_watch_feed_candidates
 from products.replay_vision.backend.watch_feed_impressions import feed_impression_counts, record_feed_impressions
-from products.replay_vision.backend.watch_rank import rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank import (
+    rank_watch_feed_by_embedding,
+    select_embedding_filler,
+    select_embedding_picks,
+)
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -2735,10 +2739,24 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
-        candidate_rows = select_watch_feed_candidates(
-            walkable, allowed_ids, viewed, self.user_access_control, self.team_id
-        )
-        if ranker != "embedding":
+        if ranker == "embedding":
+            # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
+            candidate_rows = select_embedding_picks(
+                walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
+            )
+            if len(candidate_rows) < WATCH_FEED_MIN_ITEMS:
+                candidate_rows += select_embedding_filler(
+                    walkable,
+                    allowed_ids,
+                    viewed,
+                    self.user_access_control,
+                    self.team_id,
+                    [row["id"] for row in candidate_rows],
+                )
+        else:
+            candidate_rows = select_watch_feed_candidates(
+                walkable, allowed_ids, viewed, self.user_access_control, self.team_id
+            )
             attach_scanner_results(self.team_id, candidate_rows)
         page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
