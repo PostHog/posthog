@@ -635,6 +635,41 @@ class TestTrinoConnectPathAgreesWithValidation(SimpleTestCase):
         assert kwargs.get("source_type") == "trino"
 
 
+class TestPostgresConnectPathsAgreeWithValidation(SimpleTestCase):
+    """A managed Postgres source must not validate and then refuse to connect.
+
+    Validation names the source type, so it approves the managed host. Every later connect of the
+    source must name it too, or saving the source and every sync of it fail with a host refusal.
+    """
+
+    @parameterized.expand([("schema_listing",), ("sync_tunnel",)])
+    @override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
+    def test_a_managed_warehouse_host_is_admitted(self, path: str) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+            PostgresSourceConfig,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = PostgresSource()
+        config = PostgresSourceConfig(host=_TENANT_HOST, port=5432, database="db", user="root", password="secret")
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, (_NLB_A, 0))]),
+            patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
+            patch(f"{_MIXINS_MODULE}.logger"),
+            patch(f"{_INGRESS_MODULE}.get_managed_warehouse_target", return_value=_target()),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                side_effect=_no_connection,
+            ),
+        ):
+            with pytest.raises(_Stop):
+                if path == "schema_listing":
+                    source.get_schemas(config, team_id=999)
+                else:
+                    with source.make_ssh_tunnel_func(config, 999, "postgres")():
+                        raise _Stop()
+
+
 class _Stop(Exception):
     pass
 

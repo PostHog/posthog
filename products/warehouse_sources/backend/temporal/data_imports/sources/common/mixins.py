@@ -901,7 +901,7 @@ def open_ssh_tunnel(config, team_id: int | None = None, source_type: str | None 
 
 
 def make_ssh_tunnel_factory(
-    config, team_id: int | None = None
+    config, team_id: int | None = None, source_type: str | None = None
 ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
     """Return a zero-arg factory that opens a fresh `open_ssh_tunnel(config)` context each call.
 
@@ -931,7 +931,7 @@ def make_ssh_tunnel_factory(
         with _logged_connection(config, team_id):
             # Checked per reopen, not once when the factory is built, so a long-running
             # sync that reconnects re-checks the host each time.
-            _check_direct_host(config, team_id)
+            _check_direct_host(config, team_id, source_type)
             yield config.host, config.port
 
     return without_ssh_func
@@ -946,9 +946,9 @@ class SSHTunnelMixin:
         return open_ssh_tunnel(config, team_id, source_type)
 
     def make_ssh_tunnel_func(
-        self, config, team_id: int | None = None
+        self, config, team_id: int | None = None, source_type: str | None = None
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
-        return make_ssh_tunnel_factory(config, team_id)
+        return make_ssh_tunnel_factory(config, team_id, source_type)
 
     def ssh_tunnel_enabled(self, config) -> bool:
         """Whether the tunnel helpers above will tunnel rather than connect directly.
