@@ -38,6 +38,8 @@ const definitionsDir = path.resolve(mcpRoot, 'definitions')
 
 const schemaPath = resolveSchemaPath(repoRoot)
 
+const modulesWithStrictBodies = new Set(['email_templates'])
+
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
     process.exit(1)
@@ -168,6 +170,7 @@ function prepareOrval(moduleName, filteredSchema, tmpDir) {
                 components: {
                     schemas: { suffix: 'Api' },
                 },
+                ...(modulesWithStrictBodies.has(moduleName) && { zod: { strict: { body: true } } }),
             },
         },
     }
