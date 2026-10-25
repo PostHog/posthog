@@ -1,7 +1,7 @@
 import json
 import functools
 from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
@@ -58,8 +58,14 @@ def mock_transpile(code: str, type: str = "site") -> str:
     return code
 
 
+if TYPE_CHECKING:
+    _MixinBase = SimpleTestCase
+else:
+    _MixinBase = object
+
+
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not
-class BaseHogFunctionTemplateTestMixin:
+class BaseHogFunctionTemplateTestMixin(_MixinBase):
     template: HogFunctionTemplateDC
     compiled_hog: Any
     mock_fetch = MagicMock()
