@@ -3,10 +3,8 @@ import { IconListCheck } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
@@ -33,16 +31,7 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
                 lead: 'Score your generations, traces, or sessions in production. Use an LLM as a judge, Hog code, or sentiment analysis for a wide range of checks. Start with a template, from scratch, or with PostHog AI, then view pass rates over time and jump straight into the runs that failed.',
             },
         },
-        primaryAction: {
-            label: 'Create your first evaluation',
-            to: urls.aiObservabilityEvaluationTemplates(),
-            accessControl: {
-                resourceType: AccessControlResourceType.Evaluation,
-                minAccessLevel: AccessControlLevel.Editor,
-            },
-            dataAttr: 'create-evaluation-button',
-        },
-        SetupActions: EvaluationQuickStart,
+        PrimaryAction: EvaluationQuickStart,
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
         previewLabel: 'Example: how your evaluations will score',
