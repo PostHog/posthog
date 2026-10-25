@@ -381,6 +381,29 @@ class TestIncremental:
         assert table.types["delivered_at"] == "INTEGER"
         assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
 
+    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(self) -> None:
+        # MERGE does not evolve schema on its own, so a column only the second batch carries
+        # must be added to the target first, or the MERGE fails referencing a column T lacks.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, _rows([1], ["a"]), 0)
+        await _deliver(
+            writer,
+            ctx,
+            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "clicks": [10]}),
+            1,
+            is_final=True,
+        )
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.columns == ["id", "name", "clicks"]
+        assert sorted((row["id"], row["name"], row.get("clicks")) for row in table.rows) == [
+            (1, "a", None),
+            (2, "b", 10),
+        ]
+
     async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
         # A retry sends the same values, so a retryable error would fail until someone changes the table.
         client = FakeBigQueryClient()

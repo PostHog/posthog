@@ -417,6 +417,8 @@ class BigQueryDestinationWriter:
                 # scratch table rather than mapping Arrow types a second time.
                 self._create_like(client, target_ref, temp)
                 self._mark_owned(client, target_ref)
+            else:
+                self._evolve_table(client, target_ref, temp)
             self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
         finally:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
@@ -450,6 +452,21 @@ class BigQueryDestinationWriter:
                 ) from err
             table = table.set_column(index, pa.field(field.name, arrow_type), cast)
         return table
+
+    def _evolve_table(self, client: bigquery.Client, target_ref: str, temp: str) -> None:
+        """Add columns the source chunk has grown, before `MERGE` can reference them.
+
+        Unlike `_load`'s `ALLOW_FIELD_ADDITION` on the plain-append path, `MERGE` does not
+        evolve the target's schema on its own, so a column new to this chunk needs adding to
+        the target first — otherwise the `MERGE` fails referencing a column T does not have.
+        Additive only, same as the other SQL writers' `_evolve_table`.
+        """
+        existing = {field.name for field in client.get_table(target_ref).schema}
+        additions = [field for field in client.get_table(self._table_ref(temp)).schema if field.name not in existing]
+        if not additions:
+            return
+        clauses = ", ".join(f"ADD COLUMN IF NOT EXISTS {_backtick(f.name)} {f.field_type}" for f in additions)
+        client.query(f"ALTER TABLE {_backtick(target_ref)} {clauses}").result()
 
     def _create_like(self, client: bigquery.Client, table_ref: str, model: str) -> None:
         """Create an empty table carrying another table's schema."""
