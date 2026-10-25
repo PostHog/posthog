@@ -8,7 +8,7 @@ from uuid import UUID
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
-from ..logic import accept, suggestions
+from ..logic import accept, sql_repair, suggestions
 from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
 from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
@@ -18,6 +18,7 @@ from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
     AcceptOptions,
     CatalogEditAccessRequiredError,
+    ProposeSqlRepair,
     SubjectEditAccessRequiredError,
     SubjectKinds,
     Suggestion,
@@ -47,6 +48,7 @@ __all__ = [
     "get_suggestion",
     "is_warehouse_suggestions_enabled",
     "list_suggestions",
+    "propose_sql_repair",
     "resume_suggestion",
     "suggestion_status",
     "upsert_suggestions",
@@ -57,6 +59,17 @@ CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionK
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
     suggestions.upsert_suggestions(team_id, drafts)
+
+
+def propose_sql_repair(
+    team: "Team", user_access_control: "UserAccessControl", proposal: ProposeSqlRepair, *, user: "User"
+) -> Suggestion:
+    row = sql_repair.propose_sql_repair(team, proposal, user=user)
+    subject_kinds = SubjectKinds(
+        readable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
+        actionable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
+    )
+    return get_suggestion(team.pk, user_access_control, row.id, subject_kinds=subject_kinds)
 
 
 def list_suggestions(

@@ -37,14 +37,17 @@ tools:
             unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
             with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
             changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
-            confirmation.
+            confirmation. SQL repair suggestions replace only the saved view query. The server refuses the change if
+            the view revision changed after proposal. It keeps the schedule, incremental keys, permissions and output
+            schema unchanged.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
                 If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
                 cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is
                 deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes
-                stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.
+                stop, its stored table is deleted, and each read computes the view instead. A SQL repair replaces the
+                saved view query shown in the suggestion. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
     warehouse-suggestions-dismiss:
         operation: warehouse_suggestions_dismiss_create
@@ -69,25 +72,25 @@ tools:
             ran on its own, such as cache warming and alerts. `last_read_at` is the latest read of any kind, background
             included. `days_with_data` is how many days of the window PostHog has read history for, not how active this
             project is. A field is missing when the subject had no reads. Use these counts and the numbers in `payload`
-            to explain to the user why a view or table should be certified, deprecated, materialized or unmaterialized
-            before accepting.
+            to explain to the user why a view or table should be certified, deprecated, materialized, repaired or
+            unmaterialized before accepting. For a SQL repair, show the exact difference between original_query and
+            proposed_query. Explain failure_evidence, reason and expected_effect. State that validation does not prove
+            business equivalence.
     warehouse-suggestions-list:
         operation: warehouse_suggestions_list
         enabled: true
         list: true
         title: List warehouse suggestions
         description: >
-            Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables,
-            computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting
-            for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can
-            edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate
-            suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage
+            Recommendations to certify, deprecate, materialize, repair or unmaterialize data warehouse views and
+            tables. Most suggestions use daily read data. An internal producer creates SQL repair suggestions after a
+            failed view refresh. Pass status=proposed for suggestions that need a decision. `payload` says what
+            acceptance changes. `can_act` says if the caller can edit the view or table. Accept, dismiss and resume need
+            this access. Certify and deprecate also need data catalog edit access. Use warehouse-suggestions-get for the
             evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why.
-            Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with
-            the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion,
-            compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take
-            (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from
-            warehouse-suggestions-get.
+            Results are in priority order. For unmaterialize, compare refresh_seconds_per_month with
+            live_seconds_per_month and state read_seconds. For certify, use the read counts in `evidence`. For
+            sql_repair, show the exact SQL difference and explain the failure, reason and expected effect.
         response:
             include:
                 - id
@@ -97,6 +100,24 @@ tools:
                 - payload
                 - status
                 - can_act
+    warehouse-suggestions-propose-sql-repair:
+        operation: warehouse_suggestions_sql_repair_create
+        enabled: true
+        scopes:
+            - warehouse_suggestion_proposal:write
+            - warehouse_view:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Propose a saved view SQL repair
+        description: >
+            Create a customer-reviewable SQL repair suggestion for one saved view in the active project. This validates
+            HogQL syntax, readable references and the ordered result schema with a zero-row read-only check. It does not
+            run a materialization, apply the SQL or prove business equivalence. Include concise failure evidence, the
+            repair reason and the expected effect. Do not include secrets or query result data. Repeating the same
+            proposal returns the same suggestion. A customer must inspect and accept it through the separate warehouse
+            suggestion acceptance flow.
     warehouse-suggestions-resume:
         operation: warehouse_suggestions_resume_create
         enabled: true

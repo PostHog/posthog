@@ -231,12 +231,14 @@ RULES = Rules(
         first_week_runs=2,
         flip_cooldown_days=30,
         kind_order=(
+            WarehouseSuggestionKind.SQL_REPAIR,
             WarehouseSuggestionKind.MATERIALIZE,
             WarehouseSuggestionKind.DEPRECATE,
             WarehouseSuggestionKind.UNMATERIALIZE,
             WarehouseSuggestionKind.CERTIFY,
         ),
         first_week_kind_order=(
+            WarehouseSuggestionKind.SQL_REPAIR,
             WarehouseSuggestionKind.CERTIFY,
             WarehouseSuggestionKind.DEPRECATE,
             WarehouseSuggestionKind.UNMATERIALIZE,

@@ -96,6 +96,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         description: 'Create tables, refresh their schema, and manage data quality checks on them',
     },
     {
+        scope: 'warehouse_suggestion_proposal:write',
+        group: 'Data',
+        label: 'Warehouse SQL repair suggestions',
+        description:
+            'Propose a saved-view SQL repair for a person to review. The scout cannot apply the repair or change the view',
+    },
+    {
         scope: 'replay_scanner:write',
         group: 'Replay vision',
         label: 'Replay vision scanners',

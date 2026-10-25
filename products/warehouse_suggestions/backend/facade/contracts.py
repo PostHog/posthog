@@ -1,5 +1,6 @@
 """Contract types for warehouse_suggestions."""
 
+from dataclasses import field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -73,7 +74,30 @@ class UnmaterializePayload:
     query_fingerprint: str
 
 
-SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | UnmaterializePayload
+@frozen
+class SqlRepairValidation:
+    syntax_valid: bool
+    references_valid: bool
+    result_schema_compatible: bool
+    read_only: bool
+    rows_read: int
+    business_equivalence_checked: bool
+
+
+@frozen
+class SqlRepairPayload:
+    subject_name: str
+    original_query: str = field(repr=False)
+    original_query_revision: str | None
+    original_query_hash: str
+    proposed_query: str = field(repr=False)
+    failure_evidence: str
+    reason: str
+    expected_effect: str
+    validation: SqlRepairValidation
+
+
+SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | SqlRepairPayload | UnmaterializePayload
 
 
 @frozen
@@ -101,7 +125,9 @@ class MaterializeSuggestionPayload:
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
+SuggestionPayloadView = (
+    CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | SqlRepairPayload | UnmaterializePayload
+)
 
 
 @frozen
@@ -188,7 +214,22 @@ class UnmaterializationAsset:
     saved_query_id: str
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
+@frozen
+class SqlRepairAsset:
+    saved_query_id: str
+    query_revision: str
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | SqlRepairAsset | UnmaterializationAsset
+
+
+@frozen
+class ProposeSqlRepair:
+    saved_query_id: UUID
+    proposed_query: str = field(repr=False)
+    failure_evidence: str
+    reason: str
+    expected_effect: str
 
 
 @frozen

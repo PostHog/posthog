@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
@@ -534,17 +533,20 @@ class DataWarehouseSavedQuerySerializer(
             ):
                 raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
 
-            if query_changed:
-                validated_data["query_revision"] = uuid.uuid4()
-                validated_data["query_updated_at"] = timezone.now()
-
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
                 # stays NULL so a stale v1 schedule can never be revived from it.
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
 
+            query_update = validated_data.pop("query") if query_changed else None
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+            if query_update is not None:
+                view.apply_query_update(
+                    query_update,
+                    columns=inferred_columns,
+                    external_tables=inferred_external_tables,
+                )
             name_changed = before_update.name != view.name
 
             if frequency_changed:
@@ -556,7 +558,7 @@ class DataWarehouseSavedQuerySerializer(
             if has_description:
                 self._write_view_description(view, description)
 
-            if inferred_columns is not None:
+            if inferred_columns is not None and query_update is None:
                 view.set_columns(inferred_columns)
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
@@ -600,7 +602,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if "query" in validated_data or name_changed:
+            if query_changed or name_changed:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)

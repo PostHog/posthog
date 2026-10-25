@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -18,10 +18,10 @@ export const WarehouseSuggestionsListParams = () => zod.object({
 
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
     kind: zod
-        .enum(['certify', 'deprecate', 'materialize', 'unmaterialize'])
+        .enum(['certify', 'deprecate', 'materialize', 'sql_repair', 'unmaterialize'])
         .optional()
         .describe(
-            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `unmaterialize` - Unmaterialize'
+            'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `sql_repair` - SQL repair\n\* `unmaterialize` - Unmaterialize'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -149,6 +149,42 @@ export const WarehouseSuggestionsResumeCreateParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const WarehouseSuggestionsSqlRepairCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const warehouseSuggestionsSqlRepairCreateBodyProposedQueryMax = 100000
+
+export const warehouseSuggestionsSqlRepairCreateBodyFailureEvidenceMax = 4000
+
+export const warehouseSuggestionsSqlRepairCreateBodyReasonMax = 2000
+
+export const warehouseSuggestionsSqlRepairCreateBodyExpectedEffectMax = 2000
+
+export const WarehouseSuggestionsSqlRepairCreateBody = () => zod.object({
+    saved_query_id: zod.string().describe('Saved view in this project that needs a SQL repair.'),
+    proposed_query: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyProposedQueryMax)
+        .describe('Complete proposed HogQL SELECT query. This operation validates it but does not apply it.'),
+    failure_evidence: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyFailureEvidenceMax)
+        .describe('Short failure evidence for the customer. Do not include secrets or query result data.'),
+    reason: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyReasonMax)
+        .describe('Why the proposed SQL can repair the failure.'),
+    expected_effect: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyExpectedEffectMax)
+        .describe('Expected result if the customer accepts the repair. Do not claim business equivalence.'),
 })
 
 export const WarehouseSuggestionsStatusRetrieveParams = () => zod.object({

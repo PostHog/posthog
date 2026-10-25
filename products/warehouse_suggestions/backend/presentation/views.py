@@ -24,6 +24,13 @@ from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, 
 from posthog.scopes import scopes_not_covered
 from posthog.utils import UUID_REGEX
 
+from products.data_modeling.backend.facade.api import (
+    SavedQueryRepairForbiddenError,
+    SavedQueryRepairInvalidError,
+    SavedQueryRepairNotFoundError,
+    SavedQueryRepairUnsupportedError,
+)
+
 from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
@@ -31,6 +38,7 @@ from ..facade.contracts import (
     AcceptOptionRefusedError,
     AcceptOptions,
     CatalogEditAccessRequiredError,
+    ProposeSqlRepair,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -45,6 +53,7 @@ from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, W
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
+    ProposeSqlRepairSerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
     WarehouseSuggestionStatusSerializer,
@@ -96,7 +105,7 @@ class ProjectAccessPermission(BasePermission):
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "warehouse_objects"
     scope_object_read_actions = ["list", "retrieve", "status"]
-    scope_object_write_actions = ["accept", "dismiss", "resume"]
+    scope_object_write_actions = ["accept", "dismiss", "resume", "sql_repair"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
 
@@ -109,6 +118,8 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied("Warehouse suggestions are not enabled for this project.")
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        if self.action == "sql_repair":
+            return ["warehouse_suggestion_proposal:write", "warehouse_view:read"]
         level = self._scope_level
         fallback = f"{SUBJECT_SCOPE_OBJECTS[WarehouseSuggestionSubjectKind.SAVED_QUERY]}:{level}"
         subject_scope = next(iter(self._token_scopes_by_kind(level).values()), fallback)
@@ -163,6 +174,21 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(detail=False, methods=["get"], pagination_class=None)
     def status(self, request: Request, **kwargs: Any) -> Response:
         return Response(WarehouseSuggestionStatusSerializer(api.suggestion_status(self.team_id)).data)
+
+    @validated_request(
+        request_serializer=ProposeSqlRepairSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="sql_repair")
+    def sql_repair(self, request: TypedRequest[ProposeSqlRepair], **kwargs: Any) -> Response:
+        return self._respond(
+            lambda: api.propose_sql_repair(
+                self.team,
+                self.user_access_control,
+                request.validated_data,
+                user=cast(User, request.user),
+            )
+        )
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -242,3 +268,9 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
+        except SavedQueryRepairNotFoundError:
+            raise NotFound("This view no longer exists.")
+        except SavedQueryRepairForbiddenError as error:
+            raise PermissionDenied(str(error))
+        except (SavedQueryRepairInvalidError, SavedQueryRepairUnsupportedError) as error:
+            raise ValidationError({"proposed_query": str(error)})

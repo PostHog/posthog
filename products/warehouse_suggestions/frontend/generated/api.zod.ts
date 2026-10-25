@@ -73,3 +73,31 @@ export const WarehouseSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe('Optional note about the dismissal.'),
 })
+
+export const warehouseSuggestionsSqlRepairCreateBodyProposedQueryMax = 100000
+
+export const warehouseSuggestionsSqlRepairCreateBodyFailureEvidenceMax = 4000
+
+export const warehouseSuggestionsSqlRepairCreateBodyReasonMax = 2000
+
+export const warehouseSuggestionsSqlRepairCreateBodyExpectedEffectMax = 2000
+
+export const WarehouseSuggestionsSqlRepairCreateBody = /* @__PURE__ */ zod.object({
+    saved_query_id: zod.uuid().describe('Saved view in this project that needs a SQL repair.'),
+    proposed_query: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyProposedQueryMax)
+        .describe('Complete proposed HogQL SELECT query. This operation validates it but does not apply it.'),
+    failure_evidence: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyFailureEvidenceMax)
+        .describe('Short failure evidence for the customer. Do not include secrets or query result data.'),
+    reason: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyReasonMax)
+        .describe('Why the proposed SQL can repair the failure.'),
+    expected_effect: zod
+        .string()
+        .max(warehouseSuggestionsSqlRepairCreateBodyExpectedEffectMax)
+        .describe('Expected result if the customer accepts the repair. Do not claim business equivalence.'),
+})

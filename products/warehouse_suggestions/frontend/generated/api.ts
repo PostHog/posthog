@@ -12,6 +12,7 @@ import type {
     AcceptWarehouseSuggestionApi,
     DismissWarehouseSuggestionApi,
     PaginatedWarehouseSuggestionListApi,
+    ProposeWarehouseSqlRepairApi,
     WarehouseSuggestionApi,
     WarehouseSuggestionStatusApi,
     WarehouseSuggestionsListParams,
@@ -107,6 +108,23 @@ export const warehouseSuggestionsResumeCreate = async (
     return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWarehouseSuggestionsSqlRepairCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/sql_repair/`
+}
+
+export const warehouseSuggestionsSqlRepairCreate = async (
+    projectId: string,
+    proposeWarehouseSqlRepairApi: ProposeWarehouseSqlRepairApi,
+    options?: RequestInit
+): Promise<WarehouseSuggestionApi> => {
+    return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsSqlRepairCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(proposeWarehouseSqlRepairApi),
     })
 }
 

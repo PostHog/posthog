@@ -2,7 +2,7 @@
 name: reviewing-warehouse-suggestions
 description: >
   Reviews PostHog's warehouse suggestions with a person and acts on them.
-  Explains why a view should be materialized, unmaterialized, certified or deprecated using the numbers in the suggestion,
+  Explains why a view should be materialized, unmaterialized, certified, deprecated or repaired using the suggestion,
   changes a materialize suggestion's refresh mode, keys or interval when the person wants something else,
   then accepts or dismisses it.
   Use when the user asks what PostHog suggests for their data warehouse, whether to materialize a view,
@@ -43,6 +43,12 @@ Do not invent a score or a confidence level.
   - A 409 on accept means the view changed since the suggestion was made, for example another view now reads from it. Explain the reason to the user and do not retry.
 - **certify**: many people read this view or table, from several places. Use the read counts in `evidence`.
 - **deprecate**: nobody reads this materialized view, but it still refreshes. `refresh_seconds_per_month` and `refresh_bytes_per_month` are that cost. Accepting marks it deprecated in the data catalog, stops its refreshes and deletes its stored table. The view definition stays, so it can be materialized again later. To keep it refreshing, pass `keep_materialized: true`. After accepting, `created_asset.stopped_materialization` says whether the refreshes stopped: they keep running when other views read from it or its refreshes feed person properties, a destination or a workflow.
+- **sql_repair**: a failed saved view has a proposed query repair.
+  - Show the exact difference between `original_query` and `proposed_query`.
+  - Explain `failure_evidence`, `reason` and `expected_effect`.
+  - The validation object confirms syntax, readable references, the ordered result schema, a read-only check and zero returned rows.
+  - State that validation does not prove business equivalence.
+  - Acceptance changes only the query. It keeps the schedule, incremental keys, permissions and output schema.
 
 ## 3. Change a materialize suggestion before accepting
 
@@ -70,6 +76,7 @@ The server checks every choice against the view's current query:
 
 - A 400 names the field it refused and why. Show the reason to the user and ask what to change.
 - A 409 means the view changed after the suggestion was made, so the suggested keys no longer apply. Offer a full refresh, or keys checked with `view-check-incremental`.
+- For a SQL repair, a 409 means the saved query changed after proposal. Do not retry. Ask for a new repair proposal against the current query.
 
 Dismiss with `warehouse-suggestions-dismiss` and a reason (`not_useful`, `not_now` or `other`).
 `warehouse-suggestions-resume` brings a dismissed suggestion back.

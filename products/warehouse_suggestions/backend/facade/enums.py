@@ -7,7 +7,12 @@ class WarehouseSuggestionKind(LabeledStrEnum):
     CERTIFY = "certify"
     DEPRECATE = "deprecate"
     MATERIALIZE = "materialize"
+    SQL_REPAIR = ("sql_repair", "SQL repair")
     UNMATERIALIZE = "unmaterialize"
+
+
+def warehouse_suggestion_kind_choices() -> list[tuple[str, str]]:
+    return WarehouseSuggestionKind.choices
 
 
 class WarehouseSuggestionStatus(LabeledStrEnum):

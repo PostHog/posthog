@@ -11,6 +11,8 @@ import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionModal } from './MaterializeSuggestionModal'
 import { MaterializeSuggestionRow } from './MaterializeSuggestionRow'
 import { SavingsBannerMessage } from './SavingsBannerMessage'
+import { SqlRepairSuggestionModal } from './SqlRepairSuggestionModal'
+import { SqlRepairSuggestionRow } from './SqlRepairSuggestionRow'
 import { SuggestionsBanner } from './SuggestionsBanner'
 import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
@@ -77,7 +79,9 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 summary={<SavingsBannerMessage summary={savingsSummary} />}
             >
                 {listedSuggestions.map((suggestion) =>
-                    suggestion.kind === 'unmaterialize' ? (
+                    suggestion.kind === 'sql_repair' ? (
+                        <SqlRepairSuggestionRow key={suggestion.id} suggestion={suggestion} />
+                    ) : suggestion.kind === 'unmaterialize' ? (
                         <UnmaterializeSuggestionRow
                             key={suggestion.id}
                             suggestion={suggestion}
@@ -89,6 +93,7 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 )}
             </SuggestionsReviewModal>
             <MaterializeSuggestionModal />
+            <SqlRepairSuggestionModal />
             <UnmaterializeSuggestionModal />
         </>
     )

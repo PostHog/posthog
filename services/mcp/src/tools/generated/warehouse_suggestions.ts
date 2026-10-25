@@ -41,7 +41,7 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
             purpose: 'warehouse-suggestions-accept',
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
-                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
+                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. A SQL repair replaces the saved view query shown in the suggestion. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -189,6 +189,47 @@ const warehouseSuggestionsList = (): ToolBase<
     },
 })
 
+const WarehouseSuggestionsProposeSqlRepairSchema = () => {
+    const WarehouseSuggestionsSqlRepairCreateBody = orvalSchemas.WarehouseSuggestionsSqlRepairCreateBody()
+    return WarehouseSuggestionsSqlRepairCreateBody
+}
+
+const warehouseSuggestionsProposeSqlRepair = (): ToolBase<
+    ReturnType<typeof WarehouseSuggestionsProposeSqlRepairSchema>,
+    Schemas.WarehouseSuggestion
+> => ({
+    name: 'warehouse-suggestions-propose-sql-repair',
+    schema: WarehouseSuggestionsProposeSqlRepairSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WarehouseSuggestionsProposeSqlRepairSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.saved_query_id !== undefined) {
+            body['saved_query_id'] = params.saved_query_id
+        }
+        if (params.proposed_query !== undefined) {
+            body['proposed_query'] = params.proposed_query
+        }
+        if (params.failure_evidence !== undefined) {
+            body['failure_evidence'] = params.failure_evidence
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        if (params.expected_effect !== undefined) {
+            body['expected_effect'] = params.expected_effect
+        }
+        const result = await context.api.request<Schemas.WarehouseSuggestion>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/sql_repair/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WarehouseSuggestionsResumeSchema = () => {
     const WarehouseSuggestionsResumeCreateParams = orvalSchemas.WarehouseSuggestionsResumeCreateParams()
     return WarehouseSuggestionsResumeCreateParams.omit({ project_id: true })
@@ -234,6 +275,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-suggestions-dismiss': warehouseSuggestionsDismiss,
     'warehouse-suggestions-get': warehouseSuggestionsGet,
     'warehouse-suggestions-list': warehouseSuggestionsList,
+    'warehouse-suggestions-propose-sql-repair': warehouseSuggestionsProposeSqlRepair,
     'warehouse-suggestions-resume': warehouseSuggestionsResume,
     'warehouse-suggestions-status': warehouseSuggestionsStatus,
 }

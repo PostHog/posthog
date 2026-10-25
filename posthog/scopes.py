@@ -146,6 +146,8 @@ APIScopeObject = Literal[
     "warehouse_objects",
     "warehouse_table",
     "warehouse_view",
+    # Suggests a saved-view SQL repair and nothing else. INTERNAL.
+    "warehouse_suggestion_proposal",
     "web_analytics",
     "webhook",
     "wizard_session",
@@ -213,6 +215,9 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # pipeline's research and implementation runs need durable memory, and granting it
         # through the scout object would hand them `emit_signal` and `record_output` too.
         "signal_scratchpad_internal",
+        # Files a SQL repair suggestion. It cannot update the saved view; a customer accepts through the separate
+        # warehouse suggestion approval path.
+        "warehouse_suggestion_proposal",
         # Marks tokens minted for Slack tasks so spend policy does not depend on the
         # caller-selected LLM gateway product route.
         "slack_run",

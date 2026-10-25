@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_effect": {
+            "description": "Expected result if the customer accepts the repair. Do not claim business equivalence.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "failure_evidence": {
+            "description": "Short failure evidence for the customer. Do not include secrets or query result data.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "proposed_query": {
+            "description": "Complete proposed HogQL SELECT query. This operation validates it but does not apply it.",
+            "maxLength": 100000,
+            "type": "string"
+        },
+        "reason": {
+            "description": "Why the proposed SQL can repair the failure.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "saved_query_id": {
+            "description": "Saved view in this project that needs a SQL repair.",
+            "type": "string"
+        }
+    },
+    "required": ["saved_query_id", "proposed_query", "failure_evidence", "reason", "expected_effect"],
+    "type": "object"
+}

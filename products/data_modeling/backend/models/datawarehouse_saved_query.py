@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 
@@ -491,6 +492,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         """
         self.columns = columns
         self.column_order = list(columns.keys())
+
+    def apply_query_update(
+        self,
+        query: dict[str, str],
+        *,
+        columns: dict[str, dict[str, Any]] | None = None,
+        external_tables: list[str] | None = None,
+    ) -> None:
+        """Persist a validated query edit without changing its operational settings."""
+        self.query = query
+        self.query_revision = uuid.uuid4()
+        self.query_updated_at = timezone.now()
+        update_fields = ["query", "query_revision", "query_updated_at", "updated_at"]
+        if columns is not None:
+            self.set_columns(columns)
+            self.external_tables = external_tables
+            self.status = self.Status.MODIFIED
+            update_fields.extend(["columns", "column_order", "external_tables", "status"])
+        self.save(update_fields=update_fields)
 
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path

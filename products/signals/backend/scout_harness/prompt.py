@@ -918,6 +918,7 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
     "llm_skill:write": "shared skills",
     "warehouse_view:write": "data warehouse views",
     "warehouse_table:write": "data warehouse tables",
+    "warehouse_suggestion_proposal:write": "saved-view SQL repair suggestions, which a person approves or rejects",
     "replay_scanner:write": "replay vision scanners",
     "hog_flow_proposal:write": "suggested changes to workflows, which a person approves or rejects",
     "ticket:write": "support tickets",
