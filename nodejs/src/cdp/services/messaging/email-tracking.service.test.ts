@@ -58,6 +58,7 @@ describe('EmailTrackingService', () => {
             functionId: 'fn-1',
             id: 'inv-1',
             teamId: 1,
+            state: {},
         } as any
 
         const extractTarget = (html: string): string => {

@@ -1808,21 +1808,23 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined],
-            ['a sensitive template', { sensitive: true }, undefined, undefined],
-            ['a workflow step', {}, 'Test Subject', 4],
+            ['an ordinary template', {}, 'Test Subject', undefined, undefined, undefined],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, undefined, undefined],
+            ['a workflow step rendered before its version was stored', {}, 'Test Subject', 4, undefined, 4],
+            ['a workflow step republished after it rendered', {}, 'Test Subject', 4, 3, 3],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion) => {
+            async (_name, extraMetadata, subject, currentVersion, renderedVersion, workflowVersion) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
-                if (workflowVersion !== undefined) {
-                    Object.assign(invocation, { hogFlow: { version: workflowVersion } })
+                if (currentVersion !== undefined) {
+                    Object.assign(invocation, { hogFlow: { version: currentVersion } })
                 }
+                invocation.state.workflowVersion = renderedVersion
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
