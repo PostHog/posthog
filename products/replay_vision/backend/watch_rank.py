@@ -12,6 +12,7 @@ import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db.models import (
@@ -23,6 +24,7 @@ from django.db.models import (
     FloatField,
     Func,
     IntegerField,
+    Q,
     QuerySet,
     Value,
     When,
@@ -347,6 +349,14 @@ def people_boost(people: int) -> float:
     return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _embedding_group_root() -> Coalesce:
     """A ranked row's duplicate group: the observation it duplicates, or itself."""
     return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
@@ -392,6 +402,10 @@ def select_embedding_picks(
             scanner_position=Window(
                 RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
             ),
+            # Each scanner's best row ranks 1, so the cap takes every scanner's best before any second-best.
+            scanner_rank=Window(
+                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.desc(), F("id").desc()]
+            ),
             # A few rows per duplicate group reach the cap, enough for the ranker to pick a readable, unseen one.
             group_position=Window(
                 RowNumber(), partition_by=[group_root], order_by=[is_issue.desc(), contrast.desc(), F("id").desc()]
@@ -412,7 +426,7 @@ def select_embedding_picks(
             watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE,
             group_position__lte=WATCH_PICK_GROUP_CANDIDATES,
         )
-        .order_by("-watch_percentile", "-created_at")
+        .order_by("scanner_rank", "-watch_percentile", "-created_at")
         .values("id", "watch_percentile", "watch_group_root")[:cap]
     )
     window_values = {row["id"]: row for row in ranked}
@@ -421,11 +435,19 @@ def select_embedding_picks(
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
+    roots = {row["watch_group_root"] for row in window_values.values()}
     group_reach = {
         row["watch_group_root"]: row
-        for row in accessible_observations(access, team_id, current_ranks.filter(watch_category__in=ISSUE_CATEGORIES))
+        for row in accessible_observations(
+            access,
+            team_id,
+            # Matches the picks' groups on plain columns first, so only their members reach the snapshot gate.
+            current_ranks.filter(
+                Q(id__in=[root for root in roots if _is_uuid(root)]) | Q(watch_rank__duplicate_of__in=list(roots)),
+                watch_category__in=ISSUE_CATEGORIES,
+            ),
+        )
         .annotate(watch_group_root=group_root)
-        .filter(watch_group_root__in={row["watch_group_root"] for row in window_values.values()})
         .values("watch_group_root")
         .annotate(sessions=Count("id"), people=Count(person, distinct=True))
     }
@@ -455,16 +477,23 @@ def select_embedding_filler(
     team_id: int,
     pick_roots: set[str],
 ) -> list[dict[str, Any]]:
-    """The newest readable rows outside the picks' duplicate groups, enough to bring a thin feed up to its floor."""
-    return list(
+    """The newest readable rows outside the picks' duplicate groups, unwatched first, enough to bring a thin feed up to its floor."""
+    base = (
         accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
         .annotate(watch_group_root=_embedding_group_root())
         .exclude(watch_group_root__in=pick_roots)
         .annotate(feed_viewed=viewed)
-        # Unwatched rows first, so a thin feed never repeats watched sessions while unwatched ones remain.
-        .order_by("feed_viewed", "-created_at", "-id")
-        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")[:WATCH_FEED_MIN_ITEMS]
     )
+    fields = ("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    # Two short newest-first walks, because ordering by the viewed flag would sort the whole window.
+    rows = list(base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:WATCH_FEED_MIN_ITEMS])
+    if len(rows) < WATCH_FEED_MIN_ITEMS:
+        rows += list(
+            base.filter(feed_viewed=True)
+            .order_by("-created_at", "-id")
+            .values(*fields)[: WATCH_FEED_MIN_ITEMS - len(rows)]
+        )
+    return rows
 
 
 def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:

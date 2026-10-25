@@ -5261,6 +5261,29 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertNotIn("copy-above", sessions)
         self.assertNotIn("copy-newest", sessions)
 
+    def test_the_pick_cap_keeps_every_scanners_best_before_a_busy_scanners_next(self) -> None:
+        busy = self._create_scanner(name="busy")
+        quiet = self._create_scanner(name="quiet")
+        for scanner, prefix, top in ((busy, "busy", 0.9), (quiet, "quiet", 0.3)):
+            for index in range(12):
+                obs = self._succeeded_observation(scanner, f"{prefix}-{index}", index, self._monitor_result("yes"))
+                ReplayObservation.objects.filter(id=obs.id).update(
+                    watch_rank={
+                        "category": "failure",
+                        "contrast": top - index / 100,
+                        "duplicate_of": None,
+                        "anchor_version": ANCHOR_VERSION,
+                    }
+                )
+
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
+        self.assertEqual(picked, {"busy-0", "quiet-0"})
+
     def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
         scanner = self._create_scanner(name="m")
         rows = {}
