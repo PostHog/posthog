@@ -8,6 +8,8 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { ReplayScannerApi } from '../generated/api.schemas'
+import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { watchFeedLogic } from './watchFeedLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({ lemonToast: { success: jest.fn(), error: jest.fn() } }))
@@ -57,6 +59,16 @@ describe('watchFeedLogic', () => {
         feedSpy.mockImplementation(() => [
             200,
             { results: [item('o1', 'jev_watchable')], ranker: 'jev', ranker_variant: 'jev' },
+        ])
+        // The scope tabs are hidden for a viewer with no scanners, so a stored "mine" choice must not narrow the feed.
+        await expectLogic(logic, () => {
+            logic.actions.setOnlyMyScanners(true)
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')).toBeNull()
+        visionScannersListLogic.actions.loadScannersSuccess([
+            { id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi,
         ])
         await expectLogic(logic, () => {
             logic.actions.setOnlyMyScanners(true)
