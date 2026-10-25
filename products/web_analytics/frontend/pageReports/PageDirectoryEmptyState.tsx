@@ -1,13 +1,16 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { WebPageDirectorySortBy } from '~/queries/schema/schema-general'
+
 import { pageDirectoryLogic } from './pageDirectoryLogic'
 
 export function PageDirectoryEmptyState(): JSX.Element | null {
     const { directoryState, search } = useValues(pageDirectoryLogic)
+    const { setSort } = useActions(pageDirectoryLogic)
 
     if (directoryState === 'no-matches') {
         return (
@@ -15,6 +18,21 @@ export function PageDirectoryEmptyState(): JSX.Element | null {
                 No pages match "{search.trim()}" in this date range. Try a shorter search, or paste a full URL to open
                 its report.
             </p>
+        )
+    }
+    if (directoryState === 'no-metric-rows') {
+        return (
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <p className="text-secondary m-0">No pages have data for this column in this date range.</p>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => setSort(WebPageDirectorySortBy.Visitors, 'DESC')}
+                    data-attr="page-reports-directory-sort-by-visitors"
+                >
+                    Sort by visitors
+                </LemonButton>
+            </div>
         )
     }
     if (directoryState === 'no-traffic') {
