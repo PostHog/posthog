@@ -1,29 +1,47 @@
 # Email performance SQL recipes
 
 Run each recipe with `posthog:execute-sql`.
-All but **Run counters**, **Counters by version** and **Clicked links** read the captured `$workflows_email_*` events, so they return nothing in a project that does not capture engagement events (see "Check the data exists" in the skill).
+**Step engagement**, **Engagement by version**, **Product outcome after the first send** and **One person's email history** read the captured `$workflows_email_*` events. They return nothing when no engagement events were captured for the workflow and window (see "Check the data exists" in the skill).
 The events carry the workflow id for every kind of workflow, broadcasts and batch runs included.
 
 Replace every `{placeholder}` with a literal before you run the query:
 
-| Placeholder       | Holds                                                               | Write it as                                |
-| ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
-| `{workflow_id}`   | The workflow's UUID                                                 | `'01a1...'`                                |
-| `{step_id}`       | The email step's action id from `posthog:workflows-get`             | `'action_function_email_...'`              |
-| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day           | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
-| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
-| `{outcome_event}` | The product event that counts as the outcome, checked in the schema | `'insight created'`                        |
-| `{outcome_days}`  | How many days after the send the outcome may happen                 | `7`                                        |
-| `{run_id}`        | One batch run's id, from `posthog:workflows-list-batch-jobs`        | `'0199...'`                                |
-| `{person_id}`     | One person's UUID                                                   | `'0189...'`                                |
+| Placeholder       | Holds                                                                                                             | Write it as                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `{workflow_id}`   | The workflow's UUID                                                                                               | `'01a1...'`                                |
+| `{step_id}`       | The email step's action id from `posthog:workflows-get`                                                           | `'action_function_email_...'`              |
+| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day                                                         | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
+| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past                                               | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
+| `{outcome_event}` | The product event that counts as the outcome, checked in the schema                                               | `'insight created'`                        |
+| `{outcome_days}`  | How many days after the send the outcome may happen                                                               | `7`                                        |
+| `{run_id}`        | One batch run's id, from `posthog:workflows-list-batch-jobs`                                                      | `'0199...'`                                |
+| `{as_of}`         | The observation cutoff of an outcome read: the last moment the read counts, at the start of a UTC day in the past | `toDateTime('2026-10-24 00:00:00', 'UTC')` |
+| `{person_id}`     | One person's UUID                                                                                                 | `'0189...'`                                |
 
 ## Recipes
+
+### Email steps
+
+The id and name of each email step of one workflow.
+Use it when the `posthog:workflows-get` response cuts off before the step names.
+
+```sql
+SELECT
+    JSONExtractString(node, 'id') AS step_id,
+    JSONExtractString(node, 'name') AS step_name
+FROM (
+    SELECT arrayJoin(JSONExtractArrayRaw(actions)) AS node
+    FROM system.hog_flows
+    WHERE id = {workflow_id}
+)
+WHERE JSONExtractString(node, 'type') = 'function_email'
+```
 
 ### Step engagement
 
 Every email step of one workflow, in event occurrences and in distinct people.
-`tracked_sent` is the denominator for opens and clicks, because a send with tracking off can never record either.
-`people_tracked` is the denominator for `openers` and `clickers`: people over people.
+`tracked_sent` is the denominator for opens and clicks, because a send with tracking off can never record either. Opens over `tracked_sent` is a period occurrence ratio.
+`people_tracked` is the denominator for `openers` and `clickers`. Openers over `people_tracked` is a period person ratio: the openers need not be among the people sent email in the window.
 Bounces and spam complaints divide by `sent`. Hard bounces are the addresses that will never accept mail; soft bounces may succeed later.
 
 ```sql
@@ -101,7 +119,7 @@ Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` co
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it for openers and clickers per version. Report them as counts, because the sent event carries no version, so no count of people sent exists per version. Per-version rates come from `posthog:workflows-version-stats` or the **Counters by version** recipe, as occurrences over tracked sends.
+Use it for openers and clickers per version. Report them as counts, because the sent event carries no version, so no count of people sent exists per version. Per-version ratios come from `posthog:workflows-version-stats` or the **Counters by version** recipe, as period occurrence ratios over tracked sends.
 
 ```sql
 SELECT
@@ -160,13 +178,14 @@ LIMIT 50
 
 `clicks` are occurrences. `link` is empty when a position recorded more than one URL: a short personal path segment, such as a name in an invite link, passes through unchanged, and a version can change a link. Name such a position from the step's email content in `posthog:workflows-get`, never from its URLs.
 The recipe reads the versioned series, so clicks whose message carried no version are missing. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. For one broadcast or batch run, replace the `app_source` and `startsWith(app_source_id, ...)` conditions with `app_source = 'hog_flow' AND app_source_id = {run_id}`. That series holds every click of the run from 2026-08-12 on.
-For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only. Clickers overlap across links, so never add them up into a count of people who clicked.
+For people per link position, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index`. When a version changed the link at a position, group by `$workflow_version` too, and report each count against that version's link. Clickers overlap across positions, so never add them up into a count of people who clicked.
 
 ### Product outcome after the first send
 
 The people a step sent to in the window, and how many did the outcome event within `{outcome_days}` days after their first send in the window.
 The query groups only the recipients, but it still reads every outcome event in the window. For a common outcome event, such as `$pageview`, keep the window and `{outcome_days}` short.
-`recipients` counts only people whose whole outcome window has closed; `recipients_still_in_window` counts the rest, who have not had the time yet.
+`recipients` counts only people whose whole outcome window closed by `{as_of}`. `recipients_still_in_window` counts the rest, who had not had the time yet.
+Set `{as_of}` to a closed UTC day, on or after `{window_end}`, and report it with the answer.
 
 ```sql
 SELECT
@@ -175,7 +194,7 @@ SELECT
     countIf(NOT window_closed) AS recipients_still_in_window
 FROM (
     SELECT
-        first_sent_at + toIntervalDay({outcome_days}) <= now() AS window_closed,
+        first_sent_at + toIntervalDay({outcome_days}) <= {as_of} AS window_closed,
         arrayExists(t -> t > first_sent_at AND t <= first_sent_at + toIntervalDay({outcome_days}), outcome_times) AS reached_outcome
     FROM (
         SELECT
