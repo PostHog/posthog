@@ -28,12 +28,12 @@ OTHER_WORKFLOW_ID = "01a00000-0000-0000-0000-000000000002"
 STEP_ID = "action_function_email_welcome"
 OTHER_STEP_ID = "action_function_email_reminder"
 RUN_ID = "01a00000-0000-0000-0000-0000000000aa"
+SECOND_RUN_ID = "01a00000-0000-0000-0000-0000000000ab"
 OTHER_RUN_ID = "01a00000-0000-0000-0000-0000000000bb"
 OUTCOME_EVENT = "insight created"
 NOW = datetime.now(UTC).replace(microsecond=0)
 WINDOW_START = NOW - timedelta(days=30)
 WINDOW_END = NOW - timedelta(days=1)
-AS_OF = NOW - timedelta(hours=12)
 
 
 def _recipes() -> dict[str, str]:
@@ -53,9 +53,8 @@ def _placeholders() -> dict[str, ast.Expr]:
         "window_end": ast.Constant(value=WINDOW_END),
         "outcome_event": ast.Constant(value=OUTCOME_EVENT),
         "outcome_days": ast.Constant(value=7),
-        "as_of": ast.Constant(value=AS_OF),
         "person_id": ast.Constant(value="00000000-0000-0000-0000-000000000000"),
-        "run_id": ast.Constant(value=RUN_ID),
+        "run_ids": ast.Tuple(exprs=[ast.Constant(value=RUN_ID), ast.Constant(value=SECOND_RUN_ID)]),
     }
 
 
@@ -148,25 +147,28 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
             timestamp=WINDOW_START + timedelta(days=3),
         )
 
-    def test_run_counters_read_one_run_with_its_conversions(self) -> None:
+    def test_run_counters_split_the_chosen_runs_with_their_conversions(self) -> None:
         self._counter(RUN_ID, STEP_ID, "email_sent", 5, app_source="hog_flow")
         self._counter(RUN_ID, STEP_ID, "email_opened", 2, app_source="hog_flow")
         self._counter(RUN_ID, WORKFLOW_ID, "conversion", 1, app_source="hog_flow")
         self._counter(RUN_ID, OTHER_STEP_ID, "email_sent", 4, app_source="hog_flow")
+        self._counter(SECOND_RUN_ID, STEP_ID, "email_sent", 3, app_source="hog_flow")
         self._counter(OTHER_RUN_ID, STEP_ID, "email_sent", 7, app_source="hog_flow")
         self._counter(f"{WORKFLOW_ID}/1", STEP_ID, "email_sent", 5)
 
         rows = self._run("Run counters")
 
         assert rows == [
-            {"metric_name": "conversion", "total": 1},
-            {"metric_name": "email_opened", "total": 2},
-            {"metric_name": "email_sent", "total": 5},
+            {"run_id": RUN_ID, "metric_name": "conversion", "total": 1},
+            {"run_id": RUN_ID, "metric_name": "email_opened", "total": 2},
+            {"run_id": RUN_ID, "metric_name": "email_sent", "total": 5},
+            {"run_id": SECOND_RUN_ID, "metric_name": "email_sent", "total": 3},
         ]
 
     def test_counters_by_version_split_versions_of_one_workflow(self) -> None:
         self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_sent", 3)
         self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_untracked", 1)
+        self._counter(f"{WORKFLOW_ID}/2", WORKFLOW_ID, "conversion", 2)
         self._counter(f"{WORKFLOW_ID}/10", STEP_ID, "email_sent", 4)
         self._counter(RUN_ID, STEP_ID, "email_sent", 8, app_source="hog_flow")
         self._counter(f"{WORKFLOW_ID}/2", OTHER_STEP_ID, "email_sent", 4)
@@ -175,12 +177,13 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("Counters by version")
 
         assert rows == [
+            {"version": "2", "metric_name": "conversion", "total": 2},
             {"version": "2", "metric_name": "email_sent", "total": 3},
             {"version": "2", "metric_name": "email_untracked", "total": 1},
             {"version": "10", "metric_name": "email_sent", "total": 4},
         ]
 
-    def test_clicked_links_add_up_each_position_from_the_redacted_counter(self) -> None:
+    def test_clicked_links_count_each_position_per_version_without_urls(self) -> None:
         clicks = "email_link_clicked_by_link"
         self._counter(f"{WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", clicks, 2)
         self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|0|https://example.com/pricing", clicks, 1)
@@ -194,9 +197,10 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("Clicked links")
 
         assert rows == [
-            {"link_index": "0", "clicks": 3, "urls": 1, "link": "https://example.com/pricing"},
-            {"link_index": "2", "clicks": 2, "urls": 2, "link": ""},
-            {"link_index": "1", "clicks": 1, "urls": 1, "link": "https://example.com/a|b"},
+            {"version": "1", "link_index": "0", "clicks": 2},
+            {"version": "2", "link_index": "0", "clicks": 1},
+            {"version": "2", "link_index": "1", "clicks": 1},
+            {"version": "2", "link_index": "2", "clicks": 2},
         ]
 
     def test_outcome_counts_each_recipient_once_within_their_own_window(self) -> None:
@@ -211,11 +215,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._product_event("sent_twice", sent_at + timedelta(days=8))
         self._person("never_sent")
         self._product_event("never_sent", sent_at + timedelta(days=1))
-        self._person("sent_yesterday")
-        self._sent("sent_yesterday", WINDOW_END - timedelta(hours=2))
-        self._person("window_closes_after_cutoff")
-        self._sent("window_closes_after_cutoff", NOW - timedelta(days=7, hours=6))
 
         (row,) = self._run("Product outcome after the first send")
 
-        assert row == {"recipients": 4, "reached_outcome": 1, "recipients_still_in_window": 2}
+        assert row == {"recipients": 4, "reached_outcome": 1}
