@@ -31,6 +31,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingUsageListEngine, type ModelUsageRowApi } from './generated/api.schemas'
 import { modelsUsageLogic } from './modelsUsageLogic'
+import { UsageNotAvailable } from './UsageNotAvailable'
 
 const PAGE_SIZE = 20
 
@@ -121,9 +122,7 @@ export function ModelsUsageByModelTable({
                                                     className="whitespace-nowrap tabular-nums"
                                                 >
                                                     {readBytes === null ? (
-                                                        <Text variant="muted" render={<span />}>
-                                                            Not measured
-                                                        </Text>
+                                                        <UsageNotAvailable context="model" />
                                                     ) : (
                                                         humanizeBytes(readBytes)
                                                     )}
@@ -133,9 +132,7 @@ export function ModelsUsageByModelTable({
                                     ) : (
                                         <TableCell align="right" className="whitespace-nowrap tabular-nums">
                                             {row.read_bytes === null ? (
-                                                <Text variant="muted" render={<span />}>
-                                                    Not measured
-                                                </Text>
+                                                <UsageNotAvailable context="model" />
                                             ) : (
                                                 humanizeBytes(row.read_bytes)
                                             )}
@@ -146,9 +143,7 @@ export function ModelsUsageByModelTable({
                                         className="hidden whitespace-nowrap tabular-nums @min-[48rem]/main-content:table-cell"
                                     >
                                         {row.cpu_microseconds === null ? (
-                                            <Text variant="muted" render={<span />}>
-                                                Not measured
-                                            </Text>
+                                            <UsageNotAvailable context="model" />
                                         ) : (
                                             humanFriendlyDuration(row.cpu_microseconds / 1_000_000)
                                         )}
