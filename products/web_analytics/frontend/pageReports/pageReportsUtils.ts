@@ -52,8 +52,8 @@ export const valueChange = (value: WebPageDirectoryValue | null | undefined): nu
 export const pageReportUrlForPage = (page: string): string =>
     page.startsWith('/') || /^[a-z]+:\/\//i.test(page) ? page : `https://${page}`
 
-export const pageReportPath = (page: string): string =>
-    combineUrl(urls.webAnalyticsPageReports(), { pageURL: pageReportUrlForPage(page) }).url
+export const pageReportPath = (page: string, searchParams: Record<string, any> = {}): string =>
+    combineUrl(urls.webAnalyticsPageReports(), { ...searchParams, pageURL: pageReportUrlForPage(page) }).url
 
 export const looksLikePageUrl = (search: string): boolean => {
     const trimmed = search.trim()

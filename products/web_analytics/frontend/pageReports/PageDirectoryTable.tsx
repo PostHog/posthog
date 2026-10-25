@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconWarning } from '@posthog/icons'
@@ -34,6 +35,7 @@ export function PageDirectoryTable(): JSX.Element {
         singleHost,
     } = useValues(pageDirectoryLogic)
     const { setSort, nextPage, previousPage } = useActions(pageDirectoryLogic)
+    const { searchParams } = useValues(router)
     const { openPageReport } = useActions(pageReportsLogic)
     const { ref, width = 0 } = useResizeObserver<HTMLDivElement>()
 
@@ -58,7 +60,7 @@ export function PageDirectoryTable(): JSX.Element {
                 return (
                     <Tooltip title={pageReportUrlForPage(row.page)}>
                         <Link
-                            to={pageReportPath(row.page)}
+                            to={pageReportPath(row.page, searchParams)}
                             subtle
                             className="flex flex-col min-w-0 py-0.5"
                             onClick={(event) => {

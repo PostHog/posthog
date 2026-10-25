@@ -73,7 +73,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
                         dateOptions={webAnalyticsDateMapping}
                     />
                     <WebAnalyticsCompareFilter />
-                    {isDirectoryEnabled ? (
+                    {isDirectoryEnabled && !pageUrl ? (
                         <div className="flex-1" />
                     ) : (
                         <LemonInputSelect
