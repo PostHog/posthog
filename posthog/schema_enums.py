@@ -2408,6 +2408,7 @@ class NodeKind(StrEnum):
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
+    WEB_PAGE_DIRECTORY_QUERY = "WebPageDirectoryQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3293,6 +3294,32 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
 class WebBotsBreakdown(StrEnum):
     CRAWLER = "Crawler"
     PATH = "Path"
+
+
+class WebPageDirectoryMetric(StrEnum):
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
+
+
+class SortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebPageDirectorySortBy(StrEnum):
+    PAGE = "page"
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
 
 
 class WebStatsBreakdown(StrEnum):
