@@ -1249,7 +1249,12 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'embedding_pick', watch_category: 'failure', similar_count: 3 },
+                            reason: {
+                                kind: 'embedding_pick',
+                                watch_category: 'failure',
+                                similar_count: 3,
+                                affected_people: 3,
+                            },
                         },
                         {
                             observation: observation({

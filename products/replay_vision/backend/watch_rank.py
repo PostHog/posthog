@@ -7,6 +7,7 @@ The feed turns scores into a percentile within each scanner when it loads, so a 
 errors all the time does not fill the feed.
 """
 
+import math
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -29,7 +30,7 @@ from django.db.models import (
     Window,
 )
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce, RowNumber
+from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import numpy as np
@@ -113,6 +114,10 @@ WATCH_PICK_SEEN_PENALTY = 0.3
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
 WATCH_PICK_IMPRESSION_DECAY = 0.8
+# Each doubling of the people a finding reached adds this share to its score, up to the cap, so a problem
+# that hit six people outranks an equally strong one-off without burying everything else.
+WATCH_PICK_PEOPLE_BOOST = 0.25
+WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -336,6 +341,11 @@ def _group_root(observation_id: str, parents: dict[str, str]) -> str:
     return observation_id
 
 
+def people_boost(people: int) -> float:
+    """How much a pick's score grows with the number of people its duplicate group reached."""
+    return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
+
+
 def select_embedding_picks(
     walkable: QuerySet[ReplayObservation],
     scanner_ids: list[Any],
@@ -351,7 +361,9 @@ def select_embedding_picks(
     """
     contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
     category = KeyTextTransform("category", "watch_rank")
-    group_root = Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()))
+    group_root = Coalesce(
+        KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
+    )
     is_issue = Case(
         When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
     )
@@ -383,12 +395,27 @@ def select_embedding_picks(
             ),
         )
         .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
+        .annotate(watch_group_root=group_root)
         .order_by("-watch_percentile", "-created_at")
-        .values("id", "watch_percentile", "watch_group_size")[:cap]
+        .values("id", "watch_percentile", "watch_group_size", "watch_group_root")[:cap]
     )
     window_values = {row["id"]: row for row in ranked}
     if not window_values:
         return []
+    # A person who hit the problem twice counts once; a session with no person counts as its own.
+    person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
+    people_by_root = dict(
+        walkable.filter(scanner_id__in=scanner_ids, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION)
+        .alias(watch_category=category)
+        .annotate(watch_group_root=group_root)
+        .filter(
+            watch_category__in=ISSUE_CATEGORIES,
+            watch_group_root__in={row["watch_group_root"] for row in window_values.values()},
+        )
+        .values("watch_group_root")
+        .annotate(people=Count(person, distinct=True))
+        .values_list("watch_group_root", "people")
+    )
     # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
     rows = list(
         accessible_observations(
@@ -400,6 +427,7 @@ def select_embedding_picks(
     for row in rows:
         row["watch_percentile"] = window_values[row["id"]]["watch_percentile"]
         row["watch_group_size"] = window_values[row["id"]]["watch_group_size"]
+        row["watch_group_people"] = people_by_root.get(window_values[row["id"]]["watch_group_root"], 1)
     return rows
 
 
@@ -459,6 +487,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         score = (
             percentile
             * CATEGORY_WEIGHT[rank["category"]]
+            * people_boost(row.get("watch_group_people") or 1)
             * WATCH_PICK_IMPRESSION_DECAY ** row.get("feed_impressions", 0)
         )
         if row.get("feed_viewed"):
@@ -474,6 +503,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
             "kind": "embedding_pick",
             "watch_category": rank["category"],
             "similar_count": max(len(group_members[group]), row.get("watch_group_size") or 0) - 1,
+            "affected_people": row.get("watch_group_people") or 1,
         }
         picks.append(
             (

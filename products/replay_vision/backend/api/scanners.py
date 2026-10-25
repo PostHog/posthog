@@ -1927,6 +1927,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`embedding_pick`. The feed shows one session per group."
         ),
     )
+    affected_people = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding "
+            "that reached more people ranks higher."
+        ),
+    )
 
 
 class WatchFeedItemSerializer(serializers.Serializer):

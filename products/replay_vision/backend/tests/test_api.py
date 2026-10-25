@@ -5174,7 +5174,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(resp.json()["ranker"], "embedding")
         self.assertEqual(items[0]["observation"]["session_id"], "jev-low")
         self.assertEqual(
-            items[0]["reason"], {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 0}
+            items[0]["reason"],
+            {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 0, "affected_people": 1},
         )
 
     def test_pages_do_not_shift_when_the_reader_opens_a_card_mid_scroll(self) -> None:
@@ -5228,6 +5229,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
         self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
         self.assertEqual(picks[0]["reason"]["similar_count"], 1)
+        self.assertEqual(picks[0]["reason"]["affected_people"], 2)
 
     def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
         scanner = self._create_scanner(name="m")
