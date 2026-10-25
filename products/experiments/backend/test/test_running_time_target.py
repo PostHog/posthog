@@ -199,3 +199,15 @@ class TestSizeTarget:
             )
             == expected
         )
+
+    @parameterized.expand([("underflows", 1e-160), ("overflows", 1e160)])
+    def test_an_effect_too_extreme_to_compute_gives_no_target(self, _name: str, effect: float) -> None:
+        assert (
+            size_target(
+                metric=REVENUE,
+                response=_response(("test", SPREAD)),
+                split=_split(*EVEN),
+                minimum_detectable_effect=effect,
+            )
+            is None
+        )

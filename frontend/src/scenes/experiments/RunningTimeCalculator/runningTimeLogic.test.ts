@@ -136,7 +136,6 @@ describe('runningTimeLogic', () => {
             await expectLogic(logic).toDispatchActions(['persistRunningTimeEstimate']).toFinishAllListeners()
 
             expect(runningTimeTargetMock).toHaveBeenCalledWith(expect.any(String), EXPERIMENT_ID, {
-                minimum_detectable_effect: 30,
                 mode: 'automatic',
             })
             // Without the version handshake this write bumps the server version invisibly,
@@ -197,6 +196,29 @@ describe('runningTimeLogic', () => {
     })
 
     describe('automatic target', () => {
+        it.each([
+            ['an effect in range', 7, { mode: 'automatic', minimum_detectable_effect: 7 }],
+            ['an effect out of range', 0.5, null],
+        ])('asks for %s while the user edits it', async (_name, mde, expected) => {
+            runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            runningTimeTargetMock.mockClear()
+
+            logic.actions.setConfig({ mde })
+            await expectLogic(logic).toFinishAllListeners()
+
+            if (expected) {
+                await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess'])
+                expect(runningTimeTargetMock).toHaveBeenCalledWith(expect.any(String), EXPERIMENT_ID, expected)
+            } else {
+                expect(runningTimeTargetMock).not.toHaveBeenCalled()
+            }
+        })
+
         it('counts the exposures the backend sizes the target over', async () => {
             // The results hold 1,200 exposures. The backend counts 1,100, because one variant is at 0%.
             runningTimeTargetMock.mockResolvedValue({

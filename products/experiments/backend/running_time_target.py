@@ -102,19 +102,20 @@ class _Sizing:
         difference = minimum_detectable_effect / 100 * self.baseline_value
         if difference == 0 or not self.comparisons:
             return None
-        samples = round_up_samples(
-            max(
-                comparison_sample_size(
-                    difference,
-                    control_variance=comparison.variance.control,
-                    variant_variance=comparison.variance.variant,
-                    control_share=self.control_share,
-                    variant_share=comparison.share,
-                    confidence_level=self.confidence_level,
-                )
-                for comparison in self.comparisons.values()
+        totals = [
+            comparison_sample_size(
+                difference,
+                control_variance=comparison.variance.control,
+                variant_variance=comparison.variance.variant,
+                control_share=self.control_share,
+                variant_share=comparison.share,
+                confidence_level=self.confidence_level,
             )
-        )
+            for comparison in self.comparisons.values()
+        ]
+        if any(total is None for total in totals):
+            return None
+        samples = round_up_samples(max(total for total in totals if total is not None))
         # The delta method can return a negative variance, and a negative sample has no meaning as a count.
         return samples if samples > 0 else None
 
@@ -215,7 +216,7 @@ def _sizing(
             for variant in variant_results
             if variant.key in shares
         }
-    except StatisticError:
+    except (StatisticError, ArithmeticError):
         return None
     return _Sizing(
         baseline_value=_value(control),

@@ -131111,8 +131111,9 @@ export namespace Schemas {
 
     export type ExperimentsRunningTimeTargetRetrieveParams = {
     /**
-     * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0. Defaults to the experiment's saved minimum detectable effect, else the project default.
-     * @minimum 0
+     * Smallest relative change to detect, as a percentage from 1 to 100 (e.g. 5 means a 5% lift), the range the running time settings allow. Defaults to the experiment's saved minimum detectable effect, else the project default.
+     * @minimum 1
+     * @maximum 100
      */
     minimum_detectable_effect?: number;
     /**

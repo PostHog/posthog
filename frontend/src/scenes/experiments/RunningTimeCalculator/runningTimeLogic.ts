@@ -49,8 +49,14 @@ export interface ManualPreview {
     runningTime: number | null
 }
 
+// The effects the running time settings let a user pick, which the target endpoint accepts as an edited effect.
+const EDITABLE_MDE_MIN = 1
+const EDITABLE_MDE_MAX = 100
+
 export interface AutomaticTargetRequest {
-    minimumDetectableEffect: number
+    // Only an effect the user is editing. Otherwise the backend reads the saved one, which can lie outside the
+    // editable range on experiments saved through the API.
+    minimumDetectableEffect: number | null
     // Never sent. A new result of the primary metric changes it, so that the backend sizes the target again. The sums
     // count too, because more metric events from the same exposed users change the variance.
     resultStats: number[]
@@ -73,6 +79,7 @@ export interface runningTimeLogicValues {
     configOverrides: Partial<RunningTimeConfig> | null
     currentExposures: number | null
     dailyExposureRate: number | null
+    editedMde: number | null
     initialConfig: RunningTimeConfig
     isCalculating: boolean
     isComplete: boolean
@@ -173,6 +180,7 @@ export interface runningTimeLogicMeta {
             configOverrides: Partial<RunningTimeConfig> | null
         ) => RunningTimeConfig
         mde: (config: RunningTimeConfig) => number
+        editedMde: (configOverrides: Partial<RunningTimeConfig> | null) => number | null
         mode: (config: RunningTimeConfig) => RunningTimeConfig['mode']
         metricsWithResults: (
             experiment: Experiment,
@@ -187,7 +195,7 @@ export interface runningTimeLogicMeta {
         automaticCalculationInput: (
             mode: 'automatic' | 'manual',
             metricsWithResults: MetricWithResult[],
-            mde: number
+            editedMde: any
         ) => AutomaticTargetRequest | null
         manualPreviewInput: (
             config: RunningTimeConfig,
@@ -300,7 +308,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         String(values.currentProjectId),
                         experimentId,
                         // Sized from the results also while a manual experiment is being switched to automatic.
-                        { minimum_detectable_effect: request.minimumDetectableEffect, mode: 'automatic' }
+                        {
+                            mode: 'automatic',
+                            ...(request.minimumDetectableEffect !== null
+                                ? { minimum_detectable_effect: request.minimumDetectableEffect }
+                                : {}),
+                        }
                     )
                     breakpoint()
                     return result
@@ -369,6 +382,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         // Pulled out as primitives so automaticCalculationInput stays stable when the experiment object
         // is replaced (e.g. after persisting an estimate) but the underlying values are unchanged.
         mde: [(s) => [s.config], (config: RunningTimeConfig): number => config.mde],
+        editedMde: [
+            (s) => [s.configOverrides],
+            (configOverrides: Partial<RunningTimeConfig> | null): number | null => configOverrides?.mde ?? null,
+        ],
         mode: [(s) => [s.config], (config: RunningTimeConfig): RunningTimeConfig['mode'] => config.mode],
 
         // Primary metrics zipped with their results, so automatic mode always has a baseline to read.
@@ -404,7 +421,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         // Request for the automatic-mode target, or null when not applicable (manual mode / no results yet).
         automaticCalculationInput: [
-            (s) => [s.mode, s.metricsWithResults, s.mde],
+            (s) => [s.mode, s.metricsWithResults, s.editedMde],
             (
                 mode: RunningTimeConfig['mode'],
                 results: {
@@ -414,7 +431,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     metricIndex: number
                     result: any
                 }[],
-                mde: number
+                editedMde: number | null
             ): AutomaticTargetRequest | null => {
                 // Gate on the in-form mode rather than the persisted mode. While the form is in manual mode
                 // (even if the experiment is still saved as automatic), the automatic estimate is neither
@@ -426,8 +443,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 if (!result?.baseline) {
                     return null
                 }
+                // Wait for an effect the endpoint accepts while the user is still typing one.
+                if (editedMde !== null && !(editedMde >= EDITABLE_MDE_MIN && editedMde <= EDITABLE_MDE_MAX)) {
+                    return null
+                }
                 return {
-                    minimumDetectableEffect: mde,
+                    minimumDetectableEffect: editedMde,
                     resultStats: [result.baseline, ...result.variant_results].flatMap((stats) => [
                         stats.number_of_samples,
                         stats.sum,

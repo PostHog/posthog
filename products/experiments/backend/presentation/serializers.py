@@ -1721,6 +1721,17 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
     )
 
 
+class FiniteFloatField(serializers.FloatField):
+    """A float field that rejects "nan" and "inf". `FloatField` accepts both, no estimate can use them, and JSON can't
+    carry them back."""
+
+    def to_internal_value(self, data: Any) -> float:
+        value = super().to_internal_value(data)
+        if not math.isfinite(value):
+            self.fail("invalid")
+        return value
+
+
 class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     """Raw control-group statistics the calculator uses to derive a baseline value and variance.
 
@@ -1731,10 +1742,10 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     number_of_samples = serializers.IntegerField(
         min_value=0, help_text="Number of control-group samples (users/units) observed."
     )
-    sum = serializers.FloatField(
+    sum = FiniteFloatField(
         help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
     )
-    sum_squares = serializers.FloatField(
+    sum_squares = FiniteFloatField(
         required=False,
         default=0.0,
         help_text=(
@@ -1742,21 +1753,21 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
             "it. Without it, a mean metric's variance is approximated from the baseline value."
         ),
     )
-    denominator_sum = serializers.FloatField(
+    denominator_sum = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of the denominator values. Required for ratio/retention metrics.",
     )
-    denominator_sum_squares = serializers.FloatField(
+    denominator_sum_squares = FiniteFloatField(
         required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
     )
-    numerator_denominator_sum_product = serializers.FloatField(
+    numerator_denominator_sum_product = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
     )
     step_counts = serializers.ListField(
-        child=serializers.FloatField(),
+        child=FiniteFloatField(),
         required=False,
         help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
     )
@@ -1773,7 +1784,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(both require baseline_stats or an explicit variance)."
         ),
     )
-    minimum_detectable_effect = serializers.FloatField(
+    minimum_detectable_effect = FiniteFloatField(
         min_value=0,
         help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
     )
@@ -1784,13 +1795,13 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         max_value=100,
         help_text="Total number of variants including control (default 2, at most 100).",
     )
-    exposure_rate_per_day = serializers.FloatField(
+    exposure_rate_per_day = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
         help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
     )
-    baseline_value = serializers.FloatField(
+    baseline_value = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
@@ -1798,7 +1809,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(ratio/retention). Provide this or baseline_stats."
         ),
     )
-    variance = serializers.FloatField(
+    variance = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
@@ -1814,9 +1825,8 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        minimum_detectable_effect = attrs.get("minimum_detectable_effect", 0)
-        if not math.isfinite(minimum_detectable_effect) or minimum_detectable_effect <= 0:
-            raise ValidationError({"minimum_detectable_effect": "Must be a number greater than 0."})
+        if attrs.get("minimum_detectable_effect", 0) <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
 
         has_baseline_value = attrs.get("baseline_value") is not None
         has_baseline_stats = attrs.get("baseline_stats") is not None
@@ -1861,12 +1871,14 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
 
 
 class RunningTimeTargetQuerySerializer(serializers.Serializer):
-    minimum_detectable_effect = serializers.FloatField(
+    minimum_detectable_effect = FiniteFloatField(
         required=False,
-        min_value=0,
+        min_value=1,
+        max_value=100,
         help_text=(
-            "Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0. Defaults to the "
-            "experiment's saved minimum detectable effect, else the project default."
+            "Smallest relative change to detect, as a percentage from 1 to 100 (e.g. 5 means a 5% lift), the range "
+            "the running time settings allow. Defaults to the experiment's saved minimum detectable effect, else the "
+            "project default."
         ),
     )
 
@@ -1878,12 +1890,6 @@ class RunningTimeTargetQuerySerializer(serializers.Serializer):
             "it from the results, also for an experiment saved in manual mode."
         ),
     )
-
-    def validate_minimum_detectable_effect(self, value: float) -> float:
-        # FloatField accepts "nan" and "inf", and neither sizes a sample.
-        if not math.isfinite(value) or value <= 0:
-            raise ValidationError("Must be a number greater than 0.")
-        return value
 
 
 class RunningTimeTargetSerializer(serializers.Serializer):

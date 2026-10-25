@@ -51,9 +51,9 @@ def calculate_variance(metric_type: CalculatorMetricType, baseline_value: float)
     :func:`calculate_variance_from_stats`).
     """
     if metric_type == "mean_count":
-        return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * baseline_value
+        return _finite(VARIANCE_SCALING_FACTOR_TOTAL_COUNT * baseline_value)
     if metric_type == "mean_sum_or_avg":
-        return VARIANCE_SCALING_FACTOR_SUM * baseline_value**2
+        return _finite(VARIANCE_SCALING_FACTOR_SUM * baseline_value * baseline_value)
     # funnel: variance is embedded in the p(1-p) sample-size formula; ratio/retention need stats.
     return None
 
@@ -82,15 +82,17 @@ def calculate_variance_from_stats(
             return None
         n = baseline.number_of_samples
         try:
-            return RatioStatistic(
-                n=n,
-                m_statistic=SampleMeanStatistic(n=n, sum=baseline.sum, sum_squares=baseline.sum_squares),
-                d_statistic=SampleMeanStatistic(
-                    n=n, sum=baseline.denominator_sum, sum_squares=baseline.denominator_sum_squares or 0
-                ),
-                m_d_sum_of_products=baseline.numerator_denominator_sum_product or 0,
-            ).variance
-        except StatisticError:
+            return _finite(
+                RatioStatistic(
+                    n=n,
+                    m_statistic=SampleMeanStatistic(n=n, sum=baseline.sum, sum_squares=baseline.sum_squares),
+                    d_statistic=SampleMeanStatistic(
+                        n=n, sum=baseline.denominator_sum, sum_squares=baseline.denominator_sum_squares or 0
+                    ),
+                    m_d_sum_of_products=baseline.numerator_denominator_sum_product or 0,
+                ).variance
+            )
+        except (StatisticError, ArithmeticError):
             return None
 
     return None
@@ -139,18 +141,19 @@ def calculate_sample_size(
         if shares is None:
             return None
         control_share, *variant_shares = shares
-    sample_size = round_up_samples(
-        max(
-            comparison_sample_size(
-                d,
-                control_variance=variance,
-                variant_variance=variance,
-                control_share=control_share,
-                variant_share=variant_share,
-            )
-            for variant_share in variant_shares
+    comparisons = [
+        comparison_sample_size(
+            d,
+            control_variance=variance,
+            variant_variance=variance,
+            control_share=control_share,
+            variant_share=variant_share,
         )
-    )
+        for variant_share in variant_shares
+    ]
+    if any(comparison is None for comparison in comparisons):
+        return None
+    sample_size = round_up_samples(max(comparison for comparison in comparisons if comparison is not None))
 
     # A funnel baseline above 1 flips the (1 - p) term negative, and the delta method can return a
     # negative variance for ratio/retention. Both make the sample size non-positive, which has no
@@ -167,6 +170,11 @@ def calculate_baseline_value(baseline: BaselineStats, metric_type: CalculatorMet
     Returns: avg events/user (count), avg property value/user (sum), conversion
     rate (funnel), or the ratio (ratio/retention).
     """
+    value = _baseline_value(baseline, metric_type)
+    return _finite(value) if value is not None else None
+
+
+def _baseline_value(baseline: BaselineStats, metric_type: CalculatorMetricType) -> float | None:
     if baseline.number_of_samples == 0:
         return None
 
@@ -222,7 +230,7 @@ def calculate_detectable_effect(
         variant_variance = variance
 
     d = math.sqrt(z_factor(confidence_level) / 2 * (variance / control_samples + variant_variance / variant_samples))
-    return 100 * d / abs(baseline_value)
+    return _finite(100 * d / abs(baseline_value))
 
 
 def comparison_sample_size(
@@ -233,18 +241,22 @@ def comparison_sample_size(
     control_share: float,
     variant_share: float,
     confidence_level: float = 0.95,
-) -> float:
+) -> float | None:
     """The exposures across all variants at which the comparison of one variant with the control detects an absolute
     `difference`, for each side's share of the exposures and its own variance.
 
     For two even variants with the same variance this is ``2 · 16 · variance / difference²``, twice the samples per
-    variant of the classic formula.
+    variant of the classic formula. None when the inputs are too extreme to give a finite number.
     """
-    return (
+    denominator = difference * difference
+    # A tiny difference underflows to 0 when squared.
+    if denominator == 0:
+        return None
+    return _finite(
         z_factor(confidence_level)
         * (control_variance / control_share + variant_variance / variant_share)
         / 2
-        / difference**2
+        / denominator
     )
 
 
@@ -274,10 +286,12 @@ def _sample_variance(baseline: BaselineStats) -> float | None:
     if baseline.number_of_samples < 2:
         return None
     try:
-        return SampleMeanStatistic(
-            n=baseline.number_of_samples, sum=baseline.sum, sum_squares=baseline.sum_squares
-        ).variance
-    except StatisticError:
+        return _finite(
+            SampleMeanStatistic(
+                n=baseline.number_of_samples, sum=baseline.sum, sum_squares=baseline.sum_squares
+            ).variance
+        )
+    except (StatisticError, ArithmeticError):
         return None
 
 
@@ -285,4 +299,10 @@ def calculate_running_time_days(sample_size: int | None, exposure_rate_per_day: 
     """Days to reach ``sample_size`` at ``exposure_rate_per_day`` exposures/day."""
     if not sample_size or not exposure_rate_per_day or exposure_rate_per_day <= 0:
         return None
-    return math.ceil(sample_size / exposure_rate_per_day)
+    days = _finite(sample_size / exposure_rate_per_day)
+    return math.ceil(days) if days is not None else None
+
+
+def _finite(value: float) -> float | None:
+    # Extreme inputs overflow to inf or come out as nan. Neither is an estimate, and JSON can't carry either.
+    return value if math.isfinite(value) else None

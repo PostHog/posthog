@@ -174,6 +174,34 @@ class TestCalculateSampleSize:
     def test_sample_size_powers_the_comparison_with_the_smallest_variant(self, _name, split, expected):
         assert calculate_sample_size("funnel", 0.1, 50, len(split), split=split) == expected
 
+    @parameterized.expand(
+        [
+            ("effect_that_underflows", lambda: calculate_sample_size("mean_sum_or_avg", 1.0, 1e-160, 2)),
+            ("effect_that_overflows", lambda: calculate_sample_size("mean_sum_or_avg", 1.0, 1e160, 2)),
+            ("baseline_that_overflows", lambda: calculate_sample_size("mean_sum_or_avg", 1e200, 5, 2)),
+            ("variance_that_overflows", lambda: calculate_sample_size("ratio", 10, 10, 2, variance=1e308 * 10)),
+            (
+                "stats_that_overflow",
+                lambda: calculate_variance_from_stats(
+                    1e200, "mean_sum_or_avg", BaselineStats(number_of_samples=2, sum=1e200, sum_squares=1e300)
+                ),
+            ),
+            (
+                "ratio_that_overflows",
+                lambda: calculate_baseline_value(
+                    BaselineStats(number_of_samples=10, sum=1e308, denominator_sum=1e-308), "ratio"
+                ),
+            ),
+            ("exposure_rate_that_underflows", lambda: calculate_running_time_days(1000, 1e-320)),
+            (
+                "detectable_effect_that_overflows",
+                lambda: calculate_detectable_effect("mean_count", 1e-320, 10, 10, 1.0),
+            ),
+        ]
+    )
+    def test_extreme_inputs_give_no_estimate(self, _name, calculate):
+        assert calculate() is None
+
     def test_sizes_an_even_split_of_any_count_without_a_list_per_variant(self):
         assert calculate_sample_size("funnel", 0.1, 50, 10**12) == pytest.approx(576 * 10**12, rel=1e-9)
 

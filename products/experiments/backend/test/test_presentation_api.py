@@ -9060,6 +9060,13 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
             ("sized_from_the_result_and_the_split", {}, {}, "", (30, 13903, 2000)),
             ("for_an_effect_being_edited", {}, {}, "?minimum_detectable_effect=60", (60, 3476, 2000)),
             ("no_result_yet", {}, {"with_result": False}, "", (30, None, None)),
+            (
+                "a_saved_effect_outside_the_editable_range",
+                {"minimum_detectable_effect": 0.5},
+                {},
+                "",
+                (0.5, 50050051, 2000),
+            ),
             ("a_paused_variant_counts_toward_nothing", {}, {"paused_variant_samples": 300}, "", (30, 13903, 2000)),
             ("manual_mode_keeps_the_saved_target", MANUAL, {}, "", (30, 5000, None)),
             ("manual_mode_keeps_the_saved_effect", MANUAL, {}, "?minimum_detectable_effect=60", (30, 5000, None)),
@@ -9107,8 +9114,16 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["recommended_sample_size"], sample_size)
 
-    @parameterized.expand([("zero", "0"), ("not_a_number", "nan"), ("infinite", "inf")])
-    def test_rejects_an_effect_that_sizes_no_sample(self, _name: str, effect: str) -> None:
+    @parameterized.expand(
+        [
+            ("below_the_editable_range", "0.5"),
+            ("above_the_editable_range", "101"),
+            ("too_small_to_compute", "1e-160"),
+            ("not_a_number", "nan"),
+            ("infinite", "inf"),
+        ]
+    )
+    def test_rejects_an_edited_effect_outside_the_editable_range(self, _name: str, effect: str) -> None:
         experiment = self._experiment({})
 
         response = self.client.get(
@@ -9214,6 +9229,7 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         [
             ("missing_baseline", {"metric_type": "funnel", "minimum_detectable_effect": 5}),
             ("zero_mde", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 0}),
+            ("non_finite_baseline", {"metric_type": "funnel", "baseline_value": "nan", "minimum_detectable_effect": 5}),
             ("ratio_without_variance", {"metric_type": "ratio", "baseline_value": 10, "minimum_detectable_effect": 10}),
             (
                 "ratio_stats_without_denominator_sum",
@@ -9228,6 +9244,22 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("effect_too_small_to_compute", {"baseline_value": 0.1, "minimum_detectable_effect": 1e-160}),
+            (
+                "exposure_rate_too_small_to_compute",
+                {"baseline_value": 0.1, "minimum_detectable_effect": 1e-160, "exposure_rate_per_day": 1e-320},
+            ),
+        ]
+    )
+    def test_extreme_input_gives_no_estimate(self, _name: str, payload: dict):
+        response = self._calculate({"metric_type": "funnel", **payload})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            (response.json()["recommended_sample_size"], response.json()["recommended_running_time_days"]), (None, None)
+        )
 
 
 class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
