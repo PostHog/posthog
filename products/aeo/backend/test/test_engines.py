@@ -1,3 +1,5 @@
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -381,8 +383,7 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
 
     with (
         patch("products.aeo.backend.engines.GATEWAY_BACKOFF", _SharedBackoff()),
-        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
-        patch("products.aeo.backend.engines.time.sleep") as sleep,
+        _fake_clock() as sleep,
     ):
         if raises is None:
             assert gateway_post_json(session, "https://gw.test", {}, {}) == {"ok": True}
@@ -394,14 +395,40 @@ def test_gateway_post_json_retries_throttling_and_transient_errors(
     assert [call.args[0] for call in sleep.call_args_list] == sleeps
 
 
-def test_shared_backoff_keeps_the_longest_pause() -> None:
+@parameterized.expand(
+    [
+        ("shorter_pause_does_not_cut_a_longer_one", [30, 5], None, [30.0]),
+        ("pause_extended_during_the_sleep", [30], 60, [30.0, 30.0]),
+    ]
+)
+def test_shared_backoff_waits_for_the_latest_deadline(
+    _name: str, pauses: list[float], extend_during_sleep: float | None, sleeps: list[float]
+) -> None:
     backoff = _SharedBackoff()
-    with (
-        patch("products.aeo.backend.engines.time.monotonic", return_value=100.0),
-        patch("products.aeo.backend.engines.time.sleep") as sleep,
-    ):
-        backoff.pause(30)
-        backoff.pause(5)
+
+    def other_worker_pauses() -> None:
+        if extend_during_sleep is not None:
+            backoff.pause(extend_during_sleep)
+
+    with _fake_clock(on_first_sleep=other_worker_pauses) as sleep:
+        for seconds in pauses:
+            backoff.pause(seconds)
         backoff.wait()
 
-    sleep.assert_called_once_with(30.0)
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
+
+
+@contextmanager
+def _fake_clock(on_first_sleep: Callable[[], None] | None = None) -> Iterator[MagicMock]:
+    now = [100.0]
+
+    def sleep(seconds: float) -> None:
+        if on_first_sleep is not None and sleep_mock.call_count == 1:
+            on_first_sleep()
+        now[0] += seconds
+
+    with (
+        patch("products.aeo.backend.engines.time.monotonic", side_effect=lambda: now[0]),
+        patch("products.aeo.backend.engines.time.sleep", side_effect=sleep) as sleep_mock,
+    ):
+        yield sleep_mock

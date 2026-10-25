@@ -151,9 +151,12 @@ class _SharedBackoff:
             self._resume_at = max(self._resume_at, time.monotonic() + seconds)
 
     def wait(self) -> None:
-        with self._lock:
-            remaining = self._resume_at - time.monotonic()
-        if remaining > 0:
+        # Another worker can extend the pause during the sleep, so read the deadline again after each one.
+        while True:
+            with self._lock:
+                remaining = self._resume_at - time.monotonic()
+            if remaining <= 0:
+                return
             time.sleep(remaining)
 
 
