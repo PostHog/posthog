@@ -8583,14 +8583,14 @@ Note: Read the generated Merchant API reference for version 2025-02-01, includin
 
 ## Okta — gaps
 
-Today (6): `applications`, `group_rules`, `groups`, `logs`, `user_types`, `users`
+Today (10): `application_groups`, `application_users`, `applications`, `group_members`, `group_rules`, `groups`, `logs`, `user_factors`, `user_types`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/okta/okta-management-openapi-spec/master/dist/2026.07.2/management-minimal.yaml>
 
-- [ ] `groups/{groupId}/users` — The user↔group membership junction; without it the groups and users tables cannot be joined at all (high)
-- [ ] `apps/{appId}/users` — Application assignment per user (with scope, status and credentials profile) — the core access-review question (high)
-- [ ] `apps/{appId}/groups` — Group-based application assignment, the other half of how access is actually granted (high)
-- [ ] `users/{userId}/factors and users/{userId}/authenticator-enrollments` — Enrolled MFA factors per user — the standard security-posture report over an Okta sync (high)
+- [x] `groups/{groupId}/users` — The user↔group membership junction; without it the groups and users tables cannot be joined at all (high). Added as `group_members`.
+- [x] `apps/{appId}/users` — Application assignment per user (with scope, status and credentials profile) — the core access-review question (high). Added as `application_users`.
+- [x] `apps/{appId}/groups` — Group-based application assignment, the other half of how access is actually granted (high). Added as `application_groups`.
+- [x] `users/{userId}/factors and users/{userId}/authenticator-enrollments` — Enrolled MFA factors per user — the standard security-posture report over an Okta sync (high). Added `users/{userId}/factors` as `user_factors`; `authenticator-enrollments` is skipped because it is Identity Engine only and would repeat the per-user fan-out for overlapping enrollment data.
 - [ ] `policies and policies/{policyId}/rules` — Sign-on, password and authenticator policies plus their rules; explains why the logs table shows the auth outcomes it does (medium)
 - [ ] `devices and devices/{deviceId}/users` — Managed device inventory plus the device↔user junction, needed for device-trust and BYOD analysis (medium)
 - [ ] `iam/roles, users/{userId}/roles, groups/{groupId}/roles` — Standard and custom admin-role assignments — privileged-access reporting over users and groups we already sync (medium)
