@@ -943,12 +943,15 @@ def _event_trigger_targets_something(filters: Any) -> bool:
 
 
 def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) -> None:
-    # The shared input check treats only null and "" as missing. A live push step with no channel fails every send.
+    # The shared input check skips every falsy value, so {}, 0 and false pass as well as []. A live push step with no
+    # channel fails every send.
     for schema in input_schema or []:
+        if not schema.get("required") or schema.get("type") != "integration_multi":
+            continue
         item = inputs.get(schema["key"])
-        if schema.get("required") and schema.get("type") == "integration_multi" and isinstance(item, dict):
-            if item.get("value") == []:
-                raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
+        value = item.get("value") if isinstance(item, dict) else None
+        if not isinstance(value, list) or not value:
+            raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:

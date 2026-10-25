@@ -52,6 +52,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -188,6 +189,36 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
         return hog_flow, action
+
+    @parameterized.expand(
+        [
+            ("empty list", [], 400),
+            ("empty object", {}, 400),
+            ("zero", 0, 400),
+            ("false", False, 400),
+            ("a channel", "provider", 201),
+        ]
+    )
+    def test_an_active_push_step_needs_a_channel(self, _name: str, channels: Any, expected_status: int) -> None:
+        sync_template_to_db(_push_function_template())
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={})
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-native-push",
+                "inputs": {
+                    "distinctId": {"value": "{event.distinct_id}"},
+                    "channels": {"value": [provider.id] if channels == "provider" else channels},
+                    "title": {"value": "Hi"},
+                },
+            }
+        )
+        hog_flow["actions"][1]["type"] = "function_push"
+
+        active = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+
+        assert active.status_code == expected_status, active.json()
+        assert draft.status_code == 201, draft.json()
 
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
