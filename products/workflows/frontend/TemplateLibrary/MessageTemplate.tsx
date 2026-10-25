@@ -136,7 +136,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
-                    type="native_email_template"
+                    type={
+                        template?.transactional_hog_flow_id
+                            ? 'native_email_transactional_template'
+                            : 'native_email_template'
+                    }
                     layout="inline"
                 />
             )}

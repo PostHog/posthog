@@ -68,9 +68,33 @@ describe('ErrorIssueView', () => {
         expect(screen.queryByText(/Browsers:/)).toBeNull()
     })
 
-    it('shows no breakdown when the response has none', () => {
+    it('shows no breakdown or summary when the response has none', () => {
         render(<ErrorIssueView issue={{ id: 'issue-1', name: 'TypeError' }} />)
 
         expect(screen.queryByText(/Breakdown of/)).toBeNull()
+        expect(screen.queryByText('Summary')).toBeNull()
+    })
+
+    it('labels the summary cause as a hypothesis', () => {
+        render(
+            <ErrorIssueView
+                issue={{
+                    id: 'issue-1',
+                    name: 'TypeError',
+                    summary_status: 'ready',
+                    summary: {
+                        what_happened: 'Checkout throws on an empty cart.',
+                        likely_cause: 'The cart total reads an undefined line item.',
+                        who_is_affected: 'Users with an empty cart.',
+                        suggested_next_step: 'Guard the line item lookup.',
+                        category: 'own_code',
+                        generated_at: '2026-04-24T11:00:00Z',
+                    },
+                }}
+            />
+        )
+
+        expect(screen.getByText('Likely cause (hypothesis): The cart total reads an undefined line item.')).toBeTruthy()
+        expect(screen.getByText('Own code')).toBeTruthy()
     })
 })

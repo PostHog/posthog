@@ -313,6 +313,15 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS", 300.0, type_cast=float
 )
+# At a worker shutdown an import that has not yet committed a resume cursor or staged a carry-over
+# value keeps the worker, up to a deadline below the graceful shutdown timeout. The
+# `warehouse-import-ride-out` flag turns this on per schema. This is the longest such an import holds
+# the worker when it could have handed off sooner; a run that restarts from scratch either way keeps
+# the grace period minus a margin instead. The gate reads GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS, so set the grace through this
+# variable rather than the worker's command-line flag.
+DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS", 3600.0, type_cast=float
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
@@ -363,8 +372,8 @@ TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
-# Keep aggregation separate even when local development combines the other queues.
-USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
+# A dedicated worker deployment polls this queue, so aggregation does not share a process with quota limiting.
+USAGE_REPORT_AGGREGATION_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue-usage-report-aggregation")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.

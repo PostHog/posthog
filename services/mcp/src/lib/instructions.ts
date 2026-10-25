@@ -225,6 +225,7 @@ export class ToolDomainExtractor {
         'estimate',
         'fail',
         'freeze',
+        'import',
         'launch',
         'migrate',
         'move',

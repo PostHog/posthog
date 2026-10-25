@@ -10,9 +10,11 @@ const {
     mockPinned,
     mockGetApiKey,
     mockAnalyticsContext,
+    mockDistinctId,
 } = vi.hoisted(() => ({
     mockGetApiKey: vi.fn(),
-    mockAnalyticsContext: { current: undefined as { projectHasData?: boolean } | undefined },
+    mockAnalyticsContext: { current: undefined as MCPAnalyticsContext | undefined },
+    mockDistinctId: { current: 'distinct-id' },
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -58,7 +60,8 @@ vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
     },
 }))
 
-vi.mock('@/hono/request-context', () => {
+vi.mock('@/hono/request-context', async () => {
+    const { StateLookupCache } = await import('@/lib/cache/StateLookupCache')
     type MockCache = {
         get: (key: string) => Promise<unknown>
         set: (key: string, value: unknown) => Promise<void>
@@ -105,9 +108,10 @@ vi.mock('@/hono/request-context', () => {
 
     return {
         RequestContext: vi.fn().mockImplementation(function (...args: unknown[]) {
-            const props = args[2] as { mcpSessionId?: string }
+            const props = args[2] as RequestProperties
             return {
-                tokenCache: makeCache(mockTokenStore),
+                tokenCache: { ...makeCache(mockTokenStore), scope: props.userHash },
+                lookups: args[4] ?? new StateLookupCache(),
                 sessionScopedCache: props.mcpSessionId ? makeCache(sessionScopedStore(props.mcpSessionId)) : undefined,
                 legacySessionScopedCache: props.mcpSessionId
                     ? {
@@ -134,7 +138,7 @@ vi.mock('@/hono/request-context', () => {
                     }
                 }),
                 safelyGetAnalyticsContext: vi.fn(async () => mockAnalyticsContext.current),
-                getDistinctId: vi.fn(async () => 'distinct-id'),
+                getDistinctId: vi.fn(async () => mockDistinctId.current),
                 setMcpContexts: vi.fn(),
                 setPinnedContext: vi.fn((pinned: typeof mockPinned.last) => {
                     mockPinned.last = pinned
@@ -150,10 +154,13 @@ import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
+import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
+import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
+import * as toolDefinitions from '@/tools/toolDefinitions'
 import type { Env } from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -201,11 +208,97 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
         mockAnalyticsContext.current = undefined
+        mockDistinctId.current = 'distinct-id'
         mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
+    })
+
+    it.each([
+        { change: 'none', shared: true },
+        { change: 'credential', shared: false },
+        { change: 'distinct ID', shared: false },
+        { change: 'project group', shared: false },
+        { change: 'organization group', shared: false },
+        { change: 'flag keys', shared: false },
+        { change: 'flag order', shared: true },
+        { change: 'next request', shared: false },
+    ])('shares flag values and payloads only for matching inputs: $change', async ({ change, shared }) => {
+        const requiredFlags = vi.spyOn(toolDefinitions, 'getRequiredFeatureFlags').mockReturnValue(['flag-a', 'flag-b'])
+        const evaluate = vi
+            .mocked(evaluateFeatureFlags)
+            .mockClear()
+            .mockResolvedValueOnce({
+                flags: { [MCP_INTENT_PROMPT_FLAG]: 'first-variant' },
+                payloads: { [MCP_INTENT_PROMPT_FLAG]: { prompt: 'First context prompt' } },
+            })
+            .mockResolvedValue({
+                flags: { [MCP_INTENT_PROMPT_FLAG]: 'second-variant' },
+                payloads: { [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Second context prompt' } },
+            })
+        try {
+            const lookups = new StateLookupCache()
+            const resolver = makeResolver()
+            mockAnalyticsContext.current = { organizationId: 'org-a', projectUuid: 'project-a' }
+            const first = await resolver.resolve(makeProps(), lookups)
+            if (change === 'distinct ID') {
+                mockDistinctId.current = 'other-distinct-id'
+            }
+            if (change === 'project group') {
+                mockAnalyticsContext.current.projectUuid = 'project-b'
+            }
+            if (change === 'organization group') {
+                mockAnalyticsContext.current.organizationId = 'org-b'
+            }
+            if (change === 'flag keys') {
+                requiredFlags.mockReturnValue(['other-flag'])
+            }
+            if (change === 'flag order') {
+                requiredFlags.mockReturnValue(['flag-b', 'flag-a'])
+            }
+            const second = await resolver.resolve(
+                makeProps(change === 'credential' ? { userHash: 'other-user', apiToken: 'phx_other' } : {}),
+                change === 'next request' ? undefined : lookups
+            )
+            expect({
+                calls: evaluate.mock.calls.length,
+                first: { flag: first.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG], prompt: first.intentPrompt },
+                second: { flag: second.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG], prompt: second.intentPrompt },
+            }).toEqual({
+                calls: shared ? 1 : 2,
+                first: { flag: 'first-variant', prompt: 'First context prompt' },
+                second: shared
+                    ? { flag: 'first-variant', prompt: 'First context prompt' }
+                    : { flag: 'second-variant', prompt: 'Second context prompt' },
+            })
+        } finally {
+            requiredFlags.mockRestore()
+            evaluate.mockReset().mockResolvedValue({ flags: {}, payloads: {} })
+        }
+    })
+
+    it('retries a failed flag evaluation within the request', async () => {
+        const evaluate = vi
+            .mocked(evaluateFeatureFlags)
+            .mockClear()
+            .mockRejectedValueOnce(new Error('Synthetic flag failure'))
+            .mockResolvedValue({
+                flags: { [MCP_INTENT_PROMPT_FLAG]: true },
+                payloads: { [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Recovered prompt' } },
+            })
+        try {
+            const lookups = new StateLookupCache()
+            const resolver = makeResolver()
+            const first = await resolver.resolve(makeProps(), lookups)
+            const retry = await resolver.resolve(makeProps(), lookups)
+            expect({ calls: evaluate.mock.calls.length, first: first.intentPrompt, retry: retry.intentPrompt }).toEqual(
+                { calls: 2, first: undefined, retry: 'Recovered prompt' }
+            )
+        } finally {
+            evaluate.mockReset().mockResolvedValue({ flags: {}, payloads: {} })
+        }
     })
 
     it.each([true, false, undefined])(
@@ -661,13 +754,19 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('honors a dev/test flag override even when evaluation returns nothing', async () => {
-        // Evaluation stays empty (analytics client disabled, as in local dev/evals);
-        // the override seam is what flips a tool flag on so it reaches the tool layer.
-        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'dev-forced-flag': true })
-        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
-        const result = await makeResolver().resolve(props)
+        const evaluate = vi.mocked(evaluateFeatureFlags).mockClear()
+        vi.mocked(resolveFeatureFlagOverrides)
+            .mockReturnValueOnce({ 'dev-forced-flag': false })
+            .mockReturnValueOnce({ 'dev-forced-flag': true })
+        const lookups = new StateLookupCache()
+        const resolver = makeResolver()
+        const first = await resolver.resolve(makeProps(), lookups)
+        const second = await resolver.resolve(makeProps(), lookups)
 
-        expect(result.toolFeatureFlags?.['dev-forced-flag']).toBe(true)
+        expect({
+            calls: evaluate.mock.calls.length,
+            overrides: [first.toolFeatureFlags?.['dev-forced-flag'], second.toolFeatureFlags?.['dev-forced-flag']],
+        }).toEqual({ calls: 1, overrides: [false, true] })
     })
 
     it.each([
@@ -710,7 +809,6 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     describe('pinned project/org context', () => {
-        // What the switch-project handler records on the session (Context.setSessionActiveContext).
         const simulateSwitch = (mcpSessionId: string, projectId: string, orgId?: string): void => {
             const store = mockSessionScopedStores.get(mcpSessionId)
             store?.set('activeProjectId', projectId)
@@ -785,14 +883,24 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(mockPinned.last?.projectId).toBe('1')
         })
 
-        it('renews the session-scoped keys TTL on every pinned request', async () => {
+        it.each([
+            ['pinned', '1'],
+            ['unpinned', undefined],
+        ])('renews the session-scoped keys TTL on every %s request', async (_label, projectId) => {
             // The keys carry a write-based TTL; without a per-request refresh a
             // switch recorded early in a long session expires first, reads back as
             // a changed pin, and the pin silently wins again.
-            await makeResolver().resolve(makeProps({ projectId: '1' }))
+            await makeResolver().resolve(makeProps({ projectId }))
 
             expect(mockRefreshTtlCalls).toContainEqual(
-                expect.arrayContaining(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+                expect.arrayContaining([
+                    'appliedPinOrgId',
+                    'appliedPinProjectId',
+                    'activeOrgId',
+                    'activeProjectId',
+                    'defaultContext',
+                    'defaultProjectId',
+                ])
             )
         })
     })

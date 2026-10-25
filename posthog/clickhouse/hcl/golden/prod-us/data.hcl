@@ -3587,6 +3587,9 @@ database "posthog" {
     column "source_config_snapshot" {
       type = "String"
     }
+    column "source_detail" {
+      type = "String"
+    }
     column "query_duration_ms" {
       type = "Nullable(UInt32)"
     }

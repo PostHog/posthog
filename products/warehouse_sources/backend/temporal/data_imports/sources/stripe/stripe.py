@@ -2,8 +2,10 @@ import os
 import re
 import time
 import inspect
+import itertools
 import dataclasses
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
@@ -140,6 +142,11 @@ NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
 # The same checkpoint also fires after this much time, because 5000 parents at one API call each can
 # take long enough that a worker shutdown waits on the sweep instead of handing it off.
 NESTED_SWEEP_CHECKPOINT_SECONDS = 60.0
+
+# An incremental read that is far behind stops after this long, and the run completes. Import
+# workers restart often, and a run that a restart interrupts loses its rows, so a longer read
+# finishes less often. A read that is not behind ends long before this.
+INCREMENTAL_RUN_SECONDS = 15 * 60
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -376,7 +383,7 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise
 
 
-def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Generator[Any]:
     """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
 
     A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
@@ -748,19 +755,11 @@ def _warehouse_start_position(
     return position if position.matches(table, None) else None
 
 
-def _batch_and_yield(
-    objects: Any,
-    batcher: Batcher,
-    incremental_field_name: Optional[str] = None,
-    stop_at_or_before: Optional[int] = None,
-):
-    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
-    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
-    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+def _batch_and_yield(objects: Any, batcher: Batcher):
+    """Batch raw Stripe objects into pa.Tables and yield them. Yielding in small batches lets the
+    pipeline write and persist the incremental watermark frequently, so progress survives a
+    heartbeat timeout or redeploy."""
     for obj in objects:
-        if stop_at_or_before is not None and incremental_field_name is not None:
-            if obj[incremental_field_name] <= stop_at_or_before:
-                break
         batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
@@ -1222,6 +1221,9 @@ def get_rows(
 
         return
 
+    # The run budget covers both listings, so the clock starts before the first one.
+    incremental_started_at = time.monotonic()
+
     # check for any objects less than the minimum object we already have
     if db_incremental_field_earliest_value is not None:
         logger.debug(
@@ -1242,20 +1244,75 @@ def get_rows(
     if db_incremental_field_last_value is not None:
         logger.debug(f"Stripe: iterating latest objects from resource: created[gt] = {db_incremental_field_last_value}")
 
-        stripe_objects = _call_stripe(
-            resource.method,
-            params={
-                **default_params,
-                **resource.params,
-                f"created[gt]": db_incremental_field_last_value,
-            },
+        watermark = _coerce_incremental_cursor(db_incremental_field_last_value)
+        if watermark is None:
+            stripe_objects = _call_stripe(
+                resource.method,
+                params={**default_params, **resource.params, f"created[gt]": db_incremental_field_last_value},
+            )
+            yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
+            return
+
+        latest_objects = _latest_objects_oldest_first(
+            resource,
+            {**default_params, **resource.params},
+            watermark,
+            incremental_field_name,
+            logger,
+            started_at=incremental_started_at,
         )
-        yield from _batch_and_yield(
-            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
-            batcher,
-            incremental_field_name=incremental_field_name,
-            stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
+        yield from _batch_and_yield(latest_objects, batcher)
+
+
+def _latest_objects_oldest_first(
+    resource: StripeResource,
+    params: dict[str, Any],
+    watermark: int,
+    incremental_field_name: str,
+    logger: FilteringBoundLogger,
+    started_at: float,
+) -> Iterator[Any]:
+    """Yield the objects created after `watermark`, oldest first when they fill more than a page.
+
+    Stripe lists newest first, and the watermark moves only when a run completes, so a newest-first
+    read has no safe place to stop. `ending_before` the newest object at or before the watermark
+    lists the newer objects oldest first. The newest value read is then always a safe watermark, so
+    after `INCREMENTAL_RUN_SECONDS` the read stops between two values and the run completes.
+    """
+
+    def listing(extra_params: dict[str, Any]) -> Generator[Any]:
+        return _iter_cleaning_errors(
+            _call_stripe(resource.method, params={**params, **extra_params}).auto_paging_iter()
         )
+
+    page_size = int(params.get("limit", DEFAULT_LIMIT))
+    newest_first = listing({"created[gt]": watermark})
+    first_page = list(itertools.islice(newest_first, page_size + 1))
+    anchor = next(listing({"created[lte]": watermark, "limit": 1}), None) if len(first_page) > page_size else None
+    if anchor is None:
+        # Almost every sync reads one page. Without an object at or before the watermark, for example
+        # after Stripe dropped its old events, nothing marks where an oldest-first read starts.
+        objects: Iterator[Any] = itertools.chain(first_page, newest_first)
+    else:
+        newest_first.close()
+        objects = listing({"ending_before": anchor["id"]})
+
+    last_value: int | None = None
+    for obj in objects:
+        value: int = obj[incremental_field_name]
+        # Some endpoints filter on `created` and track another field, so the watermark is checked again.
+        if value <= watermark:
+            continue
+        # The read stops only between two values, because the next sync skips the objects at the last value.
+        out_of_time = anchor is not None and time.monotonic() - started_at >= INCREMENTAL_RUN_SECONDS
+        if out_of_time and last_value is not None and value != last_value:
+            logger.warning(
+                f"Stripe: this sync read objects created up to {datetime.fromtimestamp(last_value, tz=UTC).isoformat()}. "
+                "The next sync continues from there."
+            )
+            return
+        last_value = value
+        yield obj
 
 
 # How far an invoice is through its lifecycle. An uncollectible invoice can still be paid or voided.
@@ -1524,7 +1581,7 @@ def stripe_source(
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
-        # Stripe data is returned in descending timestamp order
+        # Stripe lists newest first. A backlog read lists oldest first, which is safe because desc mode stages the max value.
         sort_mode="desc",
         partition_count=1 if partitioned else None,  # this enables partitioning
         partition_size=1 if partitioned else None,  # this enables partitioning

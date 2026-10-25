@@ -3,19 +3,23 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import {
+    DataWarehouseSavedQueryUpdate,
+    dataWarehouseViewsLogic,
+} from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
+import { AccessControlLevel, DataModelingNode, DataModelingNodeType, DataWarehouseSavedQuery } from '~/types'
 
 import { NodeDetailOverview } from './NodeDetailOverview'
 import { NodeDetailQuery } from './NodeDetailQuery'
-import { NodeDetailSceneTab, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailSceneTab, nodeDetailQueryEditorTabId, nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 import { NodeDetailTests } from './NodeDetailTests'
 
 const NODE_ID = 'node-1'
@@ -37,7 +41,6 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
 
 describe('nodeDetailSceneLogic', () => {
     let logic: ReturnType<typeof nodeDetailSceneLogic.build>
-    let flagsLogic: ReturnType<typeof featureFlagLogic.build>
     let node: DataModelingNode
     let savedQuery: Partial<DataWarehouseSavedQuery>
 
@@ -59,17 +62,11 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
         initKeaTests()
-        flagsLogic = featureFlagLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
         logic?.unmount()
-        flagsLogic.unmount()
     })
 
     it.each([undefined, {}])(
@@ -109,6 +106,74 @@ describe('nodeDetailSceneLogic', () => {
 
         expect(logic.values.effectiveTab).toEqual(expectedTab)
         expect(logic.values.currentTab).toEqual(expectedTab)
+    })
+
+    // An endpoint's query is versioned by the endpoint, and a viewer cannot save a view, so only
+    // an editor on a plain or materialized view gets the editable query.
+    it.each<[string, DataModelingNodeType, AccessControlLevel, boolean]>([
+        ['an editor on a view', 'view', AccessControlLevel.Editor, true],
+        ['an editor on a materialized view', 'matview', AccessControlLevel.Editor, true],
+        ['a viewer on a view', 'view', AccessControlLevel.Viewer, false],
+        ['an editor on an endpoint', 'endpoint', AccessControlLevel.Editor, false],
+    ])('decides whether the query is editable for %s', async (_case, type, accessLevel, expected) => {
+        node = buildNode(type)
+        savedQuery = {
+            ...savedQuery,
+            user_access_level: accessLevel,
+            query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        }
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.canEditQuery).toBe(expected)
+    })
+
+    // The buttons above the editor have no access to its bindings, so they act through the editor
+    // mounted under the scene's tab id. A wrong id would leave them clicking into nothing.
+    it('sends Update view and Discard changes to the mounted query editor', async () => {
+        savedQuery = { ...savedQuery, query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' } }
+        await mountScene(urls.nodeDetail(NODE_ID))
+        const editor = sqlEditorLogic({
+            tabId: nodeDetailQueryEditorTabId(SAVED_QUERY_ID),
+            mode: SQLEditorMode.Embedded,
+        })
+        editor.mount()
+        try {
+            editor.actions.editView('SELECT 1', savedQuery as DataWarehouseSavedQuery)
+            await expectLogic(editor).toDispatchActions(['editView', 'createTab', 'updateTab'])
+            editor.actions.setQueryInput('SELECT 2')
+
+            logic.actions.updateViewFromQueryEditor()
+            await expectLogic(editor).toDispatchActions(['reviewEditingViewUpdate', 'reviewViewUpdate'])
+
+            logic.actions.discardQueryEditorChanges()
+            await expectLogic(editor).toDispatchActions(['discardChanges'])
+        } finally {
+            editor.unmount()
+        }
+    })
+
+    // Saving a new query from this page changes what the model depends on, and the lineage tab stays
+    // mounted, so it must reload. A frequency change reaches the same success action without a query.
+    it.each<[string, Partial<DataWarehouseSavedQueryUpdate>, number]>([
+        ['changes the query', { query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' } }, 1],
+        ['changes only the sync frequency', { sync_frequency: '24hour' }, 0],
+    ])('reloads the lineage graph only when an update %s', async (_case, change, expectedReloads) => {
+        const lineageRequests = jest.fn(() => [200, { nodes: [], edges: [] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': lineageRequests,
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+            },
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+        const requestsBefore = lineageRequests.mock.calls.length
+
+        dataWarehouseViewsLogic.actions.updateDataWarehouseSavedQuerySuccess([], { id: SAVED_QUERY_ID, ...change })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequests.mock.calls.length - requestsBefore).toBe(expectedReloads)
     })
 
     it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {
@@ -207,46 +272,6 @@ describe('nodeDetailSceneLogic', () => {
             expect(logic.values.tableDetailsError).toBe(false)
         }
     )
-
-    it('loads the PostHog subject when the data quality flag arrives after the node', async () => {
-        node = buildNode('table', { name: 'events', origin: 'posthog' })
-        flagsLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: false })
-        useMocks({
-            get: {
-                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
-                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
-                '/api/projects/:team_id/data_quality_checks/subjects/': () => [
-                    200,
-                    [
-                        {
-                            subject_type: 'posthog_table',
-                            id: 'events-subject',
-                            name: 'events',
-                            display_name: '',
-                            time_column: 'timestamp',
-                            columns: {},
-                            editable: true,
-                        },
-                    ],
-                ],
-            },
-        })
-
-        await mountScene(urls.nodeDetail(NODE_ID))
-        expect(logic.values.availableTabs).toEqual(['lineage'])
-
-        await expectLogic(logic, () => {
-            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-                [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-            })
-        }).toFinishAllListeners()
-
-        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
-        expect(logic.values.dataQualitySubject).toMatchObject({
-            subjectType: 'posthog_table',
-            subjectId: 'events-subject',
-        })
-    })
 
     it('keeps the data quality tab for an unsupported PostHog table', async () => {
         node = buildNode('table', { name: 'unsupported_table', origin: 'posthog' })
@@ -419,14 +444,13 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
-    // Deep links from the data quality overview outlive the flag that created them.
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
-        flagsLogic.actions.setFeatureFlags([], {})
+        node = buildNode('table')
 
         await mountScene(urls.nodeDetail(NODE_ID, 'data-quality'))
 
-        expect(logic.values.effectiveTab).toEqual('query')
-        expect(logic.values.currentTab).toEqual('query')
+        expect(logic.values.effectiveTab).toEqual('lineage')
+        expect(logic.values.currentTab).toEqual('lineage')
     })
 
     // Clicking through the lineage graph navigates model to model. The outgoing model's logic is

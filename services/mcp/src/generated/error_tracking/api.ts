@@ -421,6 +421,16 @@ export const ErrorTrackingAssignmentRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -2050,6 +2060,16 @@ export const ErrorTrackingBypassRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -3650,6 +3670,16 @@ export const ErrorTrackingBypassRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -5282,6 +5312,16 @@ export const ErrorTrackingGroupingRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -6904,6 +6944,16 @@ export const ErrorTrackingGroupingRulesUpdateBody = () => zod.object({
                                 .optional(),
                         }),
                         zod.object({
+                            cohort_deleted: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                            cohort_missing: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                ),
                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                             key: zod
                                 .literal('id')
@@ -9169,6 +9219,16 @@ export const ErrorTrackingSeverityRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -10777,6 +10837,16 @@ export const ErrorTrackingSeverityRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -12398,6 +12468,16 @@ export const ErrorTrackingSuppressionRulesCreateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
@@ -14009,6 +14089,16 @@ export const ErrorTrackingSuppressionRulesUpdateBody = () => zod.object({
                             .optional(),
                     }),
                     zod.object({
+                        cohort_deleted: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe('Set by the feature flag API when the cohort is deleted or does not exist.'),
+                        cohort_missing: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                            ),
                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')

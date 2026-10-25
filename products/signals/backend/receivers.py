@@ -476,7 +476,7 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
-def arm_pending_checks_when_report_resolved(
+def arm_pending_checks_when_report_monitoring(
     sender: type[SignalReport],
     instance: SignalReport,
     created: bool,
@@ -490,7 +490,7 @@ def arm_pending_checks_when_report_resolved(
     ):
         return
     effective_status = instance.effective_status
-    if effective_status not in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+    if effective_status != SignalReport.Status.MONITORING:
         if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
@@ -498,19 +498,16 @@ def arm_pending_checks_when_report_resolved(
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    monitoring_started_at = (
-        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
-    )
-    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
+    monitoring_started_at = instance.monitoring_started_at
+    if monitoring_started_at is None:
         return
-    resolved_at = monitoring_started_at or timezone.now()
     # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
     transaction.on_commit(
         partial(
             _arm_pending_checks_safely,
             team_id=team_id,
             report_id=report_id,
-            resolved_at=resolved_at,
+            resolved_at=monitoring_started_at,
             expected_monitoring_started_at=monitoring_started_at,
         )
     )
@@ -957,8 +954,11 @@ def capture_status_change_analytics(
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
     # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
-    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_status_from_pr_state", False):
-        properties["resolution_reason"] = "pr_merged"
+    if getattr(instance, "_status_from_pr_state", False):
+        if instance.status == SignalReport.Status.RESOLVED:
+            properties["resolution_reason"] = "pr_merged"
+        elif instance.status == SignalReport.Status.SUPPRESSED:
+            properties["dismissal_cause"] = "pr_closed_without_merge"
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team

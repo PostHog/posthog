@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -45,11 +46,26 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
+export const DashboardInsightTileIdsSchema = z
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids): string | undefined => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
-    x: z.number().int().min(0).optional(),
-    y: z.number().int().min(0).optional(),
-    w: z.number().int().min(1).optional(),
-    h: z.number().int().min(1).optional(),
+    x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
+    y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
+    w: z.number().int().min(1).optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+    h: z.number().int().min(1).optional().describe('Height in grid rows.'),
 })
 
 export const DashboardTileCreateSchema = z.object({
@@ -74,8 +90,12 @@ export const DashboardTileCreateSchema = z.object({
         ),
     layouts: z
         .object({
-            sm: DashboardTileLayoutSchema.optional(),
-            xs: DashboardTileLayoutSchema.optional(),
+            sm: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+            ),
+            xs: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the small (mobile) breakpoint. The grid is 1 column wide.'
+            ),
         })
         .optional()
         .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
@@ -548,7 +568,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricFilters`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )
@@ -1303,3 +1323,27 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition or one copied from a ' +
+                            'different flag. The update is refused when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. The tool description covers condition_id and group targeting.'
+)

@@ -203,7 +203,10 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `isolate_source_rows` | `False` | Write the batch's rows to their own files, apart from the unchanged rows copied out of the rewritten files. A later batch that touches the same rows then rewrites only those files. Costs up to one more file per touched partition. |
 | `max_row_group_bytes` | `None` | Close an output row group at this many encoded bytes. A later upsert's reader fetches one whole row group at a time, so smaller row groups lower its memory. `None` closes row groups only at the encoder's row cap. |
 | `max_source_bytes` | `2 GiB` | Oversized-batch guard (`0` disables). |
-| `multipart_threshold` / `multipart_part_size` | `64 MiB` / `16 MiB` | Multipart upload thresholds (`0` threshold disables). |
+| `multipart_threshold` / `multipart_part_size` | `16 MiB` / `8 MiB` | Multipart upload thresholds (`0` threshold disables). With `multipart_concurrency=1` the defaults are `64 MiB` / `16 MiB`. |
+| `multipart_concurrency` | `4` | Parts of one upload sent at once. The parts are slices of the finished file, so more parts in flight add no memory. `1` sends them one after another. |
+| `range_get_part_size` / `range_get_concurrency` | `8 MiB` / `4` | A ranged read of a data file (a row group) larger than the part size is split into requests of that size, this many at once. Each request writes into its place in one buffer, so the split adds no memory. `1` turns the split off. |
+| `read_ahead_row_groups` | `False` | Read the next row group of a file while the current one decodes. A reader then holds up to two row groups, and reserves both from `max_fetch_bytes`; a file whose two largest neighbouring row groups do not fit is read without it. |
 | `commit_max_retries` | `15` | Conditional-put commit retry budget. |
 | `commit_metadata` | `None` | Extra key/values recorded in the Delta commit. |
 | `use_probe_cache` | `True` | Use the process-wide probe cache (see below). `False` reads every candidate file from storage. |
@@ -217,7 +220,9 @@ budgets:
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB),
 `DELTALITE_MAX_SOURCE_BYTES`, `DELTALITE_MULTIPART_THRESHOLD_BYTES`,
-`DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+`DELTALITE_MULTIPART_PART_SIZE_BYTES`, `DELTALITE_MULTIPART_CONCURRENCY`,
+`DELTALITE_RANGE_GET_PART_SIZE_BYTES`, `DELTALITE_RANGE_GET_CONCURRENCY`.
+The last five are the defaults of the per-call arguments of the same names.
 
 **Probe cache.** The probe reads a footer and the PK column of every candidate
 file, so on object storage its cost grows with the number of files in the

@@ -69,6 +69,36 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "AccountUsersQuery": {
+            "additionalProperties": false,
+            "description": "The persons who use an account. Only valid as an `ActorsQuery` source.",
+            "properties": {
+                "accountId": {
+                    "description": "ID of the account whose users to list.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "AccountUsersQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["accountId", "kind"],
+            "type": "object"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1276,6 +1306,9 @@
                             "$ref": "#/definitions/PathsV2ActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/AccountUsersQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         }
                     ]
@@ -1698,6 +1731,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebAgentAnalyticsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebPageDirectoryQuery"
                 },
                 {
                     "$ref": "#/definitions/WebGoalsQuery"
@@ -16440,8 +16476,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -16672,8 +16716,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -16702,6 +16754,122 @@
                 },
                 "samplingRate": {
                     "$ref": "#/definitions/SamplingRate"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedWebPageDirectoryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebPageDirectoryRow"
+                    },
+                    "type": "array"
+                },
+                "siteTotals": {
+                    "$ref": "#/definitions/WebPageDirectorySiteTotals"
                 },
                 "timezone": {
                     "type": "string"
@@ -16919,6 +17087,10 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -17032,8 +17204,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -17697,6 +17877,14 @@
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
             "properties": {
+                "cohort_deleted": {
+                    "description": "Set by the feature flag API when the cohort is deleted or does not exist.",
+                    "type": "boolean"
+                },
+                "cohort_missing": {
+                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored.",
+                    "type": "boolean"
+                },
                 "cohort_name": {
                     "type": "string"
                 },
@@ -18544,7 +18732,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "enum": ["custom_property", "relationship"],
+                    "enum": ["custom_property", "relationship", "account_field"],
                     "type": "string"
                 }
             },
@@ -18639,7 +18827,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
+                    "deprecated": "Ignored. Kept so that dashboards saved with label filters still load."
                 },
                 "metricVariables": {
                     "anyOf": [
@@ -19159,8 +19347,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19254,6 +19450,10 @@
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19504,8 +19704,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19581,8 +19789,16 @@
                                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                                     "type": "string"
                                 },
+                                "preComputeStale": {
+                                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                                    "type": "boolean"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "preComputedAt": {
+                                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                                    "type": "string"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -21338,6 +21554,11 @@
             "properties": {
                 "connectionId": {
                     "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
+                "executionTarget": {
+                    "description": "Select the native managed Trino catalog instead of the default PostHog catalog.",
+                    "enum": ["default", "managed_trino"],
                     "type": "string"
                 },
                 "includeFields": {
@@ -25631,7 +25852,7 @@
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
-            "enum": ["edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "enum": ["open_feature_flag", "edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
@@ -30766,21 +30987,9 @@
                     "maxLength": 2000,
                     "type": "string"
                 },
-                "threshold": {
-                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                },
                 "type": {
                     "const": "llm",
                     "type": "string"
-                },
-                "window": {
-                    "description": "How many recent points the model is shown (default: 90)",
-                    "maximum": 400,
-                    "minimum": 5,
-                    "type": "integer"
                 }
             },
             "required": ["type"],
@@ -33788,8 +33997,24 @@
                 "errors": {
                     "$ref": "#/definitions/integer"
                 },
+                "max": {
+                    "type": ["number", "null"]
+                },
+                "mean": {
+                    "type": ["number", "null"]
+                },
+                "min": {
+                    "description": "Latency spread for the box plot view. Optional so responses cached before these fields existed still parse.",
+                    "type": ["number", "null"]
+                },
+                "p25": {
+                    "type": ["number", "null"]
+                },
                 "p50": {
                     "type": "number"
+                },
+                "p75": {
+                    "type": ["number", "null"]
                 },
                 "p95": {
                     "type": "number"
@@ -37662,9 +37887,6 @@
                 "has_active_subscription": {
                     "type": "boolean"
                 },
-                "is_deactivated": {
-                    "type": "boolean"
-                },
                 "products": {
                     "items": {
                         "$ref": "#/definitions/MaxProductInfo"
@@ -38806,7 +39028,7 @@
                     "type": "array"
                 },
                 "interval": {
-                    "description": "Bucket size; auto-picked from the range when omitted",
+                    "description": "Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range.",
                     "type": "string"
                 },
                 "kind": {
@@ -38838,7 +39060,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the filters refer to as `$name`.",
+                    "description": "Values of the dashboard variables that the filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {
@@ -38966,7 +39188,7 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable.",
                     "type": "string"
                 },
                 "kind": {
@@ -38999,7 +39221,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.",
+                    "description": "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {
@@ -39175,6 +39397,13 @@
                 "clause": {
                     "description": "Clause alias that produced this series (`formula` for the formula result)",
                     "type": "string"
+                },
+                "histogramBounds": {
+                    "description": "Bucket upper edges a histogram quantile series was estimated from. The true quantile can be anywhere between two edges.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "labels": {
                     "additionalProperties": {
@@ -39663,6 +39892,7 @@
                 "WebExternalClicksTableQuery",
                 "WebBotsTableQuery",
                 "WebAgentAnalyticsQuery",
+                "WebPageDirectoryQuery",
                 "WebGoalsQuery",
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
@@ -39698,6 +39928,7 @@
                 "UsageMetricsQuery",
                 "AccountsQuery",
                 "AccountsTableQuery",
+                "AccountUsersQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
                 "EndpointsUsageTrendsQuery",
@@ -43242,8 +43473,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43337,6 +43576,10 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43608,6 +43851,83 @@
                         },
                         "types": {
                             "items": {},
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/WebPageDirectoryRow"
+                            },
+                            "type": "array"
+                        },
+                        "siteTotals": {
+                            "$ref": "#/definitions/WebPageDirectorySiteTotals"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
                             "type": "array"
                         },
                         "used_data_warehouse_sources": {
@@ -43667,8 +43987,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43744,8 +44072,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44943,8 +45279,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45038,6 +45382,10 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45288,8 +45636,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45365,8 +45721,16 @@
                             "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                             "type": "string"
                         },
+                        "preComputeStale": {
+                            "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                            "type": "boolean"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "preComputedAt": {
+                            "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -50103,6 +50467,9 @@
                 },
                 {
                     "$ref": "#/definitions/WebAgentAnalyticsQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebPageDirectoryQuery"
                 },
                 {
                     "$ref": "#/definitions/WebGoalsQuery"
@@ -57653,8 +58020,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -58051,8 +58426,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -58105,6 +58488,401 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "WebPageDirectoryMetric": {
+            "enum": [
+                "visitors",
+                "google_search",
+                "ai_referrals",
+                "ai_crawls",
+                "conversions",
+                "time_on_page",
+                "bounce_rate"
+            ],
+            "type": "string"
+        },
+        "WebPageDirectoryMetrics": {
+            "additionalProperties": false,
+            "properties": {
+                "aiCrawlerNames": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawlers": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawls": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "aiReferrals": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "bounceRate": {
+                    "type": ["number", "null"]
+                },
+                "conversions": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "googleSearch": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "timeOnPageP90": {
+                    "type": ["number", "null"]
+                },
+                "visitors": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                }
+            },
+            "type": "object"
+        },
+        "WebPageDirectoryQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "excludeStaticAssets": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "includeSiteTotals": {
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
+                },
+                "kind": {
+                    "const": "WebPageDirectoryQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "metrics": {
+                    "items": {
+                        "$ref": "#/definitions/WebPageDirectoryMetric"
+                    },
+                    "type": "array"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "pageKeys": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebPageDirectoryQueryResponse"
+                },
+                "sampling": {
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "search": {
+                    "type": "string"
+                },
+                "sortBy": {
+                    "$ref": "#/definitions/WebPageDirectorySortBy"
+                },
+                "sortDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebPageDirectoryQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebPageDirectoryRow"
+                    },
+                    "type": "array"
+                },
+                "siteTotals": {
+                    "$ref": "#/definitions/WebPageDirectorySiteTotals"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebPageDirectoryRow": {
+            "additionalProperties": false,
+            "properties": {
+                "aiCrawlerNames": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawlers": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawls": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "aiReferrals": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "bounceRate": {
+                    "type": ["number", "null"]
+                },
+                "conversions": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "googleSearch": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "page": {
+                    "type": "string"
+                },
+                "timeOnPageP90": {
+                    "type": ["number", "null"]
+                },
+                "visitors": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                }
+            },
+            "required": ["page"],
+            "type": "object"
+        },
+        "WebPageDirectorySiteTotals": {
+            "additionalProperties": false,
+            "properties": {
+                "aiCrawlerNames": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawlers": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "aiCrawls": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "aiReferrals": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "bounceRate": {
+                    "type": ["number", "null"]
+                },
+                "conversions": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "googleSearch": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                },
+                "serverLogs": {
+                    "$ref": "#/definitions/integer"
+                },
+                "timeOnPageP90": {
+                    "type": ["number", "null"]
+                },
+                "visitors": {
+                    "$ref": "#/definitions/WebPageDirectoryValue"
+                }
+            },
+            "required": ["serverLogs"],
+            "type": "object"
+        },
+        "WebPageDirectorySortBy": {
+            "enum": [
+                "page",
+                "visitors",
+                "google_search",
+                "ai_referrals",
+                "ai_crawls",
+                "conversions",
+                "time_on_page",
+                "bounce_rate"
+            ],
+            "type": "string"
+        },
+        "WebPageDirectoryValue": {
+            "additionalProperties": false,
+            "properties": {
+                "current": {
+                    "type": "number"
+                },
+                "previous": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["current"],
             "type": "object"
         },
         "WebPageURLSearchQuery": {
@@ -58472,6 +59250,10 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -58695,8 +59477,16 @@
                     "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
+                "preComputeStale": {
+                    "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
+                    "type": "boolean"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "preComputedAt": {
+                    "description": "When the oldest precomputed window this response used was computed. Unset for live responses.",
+                    "type": "string"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",

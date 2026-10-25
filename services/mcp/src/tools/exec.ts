@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
@@ -256,11 +257,13 @@ export interface ExecToolOptions {
      * is the case where an agent has no way to reach a built-in skill at all.
      */
     builtInSkillHint?: BuiltInSkillHint
+    oauthClientId?: string | undefined
     /**
-     * The tools a scout run with a picked tool list holds. A catalog tool outside this set is
-     * refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
+     * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
+    beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1659,7 +1662,10 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
-function missingScopeRecovery(context: Context | undefined): string {
+function missingScopeRecovery(context: Context | undefined, oauthClientId: string | undefined): string {
+    if (isChatGptAppConnection(oauthClientId)) {
+        return 'The PostHog app in ChatGPT and Codex does not request every PostHog scope, so reconnecting it adds these scopes only if the app asks for them. If the user already reconnected and approved all access, this tool is not available through the app yet. Continue with the other tools.'
+    }
     switch (classifyAuthMethod(context?.api.config.apiToken)) {
         case 'oauth':
             return 'Reauthorize the PostHog MCP connection and approve these scopes.'
@@ -1676,7 +1682,8 @@ function findTool(
     flagGatedTools: FlagGatedTool[],
     name: string,
     context: Context | undefined,
-    heldTools: ReadonlySet<string> | undefined
+    isNotGranted: (name: string) => boolean,
+    oauthClientId: string | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1691,11 +1698,11 @@ function findTool(
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
             throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
             )
         }
-        if (heldTools && !heldTools.has(name) && getToolDefinitions()[name] !== undefined) {
+        if (isNotGranted(name)) {
             throw new ExecCommandError(
                 `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
                 'tool_not_granted'
@@ -1743,6 +1750,7 @@ export function createExecTool(
             }
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            const withheldGatewayToolNames = new Set<string>()
             /** PostHog's tools plus any third-party tools the caller has connected.
              *  Resolved at most once per command, and only for commands that need a
              *  roster — `learn` never touches the gateway. */
@@ -1758,9 +1766,23 @@ export function createExecTool(
                             !filter?.excludeTools?.includes(tool.name) &&
                             (!(filter?.tools?.length || filter?.features?.length) || filter?.tools?.includes(tool.name))
                     )
+                    const { heldTools } = options
+                    if (heldTools) {
+                        for (const tool of gatewayTools) {
+                            if (!heldTools.has(tool.name)) {
+                                withheldGatewayToolNames.add(tool.name)
+                            }
+                        }
+                        gatewayTools = gatewayTools.filter((tool) => heldTools.has(tool.name))
+                    }
                 }
                 return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
             }
+            // Only a name that exists is refused as not granted, so a typo still sends the agent to `search`.
+            const isNotGranted = (name: string): boolean =>
+                options.heldTools !== undefined &&
+                !options.heldTools.has(name) &&
+                (getToolDefinitions()[name] !== undefined || withheldGatewayToolNames.has(name))
 
             switch (verb) {
                 case 'help':
@@ -1862,7 +1884,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context)}`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context, options.oauthClientId)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -1906,7 +1928,8 @@ export function createExecTool(
                         flagGatedTools,
                         infoArgs,
                         context,
-                        options.heldTools
+                        isNotGranted,
+                        options.oauthClientId
                     )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
@@ -1958,7 +1981,8 @@ export function createExecTool(
                         flagGatedTools,
                         schemaToolName,
                         context,
-                        options.heldTools
+                        isNotGranted,
+                        options.oauthClientId
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -2022,7 +2046,8 @@ export function createExecTool(
                         flagGatedTools,
                         toolName,
                         context,
-                        options.heldTools
+                        isNotGranted,
+                        options.oauthClientId
                     )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
@@ -2095,6 +2120,7 @@ export function createExecTool(
                     }
                     const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
+                    await options.beforeValidatedCall?.(tool.name, input)
 
                     const startedAt = Date.now()
                     let result: unknown
