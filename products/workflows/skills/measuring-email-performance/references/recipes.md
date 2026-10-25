@@ -6,16 +6,16 @@ The events carry the workflow id for every kind of workflow, broadcasts and batc
 
 Replace every `{placeholder}` with a literal before you run the query:
 
-| Placeholder       | Holds                                                                | Write it as                                |
-| ----------------- | -------------------------------------------------------------------- | ------------------------------------------ |
-| `{workflow_id}`   | The workflow's UUID                                                  | `'01a1...'`                                |
-| `{step_id}`       | The email step's action id from `posthog:workflows-get`              | `'action_function_email_...'`              |
-| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day            | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
-| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past  | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
-| `{outcome_event}` | The product event that counts as the outcome, checked in the schema  | `'insight created'`                        |
-| `{outcome_days}`  | How many days after the send the outcome may happen                  | `7`                                        |
-| `{person_id}`     | One person's UUID                                                    | `'0189...'`                                |
-| `{version}`       | One published version number, from `posthog:workflows-list-versions` | `'3'`                                      |
+| Placeholder       | Holds                                                                                                                    | Write it as                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `{workflow_id}`   | The workflow's UUID                                                                                                      | `'01a1...'`                                |
+| `{step_id}`       | The email step's action id from `posthog:workflows-get`                                                                  | `'action_function_email_...'`              |
+| `{window_start}`  | Start of the window, inclusive, at the start of a UTC day                                                                | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
+| `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past                                                      | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
+| `{outcome_event}` | The product event that counts as the outcome, checked in the schema                                                      | `'insight created'`                        |
+| `{outcome_days}`  | How many days after the send the outcome may happen                                                                      | `7`                                        |
+| `{person_id}`     | One person's UUID                                                                                                        | `'0189...'`                                |
+| `{version}`       | One published version number, from `posthog:workflows-list-versions`, or the live `version` from `posthog:workflows-get` | `'3'`                                      |
 
 ## Recipes
 
@@ -72,7 +72,7 @@ GROUP BY metric_name
 ORDER BY metric_name
 ```
 
-Read opens and clicks against `email_sent` minus `email_untracked`. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing here, so those rates read slightly low. Versioned send counters began in early August 2026, and versioned deliveries, opens, clicks, bounces and complaints at the end of August 2026. When a window shows `email_sent` at least two days old but no `email_delivered`, its engagement predates versioning: report it as unknown, never as zero.
+Read opens and clicks against `email_sent` minus `email_untracked`. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing here, so those rates read slightly low. The versioned counters start on 2026-08-06 for sends and on 2026-09-01 for engagement: see "Versioned counters have start dates" in the skill.
 To read one version, replace the `startsWith` line with `app_source_id = concat({workflow_id}, '/', {version})`.
 
 ### Engagement by version
@@ -126,7 +126,7 @@ ORDER BY clicks DESC
 LIMIT 50
 ```
 
-`clicks` are occurrences. It reads the versioned series, because that one is keyed by the workflow for broadcasts and batch runs too, so clicks whose message carried no version are missing. Before the end of August 2026 no click carried a version: an empty result there means unknown, not no clicks.
+`clicks` are occurrences. It reads the versioned series, because that one is keyed by the workflow for broadcasts and batch runs too, so clicks whose message carried no version are missing. Start the window on or after 2026-09-01, when clicks began to carry a version. An earlier window reads as unknown, not as no clicks.
 Short personal path segments, such as a name in an invite link, and links without a host, such as `mailto:`, `tel:` and `sms:`, pass through unchanged: collapse them into one row in your report.
 For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only. Clickers overlap across links, so never add them up into a count of people who clicked.
 
