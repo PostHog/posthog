@@ -549,6 +549,9 @@ export const pageDirectoryLogic: LogicWrapper<pageDirectoryLogicType> = kea<page
 
         return {
             loadDriver: async ({ refresh }, breakpoint) => {
+                for (const metric of PAGE_DIRECTORY_METRICS) {
+                    cache.disposables.dispose(`metricRequest-${metric}`)
+                }
                 await breakpoint(300)
                 const { signal, queryId, track } = startRequest('driverRequest')
                 const query = values.driverQuery

@@ -77,7 +77,7 @@ export const pageKeyForUrl = (
     if (!parsed.isValid || !parsed.pathname) {
         return url
     }
-    return `${parsed.host ?? ''}${cleanPath(parsed.pathname)}`
+    return `${parsed.host ?? ''}${cleanPath(parsed.pathname.replace(/%3C([^/%]*)%3E/gi, '<$1>'))}`
 }
 
 export const splitPageKey = (page: string): { host: string | null; path: string } => {
