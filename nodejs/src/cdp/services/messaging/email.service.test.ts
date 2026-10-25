@@ -1808,17 +1808,21 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', undefined],
+            ['a sensitive template', { sensitive: true }, undefined, undefined],
+            ['a workflow step', {}, 'Test Subject', 4],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, workflowVersion) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                if (workflowVersion !== undefined) {
+                    Object.assign(invocation, { hogFlow: { version: workflowVersion } })
+                }
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -1830,11 +1834,14 @@ describe('EmailService', () => {
                     properties: {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
+                        $workflow_invocation_id: 'invocation-1',
+                        $email_message_id: 'test-message-id',
                         $email_to: 'test@example.com',
                         $email_tracking_enabled: true,
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
             }
         )
 

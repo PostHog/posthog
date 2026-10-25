@@ -395,6 +395,7 @@ export class EmailTrackingService {
                 properties: {
                     $workflow_id: appSourceId,
                     $workflow_action_id: actionId,
+                    $workflow_invocation_id: invocationId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },

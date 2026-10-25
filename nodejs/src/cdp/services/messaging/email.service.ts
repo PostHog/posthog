@@ -403,6 +403,7 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let messageId: string | undefined
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -642,7 +643,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
+                    messageId = await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -720,6 +721,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)
+        const workflowVersion = resolveEmailSendingVersion(invocation)
         if (
             distinctId &&
             !isTest &&
@@ -733,6 +735,9 @@ export class EmailService {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
+                    $workflow_invocation_id: invocation.id,
+                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                    ...(messageId ? { $email_message_id: messageId } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1086,7 +1091,7 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false
-    ): Promise<void> {
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1198,6 +1203,7 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
+            return response.MessageId
         } catch (error: unknown) {
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
