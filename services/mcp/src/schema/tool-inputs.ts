@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -1322,3 +1323,27 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition or one copied from a ' +
+                            'different flag. The update is refused when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. The tool description covers condition_id and group targeting.'
+)

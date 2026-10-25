@@ -71258,6 +71258,26 @@ export namespace Schemas {
       models: ModelChoice[];
     }
 
+    export interface ModelStatusModel {
+      /** Model ID. */
+      saved_query_id: string;
+      /** Model name. */
+      name: string;
+      /** Whether this model has been deleted. */
+      deleted: boolean;
+    }
+
+    export interface ModelStatusBreakdown {
+      /** Materialization engine: clickhouse or managed_warehouse. */
+      engine: string;
+      /** Status of the latest run for the model and engine in this range. */
+      status: string;
+      /** Number of models whose latest run has this status. */
+      count: number;
+      /** Models whose latest run has this status. */
+      models: ModelStatusModel[];
+    }
+
     export interface ModelUsageTotals {
       /** Finished materialization runs, including failures and cancellations. */
       runs: number;
@@ -71396,6 +71416,8 @@ export namespace Schemas {
       models: ModelUsageRow[];
       /** Total number of models in the breakdown. */
       count: number;
+      /** Latest run status for each model and engine in the selected complete-day range. */
+      status_breakdown: ModelStatusBreakdown[];
       /**
          * Latest usage collection timestamp in this range.
          * @nullable
@@ -128908,6 +128930,10 @@ export namespace Schemas {
     offset?: number;
     saved_query_id?: string;
     /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[];
+    /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
      * * `Failed` - Failed
@@ -129017,9 +129043,13 @@ export namespace Schemas {
     page_size?: number;
     /**
      * Limit usage to one accessible materialized view.
-     * @nullable
      */
-    saved_query_id?: string | null;
+    saved_query_id?: string;
+    /**
+     * Comma-separated materialized view IDs. Usage is limited to accessible views.
+     * @minLength 1
+     */
+    saved_query_ids?: string;
     };
 
     export type DataModelingUsageListEngine = typeof DataModelingUsageListEngine[keyof typeof DataModelingUsageListEngine];
