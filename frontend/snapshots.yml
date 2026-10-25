@@ -15728,6 +15728,10 @@ snapshots:
         hash: v1.k794b7964.b8c44f66626ff2d35a9a566c58337683e9ade9433d135be7f8bb4b17e338aa09.xkwHBWc90Tu3C_N2E-Vtw47FBYj2EOePlemtN4qmwDQ
     scenes-app-tracing-tracingimpactcounts--sessions-only--light:
         hash: v1.k794b7964.1df982f4a9a5e13533ba18e16809fc68a44c64764aaf3713a8a7e98ab55e9b9b.kL4oa8rGztR7a71LeNRcpjpBpVYvrVTNmouBb4sRErE
+    scenes-app-uptime-monitoring--monitor-list--dark:
+        hash: v1.k794b7964.b874db8bc463504a1cf79a8bad9d366cb6ff27fa8155c122749db2ab9373ccda.oF2fBVizaGetqgCQa3nVRFjTpIRsN0n__swN43wDERg
+    scenes-app-uptime-monitoring--monitor-list--light:
+        hash: v1.k794b7964.7ba277ef90625e891d38f1804940e981128a246bd96ba2867a56e53d10196564.zAJoV2JCgWOGK_kaXIwyrYuFIpDpkdIPw3HFpFd-RMM
     scenes-app-visual-review-flakiness--could-not-load--dark:
         hash: v1.k794b7964.a885efc43e772acd3c4f772793c1ea66d68aff8db840742efeda0db8d4e0bc81.uOVreOtzrZybXYI515GtfVCcoYT5R1N_lRbvw_qsJ4Y
     scenes-app-visual-review-flakiness--could-not-load--light:
