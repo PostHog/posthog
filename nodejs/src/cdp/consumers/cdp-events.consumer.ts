@@ -212,8 +212,7 @@ export class CdpEventsConsumer<
             // message for a replay. The loaders send the team ids of the whole batch in one query, so one
             // failed query parks every message in it. With the dead-letter topic off, nothing keeps the
             // message, so the error fails the batch. A failed query that covers enough of the batch trips
-            // the dead-letter circuit breaker, which also fails the batch. One team's data can fail the
-            // query. The partition then stalls until someone fixes that data.
+            // the dead-letter circuit breaker, which also fails the batch.
             parkLookupError: park('lookup'),
         })
     }

@@ -366,21 +366,40 @@ describe('HogFlowManager', () => {
             })
         })
 
-        it('keeps the flow (fail-open) when encrypted_inputs cannot be decrypted', async () => {
+        it.each<{ name: string; actions?: unknown; encryptedInputs: string | Record<string, unknown> }>([
+            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
+            { name: 'encrypted_inputs cannot be decrypted', encryptedInputs: 'not-a-valid-fernet-token' },
+            // A malformed row must load, because a throw fails the batched load for every flow in it.
+            {
+                name: 'actions is not a list',
+                actions: { trigger: { type: 'trigger' } },
+                encryptedInputs: { trigger: { api_key: { value: 'secret' } } },
+            },
+            {
+                name: 'actions holds a null entry',
+                actions: [null],
+                encryptedInputs: { trigger: { api_key: { value: 'secret' } } },
+            },
+        ])('keeps the flow (fail-open) when $name', async ({ actions, encryptedInputs }) => {
             const flow = await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
-                    .withName('Undecryptable flow')
+                    .withName('Flow that cannot take its secrets')
                     .withTeamId(teamId1)
                     .withStatus('active')
                     .build()
             )
 
-            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
-                [flow.id, 'not-a-valid-fernet-token'],
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2, actions = COALESCE($3::jsonb, actions) WHERE id = $1`,
+                [
+                    flow.id,
+                    typeof encryptedInputs === 'string'
+                        ? encryptedInputs
+                        : hub.encryptedFields.encrypt(JSON.stringify(encryptedInputs)),
+                    actions === undefined ? null : JSON.stringify(actions),
+                ],
                 'testKey'
             )
             manager['onHogFlowsReloaded'](teamId1, [flow.id])

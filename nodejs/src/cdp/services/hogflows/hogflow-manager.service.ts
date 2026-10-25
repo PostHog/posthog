@@ -202,7 +202,18 @@ export class HogFlowManagerService {
                     }
                 }
             }
-            this.mergeEncryptedInputs(item)
+            try {
+                this.mergeEncryptedInputs(item)
+            } catch (error) {
+                // A throw here fails the batched load for every flow in it, so a flow whose stored
+                // shape breaks the merge loads without its secrets instead.
+                logger.warn('[HogFlowManager]', 'Could not merge encrypted inputs - flow will run without them', {
+                    hogFlowId: item.id,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+                captureException(error)
+                delete item.encrypted_inputs
+            }
             acc[item.id] = item
             return acc
         }, {})
