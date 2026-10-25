@@ -30,6 +30,9 @@ class NuntlyEndpointConfig:
     default_incremental_field: str | None = None
     # Set for resources only listed per parent; the parent is re-listed each sync.
     fanout: DependentEndpointConfig | None = None
+    # The fan-out checkpoint lists every finished parent and is rewritten after each one, so its
+    # cost grows quadratically with the parent count. Turn it off where parents are unbounded.
+    checkpoint_fanout: bool = True
 
 
 ENDPOINTS: dict[str, NuntlyEndpointConfig] = {
@@ -64,6 +67,8 @@ ENDPOINTS: dict[str, NuntlyEndpointConfig] = {
         table_name="email_events",
         primary_keys=["emailId", "id"],
         paginated=False,
+        # One parent per sent email, so a resumed run starts over rather than carry that list.
+        checkpoint_fanout=False,
         fanout=DependentEndpointConfig(
             parent_name="Emails",
             resolve_param="emailId",

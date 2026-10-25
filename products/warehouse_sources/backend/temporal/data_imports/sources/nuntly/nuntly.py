@@ -78,8 +78,8 @@ def nuntly_source(
             page_size_param=None,
             parent_endpoint_extra={"data_selector": "data"},
             child_endpoint_extra=child_endpoint_extra,
-            resume_hook=save_fanout_checkpoint,
-            initial_paginator_state=resume.fanout_state if resume else None,
+            resume_hook=save_fanout_checkpoint if endpoint_config.checkpoint_fanout else None,
+            initial_paginator_state=resume.fanout_state if resume and endpoint_config.checkpoint_fanout else None,
         )
     else:
         rest_config: RESTAPIConfig = {

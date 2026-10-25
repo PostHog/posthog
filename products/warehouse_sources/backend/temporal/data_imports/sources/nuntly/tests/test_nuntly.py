@@ -134,6 +134,7 @@ class TestNuntlyFanout:
         assert result.paths == ["/emails", "/emails/em_1/events", "/emails/em_gone/events", "/emails/em_2/events"]
         assert result.params("limit") == ["30", None, None, None]
         assert [(row["emailId"], row["id"]) for row in result.rows] == [("em_1", "evt_1"), ("em_2", "evt_2")]
+        assert result.saved_states == []
 
     def test_fanout_resume_skips_inboxes_whose_threads_already_synced(self) -> None:
         first = self._driver().run(
