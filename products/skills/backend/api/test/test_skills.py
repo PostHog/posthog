@@ -1,5 +1,6 @@
 import uuid
 import hashlib
+import contextlib
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -1122,6 +1123,8 @@ class TestLLMSkillAPI(APIBaseTest):
         [
             ("missing_skill", "name/nonexistent/skill-md"),
             ("missing_version", "name/rendered/skill-md?version=9"),
+            ("manifest_missing_skill", "name/nonexistent/manifest"),
+            ("manifest_missing_version", "name/rendered/manifest?version=9"),
         ]
     )
     def test_skill_md_not_found(self, _label, path):
@@ -1130,6 +1133,142 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url(path))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Resource manifests ---
+
+    def test_manifest_digests_match_the_served_bytes(self):
+        skill = self.create_skill(
+            name="served",
+            body="# Guía ✅\r\nDo the thing.",
+            allowed_tools=["Read"],
+            metadata={"author": "posthog", "nested": {"z": "1", "a": "2"}},
+        )
+        LLMSkillFile.objects.create(skill=skill, path="scripts/run.bat", content="echo hi\r\necho bye\r\n")
+        LLMSkillFile.objects.create(
+            skill=skill, path="references/guía.md", content="# Guía ✅\n", content_type="text/markdown"
+        )
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url("name/served/manifest"))
+
+        assert response.status_code == status.HTTP_200_OK
+        manifest = response.json()
+        skill_md = self.client.get(self._url("name/served/skill-md")).json()
+        served = {"SKILL.md": skill_md["content"]}
+        for path in ("references/guía.md", "scripts/run.bat"):
+            served[path] = self.client.get(self._url(f"name/served/files/{path}")).json()["content"]
+        assert [resource["path"] for resource in manifest["resources"]] == list(served)
+        for resource in manifest["resources"]:
+            content = served[resource["path"]].encode("utf-8")
+            assert resource["sha256"] == hashlib.sha256(content).hexdigest(), resource["path"]
+            assert resource["size"] == len(content), resource["path"]
+        assert manifest["frontmatter"] == skill_md["frontmatter"]
+        assert manifest["version"] == 1
+        assert manifest["file_count"] == 3
+        assert manifest["total_size"] == sum(len(content.encode("utf-8")) for content in served.values())
+        assert (manifest["servable"], manifest["unservable_reasons"]) == (True, [])
+        loaded_content = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if '"llm_analytics_llmskill"."body"' in query["sql"]
+            or '"llm_analytics_llmskillfile"."content"' in query["sql"]
+        ]
+        assert loaded_content == []
+
+        listed = self.client.get(self._url("manifests")).json()["results"]
+        assert listed == [manifest]
+
+    def test_manifest_pins_to_a_requested_version(self):
+        first = self.create_skill(name="pinned", body="# v1", version=1, is_latest=False)
+        self.create_skill(name="pinned", body="# v2", version=2)
+
+        data = self.client.get(self._url("name/pinned/manifest?version=1")).json()
+
+        assert data["version"] == 1
+        assert data["frontmatter"]["metadata"]["version"] == "1"
+        assert data["resources"][0]["sha256"] == first.skill_md_sha256
+
+    @parameterized.expand(
+        [
+            ("too_many_files", "MCP_MAX_SKILL_FILES", 1, {}),
+            ("too_large", "MCP_MAX_SKILL_BYTES", 10, {}),
+            ("digest_missing", None, None, {"content_sha256": None, "content_size": None}),
+            # Bypasses the serializer validation so the row looks like one that predates it.
+            ("spec_problems", None, None, {"path": "references\\guide.md"}),
+        ]
+    )
+    def test_manifest_reports_why_a_skill_is_unservable(self, expected_reason, limit_name, limit, file_update):
+        skill = self.create_skill(name="limited")
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
+        LLMSkillFile.objects.filter(skill=skill).update(**file_update)
+        limit_patch = (
+            patch(f"products.skills.backend.api.skill_manifest.{limit_name}", limit)
+            if limit_name
+            else contextlib.nullcontext()
+        )
+
+        with limit_patch:
+            response = self.client.get(self._url("name/limited/manifest"))
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert (data["servable"], data["unservable_reasons"]) == (False, [expected_reason])
+
+    def test_manifests_query_count_does_not_grow_with_the_page(self):
+        def add_skills(names: list[str], file_count: int) -> None:
+            for name in names:
+                skill = self.create_skill(name=name)
+                for index in range(file_count):
+                    LLMSkillFile.objects.create(skill=skill, path=f"references/{index}.md", content="x")
+
+        add_skills(["skill-a"], file_count=1)
+        # The first request warms per-request caches, so it would count queries the page does not cost.
+        self.client.get(self._url("manifests"))
+        with CaptureQueriesContext(connection) as small_page:
+            self.client.get(self._url("manifests"))
+        add_skills(["skill-b", "skill-c", "skill-d"], file_count=3)
+        with CaptureQueriesContext(connection) as large_page:
+            response = self.client.get(self._url("manifests"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(entry["file_count"] for entry in response.json()["results"]) == [2, 4, 4, 4]
+        assert len(large_page.captured_queries) == len(small_page.captured_queries)
+        loaded_content = [
+            query["sql"]
+            for query in large_page.captured_queries
+            if '"llm_analytics_llmskill"."body"' in query["sql"]
+            or '"llm_analytics_llmskillfile"."content"' in query["sql"]
+        ]
+        assert loaded_content == []
+
+    @parameterized.expand(
+        [
+            ("exclude_category", lambda self: "?exclude_category=scout", ["ordinary-skill", "theirs"]),
+            ("owner_id", lambda self: f"?owner_id={self.user.id}", ["ordinary-skill", "signals-scout-errors"]),
+        ]
+    )
+    def test_manifests_filter_like_the_list(self, _label, query_suffix, expected_names):
+        self.create_skill(name="ordinary-skill")
+        self.create_skill(name="signals-scout-errors", category="scout")
+        self.create_skill(name="theirs", created_by=self._create_user("manifest-other@example.com"))
+
+        response = self.client.get(self._url("manifests") + query_suffix(self))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(entry["name"] for entry in response.json()["results"]) == expected_names
+
+    def test_manifests_answer_304_until_a_publish(self):
+        self.create_skill(name="skill-a")
+        first = self.client.get(self._url("manifests"))
+
+        unchanged = self.client.get(self._url("manifests"), HTTP_IF_NONE_MATCH=first["ETag"])
+        publish_skill_version(self.team, user=self.user, skill_name="skill-a", body="# Changed", base_version=1)
+        changed = self.client.get(self._url("manifests"), HTTP_IF_NONE_MATCH=first["ETag"])
+
+        assert unchanged.status_code == status.HTTP_304_NOT_MODIFIED
+        assert changed.status_code == status.HTTP_200_OK
+        assert changed["ETag"] != first["ETag"]
+        assert [entry["version"] for entry in changed.json()["results"]] == [2]
 
     # --- Publish new version ---
 
@@ -2852,7 +2991,11 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand(
-        [(access, endpoint) for access in ("none", "viewer") for endpoint in ("list", "body", "file", "id")]
+        [
+            (access, endpoint)
+            for access in ("none", "viewer")
+            for endpoint in ("list", "manifests", "body", "file", "manifest", "id")
+        ]
     )
     def test_list_and_reads_respect_individual_skill_grants(self, resource_access: str, endpoint: str) -> None:
         self._grant_llm_skill_access(resource_access)
@@ -2874,8 +3017,9 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             )
             LLMSkillFile.objects.create(skill=skill, path="reference.md", content=f"Reference for {skill.name}")
 
-        if endpoint == "list":
-            response = self.client.get(self._url(), {"limit": "1", "order_by": "name"})
+        if endpoint in ("list", "manifests"):
+            url = self._url() if endpoint == "list" else self._url("manifests")
+            response = self.client.get(url, {"limit": "1", "order_by": "name"})
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["count"] == 1
             assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
@@ -2886,9 +3030,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                     resource_id=str(restricted.id),
                     organization_member=membership,
                 ).update(access_level=access)
-                response = self.client.get(
-                    self._url(), {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"]
-                )
+                response = self.client.get(url, {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"])
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["count"] == expected_count
             return
@@ -2896,7 +3038,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
         for skill, expected_status in [(self.skill, allowed_status), (restricted, status.HTTP_403_FORBIDDEN)]:
             name = str(skill.id) if endpoint == "id" else skill.name
-            suffix = "/files/reference.md" if endpoint == "file" else ""
+            suffix = {"file": "/files/reference.md", "manifest": "/manifest"}.get(endpoint, "")
             version_params: list[dict[str, int]] = [{}, {"version": 1}]
             for params in version_params:
                 response = self.client.get(self._url(f"name/{name}{suffix}"), params)
