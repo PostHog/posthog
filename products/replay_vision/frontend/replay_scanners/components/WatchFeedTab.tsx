@@ -5,8 +5,6 @@ import { useInView } from 'react-intersection-observer'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils/strings'
-
 import { watchFeedLogic } from '../watchFeedLogic'
 import { FILLER_REASON_KINDS, WatchFeedRow } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
@@ -71,21 +69,15 @@ export function WatchFeedTab(): JSX.Element {
     const { setDateFrom, setOnlyMyScanners, loadFeed } = useActions(watchFeedLogic)
 
     const items = feedItems ?? []
-    const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
 
     return (
         <div className="@container flex flex-col gap-4">
-            <div className="flex flex-col gap-1">
-                <h2 className="text-xl font-semibold m-0">What to watch</h2>
-                <p className="text-muted text-sm m-0">
-                    {items.length > 0
-                        ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each session opens at the moment its scan cites.`
-                        : 'The observations most worth a look, picked across your scanners.'}
-                </p>
-            </div>
+            <p className="mx-auto w-full max-w-xl text-sm text-secondary m-0 -mb-2">
+                Sessions that stand out in your scanner results.
+            </p>
             <LemonTabs
                 size="small"
                 // The small size packs tabs two units apart below md, too tight for two labels this long.

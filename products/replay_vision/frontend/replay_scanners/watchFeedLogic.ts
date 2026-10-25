@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -165,10 +166,6 @@ export const FEED_PAGE_SIZE = 20
 /** Which ranker ordered the loaded feed. Server-decided per team (the flag evaluates against the
  * team, not the viewer), so the client reads it from the response instead of checking the flag. */
 export type WatchFeedRanker = WatchFeedResponseApi['ranker']
-
-/** The ranker experiment's flag. The server decides its variant per project, so the client can't
- * evaluate it and reports the variant the response carries instead. */
-const WATCH_FEED_RANKER_FLAG = 'vision-watch-feed-ranker'
 
 function feedParams(values: watchFeedLogicValues): VisionScannersWatchFeedRetrieveParams {
     const params: VisionScannersWatchFeedRetrieveParams = { date_from: values.dateFrom, limit: FEED_PAGE_SIZE }
@@ -414,7 +411,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 ranker: values.feedRanker,
                 // The ranker experiment counts this event as its exposure, so it carries the project's variant.
                 ...(values.feedRankerVariant
-                    ? { [`$feature/${WATCH_FEED_RANKER_FLAG}`]: values.feedRankerVariant }
+                    ? { [`$feature/${FEATURE_FLAGS.VISION_WATCH_FEED_RANKER}`]: values.feedRankerVariant }
                     : {}),
                 signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
                 // Which dead end the reader hit, so the empty screens can be counted and ranked
