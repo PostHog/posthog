@@ -356,7 +356,8 @@ def select_embedding_picks(
         When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
     )
     ranked = (
-        walkable.filter(scanner_id__in=scanner_ids, watch_rank__anchor_version=ANCHOR_VERSION)
+        # The explicit null check lets Postgres match the partial `rlo_scanner_ranked_idx`.
+        walkable.filter(scanner_id__in=scanner_ids, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION)
         .alias(
             watch_category=category,
             contrast_type=Func(
