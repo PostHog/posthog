@@ -130,6 +130,17 @@ export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHog
         : undefined
 }
 
+// Send-scoped metrics carry the same version as the tracking code, so a send and its delivery land
+// in one versioned series even when the flow is republished between render and send.
+export const resolveEmailSendingAppSourceVersion = (
+    invocation: CyclotronJobInvocationHogFunction
+): { id: string; version: number } | undefined => {
+    const version = resolveEmailSendingVersion(invocation)
+    return 'hogFlow' in invocation && version !== undefined
+        ? { id: (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.id, version }
+        : undefined
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.

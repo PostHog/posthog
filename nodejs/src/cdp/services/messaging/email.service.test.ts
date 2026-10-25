@@ -1813,7 +1813,7 @@ describe('EmailService', () => {
             ['a workflow step rendered before its version was stored', {}, 'Test Subject', 4, undefined, 4],
             ['a workflow step republished after it rendered', {}, 'Test Subject', 4, 3, 3],
         ])(
-            'should capture a $workflows_email_sent PostHog event on success, for %s',
+            'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
             async (_name, extraMetadata, subject, currentVersion, renderedVersion, workflowVersion) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
@@ -1822,7 +1822,7 @@ describe('EmailService', () => {
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 if (currentVersion !== undefined) {
-                    Object.assign(invocation, { hogFlow: { version: currentVersion } })
+                    Object.assign(invocation, { hogFlow: { id: invocation.functionId, version: currentVersion } })
                 }
                 invocation.state.workflowVersion = renderedVersion
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -1844,6 +1844,11 @@ describe('EmailService', () => {
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
                 expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
+                expect(
+                    result.metrics.find((metric) => metric.metric_name === 'email_sent')?.app_source_version
+                ).toEqual(
+                    workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
+                )
             }
         )
 

@@ -25,6 +25,7 @@ import { EmailSuppressionService } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
+    resolveEmailSendingAppSourceVersion,
     resolveEmailSendingVersion,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -693,6 +694,8 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
+            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
             result.metrics.push({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
@@ -700,6 +703,7 @@ export class EmailService {
                 metric_kind: 'email',
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
+                ...sendVersion,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
@@ -712,6 +716,7 @@ export class EmailService {
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
                     count: 1,
+                    ...sendVersion,
                 })
             }
 
