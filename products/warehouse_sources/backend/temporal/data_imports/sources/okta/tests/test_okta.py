@@ -261,6 +261,30 @@ class TestOktaFanout:
         assert result.requests[0].param("limit") == "200"
         assert result.requests[1].param("limit") == child_limit
 
+    def test_user_factors_drop_activation_secrets(self):
+        result = self._driver().run(
+            "user_factors",
+            [
+                ScriptedResponse(json=[{"id": "u1"}]),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": "f1",
+                            "factorType": "token:software:totp",
+                            "status": "PENDING_ACTIVATION",
+                            "_embedded": {"activation": {"sharedSecret": "FAKESECRET"}},
+                            "_links": {"qrcode": {"href": "https://example.okta.com/qr/fake"}},
+                        }
+                    ]
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "f1", "factorType": "token:software:totp", "status": "PENDING_ACTIVATION", "user_id": "u1"}
+        ]
+
     def test_follows_child_link_header_across_pages(self):
         result = self._driver().run(
             "group_members",

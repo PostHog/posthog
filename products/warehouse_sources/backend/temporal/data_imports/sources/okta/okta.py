@@ -1,8 +1,8 @@
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -37,7 +38,7 @@ class OktaHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OktaResumeConfig:
     next_url: Optional[str] = None
     # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
@@ -110,6 +111,15 @@ def _build_initial_params(
         params["filter"] = f'{field} gt "{formatted}"'
 
     return params
+
+
+def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        for name in fields:
+            row.pop(name, None)
+        return row
+
+    return drop
 
 
 def _is_same_host(url: str, domain: str) -> bool:
@@ -253,9 +263,11 @@ def okta_source(
             db_incremental_field_last_value=None,
             child_endpoint_extra=child_endpoint_extra,
             page_size_param="limit" if config.paginated else None,
-            resume_hook=save_fanout_checkpoint,
-            initial_paginator_state=resume.fanout_state if resume else None,
+            resume_hook=save_fanout_checkpoint if config.resumable else None,
+            initial_paginator_state=resume.fanout_state if resume and config.resumable else None,
         )
+        if config.excluded_fields:
+            resource = cast(Resource, resource).add_map(_drop_fields(config.excluded_fields))
     else:
         params = _build_initial_params(
             config, should_use_incremental_field, db_incremental_field_last_value, incremental_field

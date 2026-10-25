@@ -16,7 +16,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OktaEndpointConfig:
     name: str
     path: str
@@ -37,6 +37,11 @@ class OktaEndpointConfig:
     # Set for per-parent child endpoints (e.g. a group's members), which Okta only exposes nested
     # under the parent resource.
     fanout: Optional[DependentEndpointConfig] = None
+    # False skips fan-out checkpoints: the shared fan-out re-sorts and re-saves every finished parent
+    # on each checkpoint, which grows quadratically when the parent is every user in the org.
+    resumable: bool = True
+    # Top-level row keys never written to the warehouse.
+    excluded_fields: tuple[str, ...] = ()
     # Limit the first sync to the last N days instead of full history. Only used by
     # endpoints with a true time filter (System Log retention is bounded anyway).
     default_lookback_days: Optional[int] = None
@@ -153,6 +158,10 @@ OKTA_ENDPOINTS: dict[str, OktaEndpointConfig] = {
         partition_key="created",
         primary_keys=["user_id", "id"],
         paginated=False,
+        resumable=False,
+        # A factor pending activation embeds its enrollment secret (e.g. the TOTP shared secret) and
+        # links to its QR code. Neither belongs in queryable warehouse data.
+        excluded_fields=("_embedded", "_links"),
         fanout=DependentEndpointConfig(
             parent_name="users",
             resolve_param="userId",
