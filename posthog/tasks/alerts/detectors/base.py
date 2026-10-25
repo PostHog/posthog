@@ -11,7 +11,7 @@ from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
 ARTIFACT_SCHEMA_VERSION = 1
 
 
-@dataclass
+@dataclass(frozen=False)
 class DetectionResult:
     """Result from anomaly detection."""
 

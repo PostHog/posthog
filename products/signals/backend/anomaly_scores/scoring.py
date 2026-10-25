@@ -367,13 +367,20 @@ def score_series(
     return points
 
 
+@frozen
+class ScoredIndices:
+    completed: list[int]
+    # The newest completed buckets later than `after`, capped at `max_backfill_buckets`.
+    returned: list[int]
+
+
 def _scored_indices(
     buckets: Sequence[datetime], *, interval: IntervalType, now: datetime, after: datetime | None, limits: ScoringLimits
-) -> tuple[list[int], list[int]]:
+) -> ScoredIndices:
     """The indices of the completed buckets, and of the newest of them later than ``after``."""
     completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now]
     returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
-    return completed, returned
+    return ScoredIndices(completed=completed, returned=returned)
 
 
 def score_with_artifact(
@@ -513,7 +520,8 @@ def _train_step(
     artifacts: dict[str, DetectorArtifact] = {}
     newest: list[datetime] = []
     for line in fetched:
-        completed, returned = _scored_indices(line.buckets, interval=interval, now=now, after=after, limits=limits)
+        indices = _scored_indices(line.buckets, interval=interval, now=now, after=after, limits=limits)
+        completed, returned = indices.completed, indices.returned
         if completed:
             newest.append(line.buckets[completed[-1]])
         # With no due bucket, the fit reads the newest completed buckets.
@@ -580,7 +588,7 @@ def _score_step(
         if artifact is None:
             unmatched += 1
             continue
-        _completed, returned = _scored_indices(line.buckets, interval=interval, now=now, after=since, limits=limits)
+        returned = _scored_indices(line.buckets, interval=interval, now=now, after=since, limits=limits).returned
         points = score_with_artifact(detector, artifact, line.values, line.buckets, returned)
         if points:
             newest = points[-1].bucket_start.astimezone(UTC)
