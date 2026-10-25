@@ -89,5 +89,10 @@ products/isolation_baseline.txt @PostHog/team-devex
 # with the teams that own their directories.
 /AGENTS.md @PostHog/team-devex
 /CLAUDE.md @PostHog/team-devex
+/.agents/agent-automation.md @PostHog/team-devex
+/.agents/architecture.md @PostHog/team-devex
+/.agents/ci.md @PostHog/team-devex
+/.agents/code-style.md @PostHog/team-devex
+/.agents/feature-usage-tracking.md @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
