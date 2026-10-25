@@ -183,7 +183,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
 
     # infrastructure errors - custom messages to hide internals
     if name in ("TOO_MANY_SIMULTANEOUS_QUERIES", "CANNOT_SCHEDULE_TASK"):
-        return ClickHouseAtCapacity()
+        capacity_error = ClickHouseAtCapacity()
+        if match := re.search(r"simultaneous queries for user [`'\"]?([^\s`'\".,]+)", err.message):
+            capacity_error.limit_user = match.group(1)
+        return capacity_error
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
@@ -195,7 +198,9 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
             memory_error = ClickHouseQueryMemoryLimitExceeded()
             memory_error.is_per_query_limit = True
             return memory_error
-        return ClickHouseClusterMemoryLimitExceeded()
+        cluster_memory_error = ClickHouseClusterMemoryLimitExceeded()
+        cluster_memory_error.is_per_user_limit = "(for user)" in err.message
+        return cluster_memory_error
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message

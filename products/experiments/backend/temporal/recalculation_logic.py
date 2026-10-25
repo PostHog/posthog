@@ -22,11 +22,11 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.cancel import cancel_query_on_cluster
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
@@ -51,6 +51,8 @@ from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
+    OWN_USER_LIMIT_RETRY_DELAY_MAX_SECONDS,
+    OWN_USER_LIMIT_RETRY_DELAY_MIN_SECONDS,
     RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
     RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
     RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
@@ -426,7 +428,20 @@ def _estimated_retry_delay_seconds(attempt: int) -> float:
     )
 
 
-def _concurrency_limit_retry_delay_seconds() -> float:
+def _is_own_user_limit(error: Exception, ch_user: ClickHouseUser | None) -> bool:
+    # Without a dedicated user the query runs as the worker's shared user, so a per-user limit is a shared limit.
+    if ch_user is None:
+        return False
+    if isinstance(error, ClickHouseAtCapacity):
+        return error.limit_user == ch_user
+    if isinstance(error, ClickHouseClusterMemoryLimitExceeded):
+        return error.is_per_user_limit
+    return False
+
+
+def _concurrency_limit_retry_delay_seconds(error: Exception, ch_user: ClickHouseUser | None) -> float:
+    if _is_own_user_limit(error, ch_user):
+        return random.uniform(OWN_USER_LIMIT_RETRY_DELAY_MIN_SECONDS, OWN_USER_LIMIT_RETRY_DELAY_MAX_SECONDS)
     return random.uniform(CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS, CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS)
 
 
@@ -724,6 +739,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 trigger=state.trigger,
             )
 
+        # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
+        from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
+
+        ch_user = recalculation_clickhouse_user(str(experiment.team.organization_id))
+
         try:
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
@@ -742,9 +762,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
             )
 
-            # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
-            from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
-
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
             with tags_context(
@@ -754,7 +771,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
                 # Also covers the precompute inserts, which run inside this context.
-                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+                ch_user=ch_user,
             ):
                 result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
@@ -816,9 +833,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message, error_type="insufficient_data")
 
-        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
+        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
-            retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
+            retry_delay_seconds = _concurrency_limit_retry_delay_seconds(e, ch_user)
             capacity_attempts_exhausted = attempt >= CAPACITY_MAX_METRIC_ATTEMPTS
             is_last_attempt = is_final_attempt or capacity_attempts_exhausted
             if is_last_attempt:

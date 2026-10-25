@@ -15,6 +15,7 @@ from posthog.errors import (
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 
 
 class TestWrapClickhouseQueryError:
@@ -159,6 +160,66 @@ class TestWrapClickhouseQueryError:
         wrapped = wrap_clickhouse_query_error(ServerException("private-row-value", code=code))
 
         assert isinstance(wrapped, error_type)
+
+    @parameterized.expand(
+        [
+            (
+                "per_user_concurrency",
+                202,
+                "Too many simultaneous queries for user experiments. Current: 50, maximum: 50.",
+                ClickHouseAtCapacity,
+                "limit_user",
+                "experiments",
+            ),
+            (
+                "all_users_concurrency",
+                202,
+                "Too many simultaneous queries for all users. Current: 400, maximum: 400.",
+                ClickHouseAtCapacity,
+                "limit_user",
+                None,
+            ),
+            (
+                "server_concurrency",
+                202,
+                "Too many simultaneous queries. Maximum: 1000.",
+                ClickHouseAtCapacity,
+                "limit_user",
+                None,
+            ),
+            (
+                "per_user_memory",
+                241,
+                "Memory limit (for user) exceeded: would use 64.01 GiB (attempt to allocate chunk of 4.00 MiB bytes), "
+                "maximum: 64.00 GiB.",
+                ClickHouseClusterMemoryLimitExceeded,
+                "is_per_user_limit",
+                True,
+            ),
+            (
+                "total_memory",
+                241,
+                "Memory limit (total) exceeded: would use 120.03 GiB (attempt to allocate chunk of 2.00 MiB bytes), "
+                "current RSS: 119.90 GiB, maximum: 120.00 GiB.",
+                ClickHouseClusterMemoryLimitExceeded,
+                "is_per_user_limit",
+                False,
+            ),
+        ]
+    )
+    def test_capacity_errors_record_which_limit_rejected_the_query(
+        self,
+        _name: str,
+        code: int,
+        message: str,
+        error_type: type[Exception],
+        limit_attribute: str,
+        expected_limit: str | bool | None,
+    ) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(f"DB::Exception: {message}", code=code))
+
+        assert type(wrapped) is error_type
+        assert getattr(wrapped, limit_attribute) == expected_limit
 
     def test_bad_get_exposes_type_names_without_clickhouse_context(self) -> None:
         err = ServerException(
