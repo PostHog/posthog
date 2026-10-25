@@ -17,6 +17,7 @@ RECIPE_HEADING = re.compile(r"^### (.+)$", re.MULTILINE)
 SQL_FENCE = re.compile(r"```sql\n(.*?)\n```", re.DOTALL)
 
 WORKFLOW_ID = "01a00000-0000-0000-0000-000000000001"
+OTHER_WORKFLOW_ID = "01a00000-0000-0000-0000-000000000002"
 STEP_ID = "action_function_email_welcome"
 OTHER_STEP_ID = "action_function_email_reminder"
 OUTCOME_EVENT = "insight created"
@@ -137,6 +138,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_untracked", 1)
         self._counter("01a00000-0000-0000-0000-0000000000ff", STEP_ID, "email_sent", 8, app_source="hog_flow")
         self._counter(f"{WORKFLOW_ID}/2", OTHER_STEP_ID, "email_sent", 4)
+        self._counter(f"{OTHER_WORKFLOW_ID}/1", STEP_ID, "email_sent", 6)
 
         rows = self._run("Step counters")
 
@@ -149,6 +151,7 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|1|https://example.com/a|b", clicks, 1)
         self._counter(WORKFLOW_ID, f"{STEP_ID}|0|https://example.com/pricing", clicks, 3, app_source="hog_flow")
         self._counter(f"{WORKFLOW_ID}/2", f"{OTHER_STEP_ID}|0|https://example.com/other", clicks, 4)
+        self._counter(f"{OTHER_WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", clicks, 6)
 
         rows = self._run("Clicked links")
 

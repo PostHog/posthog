@@ -71,13 +71,13 @@ GROUP BY metric_name
 ORDER BY metric_name
 ```
 
-Read opens and clicks against `email_sent` minus `email_untracked`. Opens and clicks whose message lost its version are missing here, so their rates read slightly low.
+Read opens and clicks against `email_sent` minus `email_untracked`. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing here, so those rates read slightly low. Windows before 2026-08-05 return nothing, because the versioned counters began then.
+To read one version, replace the `startsWith` line with `app_source_id = concat({workflow_id}, '/<n>')`.
 
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it when `posthog:workflows-version-stats` is not available.
-The sent event carries no version, so `delivered` is the per-version denominator for opens and clicks, and the tracked share of each version is unknown. Bounced messages are never delivered: report bounces and spam complaints as counts.
+Use it for openers and clickers per version. Take each version's sends and tracked sends from `posthog:workflows-version-stats` or the **Step counters** recipe, because the sent event carries no version.
 
 ```sql
 SELECT
@@ -126,7 +126,7 @@ LIMIT 50
 ```
 
 `clicks` are occurrences. It reads the versioned series, because that one is keyed by the workflow for broadcasts and batch runs too, so clicks whose message carried no version are missing.
-Short personal path segments, such as a name in an invite link, and `mailto:` links pass through unchanged: collapse them into one row in your report.
+Short personal path segments, such as a name in an invite link, and links without a host, such as `mailto:`, `tel:` and `sms:`, pass through unchanged: collapse them into one row in your report.
 For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only. Clickers overlap across links, so never add them up into a count of people who clicked.
 
 ### Product outcome after the first send
