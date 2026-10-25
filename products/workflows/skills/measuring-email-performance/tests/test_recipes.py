@@ -33,6 +33,7 @@ OUTCOME_EVENT = "insight created"
 NOW = datetime.now(UTC).replace(microsecond=0)
 WINDOW_START = NOW - timedelta(days=30)
 WINDOW_END = NOW - timedelta(days=1)
+AS_OF = NOW - timedelta(hours=12)
 
 
 def _recipes() -> dict[str, str]:
@@ -52,6 +53,7 @@ def _placeholders() -> dict[str, ast.Expr]:
         "window_end": ast.Constant(value=WINDOW_END),
         "outcome_event": ast.Constant(value=OUTCOME_EVENT),
         "outcome_days": ast.Constant(value=7),
+        "as_of": ast.Constant(value=AS_OF),
         "person_id": ast.Constant(value="00000000-0000-0000-0000-000000000000"),
         "run_id": ast.Constant(value=RUN_ID),
     }
@@ -63,7 +65,9 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
 
     def _run(self, recipe: str) -> list[dict[str, Any]]:
-        response = execute_hogql_query(query=_recipes()[recipe], team=self.team, placeholders=_placeholders())
+        response = execute_hogql_query(
+            query=_recipes()[recipe], team=self.team, user=self.user, placeholders=_placeholders()
+        )
         assert response.columns is not None
         return [dict(zip(response.columns, row)) for row in response.results]
 
@@ -209,7 +213,9 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         self._product_event("never_sent", sent_at + timedelta(days=1))
         self._person("sent_yesterday")
         self._sent("sent_yesterday", WINDOW_END - timedelta(hours=2))
+        self._person("window_closes_after_cutoff")
+        self._sent("window_closes_after_cutoff", NOW - timedelta(days=7, hours=6))
 
         (row,) = self._run("Product outcome after the first send")
 
-        assert row == {"recipients": 4, "reached_outcome": 1, "recipients_still_in_window": 1}
+        assert row == {"recipients": 4, "reached_outcome": 1, "recipients_still_in_window": 2}
