@@ -265,8 +265,8 @@ export function watchFeedRowSentence(observation: ReplayObservationApi, reason: 
 }
 
 /**
- * The scanner behind a row: a circle in its type's color, then its name. Clicking it narrows the
- * feed to that scanner. The tooltip carries the scanner's question and verdict.
+ * The scanner behind a row: a circle in its type's color, then its name. Clicking it opens the
+ * scanner. The tooltip carries the scanner's question and verdict.
  */
 function WatchFeedScannerLink({
     observation,
@@ -277,7 +277,6 @@ function WatchFeedScannerLink({
     scannerName: string
     scannerType: ScannerType | undefined
 }): JSX.Element {
-    const { setScannerIdsFilter } = useActions(watchFeedLogic)
     const verdict = readResult(observation)?.verdict
     return (
         <Tooltip
@@ -290,14 +289,14 @@ function WatchFeedScannerLink({
                             {typeof verdict === 'string' && verdict ? ` Answered ${verdict}.` : ''}
                         </span>
                     )}
-                    <span className="italic">Click to show only this scanner's sessions</span>
+                    <span className="italic">Click to open this scanner</span>
                 </div>
             }
         >
-            <button
-                type="button"
-                onClick={() => setScannerIdsFilter([observation.scanner_id])}
-                className="relative z-10 flex max-w-full min-w-0 cursor-pointer items-center gap-2 self-start text-sm text-secondary hover:text-default"
+            <Link
+                to={urls.replayVision(observation.scanner_id)}
+                subtle
+                className="relative z-10 flex max-w-full min-w-0 items-center gap-2 self-start text-sm text-secondary hover:text-default"
                 data-attr="vision-watch-feed-scanner-chip"
             >
                 {scannerType && (
@@ -309,7 +308,7 @@ function WatchFeedScannerLink({
                     </LemonTag>
                 )}
                 <span className="truncate font-medium">{scannerName}</span>
-            </button>
+            </Link>
         </Tooltip>
     )
 }
