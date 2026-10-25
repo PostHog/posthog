@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BigQueryDestinationConfigurationError,
     BigQueryDestinationWriter,
     UnrelatedTableExistsError,
+    _ddl_type,
     staging_table_name,
 )
 
@@ -131,6 +132,35 @@ class TestSchemaLabel:
 
         assert len(label.encode()) <= 63
         assert all(c.islower() or c.isdigit() or c in "_-" for c in label)
+
+
+class TestDdlType:
+    def test_a_scalar_field_renders_its_bare_type(self) -> None:
+        assert _ddl_type(bigquery.SchemaField("clicks", "INTEGER")) == "INTEGER"
+
+    def test_a_repeated_field_renders_as_an_array(self) -> None:
+        # Dropping `mode` here would add the element type as a scalar column, which is
+        # incompatible with the array BigQuery already autodetected for the scratch table.
+        field = bigquery.SchemaField("tags", "STRING", mode="REPEATED")
+
+        assert _ddl_type(field) == "ARRAY<STRING>"
+
+    def test_a_record_field_renders_as_a_struct_of_its_subfields(self) -> None:
+        # A bare `RECORD` is not valid DDL; the subfields must be spelled out.
+        field = bigquery.SchemaField(
+            "address",
+            "RECORD",
+            fields=[bigquery.SchemaField("city", "STRING"), bigquery.SchemaField("zip", "INTEGER")],
+        )
+
+        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INTEGER>"
+
+    def test_a_repeated_record_field_renders_as_an_array_of_structs(self) -> None:
+        field = bigquery.SchemaField(
+            "addresses", "RECORD", mode="REPEATED", fields=[bigquery.SchemaField("city", "STRING")]
+        )
+
+        assert _ddl_type(field) == "ARRAY<STRUCT<`city` STRING>>"
 
 
 class TestCheckOwnedOrAbsent:
