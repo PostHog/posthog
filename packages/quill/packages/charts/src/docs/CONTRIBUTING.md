@@ -57,7 +57,6 @@ Code outside the library builds chart types the library does not ship on top of 
 
 - **No kea, no PostHog imports.** Theme, colors, and data are passed in as props. The library has no app dependencies. Trends uses it, but the library does not know about trends.
 - **`ChartScales` must not expose d3 types.** Public interface is `x(label) => px`, `y(value) => px`, `yTicks() => number[]`. d3 stays inside the chart type's `createScales`.
-- **Chart-private state goes in `scales._private`,** not in a `useRef`. This avoids races between `createScales` and the draw loop in strict and concurrent mode.
 - **Overlays use the granular hooks.** `useChartLayout()` doesn't re-render on hover; `useChartHover()` does. Use `useChart()` only when an overlay genuinely needs both. It re-renders on every mousemove.
 - **Pure logic is tested directly, next to its file.** Chart-level tests assert on the rendered DOM through the `HogChart` accessor. See [TESTING.md](./TESTING.md).
 
