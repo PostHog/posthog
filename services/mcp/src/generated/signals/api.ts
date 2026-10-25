@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 enabled ops
+ * PostHog API - MCP 74 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,6 +43,111 @@ export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.objec
         .min(1)
         .optional()
         .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the scored anomaly history of an insight
+ */
+export const SignalsAnomaliesInsightRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesInsightRetrieveQueryDateFromDefault = `-30d`
+
+export const signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault = true
+export const signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault = false
+
+export const SignalsAnomaliesInsightRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesInsightRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    include_buckets: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault)
+        .describe('Return the buckets of each series. Set false for the per-series summary only.'),
+    include_warmup: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault)
+        .describe(
+            'Include warm-up buckets: scored rows with a null score and flag, written while the detector still lacks history. When false, a warm-up bucket shows as `scored: false`.'
+        ),
+    insight_id: zod.number().describe('The insight, by numeric id.'),
+    series_key: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Only this series, by the `series_key` of an anomaly search row.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Search anomalous insight series
+ */
+export const SignalsAnomaliesSearchRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesSearchRetrieveQueryDateFromDefault = `-7d`
+
+export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
+export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
+export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
+
+export const signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault = true
+
+export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
+    dashboard_id: zod.number().optional().describe('Only the series of the insights on this dashboard, by numeric id.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesSearchRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    group_by: zod
+        .enum(['series', 'insight'])
+        .default(signalsAnomaliesSearchRetrieveQueryGroupByDefault)
+        .describe(
+            '`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.\n\n\* `series` - Series\n\* `insight` - Insight'
+        ),
+    insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
+    interval: zod
+        .enum(['hour', 'day', 'week', 'month'])
+        .optional()
+        .describe(
+            'Only series with this interval.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
+        .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
+        .describe('The most rows to return.'),
+    only_flagged: zod
+        .boolean()
+        .default(signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault)
+        .describe(
+            'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
+        ),
 })
 
 /**

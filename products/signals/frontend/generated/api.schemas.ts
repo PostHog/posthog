@@ -298,6 +298,349 @@ export interface ActivitySummaryVersionApi {
 }
 
 /**
+ * * `hour` - Hour
+ * * `day` - Day
+ * * `week` - Week
+ * * `month` - Month
+ */
+export type AnomalyIntervalEnumApi = (typeof AnomalyIntervalEnumApi)[keyof typeof AnomalyIntervalEnumApi]
+
+export const AnomalyIntervalEnumApi = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
+
+/**
+ * Detector-specific values for the bucket. The keys depend on the detector.
+ * @nullable
+ */
+export type AnomalyBucketApiDetails = { [key: string]: unknown } | null
+
+export interface AnomalyBucketApi {
+    /** The start of the bucket, in the project timezone. */
+    bucket_start: string
+    /** False for a completed bucket that has no score. Its value, score and flag are unknown, not 0. */
+    scored: boolean
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /**
+     * The detector score. Null on an unscored or warm-up bucket.
+     * @nullable
+     */
+    score: number | null
+    /**
+     * Whether the detector flagged the bucket. Null on an unscored or warm-up bucket.
+     * @nullable
+     */
+    flag: boolean | null
+    /**
+     * When the bucket was scored.
+     * @nullable
+     */
+    scored_at: string | null
+    /**
+     * Detector-specific values for the bucket. The keys depend on the detector.
+     * @nullable
+     */
+    details: AnomalyBucketApiDetails
+}
+
+export interface AnomalyInsightSeriesApi {
+    /** Identifies the series. */
+    series_key: string
+    /**
+     * The series name as the insight shows it.
+     * @nullable
+     */
+    series_label: string | null
+    /**
+     * The breakdown value of the series, if any.
+     * @nullable
+     */
+    breakdown_value: string | null
+    /** Buckets in the range with a score. */
+    scored_buckets: number
+    /** Scored buckets in the range that the detector flagged. */
+    flagged_buckets: number
+    /**
+     * `flagged_buckets / scored_buckets`.
+     * @nullable
+     */
+    anomaly_rate: number | null
+    /**
+     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
+     * @nullable
+     */
+    baseline_rate: number | null
+    /** Completed buckets in the range, scored or not. */
+    expected_buckets: number
+    /**
+     * `scored_buckets / expected_buckets`.
+     * @nullable
+     */
+    coverage: number | null
+    /**
+     * The newest flagged bucket in the range.
+     * @nullable
+     */
+    last_flagged_bucket: string | null
+    /** Oldest first, the newest result of each bucket. Empty when `include_buckets` is false. */
+    buckets: AnomalyBucketApi[]
+}
+
+export interface AnomalyInsightResponseApi {
+    /** Whether anomaly scoring covers this project. */
+    scoring_enabled: boolean
+    /** The numeric id of the insight. */
+    insight_id: number
+    /**
+     * The name of the insight. Null when it has none.
+     * @nullable
+     */
+    insight_name: string | null
+    /** Opens the insight with a date range around its flagged buckets. */
+    insight_url: string
+    /** The bucket interval the scorer used.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi | null
+    /**
+     * The scoring profile.
+     * @nullable
+     */
+    profile: string | null
+    /**
+     * The detector type, for example `zscore`.
+     * @nullable
+     */
+    detector: string | null
+    /**
+     * A hash of the detector settings. It changes when the settings change.
+     * @nullable
+     */
+    detector_version: string | null
+    /** Series scored in the range. */
+    series_count: number
+    /** Series with at least one flagged bucket in the range. */
+    flagged_series: number
+    /** Scored buckets, summed over the series. */
+    scored_buckets: number
+    /** Flagged buckets, summed over the series. */
+    flagged_buckets: number
+    /**
+     * Summed `flagged_buckets / scored_buckets`. Never an average of series rates.
+     * @nullable
+     */
+    anomaly_rate: number | null
+    /** The applied start of the range, in the project timezone. */
+    date_from: string
+    /** The applied end of the range, in the project timezone. */
+    date_to: string
+    /** Every scored series, most anomalous first. */
+    series: AnomalyInsightSeriesApi[]
+    /** True when the cap of 2,000 buckets cut the history. */
+    truncated: boolean
+    /**
+     * Says why the result is empty. Null when it is not.
+     * @nullable
+     */
+    message: string | null
+}
+
+/**
+ * * `series` - Series
+ * * `insight` - Insight
+ */
+export type AnomalyGroupByEnumApi = (typeof AnomalyGroupByEnumApi)[keyof typeof AnomalyGroupByEnumApi]
+
+export const AnomalyGroupByEnumApi = {
+    Series: 'series',
+    Insight: 'insight',
+} as const
+
+export interface AnomalyFlaggedPointApi {
+    /** The start of the flagged bucket, in the project timezone. */
+    bucket_start: string
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /**
+     * The detector score of the bucket. Compare it only with buckets of the same series.
+     * @nullable
+     */
+    score: number | null
+}
+
+export interface AnomalySeriesApi {
+    /** The numeric id of the insight. */
+    insight_id: number
+    /**
+     * The name of the insight. Null when it has none.
+     * @nullable
+     */
+    insight_name: string | null
+    /** Opens the insight with a date range around the flagged buckets of this series. */
+    insight_url: string
+    /** Identifies the series. Pass it to anomaly insight history. */
+    series_key: string
+    /**
+     * The series name as the insight shows it.
+     * @nullable
+     */
+    series_label: string | null
+    /**
+     * The breakdown value of the series, if any.
+     * @nullable
+     */
+    breakdown_value: string | null
+    /** The bucket interval of the series.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month */
+    interval: AnomalyIntervalEnumApi
+    /** Buckets in the range with a score. Warm-up buckets do not count. */
+    scored_buckets: number
+    /** Scored buckets in the range that the detector flagged. */
+    flagged_buckets: number
+    /**
+     * `flagged_buckets / scored_buckets`.
+     * @nullable
+     */
+    anomaly_rate: number | null
+    /** Completed buckets of the series interval in the range, scored or not. */
+    expected_buckets: number
+    /**
+     * `scored_buckets / expected_buckets`: how much of the range was scored. Unscored buckets are unknown, not quiet.
+     * @nullable
+     */
+    coverage: number | null
+    /**
+     * The newest scored bucket in the range. Buckets after it were not checked yet.
+     * @nullable
+     */
+    scored_through: string | null
+    /**
+     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
+     * @nullable
+     */
+    baseline_rate: number | null
+    /**
+     * The oldest flagged bucket in the range, in the project timezone.
+     * @nullable
+     */
+    first_flagged_bucket: string | null
+    /**
+     * The newest flagged bucket in the range, in the project timezone.
+     * @nullable
+     */
+    last_flagged_bucket: string | null
+    /** Up to 5 flagged buckets in the range, newest first. */
+    flagged_points: AnomalyFlaggedPointApi[]
+}
+
+export interface AnomalyTopSeriesApi {
+    /** Identifies the series. */
+    series_key: string
+    /**
+     * The series name as the insight shows it.
+     * @nullable
+     */
+    series_label: string | null
+    /**
+     * The breakdown value of the series, if any.
+     * @nullable
+     */
+    breakdown_value: string | null
+    /** Scored buckets of the series in the range. */
+    scored_buckets: number
+    /** Flagged buckets of the series in the range. */
+    flagged_buckets: number
+    /**
+     * `flagged_buckets / scored_buckets`.
+     * @nullable
+     */
+    anomaly_rate: number | null
+    /**
+     * The anomaly rate over the 30 days before the range.
+     * @nullable
+     */
+    baseline_rate: number | null
+}
+
+export interface AnomalyInsightRowApi {
+    /** The numeric id of the insight. */
+    insight_id: number
+    /**
+     * The name of the insight. Null when it has none.
+     * @nullable
+     */
+    insight_name: string | null
+    /** Opens the insight with a date range around its flagged buckets. */
+    insight_url: string
+    /** Series of the insight scored in the range. */
+    series_count: number
+    /** Series with at least one flagged bucket in the range. */
+    flagged_series: number
+    /** Scored buckets, summed over the series. */
+    scored_buckets: number
+    /** Flagged buckets, summed over the series. */
+    flagged_buckets: number
+    /**
+     * Summed `flagged_buckets / scored_buckets`. Never an average of series rates.
+     * @nullable
+     */
+    anomaly_rate: number | null
+    /**
+     * The newest flagged bucket of any series.
+     * @nullable
+     */
+    last_flagged_bucket: string | null
+    /** Up to 3 flagged series, most anomalous first. */
+    top_series: AnomalyTopSeriesApi[]
+}
+
+export interface AnomalySearchResponseApi {
+    /** Whether anomaly scoring covers this project. */
+    scoring_enabled: boolean
+    /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+    watched_insights: number
+    /** Insights with at least one scored bucket in the range. Results cover only these insights. */
+    insights_scored_in_range: number
+    /** The applied start of the range, in the project timezone. */
+    date_from: string
+    /** The applied end of the range, in the project timezone. */
+    date_to: string
+    /** The applied grouping.
+     *
+     * * `series` - Series
+     * * `insight` - Insight */
+    group_by: AnomalyGroupByEnumApi
+    /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+    series: AnomalySeriesApi[]
+    /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+    insights: AnomalyInsightRowApi[]
+    /** True when `limit` or a read cap left rows out. */
+    truncated: boolean
+    /**
+     * Says why the result is empty. Null when it is not.
+     * @nullable
+     */
+    message: string | null
+}
+
+/**
  * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
  */
 export type SignalTeamConfigApiAutostartBaseBranches = { [key: string]: string }
@@ -9690,6 +10033,103 @@ export type SignalsActivitySummaryVersionsRetrieveParams = {
      */
     version?: number
 }
+
+export type SignalsAnomaliesInsightRetrieveParams = {
+    /**
+     * Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Return the buckets of each series. Set false for the per-series summary only.
+     */
+    include_buckets?: boolean
+    /**
+     * Include warm-up buckets: scored rows with a null score and flag, written while the detector still lacks history. When false, a warm-up bucket shows as `scored: false`.
+     */
+    include_warmup?: boolean
+    /**
+     * The insight, by numeric id.
+     */
+    insight_id: number
+    /**
+     * Only this series, by the `series_key` of an anomaly search row.
+     * @minLength 1
+     */
+    series_key?: string
+}
+
+export type SignalsAnomaliesSearchRetrieveParams = {
+    /**
+     * Only the series of the insights on this dashboard, by numeric id.
+     */
+    dashboard_id?: number
+    /**
+     * Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * `series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.
+     *
+     * * `series` - Series
+     * * `insight` - Insight
+     * @minLength 1
+     */
+    group_by?: SignalsAnomaliesSearchRetrieveGroupBy
+    /**
+     * Only the series of this insight, by numeric id.
+     */
+    insight_id?: number
+    /**
+     * Only series with this interval.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     * @minLength 1
+     */
+    interval?: SignalsAnomaliesSearchRetrieveInterval
+    /**
+     * The most rows to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
+     */
+    only_flagged?: boolean
+}
+
+export type SignalsAnomaliesSearchRetrieveGroupBy =
+    (typeof SignalsAnomaliesSearchRetrieveGroupBy)[keyof typeof SignalsAnomaliesSearchRetrieveGroupBy]
+
+export const SignalsAnomaliesSearchRetrieveGroupBy = {
+    Series: 'series',
+    Insight: 'insight',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveInterval =
+    (typeof SignalsAnomaliesSearchRetrieveInterval)[keyof typeof SignalsAnomaliesSearchRetrieveInterval]
+
+export const SignalsAnomaliesSearchRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+} as const
 
 export type SignalsProcessingListParams = {
     /**

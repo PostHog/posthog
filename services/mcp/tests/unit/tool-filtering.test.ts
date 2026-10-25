@@ -1112,6 +1112,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'logs-agent-tools',
             'workflows-transactional-email-api',
             'activity-summary',
+            'anomalies-search',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
