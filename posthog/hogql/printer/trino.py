@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.models import UUIDDatabaseField
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
 from posthog.hogql.database.trino_unnest_table import TrinoUnnestTable
@@ -884,9 +886,13 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
             if name == "toint" and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
-            # HogQL toInt is accurateCastOrNull: it truncates toward zero and maps NaN or overflow to NULL,
-            # while a Trino CAST rounds and raises.
-            if name == "toint" and isinstance(arg_type, (ast.FloatType, ast.DecimalType)):
+            # HogQL toInt is accurateCastOrNull, which maps a fractional, NaN or out-of-range float to NULL
+            # but truncates a decimal. A Trino CAST rounds and raises instead.
+            if name == "toint" and isinstance(arg_type, ast.FloatType):
+                return self._visit_accurate_cast(
+                    ast.Call(name="accurateCastOrNull", args=[arg, ast.Constant(value="Int64")]), nullable=True
+                )
+            if name == "toint" and isinstance(arg_type, ast.DecimalType):
                 return f"TRY_CAST(truncate({self.visit(arg)}) AS BIGINT)"
         if name in {"tofloat", "tofloatorzero", "tofloatordefault"} and node.args:
             arg = node.args[0]
@@ -1284,7 +1290,9 @@ class TrinoPrinter(PostgresPrinter):
 
         if isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.UUIDType):
             # Exported tables can store UUID columns as VARCHAR, while toUUID() yields a real UUID.
-            left_cast = right_cast = "VARCHAR"
+            # Keep native types when both sides are known UUIDs, so the connector can still push the predicate down.
+            if not (self._is_native_uuid(node.left) and self._is_native_uuid(node.right)):
+                left_cast = right_cast = "VARCHAR"
         elif isinstance(left_type, ast.UUIDType) and isinstance(right_type, ast.StringType):
             left_cast = "VARCHAR"
         elif isinstance(right_type, ast.UUIDType) and isinstance(left_type, ast.StringType):
@@ -1480,6 +1488,21 @@ class TrinoPrinter(PostgresPrinter):
         while isinstance(expression, ast.Alias):
             expression = expression.expr
         return self._resolve_type(expression)
+
+    def _is_native_uuid(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if isinstance(node, ast.Call):
+            return node.name.lower() == "touuid"
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType) or not isinstance(field_type.table_type, ast.BaseTableType):
+            return False
+        # Only a direct Trino table declares its physical column types; other tables may store UUIDs as VARCHAR.
+        return isinstance(field_type.table_type.resolve_database_table(self.context), DirectTrinoTable) and isinstance(
+            field_type.resolve_database_field(self.context), UUIDDatabaseField
+        )
 
     def _is_dynamic_property(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):

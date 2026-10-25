@@ -653,10 +653,11 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
             "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
         ),
+        # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
         (
             "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
-            '(CAST("users"."uuid" AS VARCHAR) = CAST(CAST("users"."user_id" AS UUID) AS VARCHAR))',
-            '("users"."uuid" = CAST(',
+            '("users"."uuid" = CAST("users"."user_id" AS UUID))',
+            "AS VARCHAR",
         ),
         ("SELECT id, NULL AS missing FROM users", 'CAST(NULL AS VARCHAR) AS "missing"', ' NULL AS "missing"'),
         (
@@ -674,7 +675,13 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             'TRY_CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
             'CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
         ),
-        ("SELECT toInt(id / 3) FROM users", "TRY_CAST(truncate(", "CAST((CAST("),
+        # ClickHouse returns NULL for a fractional float but truncates a decimal.
+        (
+            "SELECT toInt(id / 3) FROM users",
+            "= truncate(TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18)))",
+            "TRY_CAST(truncate(",
+        ),
+        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
     ],
 )
 def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
@@ -918,6 +925,22 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
 
     assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", %(hogql_val_0)s, 1)' in sql
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
+
+
+def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT 1 FROM events WHERE uuid = toUUID(event)"), context, "trino")
+
+    assert (
+        '(CAST("tenant"."posthog"."events"."uuid" AS VARCHAR) = '
+        'CAST(CAST("tenant"."posthog"."events"."event" AS UUID) AS VARCHAR))'
+    ) in sql
 
 
 @pytest.mark.parametrize(
