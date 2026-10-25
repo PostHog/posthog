@@ -241,12 +241,29 @@ class TestPackageDependenciesEndpoint:
             ("B", "2.0.0", "", "Dep.One"),
         ]
         assert rows[1]["dependency_range"] == "[2.0.0, 3.0.0)"
-        assert manager.saved == [NugetResumeConfig(last_package_id="A")]
+        assert manager.saved == [NugetResumeConfig(last_package_id="A"), NugetResumeConfig(last_package_id="B")]
 
 
 class TestVulnerabilitiesEndpoint:
     BASE_URL = "https://api.nuget.org/v3-vulnerabilities/1/vulnerability.base.json"
     UPDATE_URL = "https://api.nuget.org/v3-vulnerabilities/1/2/vulnerability.update.json"
+
+    def test_empty_update_page_keeps_base_advisories(self, monkeypatch: Any) -> None:
+        _patch_fetch(
+            monkeypatch,
+            {
+                SERVICE_INDEX_URL: SERVICE_INDEX,
+                VULNERABILITY_INDEX_URL: [
+                    {"@name": "base", "@id": self.BASE_URL},
+                    {"@name": "update", "@id": self.UPDATE_URL},
+                ],
+                self.BASE_URL: {"foo.bar": [{"url": "https://example.com/a", "severity": 0, "versions": "(, 1.0.0)"}]},
+                self.UPDATE_URL: [],
+            },
+        )
+        rows = _collect(_FakeResumableManager(), "vulnerabilities", package_ids="Foo.Bar")
+
+        assert [row["advisory_url"] for row in rows] == ["https://example.com/a"]
 
     def test_filters_to_tracked_packages_and_update_page_wins(self, monkeypatch: Any) -> None:
         advisory = "https://github.com/advisories/GHSA-0000-0000-0000"

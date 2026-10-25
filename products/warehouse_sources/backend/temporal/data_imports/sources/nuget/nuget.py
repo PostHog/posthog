@@ -310,21 +310,19 @@ def _get_package_dependency_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict]]:
     remaining = _remaining_packages(package_ids, resumable_source_manager, logger)
-    for index, package_id in enumerate(remaining):
-        if index > 0:
-            # Every row of the previous package is yielded, so its bookmark is safe to stage. Many
-            # versions declare no dependencies, so a package can finish without yielding anything.
-            resumable_source_manager.save_state(NugetResumeConfig(last_package_id=remaining[index - 1]))
-            resumable_source_manager.safe_point()
-
-        rows: list[dict] = []
-        for leaf in _iter_registration_leaves(session, registration_base_url, package_id, logger):
-            rows.extend(_package_dependency_rows(leaf))
-            if len(rows) >= ROWS_PER_YIELD:
-                yield rows
-                rows = []
+    for package_id in remaining:
+        # One batch per package, so the package bookmark covers exactly the rows it commits with. A
+        # resumed full refresh appends, so a bookmark that lags a written batch would duplicate rows.
+        rows = [
+            row
+            for leaf in _iter_registration_leaves(session, registration_base_url, package_id, logger)
+            for row in _package_dependency_rows(leaf)
+        ]
+        resumable_source_manager.save_state(NugetResumeConfig(last_package_id=package_id))
         if rows:
             yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def _get_vulnerability_rows(
@@ -346,6 +344,9 @@ def _get_vulnerability_rows(
     for page_entry in pages:
         resumable_source_manager.safe_point()
         page = _fetch_json(session, page_entry["@id"], logger)
+        # An empty page is serialized as `[]`, not `{}`.
+        if not page:
+            continue
         for package_id, advisories in page.items():
             if package_id.lower() not in wanted:
                 continue
