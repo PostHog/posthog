@@ -60,6 +60,11 @@ class TestAnomalyRanking(SimpleTestCase):
                 _summary("quiet_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
                 _summary("noisy_before", scored=10, flagged=3, baseline_scored=30, baseline_flagged=10),
             ),
+            (
+                "real_jump_beats_unchanged_noisy",
+                _summary("jumped", scored=10, flagged=3, baseline_scored=30, baseline_flagged=0),
+                _summary("unchanged", scored=10, flagged=5, baseline_scored=10, baseline_flagged=5),
+            ),
         ]
     )
     def test_ranks_series_by_comparable_rates(
