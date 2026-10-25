@@ -292,7 +292,8 @@ def test_pipeline_skips_unchanged_reviewer_selections(team, change):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("selection", ["member", "empty", "inactive", "outsider", "private_project", "missing"])
-def test_research_decision_controls_persisted_reviewers(team, selection):
+@pytest.mark.parametrize("selection_enabled", [False, True])
+def test_research_decision_controls_persisted_reviewers(team, selection, selection_enabled):
     member = User.objects.create(email="candidate@example.com", is_active=selection != "inactive")
     if selection != "outsider":
         OrganizationMembership.objects.create(organization=team.organization, user=member)
@@ -345,12 +346,20 @@ def test_research_decision_controls_persisted_reviewers(team, selection):
         ),
     ):
         async_to_sync(_persist_agentic_report_artefacts)(
-            team.id, str(report.id), result, RepoSelectionResult(repository=None, reason="No repository")
+            team.id,
+            str(report.id),
+            result,
+            RepoSelectionResult(repository=None, reason="No repository"),
+            reviewer_selection_enabled=selection_enabled,
         )
     latest = SignalReportArtefact.objects.filter(
         report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
     ).latest("created_at")
     reviewers = SuggestedReviewers.model_validate_json(latest.content).root
+    if selection_enabled and selection not in {"member", "empty"}:
+        assert [entry.github_login for entry in reviewers] == ["previous"]
+        capture.assert_not_called()
+        return
     assert capture.call_args.kwargs["after_inbox_notification"] is True
     if selection == "member":
         assert len(reviewers) == 1

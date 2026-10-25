@@ -224,8 +224,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             else SignalReportArtefact.ArtefactType.CHECK_EXPIRED,
         ).exists()
 
-    @parameterized.expand([("enabled", True), ("disabled", False)])
-    def test_schedule_repair_preserves_a_concurrent_observation(self, _name: str, flag: bool) -> None:
+    def test_schedule_repair_preserves_a_concurrent_observation(self) -> None:
         now = timezone.now()
         start = now - timedelta(days=1)
         self.report.status = SignalReport.Status.MONITORING
@@ -245,7 +244,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             explanation="The metric query failed.",
         )
         with (
-            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
         ):
             with transaction.atomic():

@@ -1125,16 +1125,17 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'manual',
                 'manual_retry',
                 'cold_run',
+                'stale_refresh',
                 'heal_latest_run',
                 'experiment_config_change',
                 'metric_config_change',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
+                '\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
+                'What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.\n\n\* `manual` - Manual\n\* `manual_retry` - Manual Retry\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `heal_latest_run` - Heal Latest Run\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

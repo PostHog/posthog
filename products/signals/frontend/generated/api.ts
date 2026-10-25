@@ -49,6 +49,7 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    RankingOutcomesResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
     RecordStructuredOutputRequestApi,
@@ -1207,7 +1208,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -1459,6 +1460,24 @@ export const signalsReportsPrCiStatuses = async (
     options?: RequestInit
 ): Promise<PullRequestCiStatusesResponseApi> => {
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRankingOutcomesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/ranking_outcomes/`
+}
+
+/**
+ * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
+ * @summary List the ranking model's public outcomes
+ */
+export const signalsReportsRankingOutcomesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RankingOutcomesResponseApi> => {
+    return apiMutator<RankingOutcomesResponseApi>(getSignalsReportsRankingOutcomesListUrl(projectId), {
         ...options,
         method: 'GET',
     })
