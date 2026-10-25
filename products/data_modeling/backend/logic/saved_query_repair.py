@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Detail, Trigger, changes_between, log_activity
 from posthog.models.scoping import team_scope
 
@@ -52,16 +53,22 @@ NO_SCHEMA = "This view has no saved result schema to compare with the proposed q
 SAME_QUERY = "The proposed query is the same as the current query."
 
 
+@frozen
+class _PreparedSavedQueryRepair:
+    plan: SavedQueryRepairPlan
+    columns: dict[str, dict[str, Any]]
+    external_tables: list[str] | None
+
+
 def prepare_saved_query_repair(
     team_id: int, saved_query_id: UUID, proposed_query: str, *, user: "User"
 ) -> SavedQueryRepairPlan:
-    plan, _, _ = _prepare_saved_query_repair(team_id, saved_query_id, proposed_query, user=user)
-    return plan
+    return _prepare_saved_query_repair(team_id, saved_query_id, proposed_query, user=user).plan
 
 
 def _prepare_saved_query_repair(
     team_id: int, saved_query_id: UUID, proposed_query: str, *, user: "User"
-) -> tuple[SavedQueryRepairPlan, dict[str, dict[str, Any]], list[str] | None]:
+) -> _PreparedSavedQueryRepair:
     saved_query = _live_saved_query(team_id, saved_query_id)
     _require_read_access(saved_query, user)
     if saved_query.managed_viewset_id is not None:
@@ -93,7 +100,7 @@ def _prepare_saved_query_repair(
             business_equivalence_checked=False,
         ),
     )
-    return plan, columns, external_tables
+    return _PreparedSavedQueryRepair(plan=plan, columns=columns, external_tables=external_tables)
 
 
 def apply_saved_query_repair(
@@ -107,7 +114,8 @@ def apply_saved_query_repair(
     was_impersonated: bool,
     trigger: Trigger,
 ) -> str:
-    plan, columns, external_tables = _prepare_saved_query_repair(team_id, saved_query_id, proposed_query, user=user)
+    prepared = _prepare_saved_query_repair(team_id, saved_query_id, proposed_query, user=user)
+    plan = prepared.plan
     if plan.original_query_revision != original_query_revision or plan.original_query_hash != original_query_hash:
         raise SavedQueryRepairConflictError(QUERY_CHANGED)
 
@@ -136,8 +144,8 @@ def apply_saved_query_repair(
         before_update = copy.copy(locked)
         locked.apply_query_update(
             {"kind": "HogQLQuery", "query": proposed_query},
-            columns=columns,
-            external_tables=external_tables,
+            columns=prepared.columns,
+            external_tables=prepared.external_tables,
         )
         with team_scope(locked.team_id):
             changes = changes_between("DataWarehouseSavedQuery", previous=before_update, current=locked)
