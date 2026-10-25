@@ -794,6 +794,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+            data_freshness_seconds = version.data_freshness_seconds
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -835,16 +836,16 @@ class EndpointExecutionService(PydanticModelMixin):
             ):
                 # Compute dynamic cache TTL: time remaining until data_freshness window expires
                 cache_ttl = None
-                if materialized_at and version.data_freshness_seconds:
+                if materialized_at and data_freshness_seconds:
                     remaining = (
-                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                        materialized_at + timedelta(seconds=data_freshness_seconds) - timezone.now()
                     ).total_seconds()
                     if remaining <= 0:
                         logger.warning(
                             "endpoint_materialization_behind_sla",
                             endpoint_name=endpoint.name,
                             team_id=self.team.pk,
-                            data_freshness_seconds=version.data_freshness_seconds,
+                            data_freshness_seconds=data_freshness_seconds,
                             last_run_at=materialized_at.isoformat(),
                             remaining_seconds=remaining,
                         )
@@ -903,9 +904,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if materialized_at and version.data_freshness_seconds:
+            if materialized_at and data_freshness_seconds:
                 age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / data_freshness_seconds)
 
             return result
         except Exception as e:

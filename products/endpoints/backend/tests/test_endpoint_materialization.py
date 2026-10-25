@@ -1,5 +1,4 @@
 from datetime import timedelta
-from io import StringIO
 from typing import Any
 
 import pytest
@@ -7,7 +6,6 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
-from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -140,11 +138,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         set_endpoint_materialization_ready(self.team.pk, endpoint.name, False)
         set_endpoint_materialization_ready(self.team.pk, endpoint.name, False, version=1)
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         # A snapshot cached before the enable would hold the inline rate until it expired.
@@ -254,7 +253,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(version.data_freshness_seconds, 86400)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=version.saved_query)), timedelta(hours=24))
 
-    def test_sync_freshness_targets_command_repairs_only_on_apply(self):
+    @parameterized.expand([(86400,), (2592000,)])
+    def test_node_target_controls_api_freshness_and_metadata_updates(self, node_target_seconds):
         endpoint = create_endpoint_with_version(
             name="seeded_daily_endpoint",
             team=self.team,
@@ -269,22 +269,156 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
-        # The state a tier seed leaves: the node runs daily while the version declares 6 hours.
-        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(days=1))
+        node_target = timedelta(seconds=node_target_seconds)
+        set_declared_target(Node.objects.get(saved_query=version.saved_query), node_target)
 
-        out = StringIO()
-        call_command("sync_endpoint_freshness_targets", stdout=out)
-        self.assertIn("node target 86400s -> declared 21600s: 1", out.getvalue())
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], node_target_seconds)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"description": "Updated description"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], node_target_seconds)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=version.saved_query)), node_target)
+
+    def test_materialized_freshness_update_does_not_write_the_cache_ttl(self):
+        endpoint = create_endpoint_with_version(
+            name="node_freshness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 21600},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        version = endpoint.get_version()
+        previous_cache_ttl = version.cache_ttl_seconds
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], 43200)
+        version.refresh_from_db()
+        self.assertEqual(version.cache_ttl_seconds, previous_cache_ttl)
+        self.assertEqual(get_declared_target(Node.objects.get(saved_query=version.saved_query)), timedelta(hours=12))
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.pk, item_id=str(endpoint.id), scope="EndpointVersion", activity="version_updated"
+        ).latest("created_at")
+        assert activity.detail is not None
+        self.assertIn(
+            {
+                "type": "EndpointVersion",
+                "action": "changed",
+                "field": "data_freshness_seconds",
+                "before": 21600,
+                "after": 43200,
+            },
+            activity.detail["changes"],
+        )
+
+    @parameterized.expand(
+        [
+            (None, 43200, {"is_materialized": False}),
+            (900, 900, {"is_materialized": False}),
+            (900, 900, {"is_active": False, "version": 1}),
+        ]
+    )
+    def test_disabling_materialization_preserves_or_updates_freshness(
+        self, requested_freshness, expected_freshness, update
+    ):
+        endpoint = create_endpoint_with_version(
+            name="disabled_node_freshness",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        version = endpoint.get_version()
+        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(hours=12))
+        update = dict(update)
+        if requested_freshness is not None:
+            update["data_freshness_seconds"] = requested_freshness
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", update, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], expected_freshness)
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query_id)
+        self.assertEqual(version.cache_ttl_seconds, expected_freshness)
+
+    def test_new_version_inherits_the_node_target(self):
+        endpoint = create_endpoint_with_version(
+            name="inherited_node_freshness",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        version = endpoint.get_version()
+        set_declared_target(Node.objects.get(saved_query=version.saved_query), timedelta(hours=12))
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["data_freshness_seconds"], 43200)
+        new_version = endpoint.get_version()
+        self.assertEqual(new_version.version, 2)
+        self.assertEqual(new_version.data_freshness_seconds, 43200)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_node_target_change_invalidates_readiness_after_commit(self, has_endpoint_link):
+        endpoint = create_endpoint_with_version(
+            name="node_freshness_cache",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        version = endpoint.get_version()
         node = Node.objects.get(saved_query=version.saved_query)
-        self.assertEqual(get_declared_target(node), timedelta(days=1))
+        if not has_endpoint_link:
+            node.properties.pop("endpoint", None)
+            node.save(update_fields=["properties"])
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True)
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True, version=1)
 
-        call_command("sync_endpoint_freshness_targets", "--apply", stdout=StringIO())
-        node.refresh_from_db()
-        self.assertEqual(get_declared_target(node), timedelta(hours=6))
+        with self.captureOnCommitCallbacks(execute=True):
+            set_declared_target(node, timedelta(hours=12))
+            self.assertTrue(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+            self.assertTrue(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
-        out = StringIO()
-        call_command("sync_endpoint_freshness_targets", stdout=out)
-        self.assertIn("0 mismatched endpoint version(s)", out.getvalue())
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
     def test_enable_fails_as_a_request_error_when_the_dag_sync_leaves_no_node(self):
         # the endpoint path swallows a dag sync failure, and scheduling then disables itself rather
