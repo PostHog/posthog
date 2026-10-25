@@ -57,6 +57,60 @@ const activitySummaryVersionsList = (): ToolBase<
     },
 })
 
+const AnomalyInsightGetSchema = () => {
+    const SignalsAnomaliesInsightRetrieveQueryParams = orvalSchemas.SignalsAnomaliesInsightRetrieveQueryParams()
+    return SignalsAnomaliesInsightRetrieveQueryParams
+}
+
+const anomalyInsightGet = (): ToolBase<ReturnType<typeof AnomalyInsightGetSchema>, Schemas.AnomalyInsightResponse> => ({
+    name: 'anomaly-insight-get',
+    schema: AnomalyInsightGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AnomalyInsightGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AnomalyInsightResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/anomalies/insight/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                include_buckets: params.include_buckets,
+                include_warmup: params.include_warmup,
+                insight_id: params.insight_id,
+                series_key: params.series_key,
+            },
+        })
+        return result
+    },
+})
+
+const AnomalySearchSchema = () => {
+    const SignalsAnomaliesSearchRetrieveQueryParams = orvalSchemas.SignalsAnomaliesSearchRetrieveQueryParams()
+    return SignalsAnomaliesSearchRetrieveQueryParams
+}
+
+const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schemas.AnomalySearchResponse> => ({
+    name: 'anomaly-search',
+    schema: AnomalySearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AnomalySearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AnomalySearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/anomalies/search/`,
+            query: {
+                dashboard_id: params.dashboard_id,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                group_by: params.group_by,
+                insight_id: params.insight_id,
+                interval: params.interval,
+                limit: params.limit,
+                only_flagged: params.only_flagged,
+            },
+        })
+        return result
+    },
+})
+
 const InboxRankingOutcomesListSchema = () => z.object({})
 
 const inboxRankingOutcomesList = (): ToolBase<
@@ -3345,6 +3399,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
     'activity-summary-versions-list': activitySummaryVersionsList,
+    'anomaly-insight-get': anomalyInsightGet,
+    'anomaly-search': anomalySearch,
     'inbox-ranking-outcomes-list': inboxRankingOutcomesList,
     'inbox-report-actions-list': inboxReportActionsList,
     'inbox-report-actions-run': inboxReportActionsRun,

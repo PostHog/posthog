@@ -13324,6 +13324,351 @@ export namespace Schemas {
       customer_name: string | null;
     }
 
+    /**
+     * Detector-specific values for the bucket. The keys depend on the detector.
+     * @nullable
+     */
+    export type AnomalyBucketDetails = { [key: string]: unknown } | null;
+
+    export interface AnomalyBucket {
+      /** The start of the bucket, in the project timezone. */
+      bucket_start: string;
+      /** False for a completed bucket that has no score. Its value, score and flag are unknown, not 0. */
+      scored: boolean;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * The detector score. Null on an unscored or warm-up bucket.
+         * @nullable
+         */
+      score: number | null;
+      /**
+         * Whether the detector flagged the bucket. Null on an unscored or warm-up bucket.
+         * @nullable
+         */
+      flag: boolean | null;
+      /**
+         * When the bucket was scored.
+         * @nullable
+         */
+      scored_at: string | null;
+      /**
+         * Detector-specific values for the bucket. The keys depend on the detector.
+         * @nullable
+         */
+      details: AnomalyBucketDetails;
+    }
+
+    export interface AnomalyFlaggedPoint {
+      /** The start of the flagged bucket, in the project timezone. */
+      bucket_start: string;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * The detector score of the bucket. Compare it only with buckets of the same series.
+         * @nullable
+         */
+      score: number | null;
+    }
+
+    /**
+     * * `series` - Series
+     * * `insight` - Insight
+     */
+    export type AnomalyGroupByEnum = typeof AnomalyGroupByEnum[keyof typeof AnomalyGroupByEnum];
+
+
+    export const AnomalyGroupByEnum = {
+      Series: 'series',
+      Insight: 'insight',
+    } as const;
+
+    /**
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type AnomalyIntervalEnum = typeof AnomalyIntervalEnum[keyof typeof AnomalyIntervalEnum];
+
+
+    export const AnomalyIntervalEnum = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    export interface AnomalyInsightSeries {
+      /** Identifies the series. */
+      series_key: string;
+      /**
+         * The series name as the insight shows it.
+         * @nullable
+         */
+      series_label: string | null;
+      /**
+         * The breakdown value of the series, if any.
+         * @nullable
+         */
+      breakdown_value: string | null;
+      /** Buckets in the range with a score. */
+      scored_buckets: number;
+      /** Scored buckets in the range that the detector flagged. */
+      flagged_buckets: number;
+      /**
+         * `flagged_buckets / scored_buckets`.
+         * @nullable
+         */
+      anomaly_rate: number | null;
+      /**
+         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
+         * @nullable
+         */
+      baseline_rate: number | null;
+      /** Completed buckets in the range, scored or not. */
+      expected_buckets: number;
+      /**
+         * `scored_buckets / expected_buckets`.
+         * @nullable
+         */
+      coverage: number | null;
+      /**
+         * The newest flagged bucket in the range.
+         * @nullable
+         */
+      last_flagged_bucket: string | null;
+      /** Oldest first, the newest result of each bucket. Empty when `include_buckets` is false. */
+      buckets: AnomalyBucket[];
+    }
+
+    export interface AnomalyInsightResponse {
+      /** Whether anomaly scoring covers this project. */
+      scoring_enabled: boolean;
+      /** The numeric id of the insight. */
+      insight_id: number;
+      /**
+         * The name of the insight. Null when it has none.
+         * @nullable
+         */
+      insight_name: string | null;
+      /** Opens the insight with a date range around its flagged buckets. */
+      insight_url: string;
+      /** The bucket interval the scorer used.
+       *
+       * * `hour` - Hour
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: AnomalyIntervalEnum | null;
+      /**
+         * The scoring profile.
+         * @nullable
+         */
+      profile: string | null;
+      /**
+         * The detector type, for example `zscore`.
+         * @nullable
+         */
+      detector: string | null;
+      /**
+         * A hash of the detector settings. It changes when the settings change.
+         * @nullable
+         */
+      detector_version: string | null;
+      /** Series scored in the range. */
+      series_count: number;
+      /** Series with at least one flagged bucket in the range. */
+      flagged_series: number;
+      /** Scored buckets, summed over the series. */
+      scored_buckets: number;
+      /** Flagged buckets, summed over the series. */
+      flagged_buckets: number;
+      /**
+         * Summed `flagged_buckets / scored_buckets`. Never an average of series rates.
+         * @nullable
+         */
+      anomaly_rate: number | null;
+      /** The applied start of the range, in the project timezone. */
+      date_from: string;
+      /** The applied end of the range, in the project timezone. */
+      date_to: string;
+      /** Every scored series, most anomalous first. */
+      series: AnomalyInsightSeries[];
+      /** True when the cap of 2,000 buckets cut the history. */
+      truncated: boolean;
+      /**
+         * Says why the result is empty. Null when it is not.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface AnomalyTopSeries {
+      /** Identifies the series. */
+      series_key: string;
+      /**
+         * The series name as the insight shows it.
+         * @nullable
+         */
+      series_label: string | null;
+      /**
+         * The breakdown value of the series, if any.
+         * @nullable
+         */
+      breakdown_value: string | null;
+      /** Scored buckets of the series in the range. */
+      scored_buckets: number;
+      /** Flagged buckets of the series in the range. */
+      flagged_buckets: number;
+      /**
+         * `flagged_buckets / scored_buckets`.
+         * @nullable
+         */
+      anomaly_rate: number | null;
+      /**
+         * The anomaly rate over the 30 days before the range.
+         * @nullable
+         */
+      baseline_rate: number | null;
+    }
+
+    export interface AnomalyInsightRow {
+      /** The numeric id of the insight. */
+      insight_id: number;
+      /**
+         * The name of the insight. Null when it has none.
+         * @nullable
+         */
+      insight_name: string | null;
+      /** Opens the insight with a date range around its flagged buckets. */
+      insight_url: string;
+      /** Series of the insight scored in the range. */
+      series_count: number;
+      /** Series with at least one flagged bucket in the range. */
+      flagged_series: number;
+      /** Scored buckets, summed over the series. */
+      scored_buckets: number;
+      /** Flagged buckets, summed over the series. */
+      flagged_buckets: number;
+      /**
+         * Summed `flagged_buckets / scored_buckets`. Never an average of series rates.
+         * @nullable
+         */
+      anomaly_rate: number | null;
+      /**
+         * The newest flagged bucket of any series.
+         * @nullable
+         */
+      last_flagged_bucket: string | null;
+      /** Up to 3 flagged series, most anomalous first. */
+      top_series: AnomalyTopSeries[];
+    }
+
+    export interface AnomalySeries {
+      /** The numeric id of the insight. */
+      insight_id: number;
+      /**
+         * The name of the insight. Null when it has none.
+         * @nullable
+         */
+      insight_name: string | null;
+      /** Opens the insight with a date range around the flagged buckets of this series. */
+      insight_url: string;
+      /** Identifies the series. Pass it to anomaly insight history. */
+      series_key: string;
+      /**
+         * The series name as the insight shows it.
+         * @nullable
+         */
+      series_label: string | null;
+      /**
+         * The breakdown value of the series, if any.
+         * @nullable
+         */
+      breakdown_value: string | null;
+      /** The bucket interval of the series.
+       *
+       * * `hour` - Hour
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: AnomalyIntervalEnum;
+      /** Buckets in the range with a score. Warm-up buckets do not count. */
+      scored_buckets: number;
+      /** Scored buckets in the range that the detector flagged. */
+      flagged_buckets: number;
+      /**
+         * `flagged_buckets / scored_buckets`.
+         * @nullable
+         */
+      anomaly_rate: number | null;
+      /** Completed buckets of the series interval in the range, scored or not. */
+      expected_buckets: number;
+      /**
+         * `scored_buckets / expected_buckets`: how much of the range was scored. Unscored buckets are unknown, not quiet.
+         * @nullable
+         */
+      coverage: number | null;
+      /**
+         * The newest scored bucket in the range. Buckets after it were not checked yet.
+         * @nullable
+         */
+      scored_through: string | null;
+      /**
+         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
+         * @nullable
+         */
+      baseline_rate: number | null;
+      /**
+         * The oldest flagged bucket in the range, in the project timezone.
+         * @nullable
+         */
+      first_flagged_bucket: string | null;
+      /**
+         * The newest flagged bucket in the range, in the project timezone.
+         * @nullable
+         */
+      last_flagged_bucket: string | null;
+      /** Up to 5 flagged buckets in the range, newest first. */
+      flagged_points: AnomalyFlaggedPoint[];
+    }
+
+    export interface AnomalySearchResponse {
+      /** Whether anomaly scoring covers this project. */
+      scoring_enabled: boolean;
+      /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+      watched_insights: number;
+      /** Insights with at least one scored bucket in the range. Results cover only these insights. */
+      insights_scored_in_range: number;
+      /** The applied start of the range, in the project timezone. */
+      date_from: string;
+      /** The applied end of the range, in the project timezone. */
+      date_to: string;
+      /** The applied grouping.
+       *
+       * * `series` - Series
+       * * `insight` - Insight */
+      group_by: AnomalyGroupByEnum;
+      /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+      series: AnomalySeries[];
+      /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+      insights: AnomalyInsightRow[];
+      /** True when `limit` or a read cap left rows out. */
+      truncated: boolean;
+      /**
+         * Says why the result is empty. Null when it is not.
+         * @nullable
+         */
+      message: string | null;
+    }
+
     export interface AppSandboxContract {
       status: string;
       restart_count: number;
@@ -99875,18 +100220,6 @@ export namespace Schemas {
       code_usage_billing_active: boolean;
     }
 
-    /**
-     * * `weighted-score` - weighted-score
-     * * `jev` - jev
-     */
-    export type RankerEnum = typeof RankerEnum[keyof typeof RankerEnum];
-
-
-    export const RankerEnum = {
-      WeightedScore: 'weighted-score',
-      Jev: 'jev',
-    } as const;
-
     export interface RankingOutcomeInfo {
       /** Name of the outcome in the `ranking` field's predictions.
        *
@@ -120025,6 +120358,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
+
+
+    export const WatchFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/watch_feed_impressions/.
+     */
+    export interface WatchFeedImpressions {
+      /** The client's id for the feed load that showed these cards. One load counts each card once. */
+      feed_load_id: string;
+      /**
+         * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+         * @minItems 1
+         * @maxItems 100
+         */
+      observation_ids: string[];
+    }
+
+    /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
      * * `notable` - Notable
@@ -120034,6 +120395,7 @@ export namespace Schemas {
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
      * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
@@ -120050,6 +120412,7 @@ export namespace Schemas {
       NovelSummary: 'novel_summary',
       Friction: 'friction',
       JevWatchable: 'jev_watchable',
+      EmbeddingPick: 'embedding_pick',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
@@ -120068,7 +120431,7 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
@@ -120079,6 +120442,7 @@ export namespace Schemas {
        * * `novel_summary` - Novel Summary
        * * `friction` - Friction
        * * `jev_watchable` - Jev Watchable
+       * * `embedding_pick` - Embedding Pick
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
@@ -120150,6 +120514,17 @@ export namespace Schemas {
          * @nullable
          */
       tag_share?: number | null;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: WatchFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
     }
 
     /**
@@ -120163,18 +120538,37 @@ export namespace Schemas {
     }
 
     /**
+     * * `weighted-score` - Weighted Score
+     * * `jev` - Jev
+     * * `embedding` - Embedding
+     */
+    export type WatchFeedRankerEnum = typeof WatchFeedRankerEnum[keyof typeof WatchFeedRankerEnum];
+
+
+    export const WatchFeedRankerEnum = {
+      WeightedScore: 'weighted-score',
+      Jev: 'jev',
+      Embedding: 'embedding',
+    } as const;
+
+    /**
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
       results: WatchFeedItem[];
-      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+      has_more: boolean;
+      /** The time this feed ranks as of. Send it back with later pages. */
+      as_of: string;
+      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
        *
-       * * `weighted-score` - weighted-score
-       * * `jev` - jev */
-      ranker: RankerEnum;
+       * * `weighted-score` - Weighted Score
+       * * `jev` - Jev
+       * * `embedding` - Embedding */
+      ranker: WatchFeedRankerEnum;
       /**
-         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
          * @nullable
          */
       ranker_variant: string | null;
@@ -136778,6 +137172,103 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type SignalsAnomaliesInsightRetrieveParams = {
+    /**
+     * Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Return the buckets of each series. Set false for the per-series summary only.
+     */
+    include_buckets?: boolean;
+    /**
+     * Include warm-up buckets: scored rows with a null score and flag, written while the detector still lacks history. When false, a warm-up bucket shows as `scored: false`.
+     */
+    include_warmup?: boolean;
+    /**
+     * The insight, by numeric id.
+     */
+    insight_id: number;
+    /**
+     * Only this series, by the `series_key` of an anomaly search row.
+     * @minLength 1
+     */
+    series_key?: string;
+    };
+
+    export type SignalsAnomaliesSearchRetrieveParams = {
+    /**
+     * Only the series of the insights on this dashboard, by numeric id.
+     */
+    dashboard_id?: number;
+    /**
+     * Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * `series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.
+     *
+     * * `series` - Series
+     * * `insight` - Insight
+     * @minLength 1
+     */
+    group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
+    /**
+     * Only the series of this insight, by numeric id.
+     */
+    insight_id?: number;
+    /**
+     * Only series with this interval.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     * @minLength 1
+     */
+    interval?: SignalsAnomaliesSearchRetrieveInterval;
+    /**
+     * The most rows to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
+     */
+    only_flagged?: boolean;
+    };
+
+    export type SignalsAnomaliesSearchRetrieveGroupBy = typeof SignalsAnomaliesSearchRetrieveGroupBy[keyof typeof SignalsAnomaliesSearchRetrieveGroupBy];
+
+
+    export const SignalsAnomaliesSearchRetrieveGroupBy = {
+      Series: 'series',
+      Insight: 'insight',
+    } as const;
+
+    export type SignalsAnomaliesSearchRetrieveInterval = typeof SignalsAnomaliesSearchRetrieveInterval[keyof typeof SignalsAnomaliesSearchRetrieveInterval];
+
+
+    export const SignalsAnomaliesSearchRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
     export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -139177,6 +139668,10 @@ export namespace Schemas {
 
     export type VisionScannersWatchFeedRetrieveParams = {
     /**
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
+     */
+    as_of?: string;
+    /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
      */
@@ -139192,11 +139687,17 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number;
+    /**
+     * How many ranked items to skip. Send `as_of` with every page after the first.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number;
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1
