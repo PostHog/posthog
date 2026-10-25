@@ -128,7 +128,6 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public watcherRows: MockRow[] = []
     // null = every requested row is claimed; an array narrows it to those ids.
     public claimedWatcherIds: string[] | null = null
-    // Models a send that moved a watcher's version between the lookup and the claim.
     public watcherVersionsAtClaim: Record<string, number> = {}
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []

@@ -727,8 +727,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
 
         // The delete is the claim: only rows this statement actually removed are counted, so a
-        // concurrent instance that removed the same row first counts it and we do not. The version
-        // comes from the claim because a send can move the watcher after the lookup read it.
+        // concurrent instance that removed the same row first counts it and we do not.
         const claimed = await this.cyclotronPool.query(
             `DELETE FROM conversion_watchers WHERE id = ANY($1::uuid[]) RETURNING id, flow_version`,
             [converted.map((c) => c.row.id)]

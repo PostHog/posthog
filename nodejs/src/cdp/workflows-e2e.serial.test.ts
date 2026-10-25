@@ -3884,29 +3884,36 @@ describe('Workflows E2E (email queue)', () => {
             expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
         }, 15000)
 
-        // A woken delay step re-parks for whatever duration is live, so the republish shortens it.
-        const delay = hogFlow.actions.find((action) => action.id === 'delay')!
-        ;(delay.config as any).delay_duration = '0.5s'
-        await hub.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogflow SET version = 2, actions = $2, updated_at = NOW() WHERE id = $1`,
-            [hogFlow.id, JSON.stringify(hogFlow.actions)],
-            'republishHogFlow'
-        )
-        for (const worker of [hogflowWorker, emailWorker]) {
-            ;(worker as any).hogFlowManager.lazyLoader.markForRefresh(hogFlow.id)
-        }
-        await cyclotronPool.query(
-            `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available' AND scheduled > NOW()`
-        )
-        // The worker marks the job completed before it flushes the watcher update, so wait on the row.
-        await waitForExpect(async () => {
-            const { rows } = await cyclotronPool.query(
-                `SELECT flow_version FROM conversion_watchers WHERE function_id = $1`,
-                [hogFlow.id]
+        const republishAsVersion2WithShortDelay = async (): Promise<void> => {
+            const delay = hogFlow.actions.find((action) => action.id === 'delay')!
+            ;(delay.config as any).delay_duration = '0.5s'
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET version = 2, actions = $2, updated_at = NOW() WHERE id = $1`,
+                [hogFlow.id, JSON.stringify(hogFlow.actions)],
+                'republishHogFlow'
             )
-            expect(rows).toEqual([{ flow_version: 2 }])
-        }, 15000)
+            for (const worker of [hogflowWorker, emailWorker]) {
+                ;(worker as any).hogFlowManager.lazyLoader.markForRefresh(hogFlow.id)
+            }
+        }
+        const wakeParkedRun = async (): Promise<void> => {
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available' AND scheduled > NOW()`
+            )
+        }
+        const waitForWatcherVersion = (version: number): Promise<void> =>
+            waitForExpect(async () => {
+                const { rows } = await cyclotronPool.query(
+                    `SELECT flow_version FROM conversion_watchers WHERE function_id = $1`,
+                    [hogFlow.id]
+                )
+                expect(rows).toEqual([{ flow_version: version }])
+            }, 15000)
+
+        await republishAsVersion2WithShortDelay()
+        await wakeParkedRun()
+        await waitForWatcherVersion(2)
 
         matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
         await matcher.processBatch([createGlobals({ event: 'conversion_event' })])

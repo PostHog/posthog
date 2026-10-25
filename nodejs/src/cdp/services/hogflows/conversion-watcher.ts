@@ -68,8 +68,6 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
     }
 }
 
-// A conversion counts under the version that sent the message, which can be newer than the version
-// the watcher was written with.
 export function buildConversionWatcherVersionUpdates(
     runId: string,
     versionBefore: number | undefined,

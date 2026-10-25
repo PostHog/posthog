@@ -31,8 +31,7 @@ const gaugeConversionWatchersPending = new Gauge({
 const INSERT_CHUNK_SIZE = 1000
 
 /**
- * Writes a watcher row when a run enrolls, and moves it to a newer version when a message step sends
- * under one.
+ * Writes a watcher row when a run enrolls and keeps its version current.
  *
  * Reading and claiming watchers belongs to the subscription matcher, which is where the event stream
  * is, and deleting expired ones belongs to the cyclotron janitor. This service is the write side,
@@ -134,9 +133,8 @@ export class ConversionWatchersService {
             return
         }
 
-        // Inserts go first: a run picked up again straight away can enroll and send in one flush.
         await this.insertRows(pool, rows)
-        await this.updateVersions(pool, versionUpdates)
+        await this.raiseVersions(pool, versionUpdates)
     }
 
     private async insertRows(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
@@ -156,9 +154,7 @@ export class ConversionWatchersService {
         }
     }
 
-    // Never an upsert: the matcher claims a conversion by deleting its watcher, and an upsert after
-    // the claim would let the run convert twice. Versions only grow, so a lower one is a late flush.
-    private async updateVersions(pool: Pool, versionUpdates: Map<string, number>): Promise<void> {
+    private async raiseVersions(pool: Pool, versionUpdates: Map<string, number>): Promise<void> {
         if (!versionUpdates.size) {
             return
         }
