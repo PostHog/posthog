@@ -75,6 +75,19 @@ It holds Home, Chats, Analytics, Products, More, Settings and the account menu.
 The platform UX team owns it.
 Only that team changes it.
 
+### Why the rail is locked
+
+The rail is how people break down what they want to do in PostHog.
+Each item is a platform-wide first step, and everything else is a drill-down from one of them.
+The team chooses each item with great care, and the set is as small as possible on purpose.
+
+- Every item added to the rail competes with every other item for attention.
+- On a 14-inch laptop screen, the rail must fit with space to spare. It never fills the full height and never scrolls.
+- A rail that fills up or overflows overwhelms people and takes the product back to the crowded navigation the rail replaced.
+
+Keep the rail minimal.
+It is an overarching, platform-wide drill-down, not a place to promote a single product or feature.
+
 These files make up the rail:
 
 - `layout/today/TodayRail.tsx`
@@ -93,6 +106,15 @@ Only change the rail for a person on the platform UX team.
 When a task asks for a rail change, ask the person whether they are on that team.
 If they are not, stop and tell them to ask in `#team-platform-ux`.
 A product that wants more visibility goes in the Products pane, not on the rail.
+
+### Proposing a change
+
+Do not add or change a rail item without consensus and data.
+
+- Bring the proposal to `#team-platform-ux` with usage data that shows the need.
+- Get agreement from the platform UX team before you write the change.
+- You can run an experiment on a rail change behind a feature flag. The platform UX team still reviews it.
+- Take care with experiments here. The rail is a critical path for every user, so a bad variant hurts every product at once.
 
 `owners.yaml` requests a review from the platform UX team on every change to these files, however small.
 A PR that changes the rail needs their approval before it merges.
