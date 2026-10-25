@@ -264,7 +264,7 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         )
         # Each plan is judged on the reads it holds: a subquery's on its own, the outer query's
         # without any of them. The tree is the run's, so the subqueries are the nodes inside it.
-        subquery_reads = [find_events_reads(subquery) for subquery in stub.subqueries]
+        subquery_reads = [find_events_reads(subquery.query) for subquery in stub.subqueries]
         in_a_subquery = {id(read.select) for reads in subquery_reads for read in reads}
         outer_reads = [read for read in find_events_reads(execution.tree) if id(read.select) not in in_a_subquery]
         entry = {
@@ -272,7 +272,10 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             "subqueries": [
                 {
                     "sql": print_prepared_ast(
-                        stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse", settings=settings
+                        stub_in_subqueries(subquery.query, subquery.outer_ctes).stubbed,
+                        context,
+                        dialect="clickhouse",
+                        settings=settings,
                     ),
                     "event_filter": _event_filter_verdict(execution.tree, reads),
                     "tree": _tree_facts_payload(execution.tree, reads),

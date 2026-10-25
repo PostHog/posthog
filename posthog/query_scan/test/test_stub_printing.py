@@ -25,11 +25,33 @@ class TestStubPrintsAsClickHouse(BaseTest):
         assert prepared is not None
         stub = stub_in_subqueries(prepared)
         sql = print_prepared_ast(stub.stubbed, context, dialect="clickhouse")
-        subquery_sql = print_prepared_ast(stub_in_subqueries(stub.subqueries[0]).stubbed, context, dialect="clickhouse")
+        subquery_sql = print_prepared_ast(
+            stub_in_subqueries(stub.subqueries[0].query).stubbed, context, dialect="clickhouse"
+        )
 
         assert "(SELECT" not in sql.replace("\n", " ")
         assert len(stub.subqueries) == 2
         assert "events" in subquery_sql and "IN (SELECT" not in subquery_sql
+
+    def test_a_subquery_printed_on_its_own_defines_the_ctes_it_reads(self) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            node=parse_select(
+                "WITH bookings AS (SELECT distinct_id FROM events WHERE event = 'booked') "
+                "SELECT count() FROM events WHERE distinct_id IN (SELECT distinct_id FROM bookings)"
+            ),
+            context=context,
+            dialect="clickhouse",
+        )
+        assert prepared is not None
+
+        subquery = stub_in_subqueries(prepared).subqueries[0]
+        subquery_sql = print_prepared_ast(
+            stub_in_subqueries(subquery.query, subquery.outer_ctes).stubbed, context, dialect="clickhouse"
+        )
+
+        assert subquery_sql.startswith("WITH bookings AS (SELECT")
+        assert "FROM bookings" in subquery_sql
 
     def test_a_warehouse_table_prints_as_an_empty_table_without_its_credentials(self) -> None:
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
