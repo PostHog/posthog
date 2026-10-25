@@ -650,19 +650,35 @@ describe('HogFunctionHandler', () => {
     // Live edits reach runs already in flight, so a run that entered on one version can send its
     // message under a newer one. The conversion belongs to the version whose message the person
     // received — the same version `email_sent` is counted under — so a send re-pins the attribution
-    // version. A non-message step must leave it alone.
+    // version. A non-message step, or a message nobody received, must leave it alone.
     it.each([
-        { billingType: 'email' as const, expected: 3 },
-        { billingType: 'push' as const, expected: 3 },
-        { billingType: 'fetch' as const, expected: 1 },
+        { billingType: 'email' as const, outcome: 'sent', expected: 3 },
+        { billingType: 'push' as const, outcome: 'sent', expected: 3 },
+        { billingType: 'fetch' as const, outcome: 'sent', expected: 1 },
+        { billingType: 'email' as const, outcome: 'failed', expected: 1 },
+        { billingType: 'push' as const, outcome: 'reached no device', expected: 1 },
     ])(
-        'a completed $billingType step leaves the attribution version at $expected',
-        async ({ billingType, expected }) => {
+        'a $billingType step that $outcome leaves the attribution version at $expected',
+        async ({ billingType, outcome, expected }) => {
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 billingType
+            )
+            const executeWithAsyncFunctions =
+                mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+                async (hogFunctionInvocation, options) => {
+                    const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
+                    if (outcome === 'failed') {
+                        functionResult.error = 'send failed'
+                    }
+                    if (outcome === 'reached no device') {
+                        functionResult.deliveredToRecipient = false
+                    }
+                    return functionResult
+                }
             )
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {

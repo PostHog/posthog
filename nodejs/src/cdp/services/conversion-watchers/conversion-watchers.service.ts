@@ -92,7 +92,8 @@ export class ConversionWatchersService {
                 this.queuedRows.push(...result.conversionWatchers)
             }
             for (const update of result.conversionWatcherVersionUpdates) {
-                this.queuedVersionUpdates.set(update.id, update.flow_version)
+                const queuedVersion = this.queuedVersionUpdates.get(update.id) ?? update.flow_version
+                this.queuedVersionUpdates.set(update.id, Math.max(queuedVersion, update.flow_version))
             }
         }
         gaugeConversionWatchersPending.set(this.queuedRows.length)
@@ -156,7 +157,7 @@ export class ConversionWatchersService {
     }
 
     // Never an upsert: the matcher claims a conversion by deleting its watcher, and an upsert after
-    // the claim would let the run convert twice.
+    // the claim would let the run convert twice. Versions only grow, so a lower one is a late flush.
     private async updateVersions(pool: Pool, versionUpdates: Map<string, number>): Promise<void> {
         if (!versionUpdates.size) {
             return
@@ -166,7 +167,7 @@ export class ConversionWatchersService {
                 `UPDATE conversion_watchers cw
                  SET flow_version = u.flow_version
                  FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS flow_version) u
-                 WHERE cw.id = u.id`,
+                 WHERE cw.id = u.id AND (cw.flow_version IS NULL OR cw.flow_version < u.flow_version)`,
                 [[...versionUpdates.keys()], [...versionUpdates.values()]]
             )
         } catch (err) {

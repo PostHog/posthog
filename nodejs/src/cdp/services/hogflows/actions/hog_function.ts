@@ -267,7 +267,9 @@ export class HogFunctionHandler implements ActionHandler {
             // published — and the conversion belongs to the version whose message the person
             // received, which is also the version `email_sent` was counted under. Leaving the
             // run-start stamp here would split a rate across two versions.
-            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+            const reachedRecipient = !functionResult.error && functionResult.deliveredToRecipient !== false
+            const isMessageStep = this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push'
+            if (isMessageStep && reachedRecipient) {
                 result.invocation.state.flowVersion = invocation.hogFlow.version
             }
         }

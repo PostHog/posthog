@@ -80,6 +80,26 @@ describe('ConversionWatchersService', () => {
         expect(await storedVersions([id])).toEqual({ [id]: 2 })
     })
 
+    it.each([
+        { name: 'a later flush', sameFlush: false },
+        { name: 'the same flush', sameFlush: true },
+    ])('keeps the newer version when an update from an earlier send lands in $name', async ({ sameFlush }) => {
+        const id = uuidv7()
+        const newer = resultWith([watcherRow(id)], [{ id, flow_version: 3 }])
+        const stale = resultWith([], [{ id, flow_version: 2 }])
+
+        if (sameFlush) {
+            service.queueInvocationResults([newer, stale])
+        } else {
+            service.queueInvocationResults([newer])
+            await service.flush()
+            service.queueInvocationResults([stale])
+        }
+        await service.flush()
+
+        expect(await storedVersions([id])).toEqual({ [id]: 3 })
+    })
+
     it('does not bring back a watcher the matcher already claimed', async () => {
         const id = uuidv7()
         service.queueInvocationResults([resultWith([watcherRow(id)], [])])

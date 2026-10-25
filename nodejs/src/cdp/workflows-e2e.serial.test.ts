@@ -3835,6 +3835,90 @@ describe('Workflows E2E (email queue)', () => {
         }, 15000)
     })
 
+    it('credits a conversion to the version that sent the email, not the version the run started on', async () => {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withConversion({ filters: [], bytecode: [], events: [eventNameFilter('conversion_event')] } as any)
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    delay: { type: 'delay', config: { delay_duration: '2m' } },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Test Email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        hogFlow.version = 1
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+        }, 15000)
+
+        // A woken delay step re-parks for whatever duration is live, so the republish shortens it.
+        const delay = hogFlow.actions.find((action) => action.id === 'delay')!
+        ;(delay.config as any).delay_duration = '0.5s'
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogflow SET version = 2, actions = $2, updated_at = NOW() WHERE id = $1`,
+            [hogFlow.id, JSON.stringify(hogFlow.actions)],
+            'republishHogFlow'
+        )
+        for (const worker of [hogflowWorker, emailWorker]) {
+            ;(worker as any).hogFlowManager.lazyLoader.markForRefresh(hogFlow.id)
+        }
+        await cyclotronPool.query(
+            `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available' AND scheduled > NOW()`
+        )
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'completed')).toBe(true)
+        }, 15000)
+
+        matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+
+        const conversionsUnder = (version: number): number =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'conversion')
+                .filter((m: any) => m.value.app_source_id === `${hogFlow.id}/${version}`)
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+        await waitForExpect(() => {
+            expect(conversionsUnder(2)).toBe(1)
+        }, 15000)
+        expect(conversionsUnder(1)).toBe(0)
+    })
+
     it("a workflow over its sending limit does not hold up another workflow's emails", async () => {
         // Two workflows on the same team and the same email queue. Workflow A has a
         // sending limit of 2 per minute and gets 8 sends queued at once, so all but the
