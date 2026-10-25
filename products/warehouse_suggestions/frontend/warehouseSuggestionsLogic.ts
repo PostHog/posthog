@@ -594,6 +594,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         .filter((saving): saving is MonthlySaving => saving !== null)
                     return {
                         views: savings.length,
+                        repairs: open.filter(({ kind }) => kind === 'sql_repair').length,
                         saving: {
                             seconds: sum(savings.map((saving) => saving.seconds)),
                             bytes: sum(savings.map((saving) => saving.bytes)),

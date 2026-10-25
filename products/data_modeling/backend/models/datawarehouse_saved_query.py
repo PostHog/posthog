@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     MODELS_NAMESPACE_ROOT_ERROR,
@@ -37,6 +38,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.visitor import TraversingVisitor
@@ -512,7 +514,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             update_fields.extend(["columns", "column_order", "external_tables", "status"])
         self.save(update_fields=update_fields)
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
+    def get_columns(
+        self, user: Optional["User"] = None, *, settings: HogQLGlobalSettings | None = None
+    ) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         query = self.query or {}
@@ -530,11 +534,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+                response = execute_hogql_query(
+                    select_query, team=self.team, user=user, query_type="HogQLQuery", settings=settings
+                )
         result = response.types
 
         if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
+        names = [str(item[0]) for item in result]
+        if len(names) != len(set(names)):
+            raise ExposedHogQLError("Result column names must be unique.")
 
         columns = {
             str(item[0]): {

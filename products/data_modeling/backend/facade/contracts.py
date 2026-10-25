@@ -72,7 +72,8 @@ class SavedQueryRepairValidation:
     references_valid: bool
     result_schema_compatible: bool
     read_only: bool
-    rows_read: int
+    rows_returned: int
+    max_execution_seconds: int
     business_equivalence_checked: bool
 
 

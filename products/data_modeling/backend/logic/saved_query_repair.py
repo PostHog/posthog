@@ -3,19 +3,18 @@ import hashlib
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 
 import structlog
 
-from posthog.hogql.context import HogQLContext
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
-from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.models.activity_logging.activity_log import Detail, Trigger, changes_between, log_activity
 from posthog.models.scoping import team_scope
 
@@ -51,6 +50,11 @@ SCHEMA_CHANGED = (
 MANAGED_VIEW = "Managed views do not support SQL repair suggestions."
 NO_SCHEMA = "This view has no saved result schema to compare with the proposed query."
 SAME_QUERY = "The proposed query is the same as the current query."
+REFRESH_SETTINGS_CHANGED = (
+    "This view's incremental settings changed while PostHog checked the SQL repair. Review the current settings and "
+    "try again."
+)
+VALIDATION_MAX_EXECUTION_SECONDS = 10
 
 
 @frozen
@@ -58,6 +62,7 @@ class _PreparedSavedQueryRepair:
     plan: SavedQueryRepairPlan
     columns: dict[str, dict[str, Any]]
     external_tables: list[str] | None
+    incremental_config: dict[str, Any] | None
 
 
 def prepare_saved_query_repair(
@@ -96,11 +101,17 @@ def _prepare_saved_query_repair(
             references_valid=True,
             result_schema_compatible=True,
             read_only=True,
-            rows_read=0,
+            rows_returned=0,
+            max_execution_seconds=VALIDATION_MAX_EXECUTION_SECONDS,
             business_equivalence_checked=False,
         ),
     )
-    return _PreparedSavedQueryRepair(plan=plan, columns=columns, external_tables=external_tables)
+    return _PreparedSavedQueryRepair(
+        plan=plan,
+        columns=columns,
+        external_tables=external_tables,
+        incremental_config=copy.deepcopy(saved_query.incremental_config),
+    )
 
 
 def apply_saved_query_repair(
@@ -140,6 +151,8 @@ def apply_saved_query_repair(
             raise SavedQueryRepairConflictError(QUERY_CHANGED)
         if locked.managed_viewset_id is not None:
             raise SavedQueryRepairUnsupportedError(MANAGED_VIEW)
+        if locked.incremental_config != prepared.incremental_config:
+            raise SavedQueryRepairConflictError(REFRESH_SETTINGS_CHANGED)
 
         before_update = copy.copy(locked)
         locked.apply_query_update(
@@ -201,7 +214,7 @@ def _validate_proposed_query(
     user: "User",
     database: Database,
 ) -> tuple[dict[str, dict[str, Any]], list[str] | None]:
-    _validate_query_syntax(saved_query.team_id, proposed_query, user=user)
+    _validate_query_syntax(proposed_query)
     probe = DataWarehouseSavedQuery(
         team=saved_query.team,
         name=saved_query.name,
@@ -209,18 +222,22 @@ def _validate_proposed_query(
     )
     try:
         get_parents_from_model_query(saved_query.team, saved_query.name, proposed_query, database=database)
-        return probe.get_columns(user=user), probe.get_s3_tables(database=database)
+        columns = probe.get_columns(
+            user=user,
+            settings=HogQLGlobalSettings(max_execution_time=VALIDATION_MAX_EXECUTION_SECONDS),
+        )
+        return columns, probe.get_s3_tables(database=database)
     except (RecursionError, ResolutionCycleError):
         raise SavedQueryRepairInvalidError("The proposed query creates a view cycle.")
     except Exception as error:
-        if isinstance(error, ExposedHogQLError):
-            raise SavedQueryRepairInvalidError(f"The proposed query has an invalid reference: {error}")
-        raise SavedQueryRepairInvalidError(
-            f"The proposed query failed the read-only check with {type(error).__name__}."
-        )
+        if classify_query_error(error) == QueryErrorCategory.USER_ERROR:
+            detail = str(error) if isinstance(error, ExposedHogQLError | ExposedCHQueryError) else type(error).__name__
+            raise SavedQueryRepairInvalidError(f"The proposed query has an invalid reference: {detail}")
+        LOGGER.exception("SQL repair validation failed", saved_query_id=str(saved_query.id))
+        raise
 
 
-def _validate_query_syntax(team_id: int, query: str, *, user: "User") -> None:
+def _validate_query_syntax(query: str) -> None:
     if not query.strip():
         raise SavedQueryRepairInvalidError("The proposed query is empty.")
     try:
@@ -231,20 +248,6 @@ def _validate_query_syntax(team_id: int, query: str, *, user: "User") -> None:
         raise SavedQueryRepairInvalidError(f"The proposed query has invalid syntax: {error}")
     if placeholders.placeholder_fields or placeholders.placeholder_expressions or placeholders.has_filters:
         raise SavedQueryRepairUnsupportedError("SQL repair suggestions cannot use variables, filters, or placeholders.")
-    try:
-        prepare_and_print_ast(
-            node=select_ast,
-            context=HogQLContext(team_id=team_id, user=user, enable_select_queries=True),
-            dialect="clickhouse",
-            stack=None,
-            settings=None,
-        )
-    except Exception as error:
-        if isinstance(error, ExposedHogQLError):
-            raise SavedQueryRepairInvalidError(f"The proposed query is invalid: {error}")
-        if not settings.DEBUG:
-            raise SavedQueryRepairInvalidError(f"The proposed query is invalid: {type(error).__name__}")
-        raise
 
 
 def _require_same_schema(saved_query: DataWarehouseSavedQuery, proposed_columns: dict[str, dict[str, Any]]) -> None:

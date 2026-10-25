@@ -16,6 +16,7 @@ from products.data_modeling.backend.facade.contracts import (
     SavedQueryRepairInvalidError,
     SavedQueryRepairUnsupportedError,
 )
+from products.data_modeling.backend.logic import saved_query_repair
 from products.data_modeling.backend.logic.saved_query_repair import apply_saved_query_repair, prepare_saved_query_repair
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -44,7 +45,8 @@ class TestSavedQueryRepair(BaseTest):
         plan = prepare_saved_query_repair(self.team.id, self.view.id, PROPOSED_SQL, user=self.user)
 
         self.view.refresh_from_db()
-        assert plan.validation.rows_read == 0
+        assert plan.validation.rows_returned == 0
+        assert plan.validation.max_execution_seconds == 10
         assert plan.validation.read_only is True
         assert plan.validation.business_equivalence_checked is False
         assert plan.original_query == ORIGINAL_SQL
@@ -86,6 +88,46 @@ class TestSavedQueryRepair(BaseTest):
 
         self.view.refresh_from_db()
         assert self.view.query == {"kind": "HogQLQuery", "query": ORIGINAL_SQL}
+
+    def test_acceptance_refuses_incremental_settings_changed_during_validation(self) -> None:
+        plan = prepare_saved_query_repair(self.team.id, self.view.id, PROPOSED_SQL, user=self.user)
+        DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(incremental_config=None)
+        prepare = saved_query_repair._prepare_saved_query_repair
+
+        def prepare_then_enable(*args: Any, **kwargs: Any):
+            prepared = prepare(*args, **kwargs)
+            DataWarehouseSavedQuery.objects.filter(id=self.view.id).update(
+                incremental_config={"enabled": True, "incremental_key": "id", "unique_key": ["id"]}
+            )
+            return prepared
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.saved_query_repair._prepare_saved_query_repair",
+                side_effect=prepare_then_enable,
+            ),
+            self.assertRaisesRegex(SavedQueryRepairConflictError, "incremental settings changed"),
+        ):
+            apply_saved_query_repair(
+                self.team.id,
+                self.view.id,
+                original_query_revision=plan.original_query_revision,
+                original_query_hash=plan.original_query_hash,
+                proposed_query=plan.proposed_query,
+                user=self.user,
+                was_impersonated=False,
+                trigger=Trigger(job_type="warehouse_suggestion", job_id="suggestion-1", payload={}),
+            )
+
+        self.view.refresh_from_db()
+        assert self.view.query == {"kind": "HogQLQuery", "query": ORIGINAL_SQL}
+
+    def test_operational_validation_failure_propagates(self) -> None:
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=ConnectionError("unavailable")),
+            self.assertRaises(ConnectionError),
+        ):
+            prepare_saved_query_repair(self.team.id, self.view.id, PROPOSED_SQL, user=self.user)
 
     def test_acceptance_uses_the_audited_query_update_path_and_keeps_settings(self) -> None:
         plan = prepare_saved_query_repair(self.team.id, self.view.id, PROPOSED_SQL, user=self.user)

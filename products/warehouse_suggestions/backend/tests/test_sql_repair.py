@@ -79,7 +79,8 @@ class TestProposeSqlRepairAPI(APIBaseTest):
                 references_valid=True,
                 result_schema_compatible=True,
                 read_only=True,
-                rows_read=0,
+                rows_returned=0,
+                max_execution_seconds=10,
                 business_equivalence_checked=False,
             ),
         )
@@ -96,12 +97,14 @@ class TestProposeSqlRepairAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK, second.json()
         assert second.json()["id"] == first.json()["id"]
         assert first.json()["kind"] == "sql_repair"
+        assert first.json()["can_act"] is False
         assert first.json()["payload"]["validation"] == {
             "syntax_valid": True,
             "references_valid": True,
             "result_schema_compatible": True,
             "read_only": True,
-            "rows_read": 0,
+            "rows_returned": 0,
+            "max_execution_seconds": 10,
             "business_equivalence_checked": False,
         }
         assert self.view.query == {"kind": "HogQLQuery", "query": ORIGINAL_SQL}

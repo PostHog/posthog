@@ -165,7 +165,8 @@ class SqlRepairValidationSerializer(DataclassSerializer):
                 "help_text": "The proposed SQL returns the same ordered column names and types as the saved view."
             },
             "read_only": {"help_text": "The validation check did not write data."},
-            "rows_read": {"help_text": "Rows returned by the bounded validation check."},
+            "rows_returned": {"help_text": "Result rows returned by the bounded validation check."},
+            "max_execution_seconds": {"help_text": "Maximum time for the validation query, in seconds."},
             "business_equivalence_checked": {
                 "help_text": "Always false. Validation does not prove that both queries have the same meaning."
             },

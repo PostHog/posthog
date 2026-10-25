@@ -62,13 +62,14 @@ def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
 
 
 def propose_sql_repair(
-    team: "Team", user_access_control: "UserAccessControl", proposal: ProposeSqlRepair, *, user: "User"
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    proposal: ProposeSqlRepair,
+    *,
+    user: "User",
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
     row = sql_repair.propose_sql_repair(team, proposal, user=user)
-    subject_kinds = SubjectKinds(
-        readable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
-        actionable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
-    )
     return get_suggestion(team.pk, user_access_control, row.id, subject_kinds=subject_kinds)
 
 

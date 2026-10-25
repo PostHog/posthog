@@ -119,7 +119,8 @@ function sqlRepair(id: string, name: string): WarehouseSuggestionApi {
                 references_valid: true,
                 result_schema_compatible: true,
                 read_only: true,
-                rows_read: 0,
+                rows_returned: 0,
+                max_execution_seconds: 10,
                 business_equivalence_checked: false,
             },
         },
@@ -218,6 +219,10 @@ const DIALOG_SNAPSHOT: Story['parameters'] = {
 }
 
 export const Banner: Story = {}
+
+export const SqlRepairBanner: Story = {
+    args: { results: [sqlRepair('repair-1', 'stripe_invoices_enriched')] },
+}
 
 export const BannerNarrow: Story = { args: { width: 'narrow' } }
 

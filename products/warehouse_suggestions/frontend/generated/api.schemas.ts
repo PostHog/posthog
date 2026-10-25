@@ -108,8 +108,10 @@ export interface WarehouseSuggestionSqlRepairValidationApi {
     result_schema_compatible: boolean
     /** The validation check did not write data. */
     read_only: boolean
-    /** Rows returned by the bounded validation check. */
-    rows_read: number
+    /** Result rows returned by the bounded validation check. */
+    rows_returned: number
+    /** Maximum time for the validation query, in seconds. */
+    max_execution_seconds: number
     /** Always false. Validation does not prove that both queries have the same meaning. */
     business_equivalence_checked: boolean
 }

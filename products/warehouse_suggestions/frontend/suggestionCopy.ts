@@ -52,6 +52,7 @@ export interface SurfaceSegment {
 
 export interface SavingsSummary {
     views: number
+    repairs: number
     saving: MonthlySaving
 }
 

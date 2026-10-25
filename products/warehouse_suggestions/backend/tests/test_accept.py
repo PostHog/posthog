@@ -262,7 +262,8 @@ class TestAcceptSuggestion(APIBaseTest):
                 references_valid=True,
                 result_schema_compatible=True,
                 read_only=True,
-                rows_read=0,
+                rows_returned=0,
+                max_execution_seconds=10,
                 business_equivalence_checked=False,
             ),
         )

@@ -152,7 +152,8 @@ const SQL_REPAIR: WarehouseSuggestionApi = {
             references_valid: true,
             result_schema_compatible: true,
             read_only: true,
-            rows_read: 0,
+            rows_returned: 0,
+            max_execution_seconds: 10,
             business_equivalence_checked: false,
         },
     },
@@ -543,12 +544,16 @@ describe('warehouseSuggestionsLogic', () => {
 
     it('sums time and bytes across every view, including views that save both', async () => {
         mockList.mockResolvedValue(
-            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12)])
+            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12), SQL_REPAIR])
         )
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
+        expect(logic.values.savingsSummary).toEqual({
+            views: 3,
+            repairs: 1,
+            saving: { seconds: 3000, bytes: 5e12 },
+        })
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {

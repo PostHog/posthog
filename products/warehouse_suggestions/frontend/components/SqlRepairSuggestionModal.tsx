@@ -64,9 +64,11 @@ export function SqlRepairSuggestionModal(): JSX.Element | null {
                     <QueryDiffViewer original={payload.original_query} modified={payload.proposed_query} />
                 </div>
                 <LemonBanner type="info">
-                    PostHog checked the syntax, readable references, and result columns with a zero-row read-only query.
-                    This check does not prove that the two queries have the same business meaning. Acceptance changes
-                    only the SQL. It does not change the schedule, incremental keys, permissions, or output columns.
+                    PostHog checked the syntax, readable references, and result columns with a read-only query. The
+                    query returned no result rows and had a {payload.validation.max_execution_seconds}-second limit. It
+                    can read source rows while it checks the result columns. This check does not prove that the two
+                    queries have the same business meaning. Acceptance changes only the SQL. It does not change the
+                    schedule, incremental keys, permissions, or output columns.
                 </LemonBanner>
             </div>
         </LemonModal>

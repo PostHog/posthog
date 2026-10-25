@@ -187,6 +187,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 self.user_access_control,
                 request.validated_data,
                 user=cast(User, request.user),
+                subject_kinds=self._subject_kinds,
             )
         )
 
