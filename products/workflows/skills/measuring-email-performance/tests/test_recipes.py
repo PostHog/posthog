@@ -117,25 +117,38 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
         }
         assert rows[OTHER_STEP_ID]["sent"] == 1
 
+    def _counter(
+        self, app_source_id: str, instance_id: str, metric_name: str, count: int, app_source: str = "hog_flow_version"
+    ) -> None:
+        create_app_metric2(
+            team_id=self.team.pk,
+            app_source=app_source,
+            app_source_id=app_source_id,
+            instance_id=instance_id,
+            metric_kind="email",
+            metric_name=metric_name,
+            count=count,
+            timestamp=WINDOW_START + timedelta(days=3),
+        )
+
+    def test_step_counters_add_up_versions_of_a_broadcast(self) -> None:
+        self._counter(f"{WORKFLOW_ID}/1", STEP_ID, "email_sent", 5)
+        self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_sent", 3)
+        self._counter(f"{WORKFLOW_ID}/2", STEP_ID, "email_untracked", 1)
+        self._counter("01a00000-0000-0000-0000-0000000000ff", STEP_ID, "email_sent", 8, app_source="hog_flow")
+        self._counter(f"{WORKFLOW_ID}/2", OTHER_STEP_ID, "email_sent", 4)
+
+        rows = self._run("Step counters")
+
+        assert rows == [{"metric_name": "email_sent", "total": 8}, {"metric_name": "email_untracked", "total": 1}]
+
     def test_clicked_links_add_up_versions_from_the_redacted_counter(self) -> None:
-        clicked_at = WINDOW_START + timedelta(days=3)
-        for app_source, app_source_id, instance_id, count in (
-            ("hog_flow_version", f"{WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", 2),
-            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{STEP_ID}|0|https://example.com/pricing", 1),
-            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{STEP_ID}|1|https://example.com/a|b", 1),
-            ("hog_flow", WORKFLOW_ID, f"{STEP_ID}|0|https://example.com/pricing", 3),
-            ("hog_flow_version", f"{WORKFLOW_ID}/2", f"{OTHER_STEP_ID}|0|https://example.com/other", 4),
-        ):
-            create_app_metric2(
-                team_id=self.team.pk,
-                app_source=app_source,
-                app_source_id=app_source_id,
-                instance_id=instance_id,
-                metric_kind="email",
-                metric_name="email_link_clicked_by_link",
-                count=count,
-                timestamp=clicked_at,
-            )
+        clicks = "email_link_clicked_by_link"
+        self._counter(f"{WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", clicks, 2)
+        self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|0|https://example.com/pricing", clicks, 1)
+        self._counter(f"{WORKFLOW_ID}/2", f"{STEP_ID}|1|https://example.com/a|b", clicks, 1)
+        self._counter(WORKFLOW_ID, f"{STEP_ID}|0|https://example.com/pricing", clicks, 3, app_source="hog_flow")
+        self._counter(f"{WORKFLOW_ID}/2", f"{OTHER_STEP_ID}|0|https://example.com/other", clicks, 4)
 
         rows = self._run("Clicked links")
 
