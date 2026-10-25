@@ -46,7 +46,7 @@ class Command(BaseCommand):
         skip_confirm: bool = options["yes"]
 
         # A full local wipe is genuinely cross-team, so go through `unscoped()` — the fail-closed
-        # managers would otherwise raise without a team context (CLAUDE.md cross-team escape hatch).
+        # managers would otherwise raise without a team context (.agents/architecture.md cross-team escape hatch).
         artefacts = ReviewReportArtefact.objects.unscoped()
         reports = ReviewReport.objects.unscoped()
         configs = ReviewSkillConfig.objects.unscoped()

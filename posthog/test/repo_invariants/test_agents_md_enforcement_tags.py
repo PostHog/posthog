@@ -19,8 +19,8 @@ LOADED_SEMGREP_ROOTS = (".semgrep/rules/security", ".semgrep/rules/devex")
 # Agent guides whose every rule must declare what enforces it.
 TAGGED_GUIDES = (".agents/architecture.md", ".agents/code-style.md")
 
-# Every agent guide that may carry a [lint: ...] tag.
-GUIDES_WITH_TAGS = ("AGENTS.md", ".agents/ci.md", *TAGGED_GUIDES)
+# Root sections that only point at a tagged guide, so a rule added there would skip the tag check.
+POINTER_SECTIONS = ("## Architecture guidelines", "## Code Style")
 
 # Tags naming a command or CI job rather than a rule id. Add to this set only
 # when no single rule id covers the check.
@@ -37,6 +37,17 @@ def _repo_root() -> Path:
 
 def _read(repo_root: Path, guides: tuple[str, ...]) -> str:
     return "\n".join((repo_root / guide).read_text() for guide in guides)
+
+
+def _guides_with_tags(repo_root: Path) -> tuple[str, ...]:
+    agents_dir = repo_root / ".agents"
+    return ("AGENTS.md", *sorted(str(path.relative_to(repo_root)) for path in agents_dir.glob("*.md")))
+
+
+def _section(markdown: str, heading: str) -> str:
+    start = markdown.index(heading) + len(heading)
+    end = markdown.find("\n## ", start)
+    return markdown[start:] if end == -1 else markdown[start:end]
 
 
 def _tags(guides: str) -> list[str]:
@@ -97,7 +108,7 @@ def test_agents_md_lint_tags_name_something_real() -> None:
     repo_root = _repo_root()
     semgrep_ids = _semgrep_ids(repo_root)
 
-    tags = _tags(_read(repo_root, GUIDES_WITH_TAGS))
+    tags = _tags(_read(repo_root, _guides_with_tags(repo_root)))
     assert tags, "The agent guides have no [lint: ...] tags — did the marker format change?"
 
     unresolved = [tag for tag in tags if not _resolves(tag, repo_root, semgrep_ids)]
@@ -121,4 +132,16 @@ def test_every_architecture_and_code_style_rule_is_tagged() -> None:
         f"These architecture and code style rules carry no well-formed enforcement tag: {untagged}. "
         "Add `[lint: <rule-id>]` when a linter or invariant test blocks the violation, or `[review]` when "
         "nothing catches it. An empty or unclosed marker does not count."
+    )
+
+
+def test_root_pointer_sections_hold_no_rules() -> None:
+    # A rule written under a pointer heading in the root file would escape the tag check above.
+    agents_md = (_repo_root() / "AGENTS.md").read_text()
+
+    misplaced = [heading for heading in POINTER_SECTIONS if _rules(_section(agents_md, heading))]
+
+    assert not misplaced, (
+        f"These AGENTS.md sections only point at a guide under .agents/, but hold rules: {misplaced}. "
+        "Move each rule into the guide the section points at."
     )
