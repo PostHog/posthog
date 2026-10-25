@@ -7,15 +7,23 @@ import {
     createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
+    isRecentPersonFilterUnsupported,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
 import {
     AnyCohortCriteriaType,
+    AnyPropertyFilter,
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 describe('validateGroup', () => {
@@ -296,5 +304,108 @@ describe('createCohortFormData', () => {
     ])('serializes filterTestAccounts for %s', (_, input, options, expected) => {
         const filters = JSON.parse(createCohortFormData(input, options).get('filters') as string)
         expect(filters.filterTestAccounts).toEqual(expected)
+    })
+})
+
+describe('isRecentPersonFilterUnsupported', () => {
+    const definition = (propertyType: PropertyType): PropertyDefinition => ({
+        id: 'property',
+        name: 'property',
+        property_type: propertyType,
+    })
+
+    it.each<
+        [
+            string,
+            PropertyFilterType,
+            PropertyOperator,
+            PropertyFilterValue,
+            PropertyDefinition | PropertyDefinitionState | null,
+            boolean,
+        ]
+    >([
+        [
+            'text operator on a text property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            false,
+        ],
+        [
+            'operator the text menu lacks',
+            PropertyFilterType.Person,
+            PropertyOperator.NotIn,
+            ['Mac'],
+            definition(PropertyType.String),
+            true,
+        ],
+        [
+            'absolute date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'relative date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '-30d',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'text operator on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            '2000',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'date on person metadata',
+            PropertyFilterType.PersonMetadata,
+            PropertyOperator.IsDateAfter,
+            '2020-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'type still loading',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            PropertyDefinitionState.Loading,
+            true,
+        ],
+        [
+            'type not found',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Missing,
+            false,
+        ],
+        [
+            'type lookup failed',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Error,
+            false,
+        ],
+        [
+            'event property',
+            PropertyFilterType.Event,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            true,
+        ],
+    ])('%s', (_, type, operator, value, lookupResult, expected) => {
+        const filter = { type, key: 'property', operator, value } as AnyPropertyFilter
+        expect(isRecentPersonFilterUnsupported(filter, () => lookupResult)).toBe(expected)
     })
 })

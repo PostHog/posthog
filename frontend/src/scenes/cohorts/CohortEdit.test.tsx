@@ -24,6 +24,7 @@ import {
     InsightShortId,
     PropertyDefinitionState,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     PropertyType,
 } from '~/types'
@@ -828,42 +829,34 @@ describe('cohortEditLogic', () => {
             recentFilters: ReturnType<typeof recentTaxonomicFiltersLogic.build>,
             key: string,
             operator: PropertyOperator,
-            value: string | null,
-            metadata = false
+            value: PropertyFilterValue
         ): void => {
             recentFilters.actions.recordRecentFilter({
-                groupType: metadata
-                    ? TaxonomicFilterGroupType.PersonMetadata
-                    : TaxonomicFilterGroupType.PersonProperties,
-                groupName: metadata ? 'Person metadata' : 'Person properties',
+                groupType: TaxonomicFilterGroupType.PersonProperties,
+                groupName: 'Person properties',
                 value: key,
                 item: { name: key },
-                propertyFilter: metadata
-                    ? { type: PropertyFilterType.PersonMetadata, key, operator, value }
-                    : { type: PropertyFilterType.Person, key, operator, value },
+                propertyFilter: { type: PropertyFilterType.Person, key, operator, value },
             })
         }
 
-        const openRecents = async (): Promise<void> => {
-            await userEvent.click(await screen.findByText('Choose person property'))
-            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
-            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
-        }
-
-        const recentRows = (): HTMLElement[] =>
-            Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-recent_filters-"]'))
-        const recentRowTexts = (): string[] => recentRows().map((row) => row.textContent ?? '')
+        const suggestedRows = (): HTMLElement[] =>
+            Array.from(document.querySelectorAll<HTMLElement>('[data-attr^="prop-filter-suggested_filters-"]'))
+        const suggestedText = (): string =>
+            suggestedRows()
+                .map((row) => row.textContent ?? '')
+                .join('||')
 
         afterEach(() => {
             cleanup()
         })
 
         it.each([
-            ['$browser', 'Chrome', PropertyOperator.IContains, 'Chrome', 'contains'],
-            ['$email', 'is set', PropertyOperator.IsSet, undefined, 'is set'],
+            ['$browser', PropertyOperator.IContains, 'Chrome', 'Chrome', 'Chrome', 'contains'],
+            ['$email', PropertyOperator.IsSet, PropertyOperator.IsSet, 'is set', undefined, 'is set'],
         ])(
-            'shows supported recents and prefills %s',
-            async (key, rowText, operator, expectedValue, expectedOperatorLabel) => {
+            'hides unsupported recents and prefills %s',
+            async (key, operator, recordedValue, rowText, expectedValue, expectedOperatorLabel) => {
                 const definitions = propertyDefinitionsModel.build()
                 definitions.mount()
                 definitions.actions.updatePropertyDefinitions({
@@ -871,17 +864,13 @@ describe('cohortEditLogic', () => {
                     'person/$email': { id: '$email', name: '$email', property_type: PropertyType.String },
                     'person/$os': { id: '$os', name: '$os', property_type: PropertyType.String },
                     'person/birth_date': PropertyDefinitionState.Loading,
-                    'person/plan': PropertyDefinitionState.Missing,
                 })
                 const recentFilters = recentTaxonomicFiltersLogic.build()
                 recentFilters.mount()
                 recentFilters.actions.clearRecentFilters()
-                recordPersonRecent(recentFilters, '$os', PropertyOperator.StartsWith, 'Mac')
                 recordPersonRecent(recentFilters, 'birth_date', PropertyOperator.IsDateBefore, '2000-01-01')
-                recordPersonRecent(recentFilters, 'plan', PropertyOperator.IContains, 'pro')
-                recordPersonRecent(recentFilters, 'created_at', PropertyOperator.IsDateBefore, '-30d', true)
-                recordPersonRecent(recentFilters, '$browser', PropertyOperator.IContains, 'Chrome')
-                recordPersonRecent(recentFilters, '$email', PropertyOperator.IsSet, PropertyOperator.IsSet)
+                recordPersonRecent(recentFilters, key, operator, recordedValue)
+                recordPersonRecent(recentFilters, '$os', PropertyOperator.NotIn, ['Mac'])
                 logic = cohortEditLogic({ id: 'new' })
                 logic.mount()
                 logic.actions.setCohort({
@@ -906,9 +895,9 @@ describe('cohortEditLogic', () => {
                 })
 
                 render(<CohortEdit id="new" />)
-                await openRecents()
-                await waitFor(() => expect(recentRowTexts()).toHaveLength(8))
-                expect(recentRowTexts().join()).not.toMatch(/\$os|birth_date/)
+                await userEvent.click(await screen.findByText('Choose person property'))
+                await waitFor(() => expect(suggestedText()).toContain(rowText))
+                expect(suggestedText()).not.toMatch(/Mac|birth_date/)
 
                 await act(async () => {
                     definitions.actions.updatePropertyDefinitions({
@@ -919,10 +908,9 @@ describe('cohortEditLogic', () => {
                         },
                     })
                 })
-                await waitFor(() => expect(recentRowTexts()).toHaveLength(10))
-                expect(recentRowTexts().join()).toContain('birth_date')
+                await waitFor(() => expect(suggestedText()).toContain('birth_date'))
 
-                await userEvent.click(recentRows().find((row) => row.textContent?.includes(rowText))!)
+                await userEvent.click(suggestedRows().find((row) => row.textContent?.includes(rowText))!)
 
                 await waitFor(() => {
                     const group = logic.values.cohort.filters.properties.values[0] as {
