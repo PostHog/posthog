@@ -90,6 +90,11 @@ def main():
             action="store_true",
             help="Skip the [y/N] prompt on exit and unconditionally delete the claimed pod on normal exit, Ctrl-C, or terminal close.",
         )
+        parser.add_argument(
+            "--kubectl-debug",
+            action="store_true",
+            help="Enable kubectl stream debug logs for the shell connection.",
+        )
         args = parser.parse_args()
 
         # The cluster endpoints are only reachable over the tailnet; without this
@@ -274,10 +279,14 @@ def main():
             print("✅ Connecting to your existing pod (use --update-claim to extend the duration)")  # noqa: T201
 
         if args.auto_delete:
-            rc = connect_to_pod(pod_name, namespace=namespace, context=selected_context)
+            rc = connect_to_pod(
+                pod_name, namespace=namespace, context=selected_context, kubectl_debug=args.kubectl_debug
+            )
         else:
             try:
-                rc = connect_to_pod(pod_name, namespace=namespace, context=selected_context)
+                rc = connect_to_pod(
+                    pod_name, namespace=namespace, context=selected_context, kubectl_debug=args.kubectl_debug
+                )
             finally:
                 if will_claim:
                     delete_pod(pod_name, namespace=namespace, context=selected_context)
