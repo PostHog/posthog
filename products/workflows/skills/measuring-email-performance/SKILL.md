@@ -1,6 +1,6 @@
 ---
 name: measuring-email-performance
-description: "Reports how a PostHog workflow email performs, read-only over MCP: sends, deliveries, opens, clicks, bounces and spam complaints per email step, version comparisons, clicked links, product outcomes after the send, and one person's email history. Use when asked how an email, broadcast or workflow step is doing, whether a newer version did better, which links get clicked, whether recipients went on to use the product, or which emails a person got."
+description: "Reports how a PostHog workflow email performs, read-only over MCP: sends, deliveries, opens, clicks, bounces and spam complaints per email step, version comparisons, clicked links, product outcomes after the send, and one person's email history. Use when asked how an email, campaign, broadcast or workflow step is doing, for its open, click or bounce rate, whether a change or a newer version did better, which links get clicked, whether recipients converted or went on to use the product, or which emails a person got."
 ---
 
 # Measuring email performance
@@ -18,12 +18,12 @@ To edit an email or a workflow, use the `building-workflows` and `designing-emai
   Mail security scanners also open and click. When a step shows more clickers than openers, say that scanners may inflate its clicks.
 - **Tracked sends are the denominator for opens and clicks.** A send with tracking off can never record an open or a click. Divide opens and clicks by `email_sent - email_untracked` (counters) or `tracked_sent` (events). Divide bounces and spam complaints by every send.
   In the counters, `email_bounced` already includes `email_bounced_hard`, `email_bounced_transient` and `email_bounced_undetermined`. Report hard bounces from `email_bounced_hard`, and report `email_bounced` as the total of all bounces.
-- **Closed windows only.** Read whole UTC days that have ended, written as ISO timestamps (`after=2026-10-12T00:00:00Z`, `before=2026-10-19T00:00:00Z`). A relative `after=-7d` starts mid-day in the project's timezone. Opens and bounces arrive hours to days after the send, so the last day of any window understates every rate, and the first day counts opens of sends made before it. Judge a version or a batch only once it is two days old.
+- **Closed windows only.** Read whole UTC days that have ended, written as ISO timestamps (`after=2026-10-12T00:00:00Z`, `before=2026-10-18T23:59:59Z`). The stats tools include `before` itself, so pass the last second of the window. A relative `after=-7d` starts mid-day in the project's timezone. Opens and bounces arrive hours to days after the send, so the last day of any window understates every rate, and the first day counts opens of sends made before it. Judge a version or a batch only once it is two days old.
 - **Timezones in the output.** The stats tools label their day buckets in the project's timezone, so a UTC window can come back with a shifted or extra label. Add up every bucket returned for the window total. `posthog:execute-sql` also prints timestamps in the project's timezone. Inside the dates the series covers, a metric missing from a stats series had a count of zero.
 - **A sample floor.** Below about 20 tracked sends, a rate is noise. Report the counts and say there is not enough data yet.
-- **One step at a time.** Read each email step with its action id from `posthog:workflows-get`: `instance_id` in the stats tools, `{step_id}` in the recipes. Without it, every step of the workflow shares one denominator. The `conversion` counter belongs to the whole workflow, so read it without `instance_id`.
-- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. Read `posthog:workflows-version-stats` for each version that sent in the window and add them up, or run the **Step counters** recipe. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing from both, so those rates read slightly low.
-- **Versioned counters have start dates.** `posthog:workflows-version-stats` and the counter recipes hold sends and `email_untracked` from 2026-08-06, and deliveries, opens, clicks, bounces and complaints from 2026-09-01. Before those dates the versioned series is partial, even when it shows numbers. Start every versioned read, a version comparison included, on or after the start date of each metric it reports. When the window must start earlier, report those metrics as unknown.
+- **One step at a time.** Read each email step with its action id from `posthog:workflows-get`: `instance_id` in the stats tools, `{step_id}` in the recipes. Without it, every step of the workflow shares one denominator. The `conversion` counter belongs to the whole workflow, and its `instance_id` is the workflow id. Read it without `instance_id` in the stats tools. The counter recipes include it.
+- **Broadcasts and batch runs key their counters on the run.** `posthog:workflows-stats` returns nothing for such a workflow. List its runs and their start times with `posthog:workflows-list-batch-jobs`, and read each run with the **Run counters** recipe. A run's counters hold every send and callback of that run.
+- **Versioned counters have start dates.** `posthog:workflows-version-stats` and the **Counters by version** and **Clicked links** recipes read the versioned counters. They hold sends and `email_untracked` from 2026-08-06, and deliveries, opens, clicks, bounces and complaints from 2026-09-01. Before those dates the versioned series is partial, even when it shows numbers. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing from it, so its rates read slightly low. Start every versioned read, a version comparison included, on or after the start date of each metric it reports. When the window must start earlier, report those metrics as unknown.
 - **Aggregates by default.** Leave email addresses, full link URLs and person UUIDs out of reports. Click events hold each link's full URL, tokens included, so read links only through the **Clicked links** recipe. Name a person by the identifier the user gave you.
 - **Spam complaints are a floor.** `email_blocked` and `$workflows_email_blocked` count the spam complaints that mailbox providers report back. Gmail does not report them, so a zero does not prove that no one complained.
 
@@ -33,7 +33,7 @@ To edit an email or a workflow, use the `building-workflows` and `designing-emai
 
 Find the workflow with `posthog:workflows-list` (`search=<name>`) and read it with `posthog:workflows-get`.
 From the graph, note each email step's action id and name, the trigger, and whether the workflow sends to a person once or many times.
-A broadcast or batch workflow sends in runs. Judge one run at a time, with a window around that run's send.
+A broadcast or batch workflow sends in runs. Judge one run at a time: take its start time from `posthog:workflows-list-batch-jobs`, and read from that day to a closed day at least two days later.
 
 Done when you hold the workflow id, the step ids the question is about, and a closed window you have told the user.
 
@@ -41,13 +41,12 @@ Done when you hold the workflow id, the step ids the question is about, and a cl
 
 Read the counters for the window, with `breakdown_by=name`, `interval=day` and `instance_id=<step id>`.
 For most workflows, read `posthog:workflows-stats`.
-For a broadcast or batch workflow, read `posthog:workflows-version-stats` once per version.
-When `posthog:workflows-version-stats` is not available, run the **Step counters** recipe instead.
+For a broadcast or batch workflow, run the **Run counters** recipe for the run.
 Then run the **Step engagement** recipe in [references/recipes.md](references/recipes.md).
 
 - When the counters show sends and the recipe returns no rows, the project does not capture engagement events. Report from the counters, and say why you skip every event-based question.
-- When `email_untracked` is most of `email_sent`, this step's opens and clicks cannot be read. Say so, and report no open rate.
-- When neither the counters nor the recipe show sends in the window, the step did not send. Report that, never a 0% rate. The exception is a broadcast or batch workflow in a window before 2026-08-06 with no engagement events: no source shows its sends, so say the data cannot tell whether it sent.
+- When `email_untracked` is most of `email_sent`, report opens and clicks over the tracked sends, and say what share of sends had tracking on. Recipients with tracking on may not behave like the rest.
+- When neither the counters nor the recipe show sends in the window, the step did not send. Report that, never a 0% rate.
 
 Done when you know which sources the rest of the report can use.
 
@@ -57,11 +56,13 @@ Answer only what the user asked.
 
 | Question                                    | Read                                                                                                                                                                        |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| How is this email doing, and the trend      | `posthog:workflows-stats` by day for the step, and the **Step engagement** recipe for people counts                                                                         |
+| How is this email doing, and the trend      | `posthog:workflows-stats` by day for the step, or **Run counters** for a broadcast run, and the **Step engagement** recipe for people counts                                |
 | Did the newer version do better             | [Comparing versions](#comparing-versions)                                                                                                                                   |
 | Which links get clicked                     | **Clicked links** recipe                                                                                                                                                    |
 | Did recipients do something in the product  | [Product outcome](#product-outcome)                                                                                                                                         |
 | Which emails did this person get, what next | Find the person with `posthog:persons-list`, then the **One person's email history** recipe; `posthog:workflows-list-invocations` with their `distinct_id` lists their runs |
+
+The history recipe takes an outcome event. Check it with `posthog:read-data-schema`, or drop the outcome condition when the user asked for none. Name each workflow in the history from `posthog:workflows-get`.
 
 Done when every number you report has its unit, denominator and window, and every question is either answered or marked as one this data cannot answer.
 
@@ -73,7 +74,7 @@ Opens and clicks keep the version that sent the email, so a replaced version sti
 Start no read before the start dates of the versioned counters.
 Compare versions with each other only. The unversioned `posthog:workflows-stats` read keys batch and broadcast runs on the run, so it is not the sum of the versions.
 
-When `posthog:workflows-version-stats` is not available in this project, run the **Step counters** recipe once per version, with `app_source_id = concat({workflow_id}, '/', {version})` in place of its `startsWith` line.
+When `posthog:workflows-version-stats` is not available in this project, run the **Counters by version** recipe. It returns one row per version and metric.
 The **Engagement by version** recipe adds openers and clickers per version, as counts.
 
 A before-and-after comparison describes a difference. It does not prove that the change caused it, because the audience, the season and the sending volume change too. Say so in the report.
