@@ -1,6 +1,6 @@
 # Email performance SQL recipes
 
-Run each recipe with `execute-sql`.
+Run each recipe with `posthog:execute-sql`.
 They read the captured `$workflows_email_*` events, so they return nothing in a project that does not capture engagement events (see "Check the data exists" in the skill).
 
 Replace every `{placeholder}` with a literal before you run the query:
@@ -8,7 +8,7 @@ Replace every `{placeholder}` with a literal before you run the query:
 | Placeholder       | Holds                                                               | Write it as                                |
 | ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
 | `{workflow_id}`   | The workflow's UUID                                                 | `'01a1...'`                                |
-| `{step_id}`       | The email step's action id from `workflows-get`                     | `'action_function_email_...'`              |
+| `{step_id}`       | The email step's action id from `posthog:workflows-get`             | `'action_function_email_...'`              |
 | `{window_start}`  | Start of the window, inclusive, at the start of a UTC day           | `toDateTime('2026-10-12 00:00:00', 'UTC')` |
 | `{window_end}`    | End of the window, exclusive, at the start of a UTC day in the past | `toDateTime('2026-10-19 00:00:00', 'UTC')` |
 | `{outcome_event}` | The product event that counts as the outcome, checked in the schema | `'insight created'`                        |
@@ -47,7 +47,7 @@ ORDER BY sent DESC
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it when `workflows-version-stats` is not available.
+Use it when `posthog:workflows-version-stats` is not available.
 The sent event carries no version, so `delivered` is the per-version denominator, and the tracked share of each version is unknown.
 
 ```sql
