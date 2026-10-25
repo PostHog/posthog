@@ -115,6 +115,10 @@ EXTERNALLY_ABORTED_MARKERS = (
     "name=CLUSTER_OUT_OF_MEMORY,",
     # a Trino worker node crashed or stopped answering, so the query never got to finish
     "name=TOO_MANY_REQUESTS_FAILED,",
+    # Trino workers lost contact while passing data between stages
+    "name=PAGE_TRANSPORT_TIMEOUT,",
+    # the Trino gateway refused the query before any cluster ran it
+    "This tenant is not admitted to the pool yet",
 )
 
 STREAM_FAULT_ERROR_PREFIXES = (
