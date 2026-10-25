@@ -33,7 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.o
     validate_credentials as validate_omnisend_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.omnisend.settings import (
+    DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
     OMNISEND_2026_03_15,
     OMNISEND_ENDPOINTS,
     OMNISEND_V3,
@@ -103,7 +105,11 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            endpoints_for_version(self.resolve_api_version(api_version)), INCREMENTAL_FIELDS, names
+            endpoints_for_version(self.resolve_api_version(api_version)),
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY_ENDPOINTS,
+            default_incremental_lookback_seconds=DEFAULT_INCREMENTAL_LOOKBACK_SECONDS,
         )
 
     def validate_credentials(
@@ -150,4 +156,6 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
