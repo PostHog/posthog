@@ -199,6 +199,7 @@ async function finishAppBuild(buildResponse) {
             ),
         },
     })
+    assertSourceMapsHaveOriginalSources(path.resolve(__dirname, 'dist'))
     fs.rmSync(unminifiedDir, { recursive: true, force: true })
     removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
     return stable
@@ -220,12 +221,20 @@ async function minifyAppChunks(buildResponse) {
     const files = Object.keys(buildResponse.outputs)
         .filter((outputPath) => outputPath.endsWith('.js'))
         .map((outputPath) => path.relative(distDir, path.resolve(__dirname, outputPath)))
-    const hasMap = (file) => fs.existsSync(path.resolve(distDir, `${file}.map`))
+    const hasMap = (file) => {
+        const mapFile = path.resolve(distDir, `${file}.map`)
+        return fs.existsSync(mapFile) && JSON.parse(fs.readFileSync(mapFile, 'utf8')).sources.length > 0
+    }
     for (const file of files) {
         fs.mkdirSync(path.dirname(path.resolve(unminifiedDir, file)), { recursive: true })
         fs.renameSync(path.resolve(distDir, file), path.resolve(unminifiedDir, file))
         if (hasMap(file)) {
             fs.copyFileSync(path.resolve(distDir, `${file}.map`), path.resolve(unminifiedDir, `${file}.map`))
+            const inputFile = path.resolve(unminifiedDir, file)
+            const source = fs.readFileSync(inputFile, 'utf8').replace(/\n\/\/# sourceMappingURL=[^\n]*\s*$/, '')
+            fs.writeFileSync(inputFile, `${source}\n//# sourceMappingURL=${path.basename(file)}.map\n`)
+        } else {
+            fs.rmSync(path.resolve(distDir, `${file}.map`), { force: true })
         }
     }
 
@@ -254,6 +263,21 @@ async function minifyAppChunks(buildResponse) {
         JSON.stringify({ inputs: buildResponse.inputs, outputs: buildResponse.outputs })
     )
     return unminifiedDir
+}
+
+function assertSourceMapsHaveOriginalSources(distDir) {
+    for (const file of fs.readdirSync(distDir, { recursive: true })) {
+        if (!file.endsWith('.js.map')) {
+            continue
+        }
+        const sources = JSON.parse(fs.readFileSync(path.resolve(distDir, file), 'utf8')).sources
+        const intermediate = sources.find(
+            (source) => source.includes('.unminified-chunks/') || source.includes('.stable-chunks-rewritten/')
+        )
+        if (intermediate) {
+            throw new Error(`Source map ${file} refers to intermediate source ${intermediate}`)
+        }
+    }
 }
 
 /** Which modules a logged-out page loads, for the logged-out import map. See loggedOutSpecifiers. */
