@@ -5800,6 +5800,34 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
         )
 
+    def test_a_later_page_drops_rows_the_viewer_lost_access_to_after_the_first(self) -> None:
+        experiment = create_experiment(self.team, "revoked-flag")
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
+        for index in range(12):
+            obs = self._succeeded_observation(scanner, f"sess-{index}", index, self._monitor_result("yes"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": "failure",
+                    "contrast": index / 10,
+                    "duplicate_of": None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+        scanner.experiment_targeting = None
+        scanner.save()
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker_variant"
+
+        with patch(ranker, return_value="embedding"):
+            first = self.client.get(self.feed_url, {"limit": 1}).json()
+            self.assertEqual(len(first["results"]), 1)
+            # The second page reads picks cached by the first, so access has to be checked again on the page itself.
+            with patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+                side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+            ):
+                second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
+        self.assertEqual(second["results"], [])
+
     def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
         scanner = self._create_scanner(name="m")
         dismissed = self._succeeded_observation(scanner, "dismissed-sess", 1, self._monitor_result("yes"))

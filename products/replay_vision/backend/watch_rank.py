@@ -117,6 +117,8 @@ WATCH_PICK_IMPRESSION_DECAY = 0.8
 # that hit six people outranks an equally strong one-off without burying everything else.
 WATCH_PICK_PEOPLE_BOOST = 0.25
 WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
+# Copies of one finding the pick query keeps, so a viewed or restricted top copy does not hide the group.
+WATCH_PICK_GROUP_CANDIDATES = 3
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -390,7 +392,7 @@ def select_embedding_picks(
             scanner_position=Window(
                 RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
             ),
-            # One row per duplicate group reaches the cap, so copies of one finding never crowd out others.
+            # A few rows per duplicate group reach the cap, enough for the ranker to pick a readable, unseen one.
             group_position=Window(
                 RowNumber(), partition_by=[group_root], order_by=[is_issue.desc(), contrast.desc(), F("id").desc()]
             ),
@@ -408,7 +410,7 @@ def select_embedding_picks(
         .filter(
             issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS,
             watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE,
-            group_position=1,
+            group_position__lte=WATCH_PICK_GROUP_CANDIDATES,
         )
         .order_by("-watch_percentile", "-created_at")
         .values("id", "watch_percentile", "watch_group_root")[:cap]
@@ -421,14 +423,9 @@ def select_embedding_picks(
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     group_reach = {
         row["watch_group_root"]: row
-        for row in accessible_observations(
-            access,
-            team_id,
-            current_ranks.annotate(watch_group_root=group_root).filter(
-                watch_category__in=ISSUE_CATEGORIES,
-                watch_group_root__in={row["watch_group_root"] for row in window_values.values()},
-            ),
-        )
+        for row in accessible_observations(access, team_id, current_ranks.filter(watch_category__in=ISSUE_CATEGORIES))
+        .annotate(watch_group_root=group_root)
+        .filter(watch_group_root__in={row["watch_group_root"] for row in window_values.values()})
         .values("watch_group_root")
         .annotate(sessions=Count("id"), people=Count(person, distinct=True))
     }
@@ -464,7 +461,8 @@ def select_embedding_filler(
         .annotate(watch_group_root=_embedding_group_root())
         .exclude(watch_group_root__in=pick_roots)
         .annotate(feed_viewed=viewed)
-        .order_by("-created_at", "-id")
+        # Unwatched rows first, so a thin feed never repeats watched sessions while unwatched ones remain.
+        .order_by("feed_viewed", "-created_at", "-id")
         .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")[:WATCH_FEED_MIN_ITEMS]
     )
 

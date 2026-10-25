@@ -2842,9 +2842,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         rows = {
             row.id: row
             for row in hydrate_for_serialization(
-                # team_id is redundant with the already-scoped candidate query these ids came from,
-                # but keeps the re-fetch fail-closed on its own.
-                ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                # Re-checks experiment access on the page's rows, because a later page can be served from picks
+                # cached before the viewer lost access. team_id keeps the re-fetch fail-closed on its own.
+                accessible_observations(
+                    self.user_access_control,
+                    self.team_id,
+                    ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                ),
                 viewer_id=request.user.id,
             )
         }
