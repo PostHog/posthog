@@ -134,7 +134,7 @@ Examples:
 
 ## CI / GitHub Actions
 
-Read [.agents/ci.md](.agents/ci.md) before you change a workflow, `.nvmrc`, a publish job, or tests that read event properties.
+Read [.agents/ci.md](.agents/ci.md) before you change a workflow, `.nvmrc`, a publish job, event ingestion, or tests that read event properties, and when you debug flaky CI.
 
 ## Security
 
@@ -159,7 +159,7 @@ Read [.agents/security.md](.agents/security.md#content-security-policy) for the 
 
 ## Architecture guidelines
 
-Read [.agents/architecture.md](.agents/architecture.md) before you add or change application code: entrypoints, `team_id` scoping, personhog, transactions, API schemas, Celery and Temporal, outbound calls, storage, settings, Django admin, and the `services/llm-gateway` freeze.
+Read [.agents/architecture.md](.agents/architecture.md) before you add or change application or dev-stack code: entrypoints, `team_id` scoping, personhog, transactions, API schemas, Celery and Temporal, outbound calls, storage, settings, Django admin, and the `services/llm-gateway` freeze.
 
 ## Code Style
 
@@ -175,9 +175,9 @@ Read [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md) befo
 
 ## Agent automation
 
-Read [.agents/agent-automation.md](.agents/agent-automation.md) before you automate a convention, or add a Claude Code hook, a lint-staged task, or a pre-commit check.
+Read [.agents/agent-automation.md](.agents/agent-automation.md) before you automate a convention, or change a Claude Code hook, `.claude/settings.json`, a lint-staged task, or a pre-commit check.
 
-### Mandatory skill invocation
+## Mandatory skill invocation
 
 Each entry below is a trigger, not a task list: it fires on what the diff contains, whether you are writing that code or reading someone else's.
 ALWAYS invoke the matching skill **first** — do not skip it, and do not attempt the work or the review without loading it.

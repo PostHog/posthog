@@ -27,7 +27,7 @@ Do not reorder for attention. Reorder only when a heading makes a rule easier fo
 
 ## 1. Does this belong in the file at all?
 
-Work down this ladder and stop at the first rung that fits. It is the same ladder `AGENTS.md` states for itself.
+Work down this ladder and stop at the first rung that fits. It is the same ladder [`.agents/agent-automation.md`](../../agent-automation.md) states for the repo.
 
 | Rung | Mechanism                                                    | Use when                                                |
 | ---- | ------------------------------------------------------------ | ------------------------------------------------------- |
