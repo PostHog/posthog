@@ -66,7 +66,7 @@ class TestTrinoShadowMaterialization(BaseTest):
     @parameterized.expand([(False,), (True,)])
     def test_compiles_and_executes_without_saved_translation(self, fail_write: bool) -> None:
         if fail_write:
-            self.cursor.fetchall.side_effect = [[], RuntimeError("Trino write failed")]
+            self.cursor.fetchall.side_effect = [[], [], RuntimeError("Trino write failed")]
         with (
             patch(
                 "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
@@ -103,7 +103,7 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert self.cursor.execute.call_args_list[0].args == (
             f'CREATE SCHEMA IF NOT EXISTS "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"',
         )
-        assert self.cursor.execute.call_args_list[1].args == (
+        assert self.cursor.execute.call_args_list[2].args == (
             f'CREATE OR REPLACE TABLE "org_""catalog"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}" '
             'AS SELECT name FROM "org_catalog"."imports"."orders" WHERE name = ?',
             ["example' OR 1=1 --"],
@@ -393,14 +393,16 @@ class _ScriptedCursor:
         processed_bytes: int = 0,
         cpu_milliseconds: int = 0,
         unreachable_from: str | None = None,
+        output_types: list[tuple[str, str]] | None = None,
     ) -> None:
+        self.output_types = output_types
         self.table_exists = table_exists
         self.staged = staged
         self.duplicate = duplicate
         self.max_key = max_key
         self.statements: list[tuple[str, Any]] = []
         self.rowcount = -1
-        self.description: list[tuple[str]] | None = None
+        self.description: list[tuple[str, ...]] | None = None
         self.processed_bytes = processed_bytes
         self.cpu_milliseconds = cpu_milliseconds
         self.unreachable_from = unreachable_from
@@ -420,7 +422,7 @@ class _ScriptedCursor:
         elif "HAVING count(*) > 1" in statement:
             self._rows = [(1,)] if self.duplicate else []
         elif statement.endswith("LIMIT 0"):
-            self.description = [("id",), ("ts",)]
+            self.description = list(self.output_types or [("id",), ("ts",)])
         elif statement.startswith("MERGE"):
             self.rowcount = self.staged
         elif statement.startswith("SELECT max("):
@@ -491,6 +493,42 @@ class TestTrinoIncrementalMaterialization(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "nested_anonymous_rows",
+                "row(varchar(8), varchar(1), array(row(varchar)))",
+                'row("1" varchar(8), "2" varchar(1), "3" array(row("1" varchar)))',
+            ),
+            (
+                "rows_inside_a_map",
+                "map(varchar, row(timestamp(3) with time zone, decimal(10, 2)))",
+                'map(varchar, row("1" timestamp(3) with time zone, "2" decimal(10, 2)))',
+            ),
+            (
+                "named_fields_kept",
+                'row("a" bigint, date varchar, row(bigint))',
+                'row("a" bigint, "date" varchar, "3" row("1" bigint))',
+            ),
+            ("named_row", 'row("a" bigint)', None),
+            ("plain_column", "array(varchar)", None),
+        ]
+    )
+    def test_names_anonymous_row_fields_in_the_output(self, _name: str, output_type: str, named: str | None) -> None:
+        cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", output_type), ("id", "bigint")])
+
+        _, statements, _ = self.run_build(cursor, None)
+
+        table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
+        (write,) = [statement for statement in statements if statement.startswith("CREATE OR REPLACE TABLE")]
+        if named is None:
+            assert write == f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders"
+        else:
+            assert write == (
+                f'CREATE OR REPLACE TABLE {table} AS SELECT CAST("__ph_output"."tag" AS {named}) AS "tag", '
+                '"__ph_output"."id" AS "id" FROM (SELECT id, ts FROM orders) AS "__ph_output"'
+            )
+
+    @parameterized.expand(
+        [
             ("quiet_window", _ScriptedCursor(table_exists=True, staged=0), None),
             ("duplicate_keys", _ScriptedCursor(table_exists=True, staged=3, duplicate=True), DuplicateUniqueKeyError),
         ]
@@ -524,10 +562,10 @@ class TestTrinoIncrementalMaterialization(BaseTest):
 
     @parameterized.expand(
         [
-            # Schema, table check, stage build, duplicate check, column read, merge and watermark read.
-            ("merge_succeeds", False, 7),
+            # Schema, table check, output type read, stage build, duplicate check, column read, merge and watermark read.
+            ("merge_succeeds", False, 8),
             # The run stops at the duplicate check, and its statements still count.
-            ("duplicate_keys_fail_the_merge", True, 4),
+            ("duplicate_keys_fail_the_merge", True, 5),
         ]
     )
     def test_reports_usage_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
@@ -553,4 +591,4 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         result, _, _ = self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
 
         assert isinstance(result, ConnectionError)
-        assert processed == [100] * 5
+        assert processed == [100] * 6
