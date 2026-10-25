@@ -8,6 +8,106 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `tight` - tight
+ * * `condensed` - condensed
+ * * `standard` - standard
+ * * `relaxed` - relaxed
+ * * `wide` - wide
+ */
+export type TileSpacingEnumApi = (typeof TileSpacingEnumApi)[keyof typeof TileSpacingEnumApi]
+
+export const TileSpacingEnumApi = {
+    Tight: 'tight',
+    Condensed: 'condensed',
+    Standard: 'standard',
+    Relaxed: 'relaxed',
+    Wide: 'wide',
+} as const
+
+/**
+ * * `vertical` - vertical
+ * * `horizontal` - horizontal
+ * * `stable` - stable
+ */
+export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
+
+export const LayoutCompactionEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Stable: 'stable',
+} as const
+
+/**
+ * * `blue` - Blue
+ * * `purple` - Purple
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ */
+export type DashboardTileGroupColorEnumApi =
+    (typeof DashboardTileGroupColorEnumApi)[keyof typeof DashboardTileGroupColorEnumApi]
+
+export const DashboardTileGroupColorEnumApi = {
+    Blue: 'blue',
+    Purple: 'purple',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+} as const
+
+export interface DashboardTileGroupApi {
+    /**
+     * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+     * @maxLength 200
+     */
+    title?: string
+    /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it. */
+    collapsed?: boolean
+    /** Color of a dot before the group heading. Null or omitted shows no dot.
+     *
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red */
+    color?: DashboardTileGroupColorEnumApi | null
+}
+
+/**
+ * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+ */
+export type DashboardCustomizationApiGroups = { [key: string]: DashboardTileGroupApi }
+
+/**
+ * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
+ */
+export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
+
+export interface DashboardCustomizationApi {
+    /** Named tile density preset.
+     *
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide */
+    tile_spacing?: TileSpacingEnumApi
+    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal
+     * * `stable` - stable */
+    layout_compaction?: LayoutCompactionEnumApi
+    /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+    groups?: DashboardCustomizationApiGroups
+    /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
+    group_titles?: DashboardCustomizationApiGroupTitles
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -109,6 +209,8 @@ export interface DashboardTemplateApi {
     tags?: string[] | null
     tiles?: unknown
     variables?: unknown
+    /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+    customization?: DashboardCustomizationApi | null
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -162,6 +264,8 @@ export interface PatchedDashboardTemplateApi {
     tags?: string[] | null
     tiles?: unknown
     variables?: unknown
+    /** Display settings that a dashboard made from this template starts with: tile spacing, layout compaction, and the tile groups that tiles join through their group_key. */
+    customization?: DashboardCustomizationApi | null
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -292,45 +396,6 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 /**
- * * `blue` - Blue
- * * `purple` - Purple
- * * `green` - Green
- * * `yellow` - Yellow
- * * `orange` - Orange
- * * `red` - Red
- */
-export type DashboardTileGroupColorEnumApi =
-    (typeof DashboardTileGroupColorEnumApi)[keyof typeof DashboardTileGroupColorEnumApi]
-
-export const DashboardTileGroupColorEnumApi = {
-    Blue: 'blue',
-    Purple: 'purple',
-    Green: 'green',
-    Yellow: 'yellow',
-    Orange: 'orange',
-    Red: 'red',
-} as const
-
-export interface DashboardTileGroupApi {
-    /**
-     * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
-     * @maxLength 200
-     */
-    title?: string
-    /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it. */
-    collapsed?: boolean
-    /** Color of a dot before the group heading. Null or omitted shows no dot.
-     *
-     * * `blue` - Blue
-     * * `purple` - Purple
-     * * `green` - Green
-     * * `yellow` - Yellow
-     * * `orange` - Orange
-     * * `red` - Red */
-    color?: DashboardTileGroupColorEnumApi | null
-}
-
-/**
  * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
  * @nullable
  */
@@ -380,67 +445,6 @@ export interface BreakdownColorConfigApi {
      * * `auto` - auto
      * * `manual` - manual */
     source?: BreakdownColorConfigSourceEnumApi | null
-}
-
-/**
- * * `tight` - tight
- * * `condensed` - condensed
- * * `standard` - standard
- * * `relaxed` - relaxed
- * * `wide` - wide
- */
-export type TileSpacingEnumApi = (typeof TileSpacingEnumApi)[keyof typeof TileSpacingEnumApi]
-
-export const TileSpacingEnumApi = {
-    Tight: 'tight',
-    Condensed: 'condensed',
-    Standard: 'standard',
-    Relaxed: 'relaxed',
-    Wide: 'wide',
-} as const
-
-/**
- * * `vertical` - vertical
- * * `horizontal` - horizontal
- * * `stable` - stable
- */
-export type LayoutCompactionEnumApi = (typeof LayoutCompactionEnumApi)[keyof typeof LayoutCompactionEnumApi]
-
-export const LayoutCompactionEnumApi = {
-    Vertical: 'vertical',
-    Horizontal: 'horizontal',
-    Stable: 'stable',
-} as const
-
-/**
- * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
- */
-export type DashboardCustomizationApiGroups = { [key: string]: DashboardTileGroupApi }
-
-/**
- * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
- */
-export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
-
-export interface DashboardCustomizationApi {
-    /** Named tile density preset.
-     *
-     * * `tight` - tight
-     * * `condensed` - condensed
-     * * `standard` - standard
-     * * `relaxed` - relaxed
-     * * `wide` - wide */
-    tile_spacing?: TileSpacingEnumApi
-    /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
-     *
-     * * `vertical` - vertical
-     * * `horizontal` - horizontal
-     * * `stable` - stable */
-    layout_compaction?: LayoutCompactionEnumApi
-    /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
-    groups?: DashboardCustomizationApiGroups
-    /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
-    group_titles?: DashboardCustomizationApiGroupTitles
 }
 
 /**

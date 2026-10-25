@@ -174,7 +174,7 @@ describe('dashboardToSaveableTemplate', () => {
         })
     })
 
-    it('preserves display attributes for every tile type', () => {
+    it('preserves display attributes and tile groups for every tile type', () => {
         const dashboard = {
             name: 'My dashboard',
             description: '',
@@ -191,6 +191,7 @@ describe('dashboardToSaveableTemplate', () => {
                     layouts: {},
                     color: null,
                     transparent_background: true,
+                    group_key: 'plans',
                 },
                 {
                     id: 2,
@@ -212,21 +213,26 @@ describe('dashboardToSaveableTemplate', () => {
                     layouts: {},
                     color: null,
                     transparent_background: false,
+                    group_key: 'plans',
                 },
             ],
+            customization: { tile_spacing: 'tight', groups: { plans: { title: 'Plans', color: 'green' } } },
         } as unknown as DashboardType
 
-        expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
+        const template = dashboardToSaveableTemplate(dashboard)
+        expect(template?.tiles).toMatchObject([
             {
                 type: 'TEXT',
                 body: 'Text',
                 agent_context: 'Use paid plan events for this metric.',
                 transparent_background: true,
+                group_key: 'plans',
             },
             { type: 'INSIGHT', transparent_background: false },
             { type: 'BUTTON', transparent_background: true },
-            { type: 'WIDGET', transparent_background: false },
+            { type: 'WIDGET', transparent_background: false, group_key: 'plans' },
         ])
+        expect(template?.customization).toEqual(dashboard.customization)
         expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
             'agent_context'
         )
