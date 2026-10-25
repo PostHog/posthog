@@ -63,6 +63,7 @@ _RAW_TOKEN = f"""coalesce(
         {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
         {_VENDOR} = 'cowork', 'cowork',
         {_VENDOR} IN ('claudedesign', 'claude-design'), 'claude-design',
+        {_VENDOR} IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
@@ -157,6 +158,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         {token_col} = 'anthropic/api', 'Anthropic API',
         {token_col} = 'cowork', 'Cowork',
         {token_col} = 'claude-design', 'Claude Design',
+        {token_col} = 'claude-artifacts', 'Claude Artifacts',
         {token_col} = 'openai-mcp chatgpt', 'ChatGPT',
         {token_col} = 'openai-mcp agent builder', 'OpenAI Agent Builder',
         {token_col} = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -207,6 +209,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Anthropic API",
     "Cowork",
     "Claude Design",
+    "Claude Artifacts",
     "ChatGPT",
     "OpenAI Agent Builder",
     "OpenAI Responses API",

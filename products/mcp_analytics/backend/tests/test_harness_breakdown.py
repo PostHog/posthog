@@ -191,6 +191,11 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             # PostHog's own server) and in both value spellings.
             ("sdk_vendor_cowork", {"$mcp_vendor_client": "Cowork"}, "Cowork"),
             ("sdk_vendor_claudecode", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            (
+                "sdk_vendor_claude_artifacts_over_generic_name",
+                {"$mcp_vendor_client": "ClaudeArtifacts", "$mcp_client_name": "Claude"},
+                "Claude Artifacts",
+            ),
             ("sdk_vendor_hyphenated", {"$mcp_vendor_client": "claude-code"}, "Claude Code"),
             ("legacy_vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
             ("legacy_vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
@@ -255,6 +260,7 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             ("client_name_lovable", {"$mcp_client_name": "lovable"}, "Lovable"),
             ("unknown_to_other", {"$mcp_client_name": "totally-unknown-thing"}, "Other"),
+            ("generic_claude_without_vendor_is_other", {"$mcp_client_name": "Claude"}, "Other"),
             # Not resolution signals: the SDKs never emit these properties and the
             # server folds the session-pinned name into per-event $mcp_client_name,
             # so on their own they attribute nothing.

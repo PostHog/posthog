@@ -216,7 +216,7 @@ Caller identity is spread across four properties, and you have to check all of t
 | ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `$mcp_client_user_agent` | PostHog's own programs | `posthog/wizard; version: 2.45.0; program: nextjs`                                               |
 | `$mcp_consumer`          | the upstream surface   | `posthog-code` (Desktop), `slack`, `plugin`, `posthog-cli`                                       |
-| `$mcp_vendor_client`     | vendor identity        | `ClaudeCode`, `Cowork`, `ClaudeAI` (coalesce the legacy `mcp_vendor_client` for historical rows) |
+| `$mcp_vendor_client`     | vendor identity        | `ClaudeCode`, `Cowork`, `ClaudeAI`, `ClaudeArtifacts` (coalesce the legacy `mcp_vendor_client` for historical rows) |
 | `$mcp_client_name`       | the calling agent      | `claude-code`, `cowork`, `claude-ai`, `cursor-vscode`, `codex-mcp-client`                        |
 
 **Checking only `$mcp_client_name` will mislead you.** The setup wizard sets none of client, consumer, or vendor — it identifies itself solely in the user agent. Group by client alone and every wizard session collapses into an `unknown` bucket that looks like missing instrumentation — on a wizard-heavy tool that bucket is the largest row in the table.

@@ -69,6 +69,7 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cursor', total_calls: 1200, errors: 24, error_rate_pct: 2, sessions: 180 },
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
+    { category: 'Claude Artifacts', total_calls: 300, errors: 3, error_rate_pct: 1, sessions: 60 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
     { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
     { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },

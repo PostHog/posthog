@@ -59,6 +59,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Anthropic API',
             'Cowork',
             'Claude Design',
+            'Claude Artifacts',
             'ChatGPT',
             'OpenAI Agent Builder',
             'OpenAI Responses API',
