@@ -6,7 +6,6 @@ scored in the range does not appear, so each answer also says how many insights 
 
 import json
 import datetime
-import dataclasses
 from collections.abc import Collection, Sequence
 from urllib.parse import urlencode
 
@@ -22,7 +21,7 @@ from posthog.utils import absolute_uri
 from products.dashboards.backend.facade.api import dashboards_by_insight, live_tile_insight_ids, viewable_dashboard_ref
 from products.product_analytics.backend.facade.api import viewable_insights
 from products.product_analytics.backend.facade.contracts import ViewableInsight
-from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.anomaly_scores.config import MAX_LIMITS, covers_team, parse_config, read_payload
 from products.signals.backend.anomaly_scores.queue import watched_insights
 from products.signals.backend.anomaly_scores.read import (
     MAX_BUCKETS,
@@ -45,6 +44,8 @@ TOP_SERIES = 3
 FLAGGED_POINTS = 5
 # The insight link shows this many buckets before the first flag and after the last one.
 URL_PADDING_BUCKETS = 7
+# The scorer writes at most this many series per insight. More come from events any member can capture.
+MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
 
 
@@ -326,8 +327,9 @@ def insight_history(team: Team, user: User, filters: HistoryFilters, now: dateti
     # A series with only baseline rows was not scored in the range at all.
     in_range = [summary for summary in summaries.series if summary.newest_bucket >= filters.date_from]
     ranked = rank_series(in_range, prior=prior_rate(summaries.series), importance={})
+    truncated = summaries.truncated or len(ranked) > MAX_INSIGHT_SERIES
+    ranked = ranked[:MAX_INSIGHT_SERIES]
 
-    truncated = summaries.truncated
     scored_by_series: dict[str, list[ScoredBucket]] = {}
     scored_since: datetime.datetime | None = None
     if filters.include_buckets and ranked:
@@ -345,6 +347,8 @@ def insight_history(team: Team, user: User, filters: HistoryFilters, now: dateti
             truncated = True
             scored_since = min(bucket.bucket_start for bucket in latest.buckets)
 
+    # Each series keeps at most an equal share of the cap, its newest buckets, so the total stays within it.
+    per_series = MAX_BUCKETS // max(1, len(ranked))
     series: list[SeriesHistory] = []
     for summary in ranked:
         starts = bucket_starts(
@@ -357,12 +361,10 @@ def insight_history(team: Team, user: User, filters: HistoryFilters, now: dateti
             if filters.include_buckets
             else []
         )
+        if len(buckets) > per_series:
+            truncated = True
+            buckets = buckets[-per_series:]
         series.append(SeriesHistory(summary=summary, expected_buckets=len(starts), buckets=buckets))
-    if sum(len(history.buckets) for history in series) > MAX_BUCKETS:
-        truncated = True
-        # Every series keeps its newest buckets, so the cap cuts all of them alike.
-        per_series = MAX_BUCKETS // len(series)
-        series = [dataclasses.replace(history, buckets=history.buckets[-per_series:]) for history in series]
 
     newest = max(in_range, key=lambda summary: summary.newest_bucket, default=None)
     message = None
@@ -376,7 +378,7 @@ def insight_history(team: Team, user: User, filters: HistoryFilters, now: dateti
         profile=newest.profile if newest else None,
         detector=newest.detector if newest else None,
         detector_version=newest.detector_version if newest else None,
-        rollup=rollup(ranked),
+        rollup=rollup(in_range),
         series=series,
         truncated=truncated,
         message=message,
