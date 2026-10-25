@@ -108,6 +108,14 @@ class ManagedWarehouseShadowResult:
     run_mode: str = UNKNOWN_RUN_MODE
     read_bytes: int | None = None
     cpu_microseconds: int | None = None
+    # The run read a table that does not exist on Trino yet. That says nothing about the view itself,
+    # so the job is skipped rather than failed and does not count toward suspension.
+    skipped: bool = False
+
+
+# Every table in the compiled SQL comes from a locator we built, so Trino not finding one means an
+# upstream table was never built or synced there, not that the view is wrong.
+_UPSTREAM_TABLE_MISSING_ERROR_NAMES = frozenset({"CATALOG_NOT_FOUND", "SCHEMA_NOT_FOUND", "TABLE_NOT_FOUND"})
 
 
 def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
@@ -241,6 +249,10 @@ def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowR
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
         job.error = None
+    elif result.skipped:
+        job.status = DataModelingJobStatus.SKIPPED
+        job.rows_materialized = 0
+        job.error = result.error
     else:
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
@@ -411,6 +423,7 @@ async def _materialize_view_managed_warehouse(
             run_mode=_failed_run_mode(plan, inputs.use_trino),
             read_bytes=_total_read_bytes(processed_bytes),
             cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
+            skipped=missing_object_error_name in _UPSTREAM_TABLE_MISSING_ERROR_NAMES,
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -420,6 +433,8 @@ async def _materialize_view_managed_warehouse(
             except Exception as clear_error:
                 capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        if shadow_result.skipped:
+            return shadow_result
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,

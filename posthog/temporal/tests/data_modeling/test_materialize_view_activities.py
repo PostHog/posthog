@@ -163,14 +163,35 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_error,error_tracked,alias_dispatch_fails",
+        "compile_error,error_tracked,alias_dispatch_fails,failed_status",
         [
-            (None, False, False),
-            (ValueError("Trino compilation failed"), True, False),
-            (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False, False),
-            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False, False),
-            (TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}), True, False),
-            (None, True, True),
+            (None, False, False, None),
+            (ValueError("Trino compilation failed"), True, False, DataModelingJobStatus.FAILED),
+            (
+                TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"),
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (
+                TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (
+                TrinoUserError({"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                DataModelingJobStatus.SKIPPED,
+            ),
+            (
+                TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}),
+                True,
+                False,
+                DataModelingJobStatus.FAILED,
+            ),
+            (None, True, True, None),
         ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
@@ -184,6 +205,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         compile_error: Exception | None,
         error_tracked: bool,
         alias_dispatch_fails: bool,
+        failed_status: DataModelingJobStatus | None,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
             team_id=ateam.pk,
@@ -246,7 +268,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         if compile_error is not None:
             reconcile_aliases.assert_not_awaited()
             assert result.error == str(compile_error)
-            assert ajob.status == DataModelingJobStatus.FAILED
+            assert ajob.status == failed_status
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
             assert result.row_count == 12
