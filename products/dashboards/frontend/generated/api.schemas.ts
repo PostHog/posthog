@@ -317,7 +317,7 @@ export interface DashboardTileGroupApi {
      * @maxLength 200
      */
     title?: string
-    /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+    /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer opens it. */
     collapsed?: boolean
     /** Color of a dot before the group heading. Null or omitted shows no dot.
      *
@@ -635,6 +635,7 @@ export const DashboardTileBadgeEnumApi = {
  * * `experiment_results` - Experiment Results
  * * `experiments_list` - Experiments List
  * * `logs_list` - Logs List
+ * * `metrics_table` - Metrics Table
  * * `notebook_widget` - Notebook Widget
  * * `session_replay_list` - Session Replay List
  * * `survey_results` - Survey Results
@@ -649,6 +650,7 @@ export const DashboardWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
+    MetricsTable: 'metrics_table',
     NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
@@ -1094,6 +1096,126 @@ export interface CanvasAppWidgetConfigApi {
     canvasId?: string | null
 }
 
+/**
+ * How each time bucket of a row is computed. `rate` and `increase` read counters.
+ */
+export type MetricsTableColumnApiAggregation =
+    (typeof MetricsTableColumnApiAggregation)[keyof typeof MetricsTableColumnApiAggregation]
+
+export const MetricsTableColumnApiAggregation = {
+    Rate: 'rate',
+    Increase: 'increase',
+    Sum: 'sum',
+    Avg: 'avg',
+    Min: 'min',
+    Max: 'max',
+    HistogramQuantile: 'histogram_quantile',
+} as const
+
+/**
+ * How the label value is compared.
+ */
+export type MetricsTableFilterApiOp = (typeof MetricsTableFilterApiOp)[keyof typeof MetricsTableFilterApiOp]
+
+export const MetricsTableFilterApiOp = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface MetricsTableFilterApi {
+    /**
+     * Label key to filter on, e.g. `http.response.status_code`.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string
+    /** How the label value is compared. */
+    op?: MetricsTableFilterApiOp
+    /**
+     * Label value, or a regular expression for `regex` and `not_regex`.
+     * @maxLength 400
+     */
+    value: string
+}
+
+export interface MetricsTableColumnApi {
+    /**
+     * Column header, e.g. `Requests/s`.
+     * @minLength 1
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Name of the metric this column reads.
+     * @minLength 1
+     * @maxLength 200
+     */
+    metricName: string
+    /** How each time bucket of a row is computed. `rate` and `increase` read counters. */
+    aggregation: MetricsTableColumnApiAggregation
+    /** Required for `histogram_quantile`, e.g. 0.95 for p95. */
+    quantile?: number | null
+    /**
+     * Label filters for this column only, e.g. 5xx status codes for an errors column.
+     * @maxItems 5
+     */
+    filters?: MetricsTableFilterApi[]
+}
+
+/**
+ * Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points.
+ */
+export type MetricsTableWidgetConfigApiInterval =
+    | (typeof MetricsTableWidgetConfigApiInterval)[keyof typeof MetricsTableWidgetConfigApiInterval]
+    | null
+
+export const MetricsTableWidgetConfigApiInterval = {
+    Minute: 'minute',
+    Minute5: 'minute_5',
+    Minute15: 'minute_15',
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+/**
+ * Sort direction for orderByColumn.
+ */
+export type MetricsTableWidgetConfigApiOrderDirection =
+    (typeof MetricsTableWidgetConfigApiOrderDirection)[keyof typeof MetricsTableWidgetConfigApiOrderDirection]
+
+export const MetricsTableWidgetConfigApiOrderDirection = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface MetricsTableWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    /** Label that makes one row per value, e.g. `http.route`. Null until the user sets it. */
+    groupBy?: string | null
+    /**
+     * One metric per column. Each row shows the column's average over the date range and a sparkline.
+     * @maxItems 6
+     */
+    columns?: MetricsTableColumnApi[]
+    /** Time between the points of the full charts that open from a row. Null picks one from the date range. The table sparklines always use at most 30 points. */
+    interval?: MetricsTableWidgetConfigApiInterval
+    /**
+     * Index of the column that sorts the rows.
+     * @minimum 0
+     */
+    orderByColumn?: number
+    /** Sort direction for orderByColumn. */
+    orderDirection?: MetricsTableWidgetConfigApiOrderDirection
+    /**
+     * Maximum number of rows to show.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
 export type DashboardWidgetConfigApi =
     | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
@@ -1105,6 +1227,7 @@ export type DashboardWidgetConfigApi =
     | LogsListWidgetConfigApi
     | ConversationsRecentTicketsWidgetConfigApi
     | CanvasAppWidgetConfigApi
+    | MetricsTableWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -1118,6 +1241,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results */
@@ -10128,6 +10252,7 @@ export interface AddDashboardWidgetRequestApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results */
@@ -10141,7 +10266,7 @@ export interface AddDashboardWidgetRequestApi {
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -10178,6 +10303,7 @@ export interface UpdateDashboardWidgetRequestApi {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results */
@@ -10486,6 +10612,27 @@ export interface CanvasAppWidgetCatalogEntryOpenApiApi {
     live: boolean
 }
 
+export type MetricsTableWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof MetricsTableWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof MetricsTableWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const MetricsTableWidgetCatalogEntryOpenApiApiWidgetType = {
+    MetricsTable: 'metrics_table',
+} as const
+
+export interface MetricsTableWidgetCatalogEntryOpenApiApi {
+    widget_type: MetricsTableWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
+    readonly config_schema: MetricsTableWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
+}
+
 export type WidgetCatalogEntryApi =
     | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
@@ -10497,6 +10644,7 @@ export type WidgetCatalogEntryApi =
     | LogsListWidgetCatalogEntryOpenApiApi
     | ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi
     | CanvasAppWidgetCatalogEntryOpenApiApi
+    | MetricsTableWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types. */
@@ -10629,6 +10777,16 @@ export type CanvasAppWidgetTypeEnumApi = (typeof CanvasAppWidgetTypeEnumApi)[key
 
 export const CanvasAppWidgetTypeEnumApi = {
     CanvasApp: 'canvas_app',
+} as const
+
+/**
+ * * `metrics_table` - metrics_table
+ */
+export type MetricsTableWidgetTypeEnumApi =
+    (typeof MetricsTableWidgetTypeEnumApi)[keyof typeof MetricsTableWidgetTypeEnumApi]
+
+export const MetricsTableWidgetTypeEnumApi = {
+    MetricsTable: 'metrics_table',
 } as const
 
 export type DashboardTemplatesListParams = {
@@ -11079,6 +11237,7 @@ export const DashboardsWidgetCatalogRetrieveWidgetTypeItem = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
+    MetricsTable: 'metrics_table',
     NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',

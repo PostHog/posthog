@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ChartDisplayType,
+    CompareFilter,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
@@ -26,16 +27,25 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring
+from products.signals.backend.anomaly_scores.config import DEFAULT_LIMITS, DEFAULT_PROFILE, IntervalScoring, ScoringRun
 from products.signals.backend.anomaly_scores.scoring import (
+    SeriesWindow,
+    SplitRun,
+    StateIdentity,
+    TrainedState,
     UnsupportedInsightError,
+    bucket_end,
     buckets_to_score,
     fetch_buckets,
+    history_buckets,
     query_cost,
     score_insight,
     score_series,
+    score_window,
+    train_window,
     trends_query_for,
 )
+from products.signals.backend.anomaly_scores.state import needs_training
 from products.signals.backend.anomaly_scores.tick import _INSIGHT_TIMEOUT
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -177,6 +187,68 @@ class TestScoreSeries(SimpleTestCase):
         assert all(point.score is None and point.flag is None for point in points)
 
 
+class TestScoreWindow(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("day", IntervalType.DAY, False),
+            ("week", IntervalType.WEEK, False),
+            ("hour", IntervalType.HOUR, False),
+            ("day_late_events", IntervalType.DAY, True),
+            ("hour_late_events", IntervalType.HOUR, True),
+        ]
+    )
+    def test_a_score_step_on_the_stored_window_scores_like_the_full_history(
+        self, _name: str, interval: IntervalType, late_events: bool
+    ) -> None:
+        scoring = DEFAULT_PROFILE.intervals[interval]
+        history = history_buckets(scoring)
+        count = history + 40
+        values = list(np.random.default_rng(2).normal(100, 10, size=count))
+        values[-1] = 400.0
+        buckets = _buckets(datetime(2025, 1, 6, tzinfo=UTC), interval, count)
+        trained_at = bucket_end(buckets[-3], interval) + timedelta(minutes=5)
+        scored_at = bucket_end(buckets[-1], interval) + timedelta(minutes=5)
+        window = train_window(values[:-1], buckets[:-1], history=history, interval=interval, now=trained_at)
+        assert window is not None
+        later = list(values)
+        if late_events:
+            # Events that arrive after the train step change a bucket that the score step fetches again.
+            later[-4] += 50.0
+        refresh = 3
+        # The score step fetches the refresh buckets, one guard bucket, and the two new buckets.
+        fetched = slice(count - (refresh + 1 + 2), count)
+
+        scored = score_window(
+            window, later[fetched], buckets[fetched], refresh=refresh, scoring=scoring, interval=interval, now=scored_at
+        )
+
+        assert scored is not None
+        points, updated = scored
+        expected = score_series(later, buckets, scoring=scoring, interval=interval, now=scored_at, after=buckets[-3])
+        assert [(point.bucket_start, point.score, point.flag) for point in points] == [
+            (point.bucket_start, point.score, point.flag) for point in expected
+        ]
+        assert [point.bucket_start for point in points] == buckets[-2:]
+        assert points[-1].flag is True
+        assert updated == SeriesWindow(first_bucket=buckets[-history], values=later[-history:])
+
+    def test_fresh_buckets_after_a_gap_leave_the_window_unscored(self) -> None:
+        buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 70)
+        window = SeriesWindow(first_bucket=buckets[0], values=[1.0] * 60)
+
+        scored = score_window(
+            window,
+            [1.0] * 5,
+            buckets[62:67],
+            refresh=3,
+            scoring=DAY_SCORING,
+            interval=IntervalType.DAY,
+            now=buckets[67],
+        )
+
+        assert scored is None
+
+
 def _insight(series: list[EventsNode], **query: Any) -> Insight:
     return Insight(id=7, query=TrendsQuery(series=series, **query).model_dump(exclude_none=True))
 
@@ -221,6 +293,19 @@ class TestScoreInsight(SimpleTestCase):
         assert named["web"] == single["web"]
         assert named["app"] != named["web"]
 
+    def test_previous_period_lines_are_not_scored_and_the_current_line_keeps_its_key(self) -> None:
+        pageview = EventsNode(event="$pageview")
+        line = self._keys(_insight([pageview]), [_result(0, "pageview")])
+        metric = self._keys(
+            _insight([pageview], trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC)),
+            [
+                {**_result(0, "pageview"), "compare_label": "current"},
+                {**_result(0, "pageview"), "compare_label": "previous"},
+            ],
+        )
+
+        assert metric == line
+
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
         limits: list[int] = []
@@ -240,6 +325,151 @@ class TestScoreInsight(SimpleTestCase):
         assert timedelta(seconds=waves * limits[0]) <= _INSIGHT_TIMEOUT - timedelta(minutes=1)
         if waves == 1:
             assert limits[0] == 150
+
+    @parameterized.expand([("no_smoothing", None, "-6d"), ("smoothing", 7, "-12d")])
+    def test_a_score_step_fetches_only_new_buckets_and_keeps_series_it_did_not_get_back(
+        self, _name: str, smoothing: int | None, date_from: str
+    ) -> None:
+        insight = _insight([EventsNode(event="$pageview")], trendsFilter=TrendsFilter(smoothingIntervals=smoothing))
+        team = Team(timezone="UTC")
+        rng = np.random.default_rng(3)
+
+        def result(breakdown: str, first_day: datetime, days: int) -> dict[str, Any]:
+            return {
+                "action": {"order": 0},
+                "label": "pageview",
+                "breakdown_value": breakdown,
+                "days": [(first_day + timedelta(days=day)).strftime("%Y-%m-%d") for day in range(days)],
+                "data": list(rng.normal(100, 10, size=days)),
+            }
+
+        def run(now: datetime, results: list[dict[str, Any]], split: SplitRun) -> tuple[Any, TrendsQuery]:
+            with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+                runner.return_value.run.return_value = MagicMock(results=results)
+                scores = score_insight(insight, team, now=now, split=split)
+            return scores, runner.call_args.kwargs["query"]
+
+        trained, _query = run(
+            datetime(2026, 1, 10, 0, 30, tzinfo=UTC),
+            [
+                result("kept", datetime(2025, 10, 1, tzinfo=UTC), 102),
+                result("gone", datetime(2025, 10, 1, tzinfo=UTC), 102),
+            ],
+            SplitRun(refresh_buckets=3),
+        )
+        assert trained.run == ScoringRun.TRAIN and trained.state is not None
+        keys = {series.breakdown_value: series.series_key for series in trained.series}
+
+        scores, query = run(
+            datetime(2026, 1, 12, 0, 30, tzinfo=UTC),
+            [result("kept", datetime(2026, 1, 6, tzinfo=UTC), 7), result("new", datetime(2026, 1, 6, tzinfo=UTC), 7)],
+            SplitRun(refresh_buckets=3, state=trained.state),
+        )
+
+        assert query.dateRange is not None and query.dateRange.date_from == date_from
+        assert scores.run == ScoringRun.SCORE
+        assert [
+            (series.breakdown_value, [point.bucket_start.day for point in series.points]) for series in scores.series
+        ] == [("kept", [10, 11])]
+        assert all(point.score is not None for point in scores.series[0].points)
+        assert scores.unmatched_series == 1
+        assert scores.state is not None
+        assert scores.state.missing_series == 1
+        assert scores.state.windows[keys["gone"]] == trained.state.windows[keys["gone"]]
+        assert scores.state.scored_through == datetime(2026, 1, 11, tzinfo=UTC)
+
+    def test_a_score_pick_whose_state_no_longer_matches_the_insight_trains(self) -> None:
+        stale = TrainedState(
+            identity=StateIdentity(interval=IntervalType.DAY, detector_version="old", query_hash="old"),
+            trained_at=datetime(2026, 1, 9, tzinfo=UTC),
+            scored_through=datetime(2026, 1, 9, tzinfo=UTC),
+            windows={},
+        )
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            scores = score_insight(
+                _insight([EventsNode(event="$pageview")]),
+                Team(timezone="UTC"),
+                now=datetime(2026, 1, 10, tzinfo=UTC),
+                split=SplitRun(refresh_buckets=3, state=stale),
+            )
+
+        assert scores.run == ScoringRun.TRAIN
+        assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
+
+
+_IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")
+_SCORED_THROUGH = datetime(2026, 1, 9, tzinfo=UTC)
+_WINDOW = SeriesWindow(first_bucket=datetime(2025, 11, 11, tzinfo=UTC), values=[1.0] * 60)
+
+
+def _state(**changes: Any) -> TrainedState:
+    fields: dict[str, Any] = {
+        "identity": _IDENTITY,
+        "trained_at": datetime(2026, 1, 5, tzinfo=UTC),
+        "scored_through": _SCORED_THROUGH,
+        "windows": {"a": _WINDOW, "b": _WINDOW},
+        **changes,
+    }
+    return TrainedState(**fields)
+
+
+class TestNeedsTraining(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fresh_state", _state(), False),
+            ("one_of_two_series_missing", _state(missing_series=1), False),
+            ("no_state", None, True),
+            (
+                "query_changed",
+                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
+                True,
+            ),
+            (
+                "detector_changed",
+                _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
+                True,
+            ),
+            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), True),
+            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), True),
+            ("most_series_missing", _state(missing_series=2), True),
+        ]
+    )
+    def test_a_visit_trains_when_the_stored_state_cannot_score_it(
+        self, _name: str, state: TrainedState | None, trains: bool
+    ) -> None:
+        assert (
+            needs_training(
+                state,
+                identity=_IDENTITY,
+                now=datetime(2026, 1, 10, 1, tzinfo=UTC),
+                timezone=ZoneInfo("UTC"),
+                train_every=7,
+                max_backfill=30,
+            )
+            is trains
+        )
+
+
+class TestMetricScoringQuery(SimpleTestCase):
+    @parameterized.expand([("without_compare", None), ("with_saved_compare", CompareFilter(compare=True))])
+    def test_metric_display_is_scored_as_a_line_without_the_previous_period(
+        self, _name: str, compare_filter: CompareFilter | None
+    ) -> None:
+        insight = _insight(
+            [EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            compareFilter=compare_filter,
+        )
+
+        with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+            runner.return_value.run.return_value = MagicMock(results=[])
+            score_insight(insight, Team(timezone="UTC"), now=datetime(2026, 1, 10, tzinfo=UTC))
+
+        query = runner.call_args.kwargs["query"]
+        assert query.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH
+        assert query.compareFilter is None
+        assert query_cost(insight, MagicMock(spec=Team)) == 2
 
 
 class TestFetchBuckets(SimpleTestCase):

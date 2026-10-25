@@ -13,11 +13,11 @@ def _metrics() -> PostHogMetrics | None:
     return client.metrics if client is not None else None
 
 
-def record_pick(*, status: str, interval: str, duration_ms: float, events: int) -> None:
+def record_pick(*, status: str, interval: str, duration_ms: float, events: int, run: str | None = None) -> None:
     metrics = _metrics()
     if metrics is None:
         return
-    attributes = {"status": status, "interval": interval}
+    attributes = {"status": status, "interval": interval, **({"run": run} if run else {})}
     metrics.count("anomaly_scoring.picks", 1, attributes=attributes)
     metrics.histogram("anomaly_scoring.query.duration", duration_ms, unit="ms", attributes=attributes)
     if events:

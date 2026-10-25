@@ -58,7 +58,8 @@ class DashboardTileGroupSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
-            "browser keeps that choice and it wins over this default."
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
         ),
     )
     color = serializers.ChoiceField(
@@ -86,6 +87,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"

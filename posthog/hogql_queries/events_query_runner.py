@@ -20,6 +20,7 @@ from posthog.schema import (
     EventsQueryResponse,
     FilterLogicalOperator,
     HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -128,6 +129,13 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # The day is empty after a TTL merge drops every part that holds it.
     retention_days=FLAG_EVALUATIONS_TTL_DAYS,
     cache_key_variant="_flag_evaluations",
+)
+
+STORED_PERSON_PROPERTIES_MODES = frozenset(
+    {
+        PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+    }
 )
 
 
@@ -466,18 +474,26 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             right=ast.Tuple(exprs=[ast.Constant(value=key) for key in flag_keys]),
         )
 
+    def _adds_persons_join(self, table: EventsListTable) -> bool:
+        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+            return False
+        # Only a mode set on the query itself skips the join. Many teams default to a mode that reads stored
+        # properties. The activity list sends no mode. It must keep showing each person's current properties.
+        modifiers = self.query.modifiers
+        return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
+
     def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
         # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
         # The pushdown limits that join to the persons that the page's flag calls reach.
         # An explicit personIdPushdown value on the team or the query still wins.
-        if table is FLAG_EVALUATIONS_LIST_TABLE and self.modifiers.personIdPushdown is None:
+        if self._adds_persons_join(table) and self.modifiers.personIdPushdown is None:
             return self.modifiers.model_copy(update={"personIdPushdown": True})
         return self.modifiers
 
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
         assert context.database is not None
-        if table is FLAG_EVALUATIONS_LIST_TABLE:
+        if self._adds_persons_join(table):
             add_events_list_fields_to_flag_evaluations(context.database)
         return context
 

@@ -651,6 +651,7 @@ export const productConfiguration: Record<string, any> = {
     AIObservabilityOfflineExperiments: {
         projectBased: true,
         name: 'Offline evals',
+        description: 'Manage datasets, follow score trends, and inspect offline experiment results.',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },

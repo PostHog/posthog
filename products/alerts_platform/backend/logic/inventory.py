@@ -12,12 +12,20 @@ from posthog.dataclasses import frozen
 from posthog.models.utils import execute_with_timeout
 
 from products.alerts_platform.backend.facade.contracts import SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 # Per statement. The counts scan every configuration, unlike discovery, which reads only the due index,
 # so a slow scan fails fast and holds no Postgres connection the tick needs.
 INVENTORY_STATEMENT_TIMEOUT_MS = 500
+
+
+@frozen
+class ConfigurationCount:
+    enabled: bool
+    # Which stack decides and sends for the alert, so the count shows how far a cutover has gone.
+    owner: PlatformAlertOwner
+    count: int
 
 
 @frozen
@@ -30,8 +38,7 @@ class AlertCount:
 @frozen
 class SourceInventory:
     source: SourceKind
-    enabled_configurations: int
-    disabled_configurations: int
+    configurations: tuple[ConfigurationCount, ...]
     alerts: tuple[AlertCount, ...]
 
 
@@ -40,9 +47,9 @@ def count_inventory(now: dt.datetime) -> tuple[SourceInventory, ...]:
     # because the timeout is transaction-local.
     with execute_with_timeout(INVENTORY_STATEMENT_TIMEOUT_MS):
         configuration_counts = {
-            (row["source_kind"], row["enabled"]): row["n"]
+            (row["source_kind"], row["enabled"], row["owner"]): row["n"]
             for row in PlatformAlertConfiguration.objects.unscoped()
-            .values("source_kind", "enabled")
+            .values("source_kind", "enabled", "owner")
             .annotate(n=Count("id"))
         }
         is_muted = Q(snooze_until__gt=now) | Q(configuration__snooze_until__gt=now)
@@ -64,8 +71,15 @@ def count_inventory(now: dt.datetime) -> tuple[SourceInventory, ...]:
         inventories.append(
             SourceInventory(
                 source=source,
-                enabled_configurations=configuration_counts.get((source.value, True), 0),
-                disabled_configurations=configuration_counts.get((source.value, False), 0),
+                configurations=tuple(
+                    ConfigurationCount(
+                        enabled=enabled,
+                        owner=owner,
+                        count=configuration_counts.get((source.value, enabled, owner.value), 0),
+                    )
+                    for enabled in (True, False)
+                    for owner in PlatformAlertOwner
+                ),
                 alerts=tuple(alerts),
             )
         )
