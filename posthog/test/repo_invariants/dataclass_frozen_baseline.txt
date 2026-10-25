@@ -792,7 +792,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/newsdata/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/nocrm/nocrm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/nocrm/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/northflank/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/northpass_lms/northpass_lms.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/northpass_lms/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/notion/notion.py

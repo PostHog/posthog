@@ -1,11 +1,13 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class NorthflankEndpointConfig:
     name: str
     # Path relative to the API base. Fan-out children use a `{project_id}` placeholder.
@@ -28,7 +30,7 @@ class NorthflankEndpointConfig:
     paginated: bool = True
     page_size_param: str = "per_page"
     params: dict[str, Any] = field(default_factory=dict)
-    # Query param that takes the incremental watermark as a Unix timestamp.
+    # Query param that takes the incremental watermark as a Unix timestamp. Full refresh sends 0.
     incremental_param: Optional[str] = None
 
 

@@ -7,10 +7,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
@@ -29,6 +32,15 @@ MAX_PROJECT_PAGES = 500
 MAX_CHILD_PAGES_PER_PROJECT = 500
 # The API asks us to wait via rate-limit headers on a 429; clamp anything absurd.
 MAX_RATE_LIMIT_SLEEP_SECONDS = 120
+
+
+@frozen
+class NorthflankResumeConfig:
+    # Next page of the list in progress. None means that list is done.
+    cursor: str | None = None
+    # Fan-out position. `parent_id` is set only for endpoints that fan out over a second level.
+    project_id: str | None = None
+    parent_id: str | None = None
 
 
 class NorthflankRetryableError(Exception):
@@ -175,9 +187,15 @@ def _iter_pages(
     params: dict[str, Any] | None = None,
     page_size_param: str = "per_page",
     paginated: bool = True,
+    start_cursor: str | None = None,
+    checkpoint: Callable[[str | None], None] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Yield each page's rows for a cursor-paginated list endpoint."""
-    cursor: str | None = None
+    """Yield each page's rows for a cursor-paginated list endpoint.
+
+    `checkpoint` receives the cursor of the next page (None after the last page) before the page's
+    rows are yielded.
+    """
+    cursor = start_cursor
     pages_fetched = 0
 
     while True:
@@ -188,73 +206,52 @@ def _iter_pages(
         pages_fetched += 1
 
         rows = _extract_rows(body, data_key)
+        next_cursor = _next_cursor(body) if paginated else None
+        if next_cursor and pages_fetched >= max_pages:
+            logger.warning(
+                f"Northflank: page cap reached for {resource}, stopping pagination. max_pages={max_pages}, path={path}"
+            )
+            next_cursor = None
+
+        if checkpoint:
+            checkpoint(next_cursor)
         if rows:
             yield rows
         else:
             # Fan-out over parents with no children can otherwise make long runs of empty requests.
             reach_safe_point()
 
-        if not paginated:
+        if not next_cursor:
             return
-
-        cursor = _next_cursor(body)
-        if not cursor:
-            return
-
-        if pages_fetched >= max_pages:
-            logger.warning(
-                f"Northflank: page cap reached for {resource}, stopping pagination. max_pages={max_pages}, path={path}"
-            )
-            return
+        cursor = next_cursor
 
 
-def _iter_project_ids(fetch_page: FetchPageFn, logger: FilteringBoundLogger) -> Iterator[str]:
-    for projects in _iter_pages(
-        fetch_page, "/v1/projects", logger, max_pages=MAX_PROJECT_PAGES, resource="projects", data_key="projects"
-    ):
-        for project in projects:
-            project_id = project.get("id")
-            if not project_id:
-                # A project without an id would silently drop all of its nested resources
-                # (services, jobs, addons, volumes), leaving a partial import. Fail loudly instead.
-                raise ValueError(f"Northflank: project is missing a required 'id' field: {project!r}")
-            yield project_id
+def _iter_ids(pages: Iterator[list[dict[str, Any]]], resource: str) -> Iterator[tuple[str, dict[str, Any]]]:
+    for page in pages:
+        for row in page:
+            row_id = row.get("id")
+            if not row_id:
+                # A parent without an id would silently drop all of its nested resources, leaving a
+                # partial import. Fail loudly instead.
+                raise ValueError(f"Northflank: {resource} is missing a required 'id' field: {row!r}")
+            yield row_id, row
 
 
-def _iter_parent_children(
-    fetch_page: FetchPageFn,
-    config: NorthflankEndpointConfig,
-    project_id: str,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    if not config.parent or not config.parent_id_key:
-        raise ValueError(f"Northflank endpoint {config.name} has no parent to fan out over")
-    parent_config = NORTHFLANK_ENDPOINTS[config.parent]
-    parent_id_key = config.parent_id_key
-
-    for parents in _iter_pages(
-        fetch_page,
-        parent_config.path.format(project_id=project_id),
-        logger,
-        max_pages=MAX_CHILD_PAGES_PER_PROJECT,
-        resource=f"{config.parent} of project {project_id}",
-        data_key=parent_config.data_key,
-    ):
-        for parent in parents:
-            if config.include_parent and not config.include_parent(parent):
-                continue
-            parent_id = parent.get("id")
-            if not parent_id:
-                raise ValueError(f"Northflank: {config.parent} row is missing a required 'id' field: {parent!r}")
-            for rows in _iter_pages(
-                fetch_page,
-                config.path.format(project_id=project_id, parent_id=parent_id),
-                logger,
-                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
-                resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
-                data_key=config.data_key,
-            ):
-                yield [{**row, "projectId": project_id, parent_id_key: parent_id} for row in rows]
+def _skip_to(
+    ids: Iterator[tuple[str, dict[str, Any]]], target: str | None, logger: FilteringBoundLogger, resource: str
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Drop ids before `target`, the position a resumed run continues from."""
+    if target is None:
+        yield from ids
+        return
+    found = False
+    for row_id, row in ids:
+        if not found and row_id != target:
+            continue
+        found = True
+        yield row_id, row
+    if not found:
+        logger.warning(f"Northflank: resume position {resource} {target} no longer exists, nothing left to sync")
 
 
 def get_rows(
@@ -262,17 +259,33 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     incremental_start: Optional[int] = None,
+    resumable_source_manager: Optional[ResumableSourceManager[NorthflankResumeConfig]] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint not in NORTHFLANK_ENDPOINTS:
         raise ValueError(f"Unknown Northflank endpoint: {endpoint}")
 
     config = NORTHFLANK_ENDPOINTS[endpoint]
     fetch_page = _make_fetch_page(api_token, logger)
+    manager = resumable_source_manager
+    resume = manager.load_state() if manager is not None and manager.can_resume() else None
+
+    def checkpoint_at(project_id: str | None = None, parent_id: str | None = None) -> Callable[[str | None], None]:
+        def checkpoint(next_cursor: str | None) -> None:
+            if manager is not None:
+                manager.save_state(
+                    NorthflankResumeConfig(cursor=next_cursor, project_id=project_id, parent_id=parent_id)
+                )
+
+        return checkpoint
 
     if not config.fan_out_over_projects:
+        if resume is not None and resume.cursor is None:
+            return
         params = dict(config.params)
-        if config.incremental_param and incremental_start is not None:
-            params[config.incremental_param] = incremental_start
+        if config.incremental_param:
+            # Without a start time the API does not document how far back hourly entries go, so a
+            # full refresh asks for everything since the epoch.
+            params[config.incremental_param] = incremental_start if incremental_start is not None else 0
         yield from _iter_pages(
             fetch_page,
             config.path,
@@ -283,25 +296,87 @@ def get_rows(
             params=params,
             page_size_param=config.page_size_param,
             paginated=config.paginated,
+            start_cursor=resume.cursor if resume else None,
+            checkpoint=checkpoint_at(),
         )
         return
 
-    for project_id in _iter_project_ids(fetch_page, logger):
-        if config.parent:
-            yield from _iter_parent_children(fetch_page, config, project_id, logger)
+    projects = _iter_ids(
+        _iter_pages(
+            fetch_page, "/v1/projects", logger, max_pages=MAX_PROJECT_PAGES, resource="projects", data_key="projects"
+        ),
+        "project",
+    )
+    for project_id, _ in _skip_to(projects, resume.project_id if resume else None, logger, "project"):
+        resuming_project = resume is not None and resume.project_id == project_id
+
+        if not config.parent:
+            if resuming_project and resume is not None and resume.cursor is None:
+                continue
+            for rows in _iter_pages(
+                fetch_page,
+                config.path.format(project_id=project_id),
+                logger,
+                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+                resource=f"{endpoint} of project {project_id}",
+                data_key=config.data_key,
+                start_cursor=resume.cursor if resuming_project and resume is not None else None,
+                checkpoint=checkpoint_at(project_id),
+            ):
+                # Inject the parent project id so the composite primary key is present even on child
+                # objects that don't carry it natively (addons, volumes).
+                yield [{**row, "projectId": project_id} for row in rows]
             continue
-        path = config.path.format(project_id=project_id)
-        for rows in _iter_pages(
+
+        yield from _iter_parent_children(
+            fetch_page, config, project_id, logger, resume if resuming_project else None, checkpoint_at
+        )
+
+
+def _iter_parent_children(
+    fetch_page: FetchPageFn,
+    config: NorthflankEndpointConfig,
+    project_id: str,
+    logger: FilteringBoundLogger,
+    resume: NorthflankResumeConfig | None,
+    checkpoint_at: Callable[[str | None, str | None], Callable[[str | None], None]],
+) -> Iterator[list[dict[str, Any]]]:
+    if not config.parent or not config.parent_id_key:
+        raise ValueError(f"Northflank endpoint {config.name} has no parent to fan out over")
+    parent_config = NORTHFLANK_ENDPOINTS[config.parent]
+    parent_id_key = config.parent_id_key
+
+    parents = _iter_ids(
+        _iter_pages(
             fetch_page,
-            path,
+            parent_config.path.format(project_id=project_id),
             logger,
             max_pages=MAX_CHILD_PAGES_PER_PROJECT,
-            resource=f"{endpoint} of project {project_id}",
+            resource=f"{config.parent} of project {project_id}",
+            data_key=parent_config.data_key,
+        ),
+        config.parent,
+    )
+    resume_parent_id = resume.parent_id if resume else None
+    for parent_id, parent in _skip_to(parents, resume_parent_id, logger, config.parent):
+        if config.include_parent and not config.include_parent(parent):
+            continue
+        start_cursor: str | None = None
+        if resume is not None and parent_id == resume_parent_id:
+            if resume.cursor is None:
+                continue
+            start_cursor = resume.cursor
+        for rows in _iter_pages(
+            fetch_page,
+            config.path.format(project_id=project_id, parent_id=parent_id),
+            logger,
+            max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+            resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
             data_key=config.data_key,
+            start_cursor=start_cursor,
+            checkpoint=checkpoint_at(project_id, parent_id),
         ):
-            # Inject the parent project id so the composite primary key is present even on child
-            # objects that don't carry it natively (addons, volumes).
-            yield [{**row, "projectId": project_id} for row in rows]
+            yield [{**row, "projectId": project_id, parent_id_key: parent_id} for row in rows]
 
 
 def northflank_source(
@@ -309,6 +384,7 @@ def northflank_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     incremental_start: Optional[int] = None,
+    resumable_source_manager: Optional[ResumableSourceManager[NorthflankResumeConfig]] = None,
 ) -> SourceResponse:
     config = NORTHFLANK_ENDPOINTS[endpoint]
     partition_key: Optional[str] = config.partition_key
@@ -316,7 +392,11 @@ def northflank_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            api_token=api_token, endpoint=endpoint, logger=logger, incremental_start=incremental_start
+            api_token=api_token,
+            endpoint=endpoint,
+            logger=logger,
+            incremental_start=incremental_start,
+            resumable_source_manager=resumable_source_manager,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

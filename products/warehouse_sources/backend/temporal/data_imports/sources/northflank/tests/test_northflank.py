@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     NorthflankSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank import (
+    NorthflankResumeConfig,
     NorthflankRetryableError,
     _build_url,
     _extract_rows,
@@ -226,6 +227,49 @@ class TestFanOut:
             "/v1/projects/proj-a/services/svc-build/build",
         ]
         assert result.params("cursor") == [None, None, None, "builds-cursor-2"]
+        assert result.saved_states == [
+            NorthflankResumeConfig(cursor="builds-cursor-2", project_id="proj-a", parent_id="svc-build"),
+            NorthflankResumeConfig(cursor=None, project_id="proj-a", parent_id="svc-build"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "mid_parent",
+                NorthflankResumeConfig(cursor="runs-cursor-2", project_id="proj-b", parent_id="job-1"),
+                ["/v1/projects/proj-b/jobs/job-1/runs", "/v1/projects/proj-b/jobs/job-2/runs"],
+                ["r2", "r3"],
+            ),
+            (
+                "parent_done",
+                NorthflankResumeConfig(cursor=None, project_id="proj-b", parent_id="job-1"),
+                ["/v1/projects/proj-b/jobs/job-2/runs"],
+                ["r3"],
+            ),
+        ]
+    )
+    def test_nested_fan_out_resumes_from_saved_position(self, _name, resume_state, child_paths, expected_ids):
+        result = _driver().run(
+            "job_runs",
+            route(
+                {
+                    "/v1/projects": [
+                        ScriptedResponse(json=_page("projects", [{"id": "proj-a"}, {"id": "proj-b"}], None))
+                    ],
+                    "/v1/projects/proj-b/jobs": [
+                        ScriptedResponse(json=_page("jobs", [{"id": "job-0"}, {"id": "job-1"}, {"id": "job-2"}], None))
+                    ],
+                    "/v1/projects/proj-b/jobs/job-1/runs": [ScriptedResponse(json=_page("runs", [{"id": "r2"}], None))],
+                    "/v1/projects/proj-b/jobs/job-2/runs": [ScriptedResponse(json=_page("runs", [{"id": "r3"}], None))],
+                }
+            ),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert result.paths == ["/v1/projects", "/v1/projects/proj-b/jobs", *child_paths]
+        assert result.params("cursor")[2] == resume_state.cursor
 
     def test_project_without_id_raises(self):
         # A project missing its id would silently drop all of its nested resources; fail loudly instead.
@@ -243,7 +287,7 @@ class TestTopLevelRequestShaping:
                 "usage_full_refresh",
                 "usage",
                 {},
-                {"perPage": "100", "removeLegacyFields": "true", "startTime": None, "per_page": None},
+                {"perPage": "100", "removeLegacyFields": "true", "startTime": "0", "per_page": None},
             ),
             (
                 "usage_incremental",
