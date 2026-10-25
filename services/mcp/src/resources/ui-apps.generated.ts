@@ -192,6 +192,7 @@ export const UI_APPS: Array<{
             'https://eu-media.posthog.com',
             'https://us.posthog.com',
             'https://eu.posthog.com',
+            'https://assets.unlayer.com',
         ],
     },
     {
@@ -282,6 +283,7 @@ export const UI_APPS: Array<{
             'https://eu-media.posthog.com',
             'https://us.posthog.com',
             'https://eu.posthog.com',
+            'https://assets.unlayer.com',
         ],
     },
     {

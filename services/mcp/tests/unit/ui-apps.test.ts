@@ -163,6 +163,7 @@ describe('ui-apps', () => {
             },
             { appKey: 'email-template' as const, source: 'https://us-media.posthog.com' },
             { appKey: 'render-ui' as const, source: 'https://us-media.posthog.com' },
+            { appKey: 'render-ui' as const, source: 'https://assets.unlayer.com' },
         ])('allows $source in $appKey without widening other app CSPs', async ({ appKey, source }) => {
             const { registerUiAppResources } = await import('@/resources/ui-apps')
             const server = createMockServer()
