@@ -41,7 +41,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { SlackAppLookup, TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { buildConversionWatcher } from './conversion-watcher'
+import { buildConversionWatcher, buildConversionWatcherVersionUpdates } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { hasSensitiveEmailStep } from './hogflow-sensitivity'
@@ -292,6 +292,7 @@ export class HogFlowExecutorService {
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
         const conversionWatchers: ConversionWatcherRow[] = []
+        const versionAtStart = invocation.state.flowVersion
 
         // A run enrolls on its first execution, before any exit check: a run that exits immediately
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
@@ -357,6 +358,11 @@ export class HogFlowExecutorService {
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
         result.messageAssets = messageAssets
         result.conversionWatchers = conversionWatchers
+        result.conversionWatcherVersionUpdates = buildConversionWatcherVersionUpdates(
+            invocation.id,
+            versionAtStart,
+            result.invocation.state.flowVersion
+        )
 
         return result
     }

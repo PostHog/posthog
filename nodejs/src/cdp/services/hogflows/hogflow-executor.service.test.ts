@@ -18,6 +18,7 @@ import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -309,6 +310,7 @@ describe('Hogflow Executor', () => {
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
                 conversionWatchers: [],
+                conversionWatcherVersionUpdates: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -3163,7 +3165,7 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
-        it('should route email actions to the email queue', async () => {
+        const createEmailFlow = async (): Promise<HogFlow> => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3201,99 +3203,7 @@ describe('Hogflow Executor', () => {
                 ],
             })
 
-            const hogFlow = new FixtureHogFlowBuilder()
-                .withTeamId(team.id)
-                .withExitCondition('exit_only_at_end')
-                .withWorkflow({
-                    actions: {
-                        trigger: {
-                            type: 'trigger',
-                            config: {
-                                type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                            },
-                        },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-email-routing-test',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId, email: 'test@posthog.com' },
-                                            subject: 'Test Email',
-                                            text: 'Test',
-                                            html: '<p>Test</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
-                    ],
-                })
-                .build()
-
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    event: '$pageview',
-                },
-            })
-
-            const result = await executor.execute(invocation)
-
-            // Should be routed to email queue, not finished
-            expect(result.finished).toBe(false)
-            expect(result.invocation.queue).toBe('email')
-            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
-            expect(result.invocation.queueParameters).toBeDefined()
-            expect(result.invocation.queueParameters?.type).toBe('email')
-        })
-
-        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
-            await insertIntegration(hub.postgres, team.id, {
-                id: integrationId,
-                kind: 'email',
-                config: {
-                    email: 'test@posthog.com',
-                    name: 'Test User',
-                    domain: 'posthog.com',
-                    verified: true,
-                    provider: 'maildev',
-                },
-            })
-
-            await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-email-routing-test',
-                name: 'Email Routing Test',
-                code: `sendEmail(inputs.email)`,
-                inputs_schema: [
-                    {
-                        type: 'native_email',
-                        key: 'email',
-                        label: 'Email message',
-                        integration: 'email',
-                        required: true,
-                        default: {
-                            to: { email: '', name: '' },
-                            from: { email: '', name: '' },
-                            subject: '',
-                            text: 'Hello!',
-                            html: '<div>Hello!</div>',
-                        },
-                        secret: false,
-                        description: '',
-                        templating: 'liquid',
-                    },
-                ],
-            })
-
-            const hogFlow = new FixtureHogFlowBuilder()
+            return new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
                 .withWorkflow({
@@ -3333,13 +3243,33 @@ describe('Hogflow Executor', () => {
                     ],
                 })
                 .build()
+        }
 
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
+        const pageviewInvocation = (hogFlow: HogFlow): CyclotronJobInvocationHogFlow =>
+            createExampleHogFlowInvocation(hogFlow, {
                 event: {
                     ...createHogExecutionGlobals().event,
                     event: '$pageview',
                 },
+                flowVersion: hogFlow.version,
             })
+
+        it('should route email actions to the email queue', async () => {
+            const hogFlow = await createEmailFlow()
+
+            const result = await executor.execute(pageviewInvocation(hogFlow))
+
+            // Should be routed to email queue, not finished
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
+            expect(result.invocation.queueParameters).toBeDefined()
+            expect(result.invocation.queueParameters?.type).toBe('email')
+        })
+
+        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
+            const hogFlow = await createEmailFlow()
+            const invocation = pageviewInvocation(hogFlow)
 
             // A watcher-degraded flow enters at priority 2; the routing must stash that
             // exact value, not the 0 that per-action result clones reset queuePriority to
@@ -3368,6 +3298,33 @@ describe('Hogflow Executor', () => {
             // Verify email_sent metric was emitted
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
+        })
+
+        it('moves the conversion watcher to the version the email was sent under', async () => {
+            const hogFlow = await createEmailFlow()
+            hogFlow.conversion = {
+                filters: [],
+                bytecode: [],
+                events: [{ filters: { events: [{ id: 'purchase', type: 'events' }], bytecode: ['_H', 1, 29] } }],
+            } as any
+            const invocation = pageviewInvocation(hogFlow)
+
+            const enrollment = await executor.execute(invocation)
+            expect(enrollment.conversionWatchers).toEqual([
+                expect.objectContaining({ id: invocation.id, flow_version: 1 }),
+            ])
+            expect(enrollment.conversionWatcherVersionUpdates).toEqual([])
+
+            enrollment.invocation.hogFlow = { ...hogFlow, version: 2 }
+            let send = await executor.execute(enrollment.invocation)
+            const versionUpdates = [...send.conversionWatcherVersionUpdates]
+            while (!send.finished) {
+                send = await executor.execute(send.invocation)
+                versionUpdates.push(...send.conversionWatcherVersionUpdates)
+            }
+
+            expect(send.metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(1)
+            expect(versionUpdates).toEqual([{ id: invocation.id, flow_version: 2 }])
         })
     })
 })

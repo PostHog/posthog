@@ -128,6 +128,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public watcherRows: MockRow[] = []
     // null = every requested row is claimed; an array narrows it to those ids.
     public claimedWatcherIds: string[] | null = null
+    // Models a send that moved a watcher's version between the lookup and the claim.
+    public watcherVersionsAtClaim: Record<string, number> = {}
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
     public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
@@ -147,7 +149,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 // Deleting the row IS the claim, so only rows this DELETE removed may be counted.
                 // `claimedWatcherIds` models another instance having won some of them first.
                 const claimed = this.watcherRows
-                    .map((r: any) => ({ id: r.id }))
+                    .map((r: any) => ({ id: r.id, flow_version: this.watcherVersionsAtClaim[r.id] ?? r.flow_version }))
                     .filter((r) => this.claimedWatcherIds === null || this.claimedWatcherIds.includes(r.id))
                 return Promise.resolve({ rows: claimed, rowCount: claimed.length })
             }
@@ -1801,6 +1803,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
             expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
                 expect.objectContaining({ properties: expect.objectContaining({ $workflow_run_id: 'run-2' }) })
+            )
+        })
+
+        it('credits the version the watcher held when it was claimed', async () => {
+            matcher.watcherRows = [watcher()]
+            matcher.watcherVersionsAtClaim = { 'watcher-1': 2 }
+
+            await matcher.runWake([cancelledEvent()])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_version: { id: 'flow-1', version: 2 } }),
+                'hog_flow'
+            )
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({ properties: expect.objectContaining({ $workflow_version: 2 }) })
             )
         })
 

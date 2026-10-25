@@ -727,17 +727,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
 
         // The delete is the claim: only rows this statement actually removed are counted, so a
-        // concurrent instance that removed the same row first counts it and we do not.
+        // concurrent instance that removed the same row first counts it and we do not. The version
+        // comes from the claim because a send can move the watcher after the lookup read it.
         const claimed = await this.cyclotronPool.query(
-            `DELETE FROM conversion_watchers WHERE id = ANY($1::uuid[]) RETURNING id`,
+            `DELETE FROM conversion_watchers WHERE id = ANY($1::uuid[]) RETURNING id, flow_version`,
             [converted.map((c) => c.row.id)]
         )
-        const claimedIds = new Set(claimed.rows.map((r) => r.id))
+        const claimedVersions = new Map<string, number | null>(claimed.rows.map((r) => [r.id, r.flow_version]))
 
         for (const { row, distinctId, conversionType, eventName, eventUuid } of converted) {
-            if (!claimedIds.has(row.id)) {
+            if (!claimedVersions.has(row.id)) {
                 continue
             }
+            const flowVersion = claimedVersions.get(row.id) ?? null
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: row.team_id,
@@ -748,7 +750,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     metric_name: 'conversion',
                     count: 1,
                     app_source_version:
-                        row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+                        flowVersion !== null ? { id: row.function_id, version: flowVersion } : undefined,
                 },
                 'hog_flow'
             )
@@ -771,7 +773,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     properties: {
                         $workflow_id: row.function_id,
                         $workflow_run_id: row.run_id,
-                        $workflow_version: row.flow_version ?? undefined,
+                        $workflow_version: flowVersion ?? undefined,
                         $workflow_conversion_type: conversionType,
                         $workflow_conversion_event: eventName,
                         $workflow_conversion_event_uuid: eventUuid,
@@ -779,7 +781,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 })
             }
         }
-        return claimedIds.size
+        return claimedVersions.size
     }
 
     /**

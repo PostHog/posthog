@@ -374,6 +374,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
     conversionWatchers: ConversionWatcherRow[]
+    conversionWatcherVersionUpdates: ConversionWatcherVersionUpdate[]
     execResult?: unknown
 }
 
@@ -401,6 +402,11 @@ export type ConversionWatcherRow = {
     flow_version: number | null
     goal: PinnedConversionGoal
     expires_at: Date
+}
+
+export type ConversionWatcherVersionUpdate = {
+    id: string
+    flow_version: number
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {
