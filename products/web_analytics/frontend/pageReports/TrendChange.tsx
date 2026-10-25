@@ -16,7 +16,7 @@ export function TrendChange({ change, className }: { change: number; className?:
             )}
         >
             <TrendIcon />
-            {percentage(Math.abs(change), 0)}
+            <span>{percentage(Math.abs(change), 0)}</span>
         </span>
     )
 }

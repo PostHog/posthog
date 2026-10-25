@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -64,8 +64,24 @@ function SummaryCell({
 }
 
 export function PageDirectorySummary(): JSX.Element {
-    const { siteTotals, hasServerLogs } = useValues(pageDirectoryLogic)
+    const { siteTotals, siteTotalsError, hasServerLogs } = useValues(pageDirectoryLogic)
+    const { loadSiteTotals } = useActions(pageDirectoryLogic)
     const loading = !siteTotals
+
+    if (siteTotalsError) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    onClick: () => loadSiteTotals(true),
+                    'data-attr': 'page-reports-directory-summary-retry',
+                }}
+            >
+                Couldn't load site totals.
+            </LemonBanner>
+        )
+    }
     const visitors = siteTotals?.visitors?.current ?? 0
     const google = siteTotals?.googleSearch?.current ?? 0
     const ai = siteTotals?.aiReferrals?.current ?? 0

@@ -1474,9 +1474,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             actions.loadPages(searchTerm)
         },
         loadPages: ({ searchTerm }) => {
-            if (values.isDirectoryEnabled) {
-                return
-            }
             actions.loadPagesUrls({ searchTerm })
         },
         setDates: () => {
