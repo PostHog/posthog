@@ -185,7 +185,7 @@ describe('bootTiming', () => {
             navigationEntries: [
                 {
                     type: 'reload',
-                    nextHopProtocol: 'h3',
+                    nextHopProtocol: 'h2',
                     domainLookupStart: 5,
                     domainLookupEnd: 5,
                     connectStart: 5,
@@ -198,7 +198,7 @@ describe('bootTiming', () => {
             ],
             expected: {
                 navigation_type: 'reload',
-                next_hop_protocol: 'h3',
+                next_hop_protocol: 'h2',
                 dns_ms: 0,
                 connect_ms: null,
                 tls_ms: null,
