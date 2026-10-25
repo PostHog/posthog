@@ -55,7 +55,7 @@ ORDER BY sent DESC
 ### Step counters
 
 The workflow's own counters for one step, added up over every version, read with SQL.
-Use it when `posthog:workflows-version-stats` is not available, and for a broadcast or batch workflow, whose unversioned counters are keyed by each run.
+Use it when `posthog:workflows-version-stats` is not available, and for a broadcast or batch workflow, whose unversioned counters key on each run.
 It works whether or not the project captures engagement events.
 
 ```sql
@@ -72,13 +72,13 @@ GROUP BY metric_name
 ORDER BY metric_name
 ```
 
-Read opens and clicks against `email_sent` minus `email_untracked`. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing here, so those rates read slightly low. The versioned counters start on 2026-08-06 for sends and on 2026-09-01 for engagement: see "Versioned counters have start dates" in the skill.
+Divide opens and clicks by `email_sent` minus `email_untracked`. Deliveries, opens, clicks, bounces and complaints whose message lost its version are missing here, so those rates read slightly low. Start the window on or after the dates in "Versioned counters have start dates" in the skill.
 To read one version, replace the `startsWith` line with `app_source_id = concat({workflow_id}, '/', {version})`.
 
 ### Engagement by version
 
 One step's callbacks split by the version that sent them.
-Use it for openers and clickers per version. Report them as counts: the sent event carries no version, so no count of people sent exists per version. Per-version rates come from `posthog:workflows-version-stats` or the **Step counters** recipe, as occurrences over tracked sends.
+Use it for openers and clickers per version. Report them as counts, because the sent event carries no version, so no count of people sent exists per version. Per-version rates come from `posthog:workflows-version-stats` or the **Step counters** recipe, as occurrences over tracked sends.
 
 ```sql
 SELECT
@@ -106,8 +106,9 @@ A version that went live before the window can still show opens and clicks in it
 ### Clicked links
 
 Which links of one step get clicked, by position in the email and URL.
-It reads the per-link click counter, not the click events: the counter stores each web URL without its query string, with long token- and id-shaped path segments replaced by `*`.
-The click events keep the full URL, tokens included, so never group them by `$link_url`.
+It reads the per-link click counter instead of the click events.
+The counter stores each web URL without its query string, and replaces long token- and id-shaped path segments with `*`.
+The click events keep the full URL, tokens included, so group links only through this counter, never by `$link_url`.
 
 ```sql
 SELECT
@@ -126,14 +127,14 @@ ORDER BY clicks DESC
 LIMIT 50
 ```
 
-`clicks` are occurrences. It reads the versioned series, because that one is keyed by the workflow for broadcasts and batch runs too, so clicks whose message carried no version are missing. Start the window on or after 2026-09-01, when clicks began to carry a version. An earlier window reads as unknown, not as no clicks.
-Short personal path segments, such as a name in an invite link, and links without a host, such as `mailto:`, `tel:` and `sms:`, pass through unchanged: collapse them into one row in your report.
+`clicks` are occurrences. The recipe reads the versioned series, because only that series keys broadcasts and batch runs on the workflow. Clicks whose message carried no version are missing from it. Start the window on or after the engagement start date in "Versioned counters have start dates" in the skill. Report an earlier window as unknown.
+Short personal path segments, such as a name in an invite link, pass through unchanged, and so do links without a host, such as `mailto:`, `tel:` and `sms:`. Collapse each such group into one row in your report.
 For people per link, count distinct `person_id` on `$workflows_email_link_clicked` grouped by `$link_index` only. Clickers overlap across links, so never add them up into a count of people who clicked.
 
 ### Product outcome after the first send
 
 The people a step sent to in the window, and how many did the outcome event within `{outcome_days}` days after their first send in the window.
-The query reads only the recipients' events, so a common outcome event stays cheap.
+The query reads only the recipients' events, so its cost does not grow with how common the outcome event is.
 `recipients` counts only people whose whole outcome window has closed; `recipients_still_in_window` counts the rest, who have not had the time yet.
 
 ```sql
@@ -200,7 +201,7 @@ ORDER BY timestamp
 LIMIT 500
 ```
 
-If it returns 500 rows, the rest of the window is cut off: narrow the window and run it again.
+If it returns 500 rows, the limit cut off the rest of the window. Narrow the window and run it again.
 To see everything the person did after one email, drop the event condition and narrow the window to the day after that send.
 
-Unsubscribes are not in it: `$workflows_email_unsubscribed` uses the email address as its distinct ID, so it lands on a different person.
+It does not show unsubscribes. `$workflows_email_unsubscribed` uses the email address as its distinct ID, so it lands on a different person.
