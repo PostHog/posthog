@@ -412,17 +412,15 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     actionToUrl(() => {
-        const withInspectorParam = ({
-            open,
-        }: {
-            open: boolean
-        }): [string, Record<string, any>, Record<string, any>] => {
+        const withInspectorParam = (
+            payload: Record<string, any>
+        ): [string, Record<string, any>, Record<string, any>] => {
             const { currentLocation } = router.values
             return [
                 currentLocation.pathname,
                 {
                     ...currentLocation.searchParams,
-                    inspectorSideBar: open,
+                    inspectorSideBar: payload.open,
                 },
                 currentLocation.hashParams,
             ]
