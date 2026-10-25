@@ -37,9 +37,9 @@ tools:
             unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
             with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
             changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
-            confirmation. SQL repair suggestions replace only the saved view query. The server refuses the change if
-            the view revision changed after proposal. It keeps the schedule, incremental keys, permissions and output
-            schema unchanged.
+            confirmation. SQL repair suggestions replace only the saved view query. The server refuses the change if the
+            view revision changed after proposal. It keeps the schedule, incremental keys, permissions and output schema
+            unchanged.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
@@ -82,11 +82,11 @@ tools:
         list: true
         title: List warehouse suggestions
         description: >
-            Recommendations to certify, deprecate, materialize, repair or unmaterialize data warehouse views and
-            tables. Most suggestions use daily read data. An internal producer creates SQL repair suggestions after a
-            failed view refresh. Pass status=proposed for suggestions that need a decision. `payload` says what
-            acceptance changes. `can_act` says if the caller can edit the view or table. Accept, dismiss and resume need
-            this access. Certify and deprecate also need data catalog edit access. Use warehouse-suggestions-get for the
+            Recommendations to certify, deprecate, materialize, repair or unmaterialize data warehouse views and tables.
+            Most suggestions use daily read data. An internal producer creates SQL repair suggestions after a failed
+            view refresh. Pass status=proposed for suggestions that need a decision. `payload` says what acceptance
+            changes. `can_act` says if the caller can edit the view or table. Accept, dismiss and resume need this
+            access. Certify and deprecate also need data catalog edit access. Use warehouse-suggestions-get for the
             evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why.
             Results are in priority order. For unmaterialize, compare refresh_seconds_per_month with
             live_seconds_per_month and state read_seconds. For certify, use the read counts in `evidence`. For
