@@ -7,6 +7,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
 import structlog
+from trino.exceptions import HttpError
 
 from posthog.sync import database_sync_to_async_pool
 
@@ -25,7 +26,8 @@ TRINO_QUERY_SECONDS = 6 * 60 * 60
 # passing data between stages.
 TRANSIENT_TRINO_ERROR_NAMES = frozenset({"CLUSTER_OUT_OF_MEMORY", "TOO_MANY_REQUESTS_FAILED", "PAGE_TRANSPORT_TIMEOUT"})
 # The gateway refuses the request with an HTTP 403 before it reaches a cluster, so a retry cannot repeat any work.
-TRINO_POOL_NOT_ADMITTED_ERROR = "This tenant is not admitted to the pool yet"
+# This is the start of the error text the client builds from the gateway's response body.
+TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX = "error 403: b'This tenant is not admitted to the pool yet"
 TRANSIENT_TRINO_ERROR_RETRY_DELAYS_SECONDS = (2 * 60, 5 * 60)
 _executor = ThreadPoolExecutor(thread_name_prefix="trino-model")
 
@@ -115,7 +117,7 @@ async def run_trino_model(
 def is_transient_trino_error(error: BaseException) -> bool:
     if getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES:
         return True
-    return TRINO_POOL_NOT_ADMITTED_ERROR in str(error)
+    return isinstance(error, HttpError) and str(error).startswith(TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX)
 
 
 async def run_trino_model_with_retries(

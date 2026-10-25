@@ -4,7 +4,7 @@ import threading
 import pytest
 from unittest.mock import MagicMock, patch
 
-from trino.exceptions import HttpError, TrinoQueryError
+from trino.exceptions import HttpError, TrinoQueryError, TrinoUserError
 
 from products.managed_warehouse.backend import trino_execution as execution
 
@@ -84,6 +84,15 @@ async def test_reports_cpu_time() -> None:
         (TrinoQueryError({"errorName": "PAGE_TRANSPORT_TIMEOUT", "message": "Query killed"}), 2),
         (HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"), 2),
         (HttpError("error 403: b'Forbidden'"), 1),
+        (
+            TrinoUserError(
+                {
+                    "errorName": "COLUMN_NOT_FOUND",
+                    "message": "line 1:8: Column 'This tenant is not admitted to the pool yet' cannot be resolved",
+                }
+            ),
+            1,
+        ),
         (TrinoQueryError({"errorName": "EXCEEDED_LOCAL_MEMORY_LIMIT", "message": "Query killed"}), 1),
     ],
 )
