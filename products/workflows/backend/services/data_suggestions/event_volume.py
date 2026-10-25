@@ -14,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import Team
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 # Above this many events a week the counts are sampled. The estimate itself reads 1 in 100 events.
 FULL_SCAN_MAX_WEEKLY_EVENTS = 20_000_000
@@ -123,20 +124,22 @@ def _person_property_values(team: Team, keys: list[str], *, sampled: bool) -> tu
         query.select_from.sample = _sample(_ESTIMATE_SAMPLE_DENOMINATOR)
     response = _run_count(team, query, "workflows_data_suggestions_person_properties")
     row = (response.results or [[]])[0]
+    native_json = use_new_events_schema(team.pk, response.modifiers)
     values: dict[str, tuple[str, ...]] = {}
     found_any = False
     for index, key in enumerate(keys):
         seen, longest = row[2 * index : 2 * index + 2] or ([], None)
         found_any = found_any or bool(seen)
-        decoded = _decoded(seen or [])
+        decoded = list(seen or []) if native_json else _decoded(seen or [])
         if 0 < len(decoded) <= _MAX_BRANCH_VALUES and (longest or 0) <= _MAX_BRANCH_VALUE_LENGTH:
             values[key] = tuple(sorted(decoded))
     return values, found_any
 
 
 def _decoded(raw_values: Iterable[str]) -> list[str]:
-    # Person property reads strip the JSON quotes but keep escapes like `\"`, and a branch filter compares against the
-    # decoded value. A value that does not decode is left out, since its filter could never match.
+    # On the legacy events schema, person property reads strip the JSON quotes but keep escapes like `\"`, and a branch
+    # filter compares against the decoded value. A value that does not decode is left out, since its filter could
+    # never match. The native JSON schema returns decoded strings already.
     decoded = []
     for raw in raw_values:
         try:
