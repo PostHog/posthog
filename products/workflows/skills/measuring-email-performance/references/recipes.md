@@ -1,6 +1,7 @@
 # Email performance SQL recipes
 
 Run each recipe with `posthog:execute-sql`.
+The tool returns at most 500 rows, and 100 when a query sets no `LIMIT`, and it does not say when it cut rows. So a recipe that can return many rows sets `LIMIT 500`. When one returns exactly 500 rows, narrow the window, the runs or the versions, and run it again.
 **Step engagement**, **Engagement by version**, **Product outcome after the first send** and **One person's email history** read the captured `$workflows_email_*` events. They return nothing when no engagement events were captured for the workflow and window (see "Check the data exists" in the skill).
 The events carry the workflow id for every kind of workflow, broadcasts and batch runs included.
 
@@ -88,6 +89,7 @@ WHERE app_source = 'hog_flow'
     AND timestamp < {window_end}
 GROUP BY run_id, metric_name
 ORDER BY run_id, metric_name
+LIMIT 500
 ```
 
 Divide opens and clicks by `email_sent` minus `email_untracked`. `conversion` counts the whole workflow's conversions in the run, not this step's.
@@ -111,6 +113,7 @@ WHERE app_source = 'hog_flow_version'
     AND timestamp < {window_end}
 GROUP BY version, metric_name
 ORDER BY toInt(version), metric_name
+LIMIT 500
 ```
 
 Start the window on the day the oldest compared version went live, and on or after the dates in "Versioned counters have start dates" in the skill. A newer version has no rows before it went live.
@@ -241,7 +244,6 @@ ORDER BY timestamp
 LIMIT 500
 ```
 
-If it returns 500 rows, the limit cut off the rest of the window. Narrow the window and run it again.
 To see everything the person did after one email, drop the event condition and narrow the window to the day after that send.
 
 It does not show unsubscribes. `$workflows_email_unsubscribed` uses the email address as its distinct ID, so it lands on a different person.
