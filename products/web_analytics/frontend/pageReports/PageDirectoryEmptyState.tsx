@@ -15,8 +15,8 @@ export function PageDirectoryEmptyState(): JSX.Element | null {
     if (directoryState === 'no-matches') {
         return (
             <p className="text-secondary m-0 py-6 text-center">
-                No pages match "{search.trim()}" in this date range. Try a shorter search, or paste a full URL to open
-                its report.
+                No pages match "<span>{search.trim()}</span>" in this date range. Try a shorter search, or paste a full
+                URL to open its report.
             </p>
         )
     }
