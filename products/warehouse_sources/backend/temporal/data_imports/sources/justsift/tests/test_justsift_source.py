@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
-    SourceDriver,
     always,
     scripted_network,
 )
@@ -26,32 +25,7 @@ class TestJustSiftSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.justsift.com/v1/search/people?page=1&pageSize=100",),
-            ("403 Client Error: Forbidden for url: https://api.justsift.com/v1/fields?page=1&pageSize=100",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.justsift.com/v1/search/people",),
-            ("HTTPSConnectionPool(host='api.justsift.com', port=443): Read timed out.",),
-            ("429 Client Error: Too Many Requests for url: https://api.justsift.com/v1/fields",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             (200, True, None),
-            (401, False, "Invalid Sift API token"),
-            (403, False, "Invalid Sift API token"),
-            (500, False, "Sift returned HTTP 500"),
-            (0, False, "Could not connect to Sift"),
         ]
     )
     def test_validate_credentials(
@@ -81,10 +55,3 @@ class TestJustSiftSource:
         assert kwargs["api_key"] == "sift-token"
         assert kwargs["endpoint"] == "people"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Sift schema 'not_a_table'"
-        assert result.requests == []

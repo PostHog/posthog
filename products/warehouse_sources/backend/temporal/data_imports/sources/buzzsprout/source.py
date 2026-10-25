@@ -9,6 +9,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
+    BuzzsproutDownloadsCursor,
+    BuzzsproutResumeConfig,
     buzzsprout_source,
     validate_credentials as validate_buzzsprout_credentials,
 )
@@ -17,11 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
     build_endpoint_schemas,
@@ -34,7 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
+class BuzzsproutSource(
+    ResumableSource[BuzzsproutSourceConfig, BuzzsproutResumeConfig],
+    CursorSource[BuzzsproutDownloadsCursor],
+):
     codebase_detection = detect(env=("^BUZZSPROUT_",))
 
     api_docs_url = "https://github.com/Buzzsprout/buzzsprout-api"
@@ -51,7 +58,7 @@ class BuzzsproutSource(SimpleSource[BuzzsproutSourceConfig]):
             name=ExternalDataSourceType.BUZZSPROUT,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Buzzsprout",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Buzzsprout API token and podcast ID to sync your podcast data into the PostHog Data warehouse.
 
 You can find both your API token and podcast ID in your [Buzzsprout API settings](https://www.buzzsprout.com/my/profile/api).""",
@@ -105,14 +112,15 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Buzzsprout returns the full array on every request with no server-side timestamp filter, so
-        # an "incremental" sync would cost the same as a full refresh. Every endpoint has no
-        # incremental fields, so this ships full refresh only — merge on the primary key keeps
-        # mutable fields (e.g. total_plays) fresh.
+        # Buzzsprout's list endpoints return the full array on every request with no server-side
+        # timestamp filter, so an "incremental" sync would cost the same as a full refresh. Only
+        # `downloads`, which is requested one day at a time, has incremental fields. It re-reads its
+        # last days, so append would duplicate rows and it supports merge only.
         return build_endpoint_schemas(
             ENDPOINTS,
             INCREMENTAL_FIELDS,
             names,
+            merge_only=[endpoint for endpoint, config in BUZZSPROUT_ENDPOINTS.items() if config.incremental_fields],
             descriptions={
                 endpoint: config.description
                 for endpoint, config in BUZZSPROUT_ENDPOINTS.items()
@@ -120,6 +128,11 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
             },
             should_sync_default={
                 endpoint: config.should_sync_default for endpoint, config in BUZZSPROUT_ENDPOINTS.items()
+            },
+            default_incremental_lookback_seconds={
+                endpoint: config.default_incremental_lookback_seconds
+                for endpoint, config in BUZZSPROUT_ENDPOINTS.items()
+                if config.default_incremental_lookback_seconds is not None
             },
         )
 
@@ -132,11 +145,38 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
     ) -> tuple[bool, str | None]:
         return validate_buzzsprout_credentials(config.api_token, config.podcast_id)
 
-    def source_for_pipeline(self, config: BuzzsproutSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def cursor_class(self) -> type[BuzzsproutDownloadsCursor]:
+        return BuzzsproutDownloadsCursor
+
+    def merge_cursors(
+        self, current: BuzzsproutDownloadsCursor, candidate: BuzzsproutDownloadsCursor
+    ) -> BuzzsproutDownloadsCursor:
+        return max(current, candidate, key=lambda cursor: cursor.next_date)
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BuzzsproutResumeConfig]:
+        return ResumableSourceManager[BuzzsproutResumeConfig](inputs, BuzzsproutResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BuzzsproutSourceConfig,
+        resumable_source_manager: ResumableSourceManager[BuzzsproutResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return buzzsprout_source(
             api_token=config.api_token,
             podcast_id=config.podcast_id,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback
+            if inputs.should_use_incremental_field
+            else None,
+            # A full refresh rebuilds the table, so it starts from the first episode and keeps no cursor.
+            cursor_manager=self.get_cursor_manager(inputs)
+            if BUZZSPROUT_ENDPOINTS[inputs.schema_name].fan_out_over_days and inputs.should_use_incremental_field
+            else None,
         )

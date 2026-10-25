@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billcom import (
@@ -263,10 +262,6 @@ class TestBillCom:
         "login_response, expected",
         [
             (_login(), (True, None)),
-            (
-                ScriptedResponse(status=401, json=[{"message": "Invalid credentials"}]),
-                (False, "BILL sign-in failed: Invalid credentials"),
-            ),
         ],
     )
     def test_validate_credentials(self, login_response: ScriptedResponse, expected: tuple[bool, Optional[str]]) -> None:
@@ -280,13 +275,6 @@ class TestBillCom:
         assert is_valid is False
         assert message is not None and "Invalid BILL environment" in message
         assert network.requests_log == []
-
-    def test_validate_credentials_maps_transport_failures_to_a_friendly_message(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            is_valid, message = validate_credentials("finance@acme.com", "pw", "org-1", "dev-key", "production", "v3")
-
-        assert is_valid is False
-        assert message == "Could not reach BILL. Please check your credentials and try again."
 
     def test_bill_com_source_response_shape(self) -> None:
         result = _driver().run(

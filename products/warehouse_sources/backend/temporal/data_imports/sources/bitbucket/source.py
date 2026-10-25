@@ -57,7 +57,7 @@ class BitbucketSource(ResumableSource[BitbucketSourceConfig, BitbucketResumeConf
             name=ExternalDataSourceType.BITBUCKET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Atlassian Bitbucket Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["atlassian", "git", "ci"],
             caption="""Connect your Bitbucket Cloud workspace to sync repositories, pull requests, commits, pipelines, and more.
 
@@ -150,6 +150,19 @@ Your credentials need the **repository**, **pullrequest**, **pipeline**, **proje
             "Missing Bitbucket access token": "No Bitbucket access token is configured. Please update the source configuration.",
             "Missing Atlassian account email or API token": "The Atlassian account email or API token is missing. Please update the source configuration.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A BitbucketRetryableError (429 or any 5xx) that survives _fetch_page's tenacity retry is a
+        # Bitbucket-side outage. Temporal retries the activity and resume state keeps the page, so log
+        # it as a warning rather than track it as an exception. Mirrors GitHub's equivalent case.
+        #
+        # A requests.ReadTimeout that survives the same tenacity retry (which already catches it, along
+        # with the broader requests.ConnectionError) is a transient network blip, not a Bitbucket or
+        # customer problem — once Temporal retries the activity the failure is self-recovering the same
+        # way. Mirrors GitHub's identical classification of the same urllib3 wording. Only the read-timeout
+        # wording is matched here; an exhausted ConnectionError without it (e.g. "Connection reset by
+        # peer") still reaches error tracking as an exception.
+        return {"Bitbucket API error (retryable)", "Read timed out"}
 
     def _get_auth(self, config: BitbucketSourceConfig) -> BitbucketAuth:
         if config.auth_method.selection == "access_token":

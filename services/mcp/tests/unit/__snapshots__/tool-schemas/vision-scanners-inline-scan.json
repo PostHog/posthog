@@ -1,7 +1,12 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.",
+    "description": "Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.",
     "properties": {
+        "built_in": {
+            "description": "Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.\n\n* `summarize_recording` - Summarize recording",
+            "enum": ["summarize_recording"],
+            "type": "string"
+        },
         "model": {
             "default": "gemini-3-flash-preview",
             "description": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
@@ -9,7 +14,7 @@
             "type": "string"
         },
         "prompt": {
-            "description": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+            "description": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.",
             "maxLength": 20000,
             "type": "string"
         },
@@ -17,8 +22,7 @@
             "description": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here."
         },
         "scanner_type": {
-            "default": "monitor",
-            "description": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "description": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
             "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
@@ -32,6 +36,6 @@
             "type": "array"
         }
     },
-    "required": ["prompt", "session_ids"],
+    "required": ["session_ids"],
     "type": "object"
 }

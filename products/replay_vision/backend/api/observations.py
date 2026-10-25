@@ -60,6 +60,10 @@ from products.replay_vision.backend.models.replay_observation import (
     hydrate_for_serialization,
     jsonb_typeof,
 )
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
+    FeedDismissalReason,
+    ReplayObservationFeedDismissal,
+)
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
@@ -193,6 +197,18 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
             "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
             "right or wrong, or what it should have concluded."
         ),
+    )
+
+
+class ObservationFeedDismissalSerializer(serializers.Serializer):
+    """Why the calling user marked an observation not useful in What to watch."""
+
+    reason = serializers.ChoiceField(
+        choices=FeedDismissalReason.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional reason the observation was not useful. Omit or send null when the user gave none.",
     )
 
 
@@ -1197,6 +1213,46 @@ class ReplayObservationViewSet(
         observation = self.get_object()
         ReplayObservationView.objects.get_or_create(
             team_id=observation.team_id, observation=observation, user=request.user
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        methods=["POST"],
+        request=ObservationFeedDismissalSerializer,
+        responses={204: None},
+        description=(
+            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "showing it to that user. Sending it again replaces the reason."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: None},
+        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="feed_dismissal",
+        # Per-user state, like `viewed`, so read scope is enough.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def feed_dismissal(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationFeedDismissal.objects.filter(
+                team_id=observation.team_id, observation=observation, user=user
+            ).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        input_serializer = ObservationFeedDismissalSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        ReplayObservationFeedDismissal.objects.update_or_create(
+            team_id=observation.team_id,
+            observation=observation,
+            user=user,
+            defaults={"reason": input_serializer.validated_data["reason"]},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 

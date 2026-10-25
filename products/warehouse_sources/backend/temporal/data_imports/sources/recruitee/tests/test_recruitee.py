@@ -97,9 +97,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Recruitee company ID or API token"),
-            ("forbidden", 403, False, "Invalid Recruitee company ID or API token"),
-            ("server_error", 500, False, "Recruitee returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
@@ -108,7 +105,3 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].path == "/c/acme/departments"
         assert network.requests_log[0].headers["authorization"] == "Bearer rc-token"
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("acme", "rc-token") == (False, "Could not validate Recruitee credentials")

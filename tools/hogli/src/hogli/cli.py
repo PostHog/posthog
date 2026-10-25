@@ -202,7 +202,8 @@ def cli(ctx: click.Context) -> None:
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
-        _auto_update_manifest()
+        if not telemetry.is_ci():
+            _auto_update_manifest()
         # telemetry:on still shows the notice (it arms tracking by setting
         # first_run_notice_shown); only off/status suppress it.
         if ctx.invoked_subcommand not in {"telemetry:off", "telemetry:status"}:

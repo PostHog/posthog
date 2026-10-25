@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     Script,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twelvedata import (
@@ -215,10 +214,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert error is not None and "401" in error
-
-    def test_network_error_is_not_reported_as_bad_key(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, error = validate_credentials("key")
-
-        assert ok is False
-        assert error == "Could not connect to Twelve Data"

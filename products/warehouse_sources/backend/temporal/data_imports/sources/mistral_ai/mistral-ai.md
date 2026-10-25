@@ -4,7 +4,6 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: MistralAI
-beta: true
 ---
 
 <!--
@@ -17,9 +16,6 @@ posthog.com checkout to drop it into — copy it over and delete this note.
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 Sync your [Mistral AI](https://mistral.ai) platform data into PostHog: available and fine-tuned models,
 uploaded files, fine-tuning jobs, and batch inference jobs (plus beta agents, conversations and their

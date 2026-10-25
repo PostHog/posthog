@@ -80,6 +80,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
             team=self.team,
             user=self.user,
             query_type="WebAnalyticsPageURLSearch",
+            modifiers=self.modifiers,
             context=HogQLContext(
                 team_id=self.team.pk,
                 timings=self.timings,

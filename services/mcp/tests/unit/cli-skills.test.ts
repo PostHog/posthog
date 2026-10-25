@@ -65,4 +65,14 @@ describe('CLI skill installer', () => {
         await expect(installSkill('../../../outside', { cwd: dir, force: true })).rejects.toThrow('Invalid skill ID')
         await expect(fs.access(path.join(dir, 'outside'))).rejects.toMatchObject({ code: 'ENOENT' })
     })
+
+    it('refuses to follow a symlinked .agents directory out of the working directory', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-cli-skills-'))
+        const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-cli-outside-'))
+        await fs.symlink(outside, path.join(dir, '.agents'))
+        mockSkillArchive([skillEntry('test-skill')])
+
+        await expect(installSkill('test-skill', { cwd: dir })).rejects.toThrow('Refusing to write outside')
+        await expect(fs.readdir(outside)).resolves.toEqual([])
+    })
 })

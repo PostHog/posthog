@@ -126,7 +126,7 @@ class VultrSource(SimpleSource[VultrSourceConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/vultr",
             iconPath="/static/services/vultr.svg",
             keywords=["cloud", "infrastructure", "billing", "compute"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

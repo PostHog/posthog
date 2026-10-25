@@ -23,12 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.electricit
     ElectricityMapsResumeConfig,
     electricity_maps_source,
     invalid_zones,
+    parse_pricing_nodes,
     parse_zones,
     validate_credentials as validate_electricity_maps_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.electricity_maps.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LOCATIONAL_MARGINAL_PRICE_DAY_AHEAD,
+    NODE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.electricitymaps import (
     ElectricityMapsSourceConfig,
@@ -54,6 +57,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
             "401 Client Error": "Electricity Maps rejected your API token. Check the token in the Electricity Maps portal and reconnect the source.",
             "403 Client Error": "Your Electricity Maps token does not have access to a configured zone or the requested history range. Check your plan in the Electricity Maps portal.",
             "404 Client Error": "Electricity Maps does not recognize one of the configured zones. Check the zone identifiers in the source settings.",
+            "No Electricity Maps pricing nodes configured": "Add at least one pricing node in the source settings to sync day-ahead locational marginal prices.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -72,7 +76,13 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Locational marginal prices need pricing nodes, which most users won't have configured.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={LOCATIONAL_MARGINAL_PRICE_DAY_AHEAD: False},
+        )
 
     def validate_credentials(
         self,
@@ -93,11 +103,29 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
                 "Enter comma-separated zone codes, like DE, DK-DK1, US-CAL-CISO.",
             )
 
+        if schema_name in NODE_ENDPOINTS and not parse_pricing_nodes(config.pricing_nodes):
+            return False, "Enter at least one pricing node, like CORTINA_1_N106, to sync locational marginal prices."
+
         return validate_electricity_maps_credentials(config.api_token, zones)
 
+    def get_endpoint_permissions(
+        self,
+        config: ElectricityMapsSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        has_pricing_nodes = bool(parse_pricing_nodes(config.pricing_nodes))
+        return {
+            endpoint: "Add at least one pricing node in the source settings to sync this table."
+            if endpoint in NODE_ENDPOINTS and not has_pricing_nodes
+            else None
+            for endpoint in endpoints
+        }
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ElectricityMapsResumeConfig]:
-        # carbon_intensity and power_breakdown each keep their own (window, zone) cursor, so a
-        # retry that switches endpoints can't load the other endpoint's resume state.
+        # Each endpoint keeps its own (window, zone) cursor, so a retry that switches
+        # endpoints can't load another endpoint's resume state.
         return ResumableSourceManager[ElectricityMapsResumeConfig](inputs, ElectricityMapsResumeConfig).with_namespace(
             inputs.schema_name
         )
@@ -120,6 +148,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
             if inputs.should_use_incremental_field
             else None,
             history_days=config.history_days,
+            pricing_nodes=parse_pricing_nodes(config.pricing_nodes),
         )
 
     @property
@@ -131,11 +160,13 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
             caption="Enter your Electricity Maps API token, created in the "
             "[Electricity Maps portal](https://portal.electricitymaps.com/).\n\n"
             "Zones is a comma-separated list of zone identifiers to sync, like `DE, DK-DK1, US-CAL-CISO`. "
-            "Zone access and history depth depend on your Electricity Maps plan.",
+            "Zone access and history depth depend on your Electricity Maps plan.\n\n"
+            "Pricing nodes is an optional comma-separated list of United States pricing node identifiers, "
+            "like `CORTINA_1_N106`. It's only needed for the day-ahead locational marginal price table.",
             keywords=["carbon intensity", "grid", "electricity map"],
             docsUrl="https://posthog.com/docs/cdp/sources/electricity-maps",
             iconPath="/static/services/electricity_maps.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -153,6 +184,14 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="DE, DK-DK1, US-CAL-CISO",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="pricing_nodes",
+                        label="Pricing nodes",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="CORTINA_1_N106",
                         secret=False,
                     ),
                     SourceFieldInputConfig(

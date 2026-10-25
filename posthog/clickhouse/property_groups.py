@@ -240,18 +240,14 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
 
 
 # Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is left out because a
-# $feature/* map would copy a large share of each flag call's JSON. No column on this table family carries a CODEC.
-# hidden=True stops HogQL from reading the maps, so it reads the JSON until every environment has the columns.
+# $feature/* map would copy a large share of each flag call's JSON. HogQL therefore reads $feature/* keys from the
+# JSON on this table. No column on this table family carries a CODEC.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {
-        "custom": dataclasses.replace(
-            event_property_group_definitions["properties"]["custom"], codec=None, hidden=True
-        ),
+        "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
     },
     "person_properties": {
-        "custom": dataclasses.replace(
-            event_property_group_definitions["person_properties"]["custom"], codec=None, hidden=True
-        ),
+        "custom": dataclasses.replace(event_property_group_definitions["person_properties"]["custom"], codec=None),
     },
 }
 

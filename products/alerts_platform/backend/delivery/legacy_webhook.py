@@ -38,3 +38,13 @@ def body_for(source: SourceKind) -> LegacyWebhookBody | None:
 def keeps_legacy_webhook_body(team: Team) -> bool | None:
     """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
     return team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
+
+
+def native_sends_legacy_body(source: SourceKind, team: Team) -> bool | None:
+    """Whether native delivery sends this team the webhook body its source's HogFunction sent. None when unknown.
+
+    A source that registered no body gets the platform body natively, whatever the flag says.
+    """
+    if body_for(source) is None:
+        return False
+    return keeps_legacy_webhook_body(team)

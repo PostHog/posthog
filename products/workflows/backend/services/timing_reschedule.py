@@ -2,15 +2,11 @@ from typing import Optional
 
 import structlog
 
-from products.workflows.backend.utils.durations import (
-    MAX_VALUE_FOR_DURATION_UNIT,
-    SECONDS_PER_DURATION_UNIT,
-    parse_duration,
-)
+from products.workflows.backend.utils.durations import SECONDS_PER_DURATION_UNIT, ceilings_for_field, parse_duration
 
 logger = structlog.get_logger(__name__)
 
-# Steps whose parked runs a timing edit can strand: delays park up to 30 days out and time
+# Steps whose parked runs a timing edit can strand: delays park up to a year out and time
 # windows up to a week. A wait_until_condition parks for its whole max_wait_duration, so the
 # sweep is what stops a shortened one stranding runs.
 TIMING_ACTION_TYPES = {"delay", "wait_until_time_window", "wait_until_condition"}
@@ -23,13 +19,13 @@ MAX_RESCHEDULE_ACTION_IDS = 100
 _TIME_WINDOW_CONFIG_KEYS = ("day", "time", "timezone", "use_person_timezone", "fallback_timezone")
 
 
-def parse_delay_duration_seconds(value: object) -> Optional[float]:
+def parse_delay_duration_seconds(value: object, field: str = "delay_duration") -> Optional[float]:
     """Seconds the worker will actually wait, with the per-unit clamps applied first so a 45d -> 35d
-    edit (both clamped to 30d) does not trigger a pointless sweep."""
+    wait edit (both clamped to 30d) does not trigger a pointless sweep."""
     parsed = parse_duration(value)
     if parsed is None or parsed.negative:
         return None
-    return min(parsed.amount, MAX_VALUE_FOR_DURATION_UNIT[parsed.unit]) * SECONDS_PER_DURATION_UNIT[parsed.unit]
+    return min(parsed.amount, ceilings_for_field(field)[parsed.unit]) * SECONDS_PER_DURATION_UNIT[parsed.unit]
 
 
 def get_all_timing_action_ids(actions: Optional[list[dict]]) -> list[str]:
@@ -105,8 +101,8 @@ def get_timing_reschedule_action_ids(
         after_config = action.get("config") or {}
         if after_type in ("delay", "wait_until_condition"):
             duration_key = "delay_duration" if after_type == "delay" else "max_wait_duration"
-            before_seconds = parse_delay_duration_seconds(before_config.get(duration_key))
-            after_seconds = parse_delay_duration_seconds(after_config.get(duration_key))
+            before_seconds = parse_delay_duration_seconds(before_config.get(duration_key), duration_key)
+            after_seconds = parse_delay_duration_seconds(after_config.get(duration_key), duration_key)
             if before_seconds is None or after_seconds is None:
                 if before_config.get(duration_key) != after_config.get(duration_key):
                     action_ids.add(action["id"])

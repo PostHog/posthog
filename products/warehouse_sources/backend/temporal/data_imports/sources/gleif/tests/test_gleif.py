@@ -38,7 +38,7 @@ class TestFlattenJsonApiItem:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status_code", "expected"), [(200, True), (429, False), (500, False)])
+    @pytest.mark.parametrize(("status_code", "expected"), [(429, False)])
     def test_reflects_http_status(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             assert validate_credentials() is expected

@@ -17,6 +17,15 @@ REVIEW_CYCLE_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "review_cycle_id"},
 )
 
+# Tasks and custom attributes are only listed per user, so they fan out over `/v1/users`.
+USER_FANOUT = DependentEndpointConfig(
+    parent_name="users",
+    resolve_param="user_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "user_id"},
+)
+
 
 @dataclass(frozen=False)
 class LatticeEndpointConfig:
@@ -79,6 +88,19 @@ LATTICE_ENDPOINTS: dict[str, LatticeEndpointConfig] = {
     "updates": LatticeEndpointConfig(
         name="updates",
         path="/v1/updates",
+    ),
+    "user_tasks": LatticeEndpointConfig(
+        name="user_tasks",
+        path="/v1/user/{user_id}/tasks",
+        primary_keys=["user_id", "id"],
+        fanout=USER_FANOUT,
+    ),
+    "user_custom_attributes": LatticeEndpointConfig(
+        name="user_custom_attributes",
+        path="/v1/user/{user_id}/customAttributes",
+        # Rows only nest the attribute and value objects, so their ids are lifted into top-level key columns.
+        primary_keys=["user_id", "custom_attribute_id", "custom_attribute_value_id"],
+        fanout=USER_FANOUT,
     ),
 }
 

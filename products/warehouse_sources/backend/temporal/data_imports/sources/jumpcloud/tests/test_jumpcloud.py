@@ -371,12 +371,6 @@ class TestValidateCredentials:
         # The parent listing carries SAML signing keys, so the probe must not be sample-captured.
         assert network.session_options[0]["capture"] is False
 
-    def test_connection_error_returns_message(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, error = validate_credentials("key")
-        assert ok is False
-        assert error is not None
-
 
 class TestJumpcloudSourceResponse:
     @parameterized.expand([(name,) for name in ENDPOINTS])

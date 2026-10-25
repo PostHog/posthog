@@ -34,6 +34,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.CONNECTION_FAILED, True),
             (CDCErrorCategory.HOST_UNREACHABLE, False),
             (CDCErrorCategory.QUOTA_EXCEEDED, False),
+            (CDCErrorCategory.POOLER_TENANT_NOT_FOUND, False),
             (CDCErrorCategory.SLOT_MISSING, False),
             (CDCErrorCategory.SLOT_NOT_CONFIGURED, False),
             (CDCErrorCategory.PUBLICATION_MISSING, False),

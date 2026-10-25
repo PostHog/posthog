@@ -1,11 +1,10 @@
-import re
 from typing import Literal
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
 from posthog.dataclasses import frozen
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_token_session
-from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.personal_api_key import find_personal_api_key, looks_like_legacy_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import (
     OAUTH_ACCESS_TOKEN_PREFIX,
@@ -108,7 +107,7 @@ _REVOKERS = {
 #
 # Personal API keys are the one exception: those issued before the prefix existed have
 # none, so the map alone would leave the fleet's oldest keys unrevocable.
-# _looks_like_legacy_personal_api_key covers them by shape instead. That widens what
+# looks_like_legacy_personal_api_key covers them by shape instead. That widens what
 # reaches the personal-key lookup — any 43-character URL-safe string qualifies,
 # including legacy unprefixed Team.api_token values, which simply miss. That shape
 # check only narrows *which* strings pay the expensive lookup, not how many times a
@@ -140,26 +139,11 @@ NON_PERSONAL_SECRET_PREFIXES = (
 )
 
 
-_LEGACY_PERSONAL_API_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
-
-
-def _looks_like_legacy_personal_api_key(token: str) -> bool:
-    """Personal API keys created before the phx_ prefix (2021-06-23, commit
-    6c9bb2db0fb) are bare secrets.token_urlsafe(32) output: exactly 43 URL-safe
-    base64 characters, no prefix. They're still valid today — PERSONAL_API_KEY_MODES_TO_TRY
-    exists specifically to authenticate them via their legacy hash. This exact
-    length+charset check keeps auto-detect's cost bound intact: only a token
-    matching this precise shape reaches the expensive personal-key lookup,
-    not every unrecognized string.
-    """
-    return bool(_LEGACY_PERSONAL_API_KEY_PATTERN.match(token))
-
-
 def _detect_canonical_type(token: str) -> str | None:
     for prefix, canonical_type in _PREFIX_TO_CANONICAL_TYPE.items():
         if token.startswith(prefix):
             return canonical_type
-    if _looks_like_legacy_personal_api_key(token):
+    if looks_like_legacy_personal_api_key(token):
         return CANONICAL_PERSONAL_API_KEY
     return None
 

@@ -1,9 +1,7 @@
 import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -77,9 +75,6 @@ describe('dataCatalogMetricSceneLogic', () => {
         initKeaTests()
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-        })
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
     })
 
@@ -277,18 +272,6 @@ describe('dataCatalogMetricSceneLogic', () => {
         logic.actions.renameMetric('wau')
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams.tab).toBe('data-quality')
-    })
-
-    // The metric check endpoints are gated on the same flag, so a link to the tab from a project
-    // outside the rollout has to land on Definition. Otherwise the panel mounts against endpoints
-    // that reject every request.
-    it('refuses the data quality tab while the data quality flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'data-quality' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.metricChecksEnabled).toBe(false)
-        expect(logic.values.activeTab).toBe('definition')
-        expect(router.values.searchParams.tab).toBeUndefined()
     })
 
     it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(

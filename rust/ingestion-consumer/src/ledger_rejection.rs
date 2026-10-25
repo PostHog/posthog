@@ -41,16 +41,17 @@ impl RejectedSlice {
     }
 }
 
-/// Log one charge or settlement the ledger rejected. A stale slice is
-/// expected around a rebalance and stays quiet; a violation is a bug in the
-/// accounting and names the slice. Callers must build `slice` inside their
-/// error arm so the happy path pays nothing for it.
-pub(crate) fn warn_rejection(
+/// Log one charge or settlement the ledger rejected, and fail on a violation:
+/// the ledger reset the partition, so only a replay from the last commit keeps
+/// its in-flight offsets. A stale slice is expected around a rebalance and stays
+/// quiet. Callers must build `slice` inside their error arm so the happy path
+/// pays nothing for it.
+pub(crate) fn report_rejection(
     stage: &'static str,
     topic_partition: &TopicPartition,
     rejection: Rejection,
     slice: RejectedSlice,
-) {
+) -> anyhow::Result<()> {
     let Rejection::Violation {
         error,
         stamp,
@@ -58,7 +59,7 @@ pub(crate) fn warn_rejection(
         held,
     } = rejection
     else {
-        return;
+        return Ok(());
     };
     // A tracing field name is fixed at the call site, so each variant needs
     // its own `warn!`.
@@ -95,4 +96,9 @@ pub(crate) fn warn_rejection(
             "Offset ledger rejected a slice and reset its partition"
         ),
     }
+    Err(anyhow::anyhow!(
+        "offset ledger rejected a {stage} on {}/{}: {error}",
+        topic_partition.topic,
+        topic_partition.partition
+    ))
 }
