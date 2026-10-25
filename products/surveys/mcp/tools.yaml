@@ -42,6 +42,7 @@ tools:
             can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and
             a hosted survey shows them on its public page. Tell the user before putting a customer name or other private
             detail in a survey.
+            If you have browser access, preview the draft survey and check its appearance before launch.
         include_params:
             - name
             - description
@@ -216,6 +217,7 @@ tools:
             anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's
             browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or
             other private detail in a survey.
+            If you have browser access, preview the updated survey and check its appearance.
         include_params:
             - id
             - name

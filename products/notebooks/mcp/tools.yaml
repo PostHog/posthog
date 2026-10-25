@@ -83,6 +83,7 @@ tools:
             into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content
             as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data
             analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.
+            If you have browser access, check how the saved notebook renders once its content is ready.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
@@ -232,6 +233,7 @@ tools:
             Retrieve the notebook first to get the latest version. If the notebook content is a single
             ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
             replacing it with legacy rich-text blocks.
+            If you have browser access, check how the updated notebook renders.
         exclude_params:
             - _create_in_folder
         param_overrides:
@@ -363,6 +365,7 @@ tools:
             the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a
             list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared
             version; pass a version UUID to pin this placement.
+            If you have browser access, check that the widget renders in the notebook.
         response:
             exclude:
                 - artifact_url

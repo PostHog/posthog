@@ -193,6 +193,7 @@ tools:
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`. Stage a draft with canvas-draft-create only when the user asked for a draft or a
             review step.
+            If you have browser access, check the canvas after its build is ready.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -237,6 +238,7 @@ tools:
             again. To fill a drawn box: update_placement with changes {status: "live", component: <component canvas id>,
             config: {...}}. The component must be published (canvas-list kind=component shows component_meta and
             published_build_id) and the config must match its configSchema.
+            If you have browser access, check the live canvas layout.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
@@ -258,6 +260,7 @@ tools:
             immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
             the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
             the document on the new head, and publish again.
+            If you have browser access, check the live canvas layout.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
@@ -361,6 +364,7 @@ tools:
             finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`.
+            If you have browser access, check the canvas after its build is ready.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.

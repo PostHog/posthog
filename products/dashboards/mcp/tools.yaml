@@ -32,6 +32,7 @@ tools:
             an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search
             notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few
             metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.
+            When you finish building it, use a browser if available to check how the saved dashboard renders.
         agent_note:
             If you have not loaded the building-a-dashboard skill in this conversation, load it now, before you add
             tiles. Consider offering the user a recurring delivery of this dashboard as a next step, but only when the
@@ -152,6 +153,7 @@ tools:
             call metric-list and metric-describe. If no governed definition exists, use data-catalog-metric-create
             instead of writing the definition in `agent_context`. Authenticated dashboard APIs return agent context;
             shared and exported dashboards omit it.
+            If you have browser access, check that the saved tile renders and fits the dashboard layout.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -338,6 +340,7 @@ tools:
             each tile's `layouts` with dashboard-update instead. This tool repacks only the tiles in `tile_order`. To
             repack the whole dashboard, include every tile ID. Tiles omitted from `tile_order` keep their positions and
             can overlap the repacked tiles. This tool does not set different sizes or positions for individual tiles.
+            If you have browser access, check the resulting layout on the saved dashboard.
     dashboard-templates-list:
         operation: dashboard_templates_list
         enabled: true
@@ -458,6 +461,7 @@ tools:
             on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use
             dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use
             dashboard-insights-run to fetch the actual data for each insight.
+            If you have browser access, check the saved dashboard's layout and visible tiles.
         exclude_params:
             - creation_mode
             - is_shared
@@ -562,6 +566,7 @@ tools:
             Data Catalog is the semantic layer. Use data-catalog-metric-create or data-catalog-metric-update for
             canonical metric definitions instead of writing them in `agent_context`. Only the fields you provide are
             updated; omitted fields are left unchanged.
+            If you have browser access, check that the saved tile renders as intended.
         param_overrides:
             id:
                 cast: string-int
@@ -602,6 +607,7 @@ tools:
             field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
             omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles —
             to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).
+            If you have browser access, check that the saved widgets render in the dashboard layout.
         param_overrides:
             id:
                 cast: string-int
@@ -626,6 +632,7 @@ tools:
             All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use
             dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add;
             to remove one, use dashboard-delete-tile.
+            If you have browser access, check that the saved widgets render as intended.
         param_overrides:
             id:
                 cast: string-int
