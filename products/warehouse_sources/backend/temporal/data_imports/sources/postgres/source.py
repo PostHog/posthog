@@ -403,12 +403,18 @@ _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, t
 # sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
 # bastion could not open a channel to the database host and port, or it refuses port forwarding
 # altogether. Its own wording names neither, so it leaves the user nothing to act on.
+# `_connected_ssh_tunnel` already retries this error (it subclasses `BaseSSHTunnelForwarderError`
+# the same as `_SSH_GATEWAY_SESSION_ERROR` above) for ~14 seconds before it escapes here, so what
+# reaches the sync path is the same deterministic, gateway-configuration class as its siblings —
+# not a blip that a longer retry budget would clear.
 _SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
-_SSH_FORWARD_FAILED_MESSAGE = (
+_SSH_FORWARD_FAILED_GUIDANCE = (
     "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
     "the database host and port are reachable from the SSH server, and that the server allows port "
-    "forwarding."
+    "forwarding"
 )
+_SSH_FORWARD_FAILED_MESSAGE = f"{_SSH_FORWARD_FAILED_GUIDANCE}."
+_SSH_FORWARD_FAILED_SYNC_MESSAGE = f"{_SSH_FORWARD_FAILED_GUIDANCE}, then re-enable the sync."
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
@@ -1176,6 +1182,11 @@ class PostgresSource(
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
+            # The sync path has no dedicated handling for this sibling of the gateway-session error
+            # above, so it fell through to the default activity retry and got logged to error
+            # tracking on every attempt. `validate_credentials` already maps it to
+            # `_SSH_FORWARD_FAILED_MESSAGE` at setup time; mirror it here with the sync-path wording.
+            _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_SYNC_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so

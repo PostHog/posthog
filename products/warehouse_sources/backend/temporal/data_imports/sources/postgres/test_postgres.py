@@ -606,6 +606,21 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "an unreachable SSH gateway must surface an actionable message"
         assert "re-enable the sync" in matches[0].lower()
 
+    def test_ssh_forward_failure_is_non_retryable_and_tells_customer_to_re_enable(self, source):
+        # `_connected_ssh_tunnel` already retries this error for ~14 seconds, so what reaches the
+        # sync path is the same deterministic gateway-configuration class as the session-error
+        # sibling above, not a blip. Without this entry it fell through to the default activity
+        # retry and was logged to error tracking on every attempt.
+        error_msg = "HandlerSSHTunnelForwarderError: An error occurred while opening tunnels."
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "a failed SSH port forward must be classified non-retryable"
+        assert matches[0] is not None, "a failed SSH port forward must surface an actionable message"
+        assert "re-enable the sync" in matches[0].lower()
+
     @pytest.mark.parametrize(
         ("error_msg", "reason_code", "expected_word"),
         [
