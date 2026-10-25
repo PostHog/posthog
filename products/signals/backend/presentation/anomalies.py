@@ -21,6 +21,7 @@ from posthog.auth import (
     SessionAuthentication,
     is_mcp_request,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import APIScopePermission, is_service_auth
@@ -41,6 +42,12 @@ ANOMALIES_SEARCH_FLAG = "anomalies-search"
 READ_EVENT = "anomaly search read"
 # Bounds the work of filling unscored buckets: an hourly series has 24 buckets a day.
 MAX_RANGE = datetime.timedelta(days=366)
+
+
+@frozen
+class _DateRange:
+    date_from: datetime.datetime
+    date_to: datetime.datetime
 
 
 class ProjectDateTimeField(serializers.DateTimeField):
@@ -347,7 +354,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             },
         )
 
-    def _date_range(self, query: dict[str, Any], now: datetime.datetime) -> tuple[datetime.datetime, datetime.datetime]:
+    def _date_range(self, query: dict[str, Any], now: datetime.datetime) -> _DateRange:
         timezone_info = self.team.timezone_info
         try:
             date_from = relative_date_parse(query["date_from"], timezone_info, now=now)
@@ -359,7 +366,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"date_from": "date_from must be before date_to."})
         if date_to - date_from > MAX_RANGE:
             raise ValidationError({"date_from": "The range can be at most 366 days."})
-        return date_from, date_to
+        return _DateRange(date_from=date_from, date_to=date_to)
 
     def _capture_read(self, request: Request, endpoint: str, **properties: Any) -> None:
         report_user_action(
@@ -380,10 +387,10 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = self._user(request)
         query = request.validated_query_data
         now = timezone.now()
-        date_from, date_to = self._date_range(query, now)
+        date_range = self._date_range(query, now)
         filters = SearchFilters(
-            date_from=date_from,
-            date_to=date_to,
+            date_from=date_range.date_from,
+            date_to=date_range.date_to,
             insight_id=query.get("insight_id"),
             dashboard_id=query.get("dashboard_id"),
             interval=IntervalType(query["interval"]) if query.get("interval") else None,
@@ -409,8 +416,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "scoring_enabled": result.scoring_enabled,
                     "watched_insights": result.watched_insights,
                     "insights_scored_in_range": result.insights_scored_in_range,
-                    "date_from": date_from,
-                    "date_to": date_to,
+                    "date_from": date_range.date_from,
+                    "date_to": date_range.date_to,
                     "group_by": filters.group_by,
                     "series": result.series,
                     "insights": result.insights,
@@ -433,14 +440,14 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = self._user(request)
         query = request.validated_query_data
         now = timezone.now()
-        date_from, date_to = self._date_range(query, now)
+        date_range = self._date_range(query, now)
         history = insight_history(
             self.team,
             user,
             HistoryFilters(
                 insight_id=query["insight_id"],
-                date_from=date_from,
-                date_to=date_to,
+                date_from=date_range.date_from,
+                date_to=date_range.date_to,
                 series_key=query.get("series_key"),
                 include_buckets=query["include_buckets"],
                 include_warmup=query["include_warmup"],
@@ -467,8 +474,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "detector": history.detector,
                     "detector_version": history.detector_version,
                     "rollup": history.rollup,
-                    "date_from": date_from,
-                    "date_to": date_to,
+                    "date_from": date_range.date_from,
+                    "date_to": date_range.date_to,
                     "series": history.series,
                     "truncated": history.truncated,
                     "message": history.message,
