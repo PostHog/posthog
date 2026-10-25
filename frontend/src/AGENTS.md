@@ -2,7 +2,7 @@
 
 Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
 
-Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`product-design.md`](./product-design.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike.
+Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`platform-ux.md`](./platform-ux.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike. Only the platform UX team changes the nav rail.
 
 ## Rule 1 — Reuse before you create
 

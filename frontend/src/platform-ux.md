@@ -1,9 +1,11 @@
 ---
-name: posthog-product-design
-description: Use when building new UI, editing existing UI, or when a task asks to simplify or redesign a surface. Covers the product design rules that decide what a surface shows and when. Applies to LemonUI and Quill alike.
+name: posthog-platform-ux
+description: Use when building new UI, editing existing UI, or when a task asks to simplify or redesign a surface. Covers the platform UX rules that decide what a surface shows and when, and the surfaces only the platform UX team changes. Applies to LemonUI and Quill alike.
 ---
 
-# Product design at PostHog
+# Platform UX at PostHog
+
+The platform UX team owns this file. Ask in `#team-platform-ux` before you change a rule here.
 
 This file decides _what_ a surface shows and _when_.
 [`design.md`](./design.md) decides _how_ it looks on Quill: components, tokens and states.
@@ -66,8 +68,38 @@ People who need more control dig deeper; everyone else is not overwhelmed.
 | Collapsed "Advanced" fields | `LemonCollapse`                                       | `Collapsible`                               |
 | Show the rest of a list     | A "Show N more" `LemonButton` below the visible items | A "Show N more" `Button` below the items    |
 
+## Rule 2 — The nav rail belongs to the platform UX team
+
+The nav rail is the column of icons at the left edge of the web app behind `today-rail-nav`.
+It holds Home, Chats, Analytics, Products, More, Settings and the account menu.
+The platform UX team owns it.
+Only that team changes it.
+
+These files make up the rail:
+
+- `layout/today/TodayRail.tsx`
+- `layout/today/TodayRailTile.tsx`
+- `layout/today/todayRailItems.tsx`
+- `layout/today/TodayMoreMenu.tsx`
+- `layout/today/todayRailSeverity.ts` and `layout/today/todayRailStatusLogic.ts`
+
+A change to the rail includes:
+
+- Adding, removing, renaming or reordering a rail item, including an item in the "More" menu.
+- Changing a rail icon, label, width, spacing or active state.
+- Changing what a rail item opens.
+
+Only change the rail for a person on the platform UX team.
+When a task asks for a rail change, ask the person whether they are on that team.
+If they are not, stop and tell them to ask in `#team-platform-ux`.
+A product that wants more visibility goes in the Products pane, not on the rail.
+
+`owners.yaml` requests a review from the platform UX team on every change to these files, however small.
+A PR that changes the rail needs their approval before it merges.
+
 ## Review before handoff
 
 - Count the top-level items in every menu and toolbar you touched.
 - Open each "More" and "Advanced" area and confirm that every hidden item still works with the keyboard.
 - Confirm that a first-time user can finish the primary task without opening a "More" or "Advanced" area.
+- Confirm that the diff does not touch a nav rail file, unless you are on the platform UX team.
