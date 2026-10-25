@@ -78,7 +78,7 @@ function PageDirectoryContent(): JSX.Element {
             )}
             <p className="m-0 text-xs text-secondary">
                 Images, scripts and other static files are hidden. Path cleaning is{' '}
-                {isPathCleaningEnabled ? 'on, so similar paths are grouped' : 'off'}.
+                <span>{isPathCleaningEnabled ? 'on, so similar paths are grouped' : 'off'}</span>.
             </p>
         </div>
     )
