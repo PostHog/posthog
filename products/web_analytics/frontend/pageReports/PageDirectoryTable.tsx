@@ -18,8 +18,8 @@ import { PageDirectoryMetricCell } from './PageDirectoryMetricCell'
 import { pageReportPath, pageReportUrlForPage, splitPageKey } from './pageReportsUtils'
 
 const NARROW_WIDTH = 560
-const COMPACT_WIDTH = 800
-const MEDIUM_WIDTH = 960
+const COMPACT_WIDTH = 900
+const MEDIUM_WIDTH = 1200
 
 export function PageDirectoryTable(): JSX.Element {
     const {
@@ -62,7 +62,7 @@ export function PageDirectoryTable(): JSX.Element {
                         <Link
                             to={pageReportPath(row.page, searchParams)}
                             subtle
-                            className="flex flex-col min-w-0 py-0.5"
+                            className="flex flex-col min-w-0 max-w-80 py-0.5"
                             onClick={(event) => {
                                 event.stopPropagation()
                                 if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
