@@ -100,6 +100,7 @@ class TestDimensionEndpoints:
             ("feeds", "/api/v2/feeds"),
             ("notifications", "/api/v2/notifications"),
             ("org_members", "/api/v2/org/members"),
+            ("agency_workspaces", "/api/v2/agency/workspaces"),
         ],
     )
     def test_single_get_request_per_endpoint(self, endpoint: str, path: str) -> None:
@@ -115,6 +116,85 @@ class TestDimensionEndpoints:
         assert result.requests[0].method == "GET"
         assert result.requests[0].url == f"{OCTOLENS_BASE_URL}{path}"
         assert result.requests[0].body is None
+
+
+class TestSearches:
+    def test_cursor_rides_in_the_query_string_until_exhausted(self) -> None:
+        result = _driver().run(
+            "searches",
+            [
+                _mentions_page([{"searchId": "s1"}], next_cursor="c1"),
+                _mentions_page([{"searchId": "s2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"searchId": "s1"}, {"searchId": "s2"}]
+        assert [request.method for request in result.requests] == ["GET", "GET"]
+        assert [request.path for request in result.requests] == ["/api/v2/search", "/api/v2/search"]
+        assert result.requests[0].query == {"limit": (str(PAGE_SIZE),)}
+        assert result.requests[1].query == {"limit": (str(PAGE_SIZE),), "cursor": ("c1",)}
+        assert result.requests[1].body is None
+
+
+class TestFanOut:
+    def test_search_results_fetch_each_search_and_carry_its_id(self) -> None:
+        result = _driver().run(
+            "search_results",
+            [
+                _mentions_page([{"searchId": "s1"}], next_cursor="c1"),
+                ScriptedResponse(json={"searchId": "s1", "mentions": [{"sourceId": "reddit_1"}]}),
+                _mentions_page([{"searchId": "s2"}]),
+                ScriptedResponse(json={"searchId": "s2", "mentions": [{"sourceId": "reddit_1"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"sourceId": "reddit_1", "searchId": "s1"},
+            {"sourceId": "reddit_1", "searchId": "s2"},
+        ]
+        assert [request.path for request in result.requests] == [
+            "/api/v2/search",
+            "/api/v2/search/s1",
+            "/api/v2/search",
+            "/api/v2/search/s2",
+        ]
+        assert result.requests[2].query["cursor"] == ("c1",)
+        # The single-search endpoint takes no page size.
+        assert result.requests[1].query == {}
+
+    def test_agency_workspace_members_carry_the_workspace_id(self) -> None:
+        result = _driver().run(
+            "agency_workspace_members",
+            [
+                ScriptedResponse(json={"data": [{"organizationId": "org_1"}]}),
+                ScriptedResponse(
+                    json={
+                        "members": [{"userId": "u1"}],
+                        "invitations": [{"id": "inv_1"}],
+                        "pendingGrants": [],
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"userId": "u1", "organizationId": "org_1"}]
+        assert [request.path for request in result.requests] == [
+            "/api/v2/agency/workspaces",
+            "/api/v2/agency/workspaces/org_1/members",
+        ]
+
+
+class TestUsage:
+    def test_the_response_object_is_one_row(self) -> None:
+        usage = {"plan": "Pro_v3", "mentions": {"count": 5, "limit": 100, "resetAt": None}}
+        result = _driver().run("usage", [ScriptedResponse(json=usage)])
+
+        assert result.raised is None
+        assert result.rows == [usage]
+        assert result.requests[0].path == "/api/v2/org/usage"
 
 
 class TestHttpErrors:
