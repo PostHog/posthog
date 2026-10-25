@@ -145,6 +145,16 @@ class MetricResultStore:
             status=_COMPLETED,
         ).exists()
 
+    def has_failed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
+        """Whether a recalculation stored a failure for this calculation config at this window."""
+        return ExperimentMetricResult.objects.filter(
+            experiment_id=self.experiment_id,
+            metric_uuid=calculation_config.metric_id,
+            query_to=window,
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
+            status=_FAILED,
+        ).exists()
+
     def latest_daily_point(
         self, calculation_config: MetricCalculationConfig, *, since: datetime, until: datetime
     ) -> ExperimentMetricResult | None:

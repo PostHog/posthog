@@ -60,6 +60,16 @@ NON_RETRYABLE_ERROR_TYPES = frozenset(
     {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
 )
 
+# The heaviest recalc queries fail the same way on the next refresh, because the window only grows. After a terminal
+# failure of one of these classes, the calc activity reuses the failure for this long instead of running the query
+# again. A change to the metric changes its fingerprint, so the changed metric runs at once. timeout gets a short
+# cooldown, because the class also holds SOCKET_TIMEOUT and timeouts that cluster load causes.
+HEAVY_FAILURE_COOLDOWN_SECONDS: dict[str, int] = {
+    "byte_limit": 6 * 60 * 60,
+    "out_of_memory": 6 * 60 * 60,
+    "timeout": 60 * 60,
+}
+
 # Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
 # attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but
 # the attempt persists nothing. If no further attempt follows, the workflow failure backstop persists it.

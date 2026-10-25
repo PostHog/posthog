@@ -1244,6 +1244,72 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
+            # (name, prior runs as (hours_ago, error_type or None for success, reused), same_config, expect_reuse)
+            ("byte_limit_inside_cooldown", [(2, "byte_limit", False)], True, True),
+            ("out_of_memory_inside_cooldown", [(2, "out_of_memory", False)], True, True),
+            ("timeout_past_its_shorter_cooldown", [(2, "timeout", False)], True, False),
+            ("capacity_error_is_not_heavy", [(0.1, "rate_limited", False)], True, False),
+            ("failure_under_an_earlier_config", [(2, "byte_limit", False)], False, False),
+            ("newer_success_clears_the_failure", [(2, "byte_limit", False), (1, None, False)], True, False),
+            ("reused_failure_keeps_the_cooldown", [(2, "byte_limit", False), (0.1, "byte_limit", True)], True, True),
+            ("reused_failure_does_not_extend_it", [(7, "byte_limit", False), (0.1, "byte_limit", True)], True, False),
+        ]
+    )
+    def test_recent_heavy_failure_is_reused_without_a_query(
+        self, name: str, prior_runs: list[tuple[float, str | None, bool]], same_config: bool, expect_reuse: bool
+    ):
+        exp = self._experiment(flag_key=f"calc-reuse-{name}", metrics=[_mean_metric("m1")])
+        fingerprint = _recalc_fingerprint(_calculation_key(exp, "m1")) if same_config else "earlier-config"
+        for index, (hours_ago, error_type, reused) in enumerate(prior_runs):
+            prior_query_to = datetime.fromisoformat(_QUERY_TO) - timedelta(days=index + 1)
+            metric_errors = {}
+            if error_type is not None:
+                metric_errors["m1"] = {
+                    "error_type": error_type,
+                    "retriable": False,
+                    **({"reused": True} if reused else {}),
+                }
+            ExperimentMetricsRecalculation.objects.create(
+                team=self.team,
+                experiment=exp,
+                metric_uuids=["m1"],
+                total_metrics=1,
+                query_to=prior_query_to,
+                status=ExperimentMetricsRecalculation.Status.FAILED
+                if error_type
+                else ExperimentMetricsRecalculation.Status.COMPLETED,
+                completed_at=timezone.now() - timedelta(hours=hours_ago),
+                metric_errors=metric_errors,
+            )
+            ExperimentMetricResult.objects.create(
+                experiment=exp,
+                metric_uuid="m1",
+                fingerprint=fingerprint,
+                query_from=prior_query_to,
+                query_to=prior_query_to,
+                status=ExperimentMetricResult.Status.FAILED if error_type else ExperimentMetricResult.Status.COMPLETED,
+            )
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert mock_runner.called is not expect_reuse
+        assert result.success is not expect_reuse
+        recalc.refresh_from_db()
+        if expect_reuse:
+            assert recalc.metric_errors["m1"]["reused"] is True
+            assert recalc.metric_errors["m1"]["retriable"] is False
+            row = ExperimentMetricResult.objects.get(
+                experiment=exp, metric_uuid="m1", query_to=datetime.fromisoformat(_QUERY_TO)
+            )
+            assert row.status == ExperimentMetricResult.Status.FAILED
+        else:
+            assert "m1" not in recalc.metric_errors
+
+    @parameterized.expand(
+        [
             # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure, expected_result_rows)
             # Discovery-step failure: m1 in the recalc's discovered set but absent from the experiment (deleted
             # between discovery and calc). No result row written, only metric_errors.
