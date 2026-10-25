@@ -423,9 +423,9 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             reportFiltered(values)
             actions.loadFeed()
         },
+        // The `scopedToMine` subscription reloads, so a tab switch sends one request.
         setOnlyMyScanners: () => {
             reportFiltered(values)
-            actions.loadFeed()
         },
         loadFeedSuccess: ({ feedItems }) => {
             const items = feedItems ?? []
@@ -492,7 +492,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        // A feed loaded before the scanner list answered may carry a scope that no longer applies.
+        // Reloads on a tab switch, and when the scanner list answers after a load and the stored scope stops applying.
         scopedToMine: (scopedToMine: boolean, previous: boolean | undefined) => {
             if (previous !== undefined && scopedToMine !== previous) {
                 actions.loadFeed()

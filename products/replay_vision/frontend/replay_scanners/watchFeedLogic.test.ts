@@ -63,34 +63,39 @@ describe('watchFeedLogic', () => {
             200,
             { results: [item('o1', 'jev_watchable')], ranker: 'jev', ranker_variant: 'jev' },
         ])
+        const owned = [{ id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi]
+        const lastCreatedBy = (): string | null =>
+            new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')
         // The scope tabs are hidden for a viewer with no scanners, so a stored "mine" choice must not narrow the feed.
+        const requestsBefore = feedSpy.mock.calls.length
+        logic.actions.setOnlyMyScanners(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(feedSpy.mock.calls).toHaveLength(requestsBefore)
+        // Owning a scanner applies the stored choice.
         await expectLogic(logic, () => {
-            logic.actions.setOnlyMyScanners(true)
+            visionScannersListLogic.actions.loadScannersSuccess(owned)
         })
             .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
             .toFinishAllListeners()
-        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')).toBeNull()
-        visionScannersListLogic.actions.loadScannersSuccess([
-            { id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi,
-        ])
-        await expectLogic(logic, () => {
-            logic.actions.setOnlyMyScanners(true)
-        })
-            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
-            .toFinishAllListeners()
-        const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
-        expect(lastUrl.searchParams.get('created_by')).toBe(String(userLogic.values.user?.id))
+        expect(lastCreatedBy()).toBe(String(userLogic.values.user?.id))
         // Losing the last owned scanner drops the scope, and the narrowed feed must reload without it.
         await expectLogic(logic, () => {
             visionScannersListLogic.actions.loadScannersSuccess([])
         })
             .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
             .toFinishAllListeners()
-        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('created_by')).toBeNull()
-        visionScannersListLogic.actions.loadScannersSuccess([
-            { id: 'scanner-a', created_by: userLogic.values.user } as unknown as ReplayScannerApi,
-        ])
+        expect(lastCreatedBy()).toBeNull()
+        // A tab switch sends one request, not one per reload path.
+        visionScannersListLogic.actions.loadScannersSuccess(owned)
         await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
+        const requestsBeforeSwitch = feedSpy.mock.calls.length
+        await expectLogic(logic, () => {
+            logic.actions.setOnlyMyScanners(false)
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(feedSpy.mock.calls).toHaveLength(requestsBeforeSwitch + 1)
+        expect(lastCreatedBy()).toBeNull()
         // The response names the ranker that ordered the feed, and the feed-viewed event reports the
         // project's variant, which is the exposure the experiment counts.
         expect(logic.values.feedRanker).toBe('jev')
