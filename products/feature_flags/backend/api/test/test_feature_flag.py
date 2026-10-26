@@ -14548,6 +14548,10 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
 
+_V1_ON = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+_V2_OFF = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+
+
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
@@ -14649,6 +14653,70 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         self.assertEqual((data["result"], data["condition_index"], data["conditions"]), ("on", 0, []))
         self.assertEqual(data["conditions_unavailable_reason"], V2_CONDITIONS_UNAVAILABLE_REASON)
+
+    @parameterized.expand(
+        [
+            ("v2_before_v1", _V2_OFF, _V1_ON, True),
+            ("v1_before_v2", _V1_ON, _V2_OFF, False),
+            ("v2_before_v2", _V2_OFF, {**_V2_OFF, "default_value": True}, True),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_at_timestamp_reads_the_historical_config_format(
+        self, _name, historical_filters, current_filters, explains_conditions, mock_get_flags, _mock_build_props
+    ):
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        flag = FeatureFlag.objects.create(team=self.team, key="format-flag", filters=historical_filters, version=1)
+        flag.filters = current_filters
+        flag.version = 2
+        flag.save()
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                name=flag.key,
+                changes=[
+                    Change(type="FeatureFlag", action="changed", field="version", before=1, after=2),
+                    Change(
+                        type="FeatureFlag",
+                        action="changed",
+                        field="filters",
+                        before=historical_filters,
+                        after=current_filters,
+                    ),
+                ],
+            ),
+        )
+        mock_get_flags.return_value = {
+            "flags": {
+                "format-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match", "condition_index": None},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        sent = mock_get_flags.call_args.kwargs["override_flags_definitions"]["format-flag"]
+        self.assertEqual(sent["filters"], historical_filters)
+        self.assertEqual("conditions_unavailable_reason" in response.json(), explains_conditions)
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
