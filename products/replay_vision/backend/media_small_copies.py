@@ -23,23 +23,26 @@ logger = structlog.get_logger(__name__)
 
 # Twice the widest list cell, so the small copy stays sharp on a high-density screen.
 SMALL_COPY_WIDTH_PX = 480
+# Lossy WebP, because a phone-width frame is already under the width and a PNG of it saves nothing.
+SMALL_COPY_FORMAT = ExportedAsset.ExportFormat.WEBP
+_WEBP_QUALITY = 80
 
 
-def shrink_png(content: bytes) -> bytes:
-    """Scale a PNG to the small copy's width with an even height, and never upscale."""
+def shrink_frame(content: bytes) -> bytes:
+    """Encode a PNG frame as the small copy: at most the small width, an even height, never upscaled."""
     with Image.open(io.BytesIO(content)) as source:
-        image: Image.Image = source
-        if source.width > SMALL_COPY_WIDTH_PX:
-            height = max(2, round(source.height * SMALL_COPY_WIDTH_PX / source.width / 2) * 2)
-            image = source.resize((SMALL_COPY_WIDTH_PX, height), Image.Resampling.LANCZOS)
+        image: Image.Image = source.convert("RGB")
+        if image.width > SMALL_COPY_WIDTH_PX:
+            height = max(2, round(image.height * SMALL_COPY_WIDTH_PX / image.width / 2) * 2)
+            image = image.resize((SMALL_COPY_WIDTH_PX, height), Image.Resampling.LANCZOS)
         out = io.BytesIO()
-        image.save(out, format="PNG")
+        image.save(out, format="WEBP", quality=_WEBP_QUALITY)
     return out.getvalue()
 
 
 def small_copy_location(large_location: str) -> str | None:
     # A fixed name beside the large object, so a retry overwrites rather than leaks.
-    return f"{large_location.removesuffix('.png')}-small.png" if large_location.endswith(".png") else None
+    return f"{large_location.removesuffix('.png')}-small.webp" if large_location.endswith(".png") else None
 
 
 def write_small_copy(large_location: str) -> str | None:
@@ -50,12 +53,8 @@ def write_small_copy(large_location: str) -> str | None:
     content = object_storage.read_bytes(large_location, missing_ok=True)
     if not content:
         return None
-    object_storage.write(small_location, shrink_png(content))
+    object_storage.write(small_location, shrink_frame(content))
     return small_location
-
-
-def small_copy_export_context(large_context: dict | None) -> dict:
-    return {**(large_context or {}), "media_size": ReplayObservationMedia.Size.SMALL.value}
 
 
 @frozen
@@ -121,8 +120,8 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
             return False
         small = ExportedAsset.objects.create(
             team_id=large.team_id,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context=small_copy_export_context(large.export_context),
+            export_format=SMALL_COPY_FORMAT,
+            export_context=large.export_context,
             content_location=small_location,
             expires_after=large.expires_after,
             is_system=True,

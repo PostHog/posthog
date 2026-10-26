@@ -195,6 +195,10 @@ class TestObservationMedia(BaseTest):
         assert [f.video_time_s for f in prepared.activity_input.frames] == [25.0, 1.0, 50.0, 99.0]
         assert [f.required for f in prepared.activity_input.frames] == [True, False, False, False]
         assert len({f.media_asset_id for f in prepared.frames} | {f.small_media_asset_id for f in prepared.frames}) == 8
+        # A re-render reuses the large assets with the expiry they already have.
+        ExportedAsset.objects.filter(pk__in=[f.media_asset_id for f in prepared.frames]).update(
+            expires_after=timezone.now() + timedelta(days=30)
+        )
         # A retried prepare reuses each slot's assets rather than leaving a second one behind.
         again = self._prepare()
         assert [(f.media_asset_id, f.small_media_asset_id) for f in again.frames] == [
@@ -215,9 +219,10 @@ class TestObservationMedia(BaseTest):
             + [(f.kind, f.position, f.media_asset_id, None) for f in prepared.frames[2:3]]
         )
         assert all((m.asset.content_location or "").startswith("replay-vision/media/") for m in linked)
-        assert all(
-            (m.small_asset.content_location or "").endswith("-small.png") for m in linked if m.small_asset is not None
-        )
+        for m in linked:
+            if m.small_asset is not None:
+                assert (m.small_asset.content_location or "").endswith("-small.webp")
+                assert m.small_asset.expires_after == m.asset.expires_after
         unlinked = [
             prepared.frames[2].small_media_asset_id,
             prepared.frames[3].media_asset_id,
@@ -290,9 +295,9 @@ class TestObservationMediaExpiry(BaseTest):
         )
         self.small_asset = ExportedAsset.objects.create(
             team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context={"observation_id": str(self.observation.id), "media_size": "small"},
-            content_location=f"replay-vision/media/team-{self.team.id}/{self.observation.id}/x-small.png",
+            export_format=ExportedAsset.ExportFormat.WEBP,
+            export_context={"observation_id": str(self.observation.id)},
+            content_location=f"replay-vision/media/team-{self.team.id}/{self.observation.id}/x-small.webp",
             expires_after=timezone.now() + timedelta(days=90),
             is_system=True,
         )

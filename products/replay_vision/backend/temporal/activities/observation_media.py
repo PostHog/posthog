@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.media_small_copies import small_copy_location, write_small_copy
+from products.replay_vision.backend.media_small_copies import SMALL_COPY_FORMAT, small_copy_location, write_small_copy
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -159,7 +159,7 @@ async def _media_asset(
     position: int,
     size: ReplayObservationMedia.Size = ReplayObservationMedia.Size.LARGE,
 ) -> ExportedAsset:
-    """Get or create the `is_system` PNG asset for one media slot, so a retried activity leaves no second asset."""
+    """Get or create the `is_system` asset for one media slot, so a retried activity leaves no second asset."""
     export_context: dict[str, Any] = {
         # The recording id serves the recording-delete cascade, the observation id every other expiry.
         "session_recording_id": inputs.session_id,
@@ -175,20 +175,19 @@ async def _media_asset(
     if kind != ReplayObservationMedia.Kind.THUMBNAIL:
         export_context["media_position"] = position
         lookup["export_context__media_position"] = position
-    candidates = ExportedAsset.objects.filter(
-        team_id=inputs.team_id, export_format=ExportedAsset.ExportFormat.PNG, is_system=True, **lookup
+    # The format tells a slot's two copies apart, so the large asset's lookup is unchanged.
+    export_format = SMALL_COPY_FORMAT if size == ReplayObservationMedia.Size.SMALL else ExportedAsset.ExportFormat.PNG
+    media_asset = (
+        await ExportedAsset.objects.filter(
+            team_id=inputs.team_id, export_format=export_format, is_system=True, **lookup
+        )
+        .order_by("id")
+        .afirst()
     )
-    # Large assets predate the size key, so only the small copy carries one.
-    if size == ReplayObservationMedia.Size.SMALL:
-        export_context["media_size"] = size.value
-        candidates = candidates.filter(export_context__media_size=size.value)
-    else:
-        candidates = candidates.exclude(export_context__has_key="media_size")
-    media_asset = await candidates.order_by("id").afirst()
     if media_asset is None:
         media_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=ExportedAsset.ExportFormat.PNG,
+            export_format=export_format,
             export_context=export_context,
             # Explicit because the PNG default is six months.
             expires_after=now() + _MEDIA_EXPIRY,
@@ -289,6 +288,11 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
             )
             for asset_id, location in link.asset_locations():
                 ExportedAsset.objects.filter(pk=asset_id, team_id=team_id).update(content_location=location)
+            if link.small_asset_id is not None:
+                # A re-render reuses the large asset with its expiry, so the copy takes that one rather than outlive it.
+                ExportedAsset.objects.filter(pk=link.small_asset_id, team_id=team_id).update(
+                    expires_after=ExportedAsset.objects.filter(pk=link.asset_id).values("expires_after")[:1]
+                )
 
 
 async def _link_or_expire(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> bool:
