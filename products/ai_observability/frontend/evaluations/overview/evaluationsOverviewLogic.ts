@@ -49,7 +49,7 @@ const SCOPE_CHANGE_DEBOUNCE_MS = 300
 
 /** At or below this many evaluations, the page keeps a way to create another in view. */
 const FEW_EVALUATIONS_MAX = 3
-/** The backend rejects a longer period. */
+/** The longest period people can pick. The backend accepts one day more, for the extra day the runs table counts. */
 export const OVERVIEW_MAX_DAYS = 90
 /** How many evaluations the chart picks on its first render. People can pick more. */
 const DEFAULT_COMPARED = 3

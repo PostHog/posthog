@@ -7,7 +7,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { performQuery } from '~/queries/query'
 import { DateRange, NodeKind, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { HogQLMathType } from '~/types'
+import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { HogQLMathType, type HogQLPropertyFilter, PropertyFilterType } from '~/types'
 
 import { evaluationsOverviewRetrieve } from '../../generated/api'
 import type { EvaluationResultApi, EvaluationsOverviewRetrieveParams } from '../../generated/api.schemas'
@@ -42,12 +43,48 @@ const BREAKDOWN_LIMIT = 5
 const BREAKDOWN_QUERY_LIMIT = 100
 const BREAKDOWN_NULL = '$$_posthog_breakdown_null_$$'
 const BREAKDOWN_OTHER = '$$_posthog_breakdown_other_$$'
+/** Trends cuts a breakdown value to this length. */
+const BREAKDOWN_VALUE_MAX_LENGTH = 400
 /** A rolling range of whole days, weeks, months, quarters or years. */
 const ROLLING_DAYS = /^-\d+[dwmqy]$/
 
 /** The key trends gives a bucket: the day, or the day and hour, in the project's time zone. */
 function trendsBucketKey(bucket: string, interval: BucketInterval): string {
     return interval === 'hour' ? `${bucket.slice(0, 10)} ${bucket.slice(11, 19)}` : bucket.slice(0, 10)
+}
+
+interface BreakdownCounts {
+    result?: number[]
+    graded?: number[]
+    days: string[]
+}
+
+/** Each breakdown value's result and graded count per bucket. */
+function breakdownCounts(response: TrendsQueryResponse): Map<string, BreakdownCounts> {
+    const byValue = new Map<string, BreakdownCounts>()
+    for (const entry of response.results ?? []) {
+        const raw = Array.isArray(entry.breakdown_value) ? entry.breakdown_value[0] : entry.breakdown_value
+        const key = String(raw ?? BREAKDOWN_NULL)
+        const current = byValue.get(key) ?? { days: entry.days ?? [] }
+        current[entry.action?.order === 1 ? 'graded' : 'result'] = entry.data ?? []
+        byValue.set(key, current)
+    }
+    return byValue
+}
+
+/** The breakdown query, limited to the given values, so each series returns all of them. */
+function restrictBreakdown(query: TrendsQuery, values: string[]): TrendsQuery {
+    const property = String(query.breakdownFilter?.breakdowns?.[0]?.property ?? '')
+    // The same value Trends breaks down by, so the keys it returned match.
+    const value = `ifNull(nullIf(left(toString(properties.${escapePropertyAsHogQLIdentifier(property)}), ${BREAKDOWN_VALUE_MAX_LENGTH}), ''), ${escapeHogQLString(BREAKDOWN_NULL)})`
+    const filter: HogQLPropertyFilter = {
+        type: PropertyFilterType.HogQL,
+        key: `${value} IN (${values.map(escapeHogQLString).join(', ')})`,
+    }
+    return {
+        ...query,
+        series: query.series.map((series) => ({ ...series, properties: [...(series.properties ?? []), filter] })),
+    }
 }
 
 /**
@@ -292,26 +329,30 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                     if (!query || !results) {
                         return null
                     }
-                    let response: TrendsQueryResponse
-                    try {
-                        response = await performQuery(query, undefined, refresh ? 'force_blocking' : undefined)
-                    } catch (error) {
-                        breakpoint()
-                        actions.setBreakdownFailure(failureOf(error))
-                        return null
-                    }
+                    const mode = refresh ? 'force_blocking' : undefined
+                    const run = (
+                        q: TrendsQuery
+                    ): Promise<Map<string, BreakdownCounts> | { failure: OverviewFailure }> =>
+                        performQuery(q, undefined, mode).then(breakdownCounts, (error) => ({
+                            failure: failureOf(error),
+                        }))
+                    let byValue = await run(query)
                     breakpoint()
-                    const byValue = new Map<string, { result?: number[]; graded?: number[]; days: string[] }>()
-                    for (const entry of response.results ?? []) {
-                        const raw = Array.isArray(entry.breakdown_value)
-                            ? entry.breakdown_value[0]
-                            : entry.breakdown_value
-                        const key = String(raw ?? BREAKDOWN_NULL)
-                        const current: { result?: number[]; graded?: number[]; days: string[] } = byValue.get(key) ?? {
-                            days: entry.days ?? [],
+                    if (!('failure' in byValue)) {
+                        // Trends ranks each series on its own, so a value with many runs and a low result can miss
+                        // the result series. Then the query runs again on the values the graded series kept.
+                        const counts = byValue
+                        const graded = [...counts.entries()]
+                            .filter(([key, entry]) => key !== BREAKDOWN_OTHER && entry.graded)
+                            .map(([key]) => key)
+                        if (graded.some((key) => !counts.get(key)?.result)) {
+                            byValue = await run(restrictBreakdown(query, graded))
+                            breakpoint()
                         }
-                        current[entry.action?.order === 1 ? 'graded' : 'result'] = entry.data ?? []
-                        byValue.set(key, current)
+                    }
+                    if ('failure' in byValue) {
+                        actions.setBreakdownFailure(byValue.failure)
+                        return null
                     }
                     const series = [...byValue.entries()]
                         .filter(([key]) => key !== BREAKDOWN_OTHER)
@@ -455,37 +496,32 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                 periodNow: number,
                 evaluationId: string
             ): OverviewRequest => {
-                let period = overviewPeriod(
+                const period = overviewPeriod(
                     { dateFrom: runsDateRange.date_from ?? null, dateTo: runsDateRange.date_to ?? null },
                     timezone,
                     dayjs(periodNow),
                     weekStartDay
                 )
-                // The runs table starts a rolling range at midnight N units ago, a day before the overview does.
-                // ponytail: at the backend's maximum the extra day is refused, so that range stays one day shorter.
-                if (
-                    period &&
-                    ROLLING_DAYS.test(runsDateRange.date_from ?? '') &&
-                    !runsDateRange.date_to &&
-                    period.days < OVERVIEW_MAX_DAYS
-                ) {
-                    period = {
-                        ...period,
-                        dateFrom: dayjs.utc(period.dateFrom).subtract(1, 'day').format('YYYY-MM-DD'),
-                        days: period.days + 1,
-                    }
-                }
-                const params: EvaluationsOverviewRetrieveParams = {
-                    date_from: period?.dateFrom,
-                    date_to: period?.dateTo,
-                    evaluation_ids: [evaluationId],
-                }
                 if (!period || period.days > OVERVIEW_MAX_DAYS) {
                     return {
-                        params,
+                        params: {
+                            date_from: period?.dateFrom,
+                            date_to: period?.dateTo,
+                            evaluation_ids: [evaluationId],
+                        },
                         ready: false,
                         notice: `Pick a range of ${OVERVIEW_MAX_DAYS} days or less to see results over time.`,
                     }
+                }
+                // The runs table starts a rolling range at midnight N units ago, a day before the overview does.
+                const dateFrom =
+                    ROLLING_DAYS.test(runsDateRange.date_from ?? '') && !runsDateRange.date_to
+                        ? dayjs.utc(period.dateFrom).subtract(1, 'day').format('YYYY-MM-DD')
+                        : period.dateFrom
+                const params: EvaluationsOverviewRetrieveParams = {
+                    date_from: dateFrom,
+                    date_to: period.dateTo,
+                    evaluation_ids: [evaluationId],
                 }
                 return { params, ready: true, notice: null }
             },
