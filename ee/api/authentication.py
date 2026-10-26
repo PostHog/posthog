@@ -1,9 +1,11 @@
 import re
 import json
 import base64
+import secrets
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
 from django.urls.base import reverse
@@ -88,6 +90,11 @@ def saml_metadata_view(request, *args, **kwargs):
         return HttpResponse(content=metadata, content_type="text/xml")
 
 
+SAML_NEXT_TOKEN_KEY = "nt"
+SAML_NEXT_CACHE_PREFIX = "saml_relay_state_next:"
+SAML_NEXT_CACHE_TIMEOUT_SECONDS = 30 * 60
+
+
 class MultitenantSAMLAuth(SAMLAuth):
     """
     Implements our own version of SAML auth that supports multitenancy. Instead of relying on instance-based config via env vars,
@@ -97,6 +104,7 @@ class MultitenantSAMLAuth(SAMLAuth):
     def auth_complete(self, *args, **kwargs):
         # attempt to recover from missing relay state in idp-initiated SAML
         self._recover_idp_initiated_relay_state()
+        self._restore_next_from_relay_state()
 
         try:
             result = super().auth_complete(*args, **kwargs)
@@ -157,6 +165,34 @@ class MultitenantSAMLAuth(SAMLAuth):
         strategy = cast(DjangoStrategy, self.strategy)
         mutable_post = strategy.request.POST.copy()
         mutable_post["RelayState"] = relay_state
+        # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
+        strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    def _restore_next_from_relay_state(self) -> None:
+        """
+        Swap the `next` token that `auth_url` put in RelayState for the stored `next` URL, so the
+        base `auth_complete` can set the post-login redirect. The token is single-use. A missing or
+        expired token drops `next`, and the login itself continues.
+        """
+        relay_state_str = self.strategy.request_data().get("RelayState")
+        if not relay_state_str:
+            return
+        relay_state = self.parse_relay_state(relay_state_str)
+        token = relay_state.pop(SAML_NEXT_TOKEN_KEY, None)
+        if not token:
+            return
+
+        cache_key = f"{SAML_NEXT_CACHE_PREFIX}{token}"
+        next_url = cache.get(cache_key)
+        cache.delete(cache_key)
+        if next_url:
+            relay_state["next"] = next_url
+        else:
+            saml_logger.info("saml_relay_state_next_token_missing")
+
+        strategy = cast(DjangoStrategy, self.strategy)
+        mutable_post = strategy.request.POST.copy()
+        mutable_post["RelayState"] = json.dumps(relay_state)
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -263,14 +299,20 @@ class MultitenantSAMLAuth(SAMLAuth):
         auth = self._create_saml_auth(idp=identity_provider)
         # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
         # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
-        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
-        # carrying it in RelayState lets the base `auth_complete` recover it for the post-login
-        # redirect. `idp` carries the linked config identifier since multiple IdPs share the URL.
+        # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`.
+        # `next` can be a multi-KB OAuth authorize URL, but the SAML bindings spec caps RelayState
+        # at 80 bytes and Entra rejects longer values. So `next` stays in the cache, and RelayState
+        # carries only an opaque single-use token that `auth_complete` swaps back for it.
+        # `idp` carries the linked config identifier since multiple IdPs share the URL.
         # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
-        # redirect, and `next` alone is enough to recover the redirect without it.
-        relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
-        return auth.login(return_to=json.dumps(relay_state))
+        # redirect, and the token alone is enough to recover the redirect without it.
+        relay_state = {"idp": identity_provider.name}
+        if next_url := self.data.get("next"):
+            token = secrets.token_urlsafe(16)
+            cache.set(f"{SAML_NEXT_CACHE_PREFIX}{token}", next_url, timeout=SAML_NEXT_CACHE_TIMEOUT_SECONDS)
+            relay_state[SAML_NEXT_TOKEN_KEY] = token
+        return auth.login(return_to=json.dumps(relay_state, separators=(",", ":")))
 
     def _get_attr(
         self,
