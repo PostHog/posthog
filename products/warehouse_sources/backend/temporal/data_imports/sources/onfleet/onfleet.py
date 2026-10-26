@@ -224,7 +224,6 @@ def _iter_route_plans(
     api_key: str,
     config: OnfleetEndpointConfig,
     resumable_source_manager: ResumableSourceManager[OnfleetResumeConfig],
-    from_ms: int,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk `/routePlans` in `createdTimeFrom`/`createdTimeTo` windows.
 
@@ -236,7 +235,7 @@ def _iter_route_plans(
     session = make_tracked_session(redact_values=(api_key,))
     auth = HTTPBasicAuth(api_key, "")
     until_ms = _now_ms()
-    window_start = from_ms
+    window_start = DEFAULT_FROM_MS
     window_ms = max(until_ms - window_start, 1)
 
     if resumable_source_manager.can_resume():
@@ -299,14 +298,10 @@ def onfleet_source(
     config = ONFLEET_ENDPOINTS[endpoint]
 
     if config.created_time_windowed:
-        from_ms = _to_epoch_ms(db_incremental_field_last_value) if should_use_incremental_field else None
-        windowed_from_ms = DEFAULT_FROM_MS if from_ms is None else from_ms
         return SourceResponse(
             name=endpoint,
-            items=lambda: _iter_route_plans(api_key, config, resumable_source_manager, windowed_from_ms),
+            items=lambda: _iter_route_plans(api_key, config, resumable_source_manager),
             primary_keys=config.primary_keys,
-            # Windows are walked in ascending order, but rows inside a window are unordered.
-            sort_mode=None,
         )
 
     if config.paginated:

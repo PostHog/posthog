@@ -109,7 +109,7 @@ class TestRoutePlans:
         monkeypatch.setattr(onfleet_module, "_now_ms", lambda: 128)
         # Rows sit on the power-of-two window boundaries the walk produces.
         created_times = {
-            f"r{index}": created for index, created in enumerate([0, 0, 4, 5, 8, 9, 9, 12, 16, 30, 32, 47, 64, 100])
+            f"r{index}": created for index, created in enumerate([0, 0, 4, 6, 8, 10, 10, 12, 16, 30, 32, 47, 64, 100])
         }
 
         def respond(request: RecordedRequest) -> ScriptedResponse:
@@ -139,32 +139,27 @@ class TestRoutePlans:
         assert result.rows == []
 
     @pytest.mark.parametrize(
-        "inputs, resume_state, expected_from, expected_to",
+        "resume_state, expected_from, expected_to",
         [
-            ({}, None, "0", None),
-            (
-                {"incremental_field": "timeCreated", "db_incremental_field_last_value": 1700000000000},
-                None,
-                "1700000000000",
-                None,
-            ),
-            ({}, OnfleetResumeConfig(from_ms=1750000000000, window_ms=500), "1750000000000", "1750000000500"),
+            (None, "0", "2000"),
+            (OnfleetResumeConfig(from_ms=1000, window_ms=500), "1000", "1500"),
         ],
     )
     def test_first_window(
         self,
-        inputs: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
         resume_state: OnfleetResumeConfig | None,
         expected_from: str,
-        expected_to: str | None,
+        expected_to: str,
     ) -> None:
-        result = _driver().run("route_plans", always(ScriptedResponse(json=[])), resume_state=resume_state, **inputs)
+        monkeypatch.setattr(onfleet_module, "_now_ms", lambda: 2000)
+
+        result = _driver().run("route_plans", always(ScriptedResponse(json=[])), resume_state=resume_state)
 
         assert result.raised is None
         assert result.paths[0] == "/api/v2/routePlans"
         assert result.requests[0].param("createdTimeFrom") == expected_from
-        if expected_to is not None:
-            assert result.requests[0].param("createdTimeTo") == expected_to
+        assert result.requests[0].param("createdTimeTo") == expected_to
 
 
 class TestGetCredentialsStatus:
