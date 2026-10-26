@@ -12,10 +12,24 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IntegrationType } from '~/types'
 
 import type { EmailSenderDomainStatus } from '../../../../../frontend/src/types'
+import type { EmailDomainSetupStep } from '../EmailDomain/emailDomainLogic'
 
 export type EmailSetupSurface = 'channels' | 'onboarding_wizard' | 'workflow_editor' | 'broadcast'
 
 export type EmailSetupStep = 'details' | 'dns_records' | 'verified'
+
+export function captureEmailDomainSetupClosed({
+    furthestStep,
+    surface,
+    completed,
+}: {
+    furthestStep: EmailSetupStep | EmailDomainSetupStep
+    surface: EmailSetupSurface
+    completed: boolean
+}): void {
+    // pinned: analytics event name
+    posthog.capture('email domain setup closed', { furthest_step: furthestStep, surface, completed })
+}
 
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -320,11 +334,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             props.onClose(values.savedIntegration?.id)
         },
         reportSetupClosed: ({ completed }) => {
-            posthog.capture('email domain setup closed', {
-                furthest_step: values.furthestStep,
-                surface: props.surface,
-                completed,
-            })
+            captureEmailDomainSetupClosed({ furthestStep: values.furthestStep, surface: props.surface, completed })
         },
         verifyDomainSuccess: ({ verification }) => {
             if (verification?.status === 'success') {

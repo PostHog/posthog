@@ -1,4 +1,5 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -18,6 +19,7 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 
 import { workflowDataSuggestionsLogic } from '../../setupGuide/suggestions/workflowDataSuggestionsLogic'
+import { EmailSetupSurface, captureEmailDomainSetupClosed } from '../EmailSetup/emailSetupModalLogic'
 import { dnsRecordsAsText } from './dnsRecordsAsText'
 import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
@@ -27,6 +29,18 @@ import { emailDomainSenderLogic } from './emailDomainSenderLogic'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 export type EmailDomainPhase = 'domain' | 'loading' | 'unavailable' | 'settings' | 'verifying' | 'ready'
+
+export type EmailDomainSetupStep = Extract<EmailDomainPhase, 'domain' | 'settings' | 'verifying' | 'ready'>
+
+const SETUP_STEPS_IN_ORDER: EmailDomainSetupStep[] = ['domain', 'settings', 'verifying', 'ready']
+
+const isSetupStep = (phase: EmailDomainPhase): phase is EmailDomainSetupStep =>
+    (SETUP_STEPS_IN_ORDER as EmailDomainPhase[]).includes(phase)
+
+const furtherStepOf = (furthest: EmailDomainSetupStep, phase: EmailDomainPhase): EmailDomainSetupStep =>
+    isSetupStep(phase) && SETUP_STEPS_IN_ORDER.indexOf(phase) > SETUP_STEPS_IN_ORDER.indexOf(furthest)
+        ? phase
+        : furthest
 
 /** `link` copies the domain page for a teammate in PostHog, `text` copies the records for a DNS owner outside it. */
 export type RecordsShareMethod = 'link' | 'text'
@@ -155,6 +169,7 @@ export interface emailDomainLogicValues {
     statusUnavailable: boolean // emailDomainStatusLogic
     currentOrganization: OrganizationType | null // organizationLogic
     currentTeamId: number | null // teamLogic
+    furthestStep: EmailDomainSetupStep
     breadcrumbs: Breadcrumb[]
     offersDataSuggestions: boolean
     phase: EmailDomainPhase
@@ -177,6 +192,12 @@ export interface emailDomainLogicActions {
     } // organizationLogic
     preloadDataSuggestions: () => {
         value: true
+    }
+    reachPhase: (phase: EmailDomainPhase) => {
+        phase: EmailDomainPhase
+    }
+    reportSetupClosed: (surface: EmailSetupSurface) => {
+        surface: EmailSetupSurface
     }
     retry: () => {
         value: true
@@ -264,6 +285,16 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
         retry: true,
         preloadDataSuggestions: true,
         shareRecords: (method: RecordsShareMethod) => ({ method }),
+        reachPhase: (phase: EmailDomainPhase) => ({ phase }),
+        reportSetupClosed: (surface: EmailSetupSurface) => ({ surface }),
+    }),
+    reducers({
+        furthestStep: [
+            'domain' as EmailDomainSetupStep,
+            {
+                reachPhase: (furthest, { phase }) => furtherStepOf(furthest, phase),
+            },
+        ],
     }),
     selectors({
         phase: [
@@ -370,6 +401,13 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             posthog.capture('email domain records shared', { method, step: phase })
             lemonToast.success(method === 'link' ? 'Copied the link to this page' : 'Copied the settings as text')
         },
+        reportSetupClosed: ({ surface }) => {
+            captureEmailDomainSetupClosed({
+                furthestStep: values.furthestStep,
+                surface,
+                completed: values.furthestStep === 'ready',
+            })
+        },
         retry: () => {
             if (values.senderFailed) {
                 actions.loadSender()
@@ -378,6 +416,9 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 actions.recheck()
             }
         },
+    })),
+    subscriptions(({ actions }) => ({
+        phase: (phase: EmailDomainPhase) => actions.reachPhase(phase),
     })),
     afterMount(({ actions }) => {
         actions.preloadDataSuggestions()

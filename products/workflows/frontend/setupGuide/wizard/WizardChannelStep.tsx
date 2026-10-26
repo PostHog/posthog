@@ -26,6 +26,7 @@ export function WizardChannelStep(): JSX.Element {
                     markTaskAsCompleted(SetupTaskId.SetUpFirstWorkflowChannel)
                     closeSetupModal()
                 }}
+                onEmailSenderCreated={() => markTaskAsCompleted(SetupTaskId.SetUpFirstWorkflowChannel)}
             />
             {hasEmailChannel ? (
                 <div className="flex flex-col gap-4">

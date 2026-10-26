@@ -15,6 +15,7 @@ interface ChannelSetupModalProps {
     surface: EmailSetupSurface
     onComplete: () => void
     onClose: () => void
+    onEmailSenderCreated?: () => void
 }
 
 export function ChannelSetupModal({
@@ -24,6 +25,7 @@ export function ChannelSetupModal({
     surface,
     onComplete,
     onClose,
+    onEmailSenderCreated,
 }: ChannelSetupModalProps): JSX.Element | null {
     if (!isOpen || !channelType) {
         return null
@@ -37,7 +39,7 @@ export function ChannelSetupModal({
 
     switch (channelType) {
         case 'email':
-            return <EmailSetupModal {...modalProps} surface={surface} />
+            return <EmailSetupModal {...modalProps} surface={surface} onSenderCreated={onEmailSenderCreated} />
         case 'slack':
             return <SlackSetupModal {...modalProps} />
         case 'twilio':

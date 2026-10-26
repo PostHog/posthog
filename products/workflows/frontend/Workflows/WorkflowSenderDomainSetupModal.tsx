@@ -16,6 +16,7 @@ export function WorkflowSenderDomainSetupModal(): JSX.Element | null {
         <EmailDomainSetupModal
             integrationId={senderDomainSetup.integrationId}
             entry="workflow"
+            surface="workflow_editor"
             description={`For the workflow ${originalWorkflow.name}`}
             next={<WorkflowDomainSetupActions />}
             onComplete={closeSenderDomainSetup}

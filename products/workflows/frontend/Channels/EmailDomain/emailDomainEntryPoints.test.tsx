@@ -3,7 +3,9 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,12 +14,14 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { WizardChannelStep } from '../../setupGuide/wizard/WizardChannelStep'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
 
 const DOMAIN = 'mail.acme.com'
 const SENDER_ID = 42
+const POLL_MS = 10_000
 const LEGACY_MODAL_TITLE = 'Configure email sender'
 
 const element = (attr: string): HTMLElement => {
@@ -28,9 +32,17 @@ const element = (attr: string): HTMLElement => {
     return found
 }
 
-const flush = async (): Promise<void> => {
+const startSetupFor = (domain: string): void => {
+    fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+        target: { value: domain },
+    })
+    fireEvent.click(element('email-domain-use-custom-domain'))
+    fireEvent.click(element('email-domain-continue'))
+}
+
+const flush = async (ms = 0): Promise<void> => {
     await act(async () => {
-        await jest.advanceTimersByTimeAsync(0)
+        await jest.advanceTimersByTimeAsync(ms)
     })
 }
 
@@ -57,11 +69,11 @@ const expectWizardModalForSender: EntryExpectation = (pagePath) => {
     expect(screen.getByText('Open full page').closest('a')).toHaveAttribute('href', expect.stringContaining(pagePath))
 }
 
-const expectOldBroadcastModal = (): void => {
+const expectOldModalInPlace = (): void => {
     expect(screen.getByText(LEGACY_MODAL_TITLE)).toBeInTheDocument()
 }
 
-const expectWizardInBroadcastModal = (): void => {
+const expectWizardModalAtDomainStep = (): void => {
     expect(screen.getByText('Set up a sending domain')).toBeInTheDocument()
     expect(screen.getByText('Which domain should your emails come from?')).toBeInTheDocument()
 }
@@ -87,13 +99,14 @@ describe('email domain setup entry points', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
     describe.each([
-        ['off', false, expectOldModal, expectOldModal, expectOldBroadcastModal],
-        ['on', true, expectSendingDomainPage, expectWizardModalForSender, expectWizardInBroadcastModal],
-    ])('with the wizard flag %s', (_, wizardEnabled, expectEntry, expectConfigure, expectBroadcastModal) => {
+        ['off', false, expectOldModal, expectOldModal, expectOldModalInPlace],
+        ['on', true, expectSendingDomainPage, expectWizardModalForSender, expectWizardModalAtDomainStep],
+    ])('with the wizard flag %s', (_, wizardEnabled, expectEntry, expectConfigure, expectModalInPlace) => {
         beforeEach(() => setWizardFlag(wizardEnabled))
 
         it('starts from the email card in the channel catalog', async () => {
@@ -123,12 +136,20 @@ describe('email domain setup entry points', () => {
             expectOldModal('')
         })
 
+        it('starts from Connect email on the onboarding channel step', async () => {
+            await renderInApp(<WizardChannelStep />)
+            fireEvent.click(element('workflows-onboarding-wizard-connect-email'))
+            await flush()
+            expectModalInPlace()
+            expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+        })
+
         it('starts from the broadcast sender modal', async () => {
             const onComplete = jest.fn()
             await renderInApp(
                 <EmailSetupModal entry="broadcast" surface="broadcast" onClose={jest.fn()} onComplete={onComplete} />
             )
-            expectBroadcastModal()
+            expectModalInPlace()
             expect(onComplete).not.toHaveBeenCalled()
         })
     })
@@ -161,11 +182,7 @@ describe('email domain setup entry points', () => {
                 <EmailSetupModal entry={entry} surface="channels" onClose={onClose} onComplete={onComplete} />
             )
 
-            fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
-                target: { value: 'acme.com' },
-            })
-            fireEvent.click(element('email-domain-use-custom-domain'))
-            fireEvent.click(element('email-domain-continue'))
+            startSetupFor('acme.com')
             await flush()
 
             expect(onComplete).not.toHaveBeenCalled()
@@ -179,4 +196,74 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    it.each([
+        { furthestStep: 'domain', completed: false, advance: async (): Promise<void> => {} },
+        {
+            furthestStep: 'settings',
+            completed: false,
+            advance: async (): Promise<void> => {
+                startSetupFor('acme.com')
+                await flush()
+            },
+        },
+        {
+            furthestStep: 'verifying',
+            completed: false,
+            advance: async (): Promise<void> => {
+                startSetupFor('acme.com')
+                await flush()
+                backend.publishRecords(DOMAIN)
+                await flush(POLL_MS)
+            },
+        },
+        {
+            furthestStep: 'ready',
+            completed: true,
+            advance: async (): Promise<void> => {
+                startSetupFor('acme.com')
+                await flush()
+                backend.publishRecords(DOMAIN)
+                await flush(POLL_MS)
+                backend.verifyDomain(DOMAIN)
+                await flush(POLL_MS)
+            },
+        },
+    ])(
+        'reports the furthest step $furthestStep when the wizard modal closes',
+        async ({ furthestStep, completed, advance }) => {
+            setWizardFlag(true)
+            const capture = jest.spyOn(posthog, 'capture')
+            await renderInApp(<EmailSetupModal surface="workflow_editor" onClose={jest.fn()} onComplete={jest.fn()} />)
+            await advance()
+
+            fireEvent.click(screen.getByLabelText('close'))
+            await flush()
+
+            expect(capture.mock.calls.filter(([event]) => event === 'email domain setup closed')).toEqual([
+                ['email domain setup closed', { furthest_step: furthestStep, surface: 'workflow_editor', completed }],
+            ])
+        }
+    )
+
+    it('completes the onboarding channel task once the wizard creates the sender, with the hand-off in reach', async () => {
+        setWizardFlag(true)
+        const capture = jest.spyOn(posthog, 'capture')
+        await renderInApp(<WizardChannelStep />)
+        fireEvent.click(element('workflows-onboarding-wizard-connect-email'))
+        await flush()
+
+        startSetupFor('acme.com')
+        await flush()
+
+        expect(capture).toHaveBeenCalledWith('product setup task completed', {
+            task: SetupTaskId.SetUpFirstWorkflowChannel,
+        })
+        expect(screen.getByText('Send to whoever manages DNS')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByLabelText('close'))
+        await flush()
+        expect(screen.queryByText('Verify your sending domain')).not.toBeInTheDocument()
+        expect(screen.getByText('Your email channel is connected. Continue to the next step.')).toBeInTheDocument()
+    })
 })

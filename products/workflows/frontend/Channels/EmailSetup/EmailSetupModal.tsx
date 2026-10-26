@@ -22,9 +22,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EmailDomainSetupModal, EmailDomainSetupModalProps } from '../EmailDomain/EmailDomainSetupModal'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
-export type EmailSetupModalProps = EmailSetupModalLogicProps & { entry?: EmailDomainSetupModalProps['entry'] }
+export type EmailSetupModalProps = EmailSetupModalLogicProps &
+    Pick<EmailDomainSetupModalProps, 'onSenderCreated'> & { entry?: EmailDomainSetupModalProps['entry'] }
 
-export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.Element => {
+export const EmailSetupModal = ({ entry, onSenderCreated, ...props }: EmailSetupModalProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     // A verified sender keeps the settings form, which edits what the wizard does not: reply-to and the bounce subdomain.
     const editsVerifiedSender = props.integration?.config?.verified === true
@@ -33,8 +34,10 @@ export const EmailSetupModal = ({ entry, ...props }: EmailSetupModalProps): JSX.
             <EmailDomainSetupModal
                 integrationId={props.integration?.id}
                 entry={entry ?? (props.integration ? 'configure' : 'channels')}
+                surface={props.surface}
                 onComplete={props.onComplete}
                 onClose={props.onClose}
+                onSenderCreated={onSenderCreated}
             />
         )
     }
