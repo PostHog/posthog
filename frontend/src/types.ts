@@ -46,6 +46,7 @@ import type {
     OrganizationNotificationLockApi,
     ProjectApi,
     SharingConfigurationApi,
+    TeamFeatureFlagPolicyConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -926,7 +927,7 @@ export interface TeamType extends TeamBasicType {
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
     // Optional so cached team objects from before this field shipped still typecheck.
-    feature_flag_policy_config?: FeatureFlagPolicyConfig
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -946,10 +947,6 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
-}
-
-export interface FeatureFlagPolicyConfig {
-    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -4890,6 +4887,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean

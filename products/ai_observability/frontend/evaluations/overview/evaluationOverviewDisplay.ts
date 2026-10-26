@@ -218,6 +218,28 @@ export function resultEvidence(row: EvaluationResultApi): string {
     return parts.join(' · ')
 }
 
+/** True when a bucket has results but neither neighbor does, so the chart draws it as a dot with no line. */
+export function hasIsolatedPoints(row: EvaluationResultApi): boolean {
+    const { values } = row.trend
+    return (
+        values.length > 1 &&
+        values.some((value, index) => value !== null && values[index - 1] == null && values[index + 1] == null)
+    )
+}
+
+/**
+ * Passed and failed runs per bucket for a pass rate. The rate is passed / (passed + failed) and the volume is
+ * passed + failed, so both counts come back exactly.
+ */
+export function passFailCounts(row: EvaluationResultApi): { passed: number[]; failed: number[] } | null {
+    if (row.summary.kind !== 'pass_rate') {
+        return null
+    }
+    const { values, volume } = row.trend
+    const passed = volume.map((graded, index) => Math.round((graded * (values[index] ?? 0)) / 100))
+    return { passed, failed: volume.map((graded, index) => graded - passed[index]) }
+}
+
 /** Whether the row has at least one day the compare chart can draw. */
 export function isChartable(row: EvaluationResultApi): boolean {
     return row.gradedCount > 0 && percentTrend(row).some(Number.isFinite)

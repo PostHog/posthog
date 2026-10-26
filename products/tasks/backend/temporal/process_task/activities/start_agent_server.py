@@ -2,6 +2,7 @@ import json
 import time
 import shlex
 import threading
+from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation
 from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
@@ -77,6 +79,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
+    unmounted_mcp_installations_log_fields,
+    unmounted_mcp_installations_notice,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -403,6 +407,21 @@ def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
     record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
+def _report_unmounted_mcp_installations(ctx: TaskProcessingContext, unmounted: Sequence[UnmountedInstallation]) -> None:
+    if not unmounted:
+        return
+    logger.info(
+        "mcp_installations_not_mounted",
+        team_id=ctx.team_id,
+        task_id=ctx.task_id,
+        run_id=ctx.run_id,
+        unmounted=unmounted_mcp_installations_log_fields(unmounted),
+    )
+    notice = unmounted_mcp_installations_notice(unmounted)
+    if notice:
+        emit_agent_log(ctx.run_id, "warn", notice)
+
+
 def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
@@ -515,7 +534,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
+    user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,
         user_id=actor_user.id if actor_user else None,
@@ -528,8 +547,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    if user_mcp.configs:
+        mcp_configs = mcp_configs + user_mcp.configs
+    _report_unmounted_mcp_installations(ctx, user_mcp.unmounted)
 
     imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
     if imported_mcp_configs:

@@ -14,6 +14,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -2305,6 +2306,24 @@ describe('CDP API', () => {
             const retry = await send(hogFlow.id, headers, keyed)
 
             expect(retry.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('sends to a recipient whose only suppression is a spam complaint', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, body.to],
+                'test-insert-suppression'
+            )
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
