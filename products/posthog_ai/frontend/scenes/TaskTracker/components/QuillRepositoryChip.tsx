@@ -7,6 +7,7 @@ import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombo
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import type { RepositoryConfig } from '../../../types/taskTypes'
+import { QuillGitHubAccountMenu } from './QuillGitHubAccountMenu'
 import { QuillRepositorySummary } from './QuillRepositorySummary'
 
 export interface QuillRepositoryChipProps {
@@ -49,6 +50,12 @@ export function QuillRepositoryChip({
     if (!value.repository) {
         return (
             <ButtonGroup>
+                <QuillGitHubAccountMenu
+                    integrationId={integrationId}
+                    onSelect={(id) =>
+                        onChange({ ...value, integrationId: id, repository: undefined, branch: undefined })
+                    }
+                />
                 <GitHubRepositoryCombobox
                     integrationId={integrationId}
                     value=""

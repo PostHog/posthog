@@ -172,14 +172,13 @@ export function TaskRunComposer({
             : () => router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
         phoneSheet: todayRailEnabled && phoneLayout,
     }
+    const lockedCodexModelAccess = isTerminal
+        ? null
+        : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
+    const billingAdapter = isTerminal ? getRuntimeAdapterForModel(catalogue, selectedModel) : composerAdapter
     const modelPicker =
         codexBillingEnabled && !isPiTask ? (
-            <ComposerCodexBillingPickers
-                {...modelPickerProps}
-                lockedCodexModelAccess={
-                    isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-                }
-            />
+            <ComposerCodexBillingPickers {...modelPickerProps} lockedCodexModelAccess={lockedCodexModelAccess} />
         ) : (
             <ComposerModelEffortPickers {...modelPickerProps} />
         )
@@ -310,10 +309,8 @@ export function TaskRunComposer({
                         meta={
                             <div className="flex items-center divide-x divide-border *:px-2 *:last:pr-1">
                                 <QuillContextUsage />
-                                {codexBillingEnabled && !isPiTask && composerAdapter === RuntimeAdapterEnumApi.Codex ? (
-                                    <ComposerCodexBillingIndicator
-                                        lockedCodexModelAccess={isTerminal ? null : logicProps.currentCodexModelAccess}
-                                    />
+                                {codexBillingEnabled && !isPiTask && billingAdapter === RuntimeAdapterEnumApi.Codex ? (
+                                    <ComposerCodexBillingIndicator lockedCodexModelAccess={lockedCodexModelAccess} />
                                 ) : (
                                     <ComposerBillingIndicator ownPlan={false} />
                                 )}
