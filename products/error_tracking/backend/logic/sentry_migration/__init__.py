@@ -11,11 +11,8 @@ from products.error_tracking.backend.facade.contracts import (
 from products.error_tracking.backend.logic import get_or_create_settings, update_settings
 from products.error_tracking.backend.logic.rules import create_suppression_rule, list_suppression_rules
 from products.error_tracking.backend.logic.sentry_migration.client import SentryApiClient
+from products.error_tracking.backend.logic.sentry_migration.errors import SentryMigrationSelectionError
 from products.error_tracking.backend.logic.sentry_migration.plan import SentryMigrationPlanner
-
-
-class SentryMigrationSelectionError(Exception):
-    """The selected items can't be imported together. The message is shown to the user."""
 
 
 def list_sentry_projects(connection: SentryConnection) -> list[SentryProject]:

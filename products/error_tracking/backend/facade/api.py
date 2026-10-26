@@ -39,7 +39,10 @@ from ..logic.issue_tags import (
     reader as issue_tag_reader,
     rules as issue_tag_rules,
 )
-from ..logic.sentry_migration import client as sentry_client
+from ..logic.sentry_migration import (
+    client as sentry_client,
+    errors as sentry_migration_errors,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -64,7 +67,7 @@ IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
 IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 SentryApiError = sentry_client.SentryApiError
-SentryMigrationSelectionError = sentry_migration.SentryMigrationSelectionError
+SentryMigrationSelectionError = sentry_migration_errors.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
