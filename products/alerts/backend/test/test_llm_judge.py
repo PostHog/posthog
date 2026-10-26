@@ -280,7 +280,7 @@ def _mocked_model(verdict: LLMDetectionVerdict, *, privacy_mode: bool = False) -
     with (
         patch("products.alerts.backend.judge.prompt.render_series_chart", return_value=None),
         patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=privacy_mode),
-        patch("products.alerts.backend.judge.llm.build_anthropic_client") as build_client,
+        patch("products.alerts.backend.judge.llm.build_ai_gateway_anthropic_client") as build_client,
     ):
         parse = build_client.return_value.with_options.return_value.messages.parse
         parse.return_value = MagicMock(parsed_output=verdict)
