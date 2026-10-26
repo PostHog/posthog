@@ -226,6 +226,7 @@ export const InstallingSelfDriving: Story = {
 
 // Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
+    name: 'Control onboarding with Wizard and manual setup',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
     },
@@ -245,6 +246,7 @@ export const SelfDrivingOnboarding: Story = {
 }
 
 export const FocusedOnboarding: Story = {
+    name: 'Guided onboarding with manual setup only',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' },
     },

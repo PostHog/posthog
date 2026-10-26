@@ -12,21 +12,23 @@ import { InboxQuickSetupAction } from './InboxQuickSetupAction'
 
 export function InboxSetupActions(): JSX.Element {
     const { continueFromWelcome } = useActions(inboxSetupLogic)
-    const { isQuickSetup } = useValues(inboxSetupLogic)
+    const { experimentVariant, isQuickSetup } = useValues(inboxSetupLogic)
 
     return (
         <div className="flex w-full min-w-0 flex-col gap-4">
-            <div className="flex min-w-0 flex-col gap-2">
-                <p className="m-0 text-sm text-secondary">
-                    Install with Wizard. Run the setup agent in your repository to connect GitHub and choose your
-                    signals and scouts.
-                </p>
-                <TerminalCard
-                    command={SELF_DRIVING_WIZARD_COMMAND}
-                    copyLabel="self-driving setup command"
-                    onCopy={() => captureInboxWelcomeCommandCopied({ surface: 'takeover' })}
-                />
-            </div>
+            {experimentVariant === 'control' && (
+                <div className="flex min-w-0 flex-col gap-2">
+                    <p className="m-0 text-sm text-secondary">
+                        Install with Wizard. Run the setup agent in your repository to connect GitHub and choose your
+                        signals and scouts.
+                    </p>
+                    <TerminalCard
+                        command={SELF_DRIVING_WIZARD_COMMAND}
+                        copyLabel="self-driving setup command"
+                        onCopy={() => captureInboxWelcomeCommandCopied({ surface: 'takeover' })}
+                    />
+                </div>
+            )}
             {isQuickSetup ? (
                 <InboxQuickSetupAction />
             ) : (

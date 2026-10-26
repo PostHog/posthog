@@ -7,9 +7,12 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { SELF_DRIVING_WIZARD_COMMAND } from '../../utils/selfDrivingWizardCommand'
 import { InboxActivationPanel } from './InboxActivationPanel'
 import { InboxOnboardingBanner } from './InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './InboxOnboardingEntry'
@@ -314,8 +317,12 @@ export const GithubAccessRequired: Story = {
 }
 
 export const TreatmentEntry = {
-    name: 'Guided intro',
+    name: 'Guided intro with manual setup only',
     render: () => <InboxOnboardingEntry />,
+    play: async ({ canvas }) => {
+        await canvas.findByText('Start manually')
+        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+    },
     decorators: [
         mswDecorator({
             get: { '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' } },
@@ -340,11 +347,15 @@ export const NarrowTreatmentEntry: Story = {
 }
 
 export const ManualEntry: Story = {
-    name: 'Control intro',
+    name: 'Control intro with Wizard and manual setup',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
     },
     render: () => <InboxOnboardingEntry />,
+    play: async ({ canvas }) => {
+        await canvas.findByText('Start manually')
+        await expect(canvas.getByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).toBeVisible()
+    },
     decorators: [
         mswDecorator({
             get: { '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'control' } },
@@ -384,11 +395,15 @@ const quickGeneralScout = {
 }
 
 export const QuickEntry: Story = {
-    name: 'Quick setup intro',
+    name: 'Quick setup intro with manual setup only',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' },
     },
     render: () => <QuickActivationPreview />,
+    play: async ({ canvas }) => {
+        await canvas.findByText('Start manually')
+        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+    },
     decorators: [
         mswDecorator({
             get: {
