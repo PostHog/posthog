@@ -3081,7 +3081,6 @@ jobs:
         steps:
             # The default ref, which is the PR merge commit. turbo-discover selects the test files
             # from this tree, so a checkout of any other ref can lack a file that the selection lists.
-            # Any `with:` input makes Depot run a full fetch from GitHub instead of its fast clone.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
             - name: Install signal-fanout
               shell: bash
