@@ -13,7 +13,9 @@ import { pathToFileURL } from 'node:url'
 
 import {
     API_KEY,
+    buildTeamDigests,
     cell,
+    deliverTeamDigests,
     DRY_RUN,
     editWorkflowBlock,
     hogql,
@@ -22,6 +24,7 @@ import {
     resolveOwners,
     SLACK_BOT_TOKEN,
     SLACK_CHANNEL,
+    teamLabel,
 } from './weekly-report-common.mjs'
 
 const TEAM_CHANNEL_POSTS = process.env.MCP_TOOL_HEALTH_TEAM_CHANNELS === 'true'
@@ -38,8 +41,10 @@ const MIN_ERROR_RATE_PCT = 10
 const MIN_USERS = 5
 
 const TOOL_DEFINITION_GLOBS = ['products/*/mcp/*.yaml', 'services/mcp/definitions/*.yaml']
-// Tools with no YAML entry are handwritten in the MCP server, which services/mcp/src/owners.yaml assigns.
+// Tools with no YAML entry are handwritten in the MCP server. The registry maps each one to its
+// source file, whose path services/mcp/src/owners.yaml can assign more narrowly than the directory.
 const HANDWRITTEN_TOOL_PATH = 'services/mcp/src/tools'
+const HANDWRITTEN_TOOL_REGISTRY = `${HANDWRITTEN_TOOL_PATH}/index.ts`
 
 // Exec-mode calls name the real tool in `$mcp_exec_tool_call_name`. The bare `exec` dispatcher is
 // excluded because its own rejections belong to the MCP server, not to any product tool. Error
@@ -108,6 +113,27 @@ function parseToolNames(yamlText) {
     return names
 }
 
+// Reads `'tool-name': factory,` entries of the registry and the `./path` each factory is imported
+// from. Entries it cannot follow (a computed key, a spread, an inline factory) fall back to the
+// directory.
+function parseHandwrittenTools(registrySource) {
+    const modules = new Map()
+    for (const [, defaultImport, namedImports, path] of registrySource.matchAll(
+        /^import (?:(\w+)|\{([^}]*)\}) from '\.\/([^']+)'/gm
+    )) {
+        for (const name of defaultImport ? [defaultImport] : namedImports.split(',')) {
+            modules.set(name.trim(), `${HANDWRITTEN_TOOL_PATH}/${path}`)
+        }
+    }
+    const tools = []
+    for (const [, tool, factory] of registrySource.matchAll(/^ {4}'([a-z0-9-]+)': (\w+),$/gm)) {
+        if (modules.has(factory)) {
+            tools.push([tool, modules.get(factory)])
+        }
+    }
+    return tools
+}
+
 function toolDefinitionIndex({
     listFiles = trackedDefinitionFiles,
     readFile = (path) => readFileSync(path, 'utf8'),
@@ -118,6 +144,11 @@ function toolDefinitionIndex({
             if (!index.has(name)) {
                 index.set(name, path)
             }
+        }
+    }
+    for (const [name, path] of parseHandwrittenTools(readFile(HANDWRITTEN_TOOL_REGISTRY))) {
+        if (!index.has(name)) {
+            index.set(name, path)
         }
     }
     return index
@@ -136,8 +167,6 @@ function definitionPathFor(tool, index) {
 function formatRate(errors, calls) {
     return `${Math.round((errors * 100) / calls)}%`
 }
-
-const teamLabel = (owner) => owner.replace(/^team-/, '')
 
 function tableRows(items, ownerFor) {
     return items.map((item) => [
@@ -194,79 +223,39 @@ function buildBlocks(now, rows) {
     return editBlock ? [...blocks, editBlock] : blocks
 }
 
-function buildTeamBlocks(now, { owner, rows }) {
+function buildTeamBlocks(now, { owner, rows }, digestUrl) {
+    const footer = [
+        ...(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []),
+        `${FLOOR_NOTE} Wrong owner or a tool that should be off? Tell ${FEEDBACK_CHANNEL}.`,
+    ]
     return [
         { type: 'section', text: { type: 'mrkdwn', text: reportTitle(now, `owned by ${teamLabel(owner)}`) } },
         toolTable(rows),
-        {
-            type: 'context',
-            elements: [
-                {
-                    type: 'mrkdwn',
-                    text: `${FLOOR_NOTE} Wrong owner or a tool that should be off? Tell ${FEEDBACK_CHANNEL}.`,
-                },
-            ],
-        },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: footer.join(' · ') }] },
     ]
 }
 
-// Groups the digest rows by owner. Rows with no owner or no channel stay in the digest only.
-function buildTeamDigests(entries) {
-    const byOwner = new Map()
-    for (const { owner, slack, row } of entries) {
-        if (owner === 'unowned' || !slack) {
-            continue
-        }
-        if (!byOwner.has(owner)) {
-            byOwner.set(owner, { owner, channel: slack, rows: [] })
-        }
-        byOwner.get(owner).rows.push(row)
-    }
-    return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
+// A slice kept in the digest thread. `reason` says why it is not in the team's channel.
+function buildThreadSliceBlocks({ owner, channel, rows }, reason) {
+    return [
+        { type: 'section', text: { type: 'mrkdwn', text: `*${teamLabel(owner)}* _(${reason} ${channel})_` } },
+        toolTable(rows),
+    ]
 }
 
-const SLACK = {
-    post: postToSlack,
-    // chat.postMessage allows about one message per second per channel.
-    pause: () => new Promise((resolve) => setTimeout(resolve, 1100)),
+function teamReport(now) {
+    return {
+        title: 'Weekly MCP tool health report',
+        rowLabel: 'tools',
+        teamBlocks: (team, digestUrl) => buildTeamBlocks(now, team, digestUrl),
+        threadSliceBlocks: buildThreadSliceBlocks,
+    }
 }
 
-// With team posts off, each slice goes to the digest thread, labeled with the channel it would
-// reach, so the routing can be checked before any team channel receives a post. A slice that
-// fails to reach its channel falls back to the thread, so no team's rows are lost.
-async function deliverTeamDigests(teamDigests, { now, digest, enabled = TEAM_CHANNEL_POSTS, slack = SLACK }) {
-    let delivered = 0
-    for (const [index, team] of teamDigests.entries()) {
-        if (index > 0) {
-            await slack.pause()
-        }
-        if (enabled) {
-            try {
-                await slack.post(buildTeamBlocks(now, team), 'Weekly MCP tool health report', { channel: team.channel })
-                delivered++
-                continue
-            } catch (err) {
-                console.warn(`team post for ${team.owner} failed: ${err.message}`)
-            }
-        }
-        const reason = enabled ? 'not delivered to' : 'shadow: would post to'
-        try {
-            await slack.post(
-                [
-                    {
-                        type: 'section',
-                        text: { type: 'mrkdwn', text: `*${teamLabel(team.owner)}* _(${reason} ${team.channel})_` },
-                    },
-                    toolTable(team.rows),
-                ],
-                `MCP tools owned by ${team.owner}`,
-                { threadTs: digest.ts }
-            )
-        } catch (err) {
-            console.warn(`thread slice for ${team.owner} failed: ${err.message}`)
-        }
-    }
-    return delivered
+// Off, each slice goes to the digest thread, labeled with the channel it would reach, so the
+// routing can be checked before any team channel receives a post.
+function teamPostsWithheld(enabled = TEAM_CHANNEL_POSTS) {
+    return enabled ? null : 'shadow: would post to'
 }
 
 async function main() {
@@ -301,8 +290,12 @@ async function main() {
     }
     const digest = await postToSlack(blocks, 'Weekly MCP tool health report')
     console.info(`Posted weekly MCP tool health report to ${SLACK_CHANNEL}.`)
-    const delivered = await deliverTeamDigests(teamDigests, { now, digest })
-    console.info(`Posted ${delivered}/${teamDigests.length} team slice(s) to team channels.`)
+    const posted = await deliverTeamDigests(teamDigests, {
+        digest,
+        report: teamReport(now),
+        withheld: teamPostsWithheld(),
+    })
+    console.info(`Posted ${posted.length}/${teamDigests.length} team slice(s) to team channels.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -314,13 +307,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
-    buildTeamDigests,
     definitionPathFor,
-    deliverTeamDigests,
     fetchFailingTools,
     HANDWRITTEN_TOOL_PATH,
     parseToolNames,
     tableRows,
+    teamPostsWithheld,
+    teamReport,
     TOOL_HEALTH_QUERY,
     TOOL_HEALTH_VALUES,
     toolDefinitionIndex,

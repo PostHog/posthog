@@ -49,6 +49,7 @@ jobs:
                       **/product.yaml
                       products/*/mcp/*.yaml
                       services/mcp/definitions/*.yaml
+                      services/mcp/src/tools/index.ts
                   sparse-checkout-cone-mode: false
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
