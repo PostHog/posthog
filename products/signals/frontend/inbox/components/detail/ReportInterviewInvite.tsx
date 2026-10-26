@@ -68,7 +68,14 @@ export function ReportInterviewInvite(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-tertiary">
+        <div
+            className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-tertiary"
+            onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                    event.stopPropagation()
+                }
+            }}
+        >
             <span>Want some free PostHog merch?</span>
             <LemonButton
                 type="tertiary"

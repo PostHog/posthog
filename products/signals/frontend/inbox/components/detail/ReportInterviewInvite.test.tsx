@@ -118,6 +118,62 @@ describe('ReportInterviewInvite', () => {
     })
 
     it.each([
+        {
+            name: 'resolve booking link',
+            reason: 'Implemented manually',
+            submitLabel: 'Resolve report',
+            control: 'link',
+            openDialog: (onConfirm: jest.Mock) => openResolveReportDialog({ reportTitle: 'Example report', onConfirm }),
+        },
+        {
+            name: 'resolve invite dismissal',
+            reason: 'Implemented manually',
+            submitLabel: 'Resolve report',
+            control: 'dismiss',
+            openDialog: (onConfirm: jest.Mock) => openResolveReportDialog({ reportTitle: 'Example report', onConfirm }),
+        },
+        {
+            name: 'dismiss booking link',
+            reason: 'Already fixed',
+            submitLabel: 'Dismiss & teach the agent',
+            control: 'link',
+            openDialog: (onConfirm: jest.Mock) => openDismissReportDialog({ reportTitle: 'Example report', onConfirm }),
+        },
+        {
+            name: 'dismiss invite dismissal',
+            reason: 'Already fixed',
+            submitLabel: 'Dismiss & teach the agent',
+            control: 'dismiss',
+            openDialog: (onConfirm: jest.Mock) => openDismissReportDialog({ reportTitle: 'Example report', onConfirm }),
+        },
+    ])(
+        'does not submit the report when Enter activates the $name',
+        async ({ reason, submitLabel, control, openDialog }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_INTERVIEW_INVITE], {
+                [FEATURE_FLAGS.INBOX_INTERVIEW_INVITE]: true,
+            })
+            const onConfirm = jest.fn()
+            act(() => openDialog(onConfirm))
+
+            const dialog = screen.getByRole('dialog')
+            await user.click(within(dialog).getByText(reason))
+            await waitFor(() => expect(within(dialog).getByText(submitLabel).closest('button')).not.toBeDisabled())
+
+            const inviteControl =
+                control === 'link'
+                    ? within(dialog).getByText(bookingText).closest('a')
+                    : within(dialog).getByLabelText('Dismiss interview invite')
+            inviteControl?.focus()
+            await user.keyboard('{Enter}')
+
+            expect(onConfirm).not.toHaveBeenCalled()
+            expect(dialog).toBeInTheDocument()
+            await user.click(within(dialog).getByText('Cancel'))
+            await waitFor(() => expect(dialog).not.toBeInTheDocument())
+        }
+    )
+
+    it.each([
         ['bulk resolve', () => openResolveReportDialog({ selectedCount: 2, onConfirm: jest.fn() })],
         [
             'hotkey dismiss',
