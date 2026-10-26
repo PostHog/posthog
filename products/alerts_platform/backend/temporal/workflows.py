@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy, SearchAttributeKey
+from temporalio.common import RetryPolicy, SearchAttributeKey, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -263,7 +263,11 @@ def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
     return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
 
 
-async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
+async def start_deliveries(
+    deliveries: Sequence[AlertDeliveryRequest],
+    *,
+    id_reuse_policy: WorkflowIDReusePolicy = WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+) -> int:
     """Starts one delivery workflow per request, from inside a source's evaluation workflow.
 
     Returns how many started. The id names the configuration and the evaluation key, because the
@@ -283,6 +287,7 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                 execution_timeout=delivery_execution_timeout(delivery),
+                id_reuse_policy=id_reuse_policy,
             )
             for delivery in deliveries
         ),
@@ -319,10 +324,12 @@ async def alerts_platform_find_expired_holds_activity() -> delivery_holds.HoldSw
 @activity.defn
 async def alerts_platform_release_expired_holds_activity(sweep: delivery_holds.HoldSweep) -> list[AlertDeliveryRequest]:
     """Separate from the find, so a retry after a committed release gets the same requests back."""
-    requests = await database_sync_to_async_pool(delivery_holds.send_swept)(
+    swept = await database_sync_to_async_pool(delivery_holds.send_swept)(
         sweep, dt.datetime.now(dt.UTC), max_bytes=MAX_BATCH_PAYLOAD_BYTES
     )
-    for request in requests:
+    # Only the holds this attempt released at their deadline, so a recovered send or a retry is not
+    # counted as a source that stalled.
+    for request in swept.expired:
         await LOGGER.awarning(
             "alerts_platform_hold_expired",
             source=request.source.value,
@@ -330,7 +337,7 @@ async def alerts_platform_release_expired_holds_activity(sweep: delivery_holds.H
             evaluation_key=request.evaluation_key,
         )
         safe_record(increment_holds_expired, request.source.value)
-    return list(requests)
+    return list(swept.requests)
 
 
 @activity.defn
@@ -371,7 +378,9 @@ class AlertsPlatformReleaseExpiredHoldsWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=60),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        started = await start_deliveries(requests)
+        # A recovered send may have delivered already and lost only its start mark. A completed
+        # delivery is not run again; a failed one is.
+        started = await start_deliveries(requests, id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         await workflow.execute_activity(
             alerts_platform_record_hold_deliveries_started_activity,
             requests,

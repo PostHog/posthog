@@ -31,6 +31,14 @@ START_GRACE: Final = timedelta(minutes=5)
 
 
 @frozen
+class SweptHolds:
+    """The requests a sweep starts, and which of them it released at their deadline just now."""
+
+    requests: tuple[AlertDeliveryRequest, ...]
+    expired: tuple[AlertDeliveryRequest, ...]
+
+
+@frozen
 class HoldSweep:
     """What one sweep found to send: holds past their deadline, and released sends nobody started."""
 
@@ -61,45 +69,55 @@ def hold_for(
 
 
 def release_hold(
-    address: HeldDeliveryAddress,
-    *,
-    action: HoldRelease,
-    released_by: HoldReleasedBy,
-    now: datetime,
-    only_if_due: bool = False,
+    address: HeldDeliveryAddress, *, action: HoldRelease, released_by: HoldReleasedBy, now: datetime
 ) -> AlertDeliveryRequest | None:
     """Releases one hold. Returns the request when the caller should start its delivery.
 
     The first release wins. A later one changes nothing and gets the request back only when it
     repeats the winning send from the same releaser, which is a retry of a caller that committed
     the release and failed before it started the delivery. The delivery's id then dedups it.
+    """
+    request, _ = _release(address, action=action, released_by=released_by, now=now, by_safety_net=False)
+    return request
 
-    `only_if_due` re-reads the deadline under the lock, so a hold rescheduled after the sweep found
-    it stays held. It also suppresses, rather than sends, the hold of a configuration that is
-    disabled by then, so turning the alert back on never sends a firing that old.
+
+def _release(
+    address: HeldDeliveryAddress,
+    *,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+    now: datetime,
+    by_safety_net: bool,
+) -> tuple[AlertDeliveryRequest | None, bool]:
+    """`release_hold`, plus whether this call made the release.
+
+    The safety net skips a hold another transaction has locked, so a slow source delays only its
+    own hold, and a later sweep finds it again. It re-reads the deadline under the lock, so a hold
+    rescheduled after the sweep found it stays held. It suppresses, rather than sends, the hold of a
+    configuration that is disabled by then, so turning the alert back on never sends a firing that old.
     """
     with transaction.atomic():
         hold = (
             PlatformAlertDeliveryHold.objects.for_team(address.team_id)
             .select_related("configuration")
-            .select_for_update(of=("self",))
+            .select_for_update(of=("self",), skip_locked=by_safety_net)
             .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
             .first()
         )
         if hold is None:
-            return None
+            return None, False
         if hold.released_at is not None:
             repeated = hold.release_action == action == HoldRelease.SEND and hold.released_by == released_by
-            return AlertDeliveryRequest.from_stored(hold.request) if repeated else None
-        if only_if_due and hold.release_after > now:
-            return None
-        if only_if_due and not hold.configuration.enabled:
+            return (AlertDeliveryRequest.from_stored(hold.request) if repeated else None), False
+        if by_safety_net and hold.release_after > now:
+            return None, False
+        if by_safety_net and not hold.configuration.enabled:
             action = HoldRelease.SUPPRESS
         hold.released_at = now
         hold.release_action = action.value
         hold.released_by = released_by.value
         hold.save(update_fields=["released_at", "release_action", "released_by"])
-    return AlertDeliveryRequest.from_stored(hold.request) if action == HoldRelease.SEND else None
+    return (AlertDeliveryRequest.from_stored(hold.request) if action == HoldRelease.SEND else None), True
 
 
 def record_delivery_started(addresses: Sequence[HeldDeliveryAddress], now: datetime) -> None:
@@ -193,7 +211,7 @@ def _stored_request(address: HeldDeliveryAddress) -> AlertDeliveryRequest | None
     return None if stored is None else AlertDeliveryRequest.from_stored(stored)
 
 
-def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> tuple[AlertDeliveryRequest, ...]:
+def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> SweptHolds:
     """The requests the sweep starts: released sends nobody started, then expired holds it releases.
 
     Stops before the requests outgrow `max_bytes`, because they return through one activity result.
@@ -204,6 +222,7 @@ def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> tuple[Aler
     from products.alerts_platform.backend.facade.payload import payload_bytes  # noqa: PLC0415
 
     requests: list[AlertDeliveryRequest] = []
+    expired: list[AlertDeliveryRequest] = []
     spent = 0
     for address in (*sweep.unstarted, *sweep.expired):
         request = _stored_request(address)
@@ -213,11 +232,14 @@ def send_swept(sweep: HoldSweep, now: datetime, *, max_bytes: int) -> tuple[Aler
         if requests and spent + size > max_bytes:
             break
         if address in sweep.expired:
-            request = release_hold(
-                address, action=HoldRelease.SEND, released_by=HoldReleasedBy.SAFETY_NET, now=now, only_if_due=True
+            released, fresh = _release(
+                address, action=HoldRelease.SEND, released_by=HoldReleasedBy.SAFETY_NET, now=now, by_safety_net=True
             )
-            if request is None:
+            if released is None:
                 continue
+            if fresh:
+                expired.append(released)
+            request = released
         requests.append(request)
         spent += size
-    return tuple(requests)
+    return SweptHolds(requests=tuple(requests), expired=tuple(expired))

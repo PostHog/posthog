@@ -170,9 +170,13 @@ class TestDeliveryHolds(BaseTest):
         assert reschedule_hold(
             self._address(self.configuration, "rescheduled"), release_after=NOW + timedelta(minutes=5)
         )
-        requests = send_swept(sweep, NOW, max_bytes=MAX_BATCH_PAYLOAD_BYTES)
+        swept = send_swept(sweep, NOW, max_bytes=MAX_BATCH_PAYLOAD_BYTES)
+        requests = swept.requests
 
         assert requests == (self._request(self.configuration, "unstarted"), self._request(self.configuration, "due"))
+        # Only the deadline release counts as a stalled source, not the recovered start.
+        assert swept.expired == (self._request(self.configuration, "due"),)
+        assert send_swept(sweep, NOW, max_bytes=MAX_BATCH_PAYLOAD_BYTES).expired == ()
         suppressed = PlatformAlertDeliveryHold.objects.for_team(self.team.id).get(configuration=disabled)
         assert (suppressed.release_action, suppressed.released_by) == (HoldRelease.SUPPRESS, HoldReleasedBy.SAFETY_NET)
         record_delivery_started([self._address(self.configuration, r.evaluation_key) for r in requests], NOW)
@@ -182,7 +186,7 @@ class TestDeliveryHolds(BaseTest):
         for key in ("first", "second"):
             self._hold(self.configuration, key=key, release_after=NOW - timedelta(minutes=1))
 
-        requests = send_swept(holds_to_send(NOW, limit=10), NOW, max_bytes=1)
+        swept = send_swept(holds_to_send(NOW, limit=10), NOW, max_bytes=1)
 
-        assert len(requests) == 1
+        assert len(swept.requests) == 1
         assert len(holds_to_send(NOW, limit=10).expired) == 1
