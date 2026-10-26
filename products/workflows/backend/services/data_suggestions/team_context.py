@@ -3,14 +3,13 @@
 import re
 from typing import Any
 
-from django.db.models import BigIntegerField, F
+from django.db.models import BigIntegerField, F, IntegerField
 from django.db.models.functions import Coalesce
 
 from posthog.models import EventProperty, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.api import person_property_names_with_access_rules
-from products.event_definitions.backend.models import effective_project_id_expr, group_type_index_key_expr
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -131,8 +130,10 @@ def event_property_names(team: Team, event: str) -> tuple[str, ...]:
 def person_properties(team: Team) -> dict[str, tuple[str, ...]]:
     """The project's own person properties that a branch can split on, like a plan or a status, with their values."""
     names = (
+        # Both expressions match the leading columns of `index_property_def_query_proj`, so the ordering reads the index.
         PropertyDefinition.objects.alias(
-            effective_project_id=effective_project_id_expr(), group_type_index_key=group_type_index_key_expr()
+            effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField()),
+            group_type_index_key=Coalesce(F("group_type_index"), -1, output_field=IntegerField()),
         )
         .filter(
             effective_project_id=team.project_id,
