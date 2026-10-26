@@ -2,7 +2,11 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from products.replay_vision.backend.media_small_backfill import SmallCopyBackfill, teams_missing_small_copies
+from products.replay_vision.backend.media_small_copies import (
+    backfill_small_copies,
+    media_missing_small_copies,
+    teams_missing_small_copies,
+)
 
 
 class Command(BaseCommand):
@@ -16,13 +20,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        team_ids = options["team_id"] or teams_missing_small_copies()
-        dry_run = bool(options["dry_run"])
-        for team_id in team_ids:
-            result = SmallCopyBackfill(team_id, limit=options["limit"]).run(dry_run=dry_run)
-            if dry_run:
-                self.stdout.write(f"Team {team_id}: {result.candidates} frames need a small copy.")
-            else:
-                self.stdout.write(
-                    f"Team {team_id}: added {result.created} of {result.candidates} small copies, {result.failed} failed."
-                )
+        for team_id in options["team_id"] or teams_missing_small_copies():
+            if options["dry_run"]:
+                count = media_missing_small_copies(team_id, options["limit"]).count()
+                self.stdout.write(f"Team {team_id}: {count} frames need a small copy.")
+                continue
+            result = backfill_small_copies(team_id, options["limit"])
+            self.stdout.write(
+                f"Team {team_id}: added {result.created} of {result.candidates} small copies, {result.failed} failed."
+            )

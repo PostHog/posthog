@@ -13,7 +13,11 @@ from PIL import Image
 from posthog.models.utils import uuid7
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.media_small_backfill import SmallCopyBackfill, shrink_png
+from products.replay_vision.backend.media_small_copies import (
+    backfill_small_copies,
+    media_missing_small_copies,
+    shrink_png,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -42,7 +46,7 @@ class TestShrinkPng(SimpleTestCase):
             assert image.size == expected
 
 
-class TestSmallCopyBackfill(BaseTest):
+class TestBackfillSmallCopies(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         scanner = ReplayScanner.objects.create(
@@ -86,19 +90,17 @@ class TestSmallCopyBackfill(BaseTest):
         servable = self._media(0)
         self._media(1, rendered=False)
         self._media(2, expired=True)
-        backfill = SmallCopyBackfill(self.team.id)
 
         with (
-            patch("products.replay_vision.backend.media_small_backfill.object_storage.read_bytes") as read,
-            patch("products.replay_vision.backend.media_small_backfill.object_storage.write") as write,
+            patch("products.replay_vision.backend.media_small_copies.object_storage.read_bytes") as read,
+            patch("products.replay_vision.backend.media_small_copies.object_storage.write") as write,
         ):
             read.return_value = _png(1280, 688)
 
-            assert backfill.run(dry_run=True).candidates == 1
-            assert not write.called
+            assert media_missing_small_copies(self.team.id).count() == 1
 
-            result = backfill.run(dry_run=False)
-            again = backfill.run(dry_run=False)
+            result = backfill_small_copies(self.team.id)
+            again = backfill_small_copies(self.team.id)
 
         assert (result.candidates, result.created, result.failed) == (1, 1, 0)
         assert again.candidates == 0

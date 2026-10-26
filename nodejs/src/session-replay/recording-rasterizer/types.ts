@@ -38,15 +38,13 @@ export interface ExtractThumbnailsInput {
     footer_crop_px?: number
     /** Output width; height follows the source aspect ratio. Defaults to 1280. */
     width?: number
-    /** Width of a second, smaller copy of each frame. No copy is made when unset. */
-    small_width?: number
     s3_bucket: string
     s3_key_prefix: string
 }
 
 export interface ExtractThumbnailsOutput {
     /** One entry per frame the video has, in input order. */
-    frames: { id: string; s3_uri: string; file_size_bytes: number; small_s3_uri?: string }[]
+    frames: { id: string; s3_uri: string; file_size_bytes: number }[]
 }
 
 /**

@@ -9,8 +9,6 @@ from pydantic import BaseModel, Field
 LEGACY_ANALYSIS_FOOTER_HEIGHT_PX = 32
 
 THUMBNAIL_WIDTH_PX = 1280
-# Twice the widest list cell, so the small copy stays sharp on a high-density screen.
-SMALL_THUMBNAIL_WIDTH_PX = 480
 
 # Far enough in to clear the loading screen a session opens on.
 FALLBACK_THUMBNAIL_FRACTION = 0.25
@@ -55,7 +53,6 @@ class ExtractThumbnailsActivityInput(BaseModel, frozen=True):
     frames: list[ExtractThumbnailsFrame]
     footer_crop_px: int
     width: int
-    small_width: int | None = None
     s3_bucket: str
     s3_key_prefix: str
 
@@ -64,8 +61,6 @@ class ExtractedFrame(BaseModel, frozen=True):
     id: str
     s3_uri: str
     file_size_bytes: int
-    # Missing when the small copy failed, or when a worker that predates it ran the render.
-    small_s3_uri: str | None = None
 
 
 class ExtractThumbnailsActivityOutput(BaseModel, frozen=True):

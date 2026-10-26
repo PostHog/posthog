@@ -22,7 +22,7 @@ def expire_media_asset(
     sender: type[ReplayObservationMedia], instance: ReplayObservationMedia, **kwargs: object
 ) -> None:
     # Filtered rather than saved, so the sweep's own asset delete cascades here and matches nothing.
-    asset_ids = [asset_id for asset_id in (instance.asset_id, instance.small_asset_id) if asset_id is not None]
-    ExportedAsset.objects.filter(pk__in=asset_ids, team_id=instance.team_id, expires_after__gt=now()).update(
-        expires_after=now()
-    )
+    # `__in` drops a None, so a row without a small copy expires only its large one.
+    ExportedAsset.objects.filter(
+        pk__in=[instance.asset_id, instance.small_asset_id], team_id=instance.team_id, expires_after__gt=now()
+    ).update(expires_after=now())

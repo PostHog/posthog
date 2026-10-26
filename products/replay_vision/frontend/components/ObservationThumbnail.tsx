@@ -59,10 +59,7 @@ export function ObservationThumbnail({
     )
     const baseSrc =
         hasThumbnail && currentTeamId !== null && !failed
-            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, {
-                  ...(chapter === undefined ? {} : { chapter }),
-                  size,
-              })
+            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, { chapter, size })
             : undefined
     const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
 

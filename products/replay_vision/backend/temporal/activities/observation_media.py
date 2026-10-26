@@ -1,3 +1,5 @@
+import asyncio
+from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -15,13 +17,13 @@ from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.media_small_copies import write_small_copy
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.media_types import (
     FALLBACK_THUMBNAIL_FRACTION,
     LEGACY_ANALYSIS_FOOTER_HEIGHT_PX,
-    SMALL_THUMBNAIL_WIDTH_PX,
     THUMBNAIL_WIDTH_PX,
     ExtractThumbnailsActivityInput,
     ExtractThumbnailsFrame,
@@ -238,7 +240,6 @@ async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> 
             frames=extract_frames,
             footer_crop_px=_footer_crop_px(source.context),
             width=THUMBNAIL_WIDTH_PX,
-            small_width=SMALL_THUMBNAIL_WIDTH_PX,
             s3_bucket=settings.OBJECT_STORAGE_BUCKET,
             s3_key_prefix=_media_key_prefix(inputs.team_id, inputs.observation_id),
         ),
@@ -255,6 +256,11 @@ class _MediaLink:
     content_location: str
     small_asset_id: int | None
     small_content_location: str | None
+
+    def asset_locations(self) -> Iterator[tuple[int, str]]:
+        yield self.asset_id, self.content_location
+        if self.small_asset_id is not None and self.small_content_location is not None:
+            yield self.small_asset_id, self.small_content_location
 
 
 def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> None:
@@ -277,13 +283,8 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                     "rec_start_ms": link.rec_start_ms,
                 },
             )
-            ExportedAsset.objects.filter(pk=media.asset_id, team_id=team_id).update(
-                content_location=link.content_location
-            )
-            if link.small_asset_id is not None:
-                ExportedAsset.objects.filter(pk=link.small_asset_id, team_id=team_id).update(
-                    content_location=link.small_content_location
-                )
+            for asset_id, location in link.asset_locations():
+                ExportedAsset.objects.filter(pk=asset_id, team_id=team_id).update(content_location=location)
 
 
 async def _link_or_expire(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> bool:
@@ -295,12 +296,9 @@ async def _link_or_expire(team_id: int, observation_id: UUID, links: list[_Media
         # The observation went away between the render and this write, so nothing will point at the objects.
         # The sweep deletes the stored object only for a row that carries a location.
         for link in links:
-            await ExportedAsset.objects.filter(pk=link.asset_id, team_id=team_id).aupdate(
-                content_location=link.content_location, expires_after=now()
-            )
-            if link.small_asset_id is not None:
-                await ExportedAsset.objects.filter(pk=link.small_asset_id, team_id=team_id).aupdate(
-                    content_location=link.small_content_location, expires_after=now()
+            for asset_id, location in link.asset_locations():
+                await ExportedAsset.objects.filter(pk=asset_id, team_id=team_id).aupdate(
+                    content_location=location, expires_after=now()
                 )
         return False
     return True
@@ -313,22 +311,41 @@ def _content_location(s3_uri: str) -> str:
         raise ApplicationError(str(error), non_retryable=True) from error
 
 
+async def _small_copy(small_asset_id: int | None, large_location: str) -> str | None:
+    if small_asset_id is None:
+        return None
+    try:
+        return await asyncio.to_thread(write_small_copy, large_location)
+    except Exception as error:
+        # The large frame still serves every view, so a failed copy must not fail the render.
+        logger.warning("replay_vision.small_copy_failed", location=large_location, error=str(error))
+        return None
+
+
 @activity.defn
 @track_activity()
 async def finalize_observation_media_activity(inputs: FinalizeObservationMediaInputs) -> None:
     """Link every frame the video had to its slot, and expire the assets of the frames it did not have."""
     extracted = {frame.id: frame for frame in inputs.result.frames}
+    rendered = [
+        (frame, _content_location(extracted[frame.object_id].s3_uri))
+        for frame in inputs.frames
+        if frame.object_id in extracted
+    ]
+    small_locations = await asyncio.gather(
+        *(_small_copy(frame.small_media_asset_id, location) for frame, location in rendered)
+    )
+    # Assets with no object to point at: the frames the video did not have, and the small copies that failed.
+    missing = [
+        asset_id
+        for frame in inputs.frames
+        if frame.object_id not in extracted
+        for asset_id in (frame.media_asset_id, frame.small_media_asset_id)
+        if asset_id is not None
+    ]
     links: list[_MediaLink] = []
-    missing: list[int] = []
-    for frame in inputs.frames:
-        result = extracted.get(frame.object_id)
-        if result is None:
-            missing.extend(
-                asset_id for asset_id in (frame.media_asset_id, frame.small_media_asset_id) if asset_id is not None
-            )
-            continue
-        small_asset_id = frame.small_media_asset_id if result.small_s3_uri else None
-        if frame.small_media_asset_id is not None and small_asset_id is None:
+    for (frame, location), small_location in zip(rendered, small_locations):
+        if frame.small_media_asset_id is not None and small_location is None:
             missing.append(frame.small_media_asset_id)
         links.append(
             _MediaLink(
@@ -337,9 +354,9 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
                 asset_id=frame.media_asset_id,
                 video_start_ms=frame.video_start_ms,
                 rec_start_ms=frame.rec_start_ms,
-                content_location=_content_location(result.s3_uri),
-                small_asset_id=small_asset_id,
-                small_content_location=_content_location(result.small_s3_uri) if result.small_s3_uri else None,
+                content_location=location,
+                small_asset_id=frame.small_media_asset_id if small_location else None,
+                small_content_location=small_location,
             )
         )
     if missing:

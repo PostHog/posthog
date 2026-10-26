@@ -1,15 +1,18 @@
+import io
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from PIL import Image
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.utils import uuid7
@@ -39,6 +42,12 @@ from products.replay_vision.backend.temporal.media_types import (
     PrepareObservationMediaOutput,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
+
+
+def _png() -> bytes:
+    out = io.BytesIO()
+    Image.new("RGB", (1280, 688)).save(out, format="PNG")
+    return out.getvalue()
 
 
 class TestObservationMedia(BaseTest):
@@ -93,26 +102,28 @@ class TestObservationMedia(BaseTest):
         observation_id: UUID,
         with_small: list[PreparedFrame] | None = None,
     ) -> None:
-        small_ids = {f.object_id for f in (rendered if with_small is None else with_small)}
+        readable = {f.object_id for f in (rendered if with_small is None else with_small)}
         prefix = f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{observation_id}"
-        async_to_sync(finalize_observation_media_activity)(
-            FinalizeObservationMediaInputs(
-                team_id=self.team.id,
-                observation_id=observation_id,
-                frames=prepared.frames,
-                result=ExtractThumbnailsActivityOutput(
-                    frames=[
-                        ExtractedFrame(
-                            id=f.object_id,
-                            s3_uri=f"{prefix}/{f.object_id}.png",
-                            file_size_bytes=4096,
-                            small_s3_uri=f"{prefix}/{f.object_id}-small.png" if f.object_id in small_ids else None,
-                        )
-                        for f in rendered
-                    ]
-                ),
+        with (
+            patch(
+                "products.replay_vision.backend.media_small_copies.object_storage.read_bytes",
+                side_effect=lambda location, **_: _png() if location.split("/")[-1][:-4] in readable else None,
+            ),
+            patch("products.replay_vision.backend.media_small_copies.object_storage.write"),
+        ):
+            async_to_sync(finalize_observation_media_activity)(
+                FinalizeObservationMediaInputs(
+                    team_id=self.team.id,
+                    observation_id=observation_id,
+                    frames=prepared.frames,
+                    result=ExtractThumbnailsActivityOutput(
+                        frames=[
+                            ExtractedFrame(id=f.object_id, s3_uri=f"{prefix}/{f.object_id}.png", file_size_bytes=4096)
+                            for f in rendered
+                        ]
+                    ),
+                )
             )
-        )
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -183,7 +194,6 @@ class TestObservationMedia(BaseTest):
         # The thumbnail keeps the video-wide edge margin; a chapter frame stays inside its own chapter instead.
         assert [f.video_time_s for f in prepared.activity_input.frames] == [25.0, 1.0, 50.0, 99.0]
         assert [f.required for f in prepared.activity_input.frames] == [True, False, False, False]
-        assert prepared.activity_input.small_width == 480
         assert len({f.media_asset_id for f in prepared.frames} | {f.small_media_asset_id for f in prepared.frames}) == 8
         # A retried prepare reuses each slot's assets rather than leaving a second one behind.
         again = self._prepare()
@@ -191,7 +201,7 @@ class TestObservationMedia(BaseTest):
             (f.media_asset_id, f.small_media_asset_id) for f in prepared.frames
         ]
 
-        # The third frame's small copy failed, and the video has no fourth frame at all.
+        # The third frame cannot be read back for its small copy, and the video has no fourth frame at all.
         self._finalize(
             prepared,
             rendered=prepared.frames[:3],
