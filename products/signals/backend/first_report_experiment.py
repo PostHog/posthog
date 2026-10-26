@@ -40,7 +40,7 @@ class FirstReportExperiment:
         return properties
 
 
-def resolve_first_report_experiment(team: Team) -> FirstReportExperiment | None:
+def resolve_first_report_experiment(team: Team, *, raise_on_error: bool = False) -> FirstReportExperiment | None:
     try:
         variant = posthoganalytics.get_feature_flag(
             FIRST_REPORT_EXPERIMENT,
@@ -51,7 +51,11 @@ def resolve_first_report_experiment(team: Team) -> FirstReportExperiment | None:
         )
     except Exception as error:
         capture_exception(error)
+        if raise_on_error:
+            raise
         return None
+    if variant is None and raise_on_error:
+        raise RuntimeError("First-report experiment evaluation is unavailable")
     if variant == "control":
         return FirstReportExperiment(variant=variant, agent_runtime=None)
     if variant == "test-sol":

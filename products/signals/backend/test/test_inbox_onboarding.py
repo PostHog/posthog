@@ -726,12 +726,16 @@ class TestInboxOnboardingActivation(BaseTest):
             ("scout", 0, "test-sol"),
             ("scout", 5, "test-sol"),
             ("scout", 0, "control"),
+            ("scout", 0, "test-sol", "flag_error"),
+            ("scout", 5, "test-sol", "flag_error"),
+            ("scout", 0, "test-sol", "flag_missing"),
+            ("scout", 5, "test-sol", "flag_missing"),
             ("recommendations", 0, "test-sol"),
             ("recommendations", 5, "test-sol"),
         ]
     )
     def test_dispatch_retries_use_one_workflow_and_preserve_completed_jobs(
-        self, job: str, retry_count: int, arm: str | None
+        self, job: str, retry_count: int, arm: str | None, failure_source: str = "workflow"
     ) -> None:
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -753,7 +757,7 @@ class TestInboxOnboardingActivation(BaseTest):
             patch(
                 "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
                 return_value=arm or False,
-            ),
+            ) as flag,
             patch("products.signals.backend.first_report_experiment.ph_scoped_capture") as exposure,
             patch(
                 "products.signals.backend.scout_harness.profile.builders.execute_hogql_query",
@@ -772,7 +776,12 @@ class TestInboxOnboardingActivation(BaseTest):
                 return_value={"enabled": True, "guaranteed_team_ids": [self.team.id]},
             ),
         ):
-            client.start_workflow.side_effect = RuntimeError("Temporarily unavailable")
+            if failure_source == "flag_error":
+                flag.side_effect = RuntimeError("Flag evaluation unavailable")
+            elif failure_source == "flag_missing":
+                flag.return_value = None
+            else:
+                client.start_workflow.side_effect = RuntimeError("Temporarily unavailable")
             launch_inbox_onboarding_job.push_request(retries=retry_count)
             try:
                 with patch.object(launch_inbox_onboarding_job, "retry", side_effect=Retry()), self.assertRaises(Retry):
@@ -782,8 +791,14 @@ class TestInboxOnboardingActivation(BaseTest):
             config.refresh_from_db()
             assert config.onboarding is not None
             assert config.onboarding["jobs"][job] == ("failed" if retry_count == 5 else "pending")
-            if job == "scout" and arm == "test-sol":
+            if job == "scout" and arm == "test-sol" and failure_source == "workflow":
                 assert config.onboarding["first_report_activation_team_id"] == self.team.id
+            if failure_source != "workflow":
+                client.start_workflow.assert_not_called()
+                if retry_count == 5:
+                    assert config.onboarding["first_report"]["status"] == "incomplete"
+            flag.side_effect = None
+            flag.return_value = arm or False
             client.start_workflow.reset_mock(side_effect=True)
             activation = InboxOnboardingActivation(self.team.id)
             activation.run(job)

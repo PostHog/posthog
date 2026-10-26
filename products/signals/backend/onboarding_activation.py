@@ -67,7 +67,7 @@ class InboxOnboardingActivation:
             transaction.on_commit(lambda: self._capture_status(config, job, status, reason), robust=True)
 
     def _start_first_report(self, team: Team, state: dict[str, Any], *, final_attempt: bool) -> bool:
-        experiment = resolve_first_report_experiment(team)
+        experiment = resolve_first_report_experiment(team, raise_on_error=True)
         # Every arm passes the same gates before exposure, so the arms share one denominator.
         # A control project then gets the activation it would have had without the experiment.
         runs_scout = experiment is not None and experiment.runs_scout
