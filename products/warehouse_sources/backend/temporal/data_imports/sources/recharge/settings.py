@@ -124,6 +124,45 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         incremental_fields=[],
         supports_incremental=False,
     ),
+    # `/plans` filters on `updated_at_min` but documents no `sort_by` and no
+    # `created_at_min`, so it syncs incrementally on `updated_at` in API order.
+    "plans": RechargeEndpointConfig(
+        name="plans",
+        path="/plans",
+        incremental_fields=[_timestamp_field("updated_at")],
+        supports_sort=False,
+    ),
+    # Events are append-only and Recharge keeps only the last 7 days, so an
+    # incremental sync on `created_at` is the only way to keep a longer history.
+    "events": RechargeEndpointConfig(
+        name="events",
+        path="/events",
+        incremental_fields=[_timestamp_field("created_at")],
+        supports_sort=False,
+    ),
+    # `/credit_accounts` filters only on `expires_at` and documents no sort.
+    "credit_accounts": RechargeEndpointConfig(
+        name="credit_accounts",
+        path="/credit_accounts",
+        incremental_fields=[],
+        supports_incremental=False,
+        supports_sort=False,
+    ),
+    # The docs list the sort param of `/credit_adjustments` without a name, so
+    # no `sort_by` is sent.
+    "credit_adjustments": RechargeEndpointConfig(
+        name="credit_adjustments",
+        path="/credit_adjustments",
+        incremental_fields=_UPDATED_AND_CREATED,
+        supports_sort=False,
+    ),
+    # `/bundle_selections` accepts `sort_by` but has no timestamp filter.
+    "bundle_selections": RechargeEndpointConfig(
+        name="bundle_selections",
+        path="/bundle_selections",
+        incremental_fields=[],
+        supports_incremental=False,
+    ),
 }
 
 ENDPOINTS = tuple(RECHARGE_ENDPOINTS.keys())
