@@ -205,8 +205,7 @@
   WHERE notEmpty(variant)
   GROUP BY day, variant
   ORDER BY day ASC
-  LIMIT 5000 SETTINGS load_balancing='in_order',
-                      readonly=2,
+  LIMIT 5000 SETTINGS readonly=2,
                       max_execution_time=600,
                       allow_experimental_object_type=1,
                       max_ast_elements=4000000,

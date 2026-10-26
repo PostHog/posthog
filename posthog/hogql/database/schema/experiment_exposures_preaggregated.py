@@ -1,6 +1,3 @@
-from pydantic import Field
-
-from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -17,9 +14,6 @@ class ExperimentExposuresPreaggregatedTable(Table):
     description: str = (
         "Internal preaggregated table of experiment exposures, one row per entity per experiment job recording the "
         "variant the entity was exposed to and the exposure time window."
-    )
-    top_level_settings: HogQLQuerySettings | None = Field(
-        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
     )
 
     fields: dict[str, FieldOrTable] = {
