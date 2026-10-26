@@ -441,6 +441,22 @@ class TestEmail(BaseTest):
                 ["transactional email workflows rejected", "transactional email triggered"],
             ),
             ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None, ["transactional email failed"]),
+            (
+                "workflows_refuses_suppressed_recipient_falls_back",
+                True,
+                [(422, {"type": "invalid_request", "code": "recipient_suppressed"}), 200],
+                ["workflows", "customer_io"],
+                "customer_io",
+                ["transactional email workflows rejected", "transactional email triggered"],
+            ),
+            (
+                "workflows_key_already_used_sends_nothing",
+                True,
+                [(422, {"type": "invalid_request", "code": "idempotency_key_reused"})],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
+            ),
             ("workflows_server_error_sends_nothing", True, [503], ["workflows"], None, ["transactional email failed"]),
             (
                 "workflows_accepts_without_message_id_sends_nothing",
