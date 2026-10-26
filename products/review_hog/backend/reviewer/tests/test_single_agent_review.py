@@ -26,6 +26,7 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
     SingleAgentPrompt,
     compose_flash_findings,
     dedupe_flash_findings,
+    delta_files,
     flash_turn_stats,
 )
 
@@ -179,6 +180,56 @@ class TestSingleAgentPrompt:
 
         assert prompt.count(PROMPT_CACHE_MARKER) == 1
         assert prompt.split(PROMPT_CACHE_MARKER)[1].lstrip().startswith("CORE RUBRIC")
+
+
+@pytest.mark.parametrize(
+    "delta_since,expect_section",
+    [
+        pytest.param("b" * 40, True, id="commit_sha"),
+        pytest.param("main$(id)", False, id="not_a_commit_sha"),
+    ],
+)
+def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
+    pr_metadata: PRMetadata, delta_since: str, expect_section: bool
+) -> None:
+    def blocks(fix: str) -> list[PRFileUpdate]:
+        return [
+            PRFileUpdate(type="addition", new_start_line=10, new_end_line=10, code="limit = 10"),
+            PRFileUpdate(type="context", new_start_line=11, new_end_line=13, code="a = 1\nb = 2\nc = 3"),
+            PRFileUpdate(type="context", new_start_line=38, new_end_line=40, code="d = 4\ne = 5\nf = 6"),
+            PRFileUpdate(type="deletion", old_start_line=41, old_end_line=41, code="old_total()"),
+            PRFileUpdate(type="addition", new_start_line=41, new_end_line=41, code=fix),
+        ]
+
+    earlier = [
+        PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total()")),
+        _file("b.py", "x = 1"),
+    ]
+    removed = PRFileUpdate(type="deletion", old_start_line=1, old_end_line=2, code="import os\nos.getcwd()")
+    current = [
+        PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total(strict=True)")),
+        _file("b.py", "x = 1"),
+        # A push that deletes a whole file leaves only removals, with no head line to be near.
+        PRFile(filename="c.py", status="removed", additions=0, deletions=2, changes=[removed]),
+    ]
+
+    shown = delta_files(current, ChangedSinceReview.between(earlier, current))
+    prompt = SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=pr_metadata,
+        pr_files=shown,
+        prior_findings=[],
+        guidelines="rubric",
+        merge_base_sha=_MERGE_BASE,
+        delta_since=delta_since,
+    ).render()
+
+    assert [f.filename for f in shown] == ["a.py", "c.py"]
+    assert [u.code for u in shown[0].changes] == ["d = 4\ne = 5\nf = 6", "old_total()", "total(strict=True)"]
+    assert shown[1].changes == [removed]
+    assert ("## Changes since the last review" in prompt) is expect_section
+    assert (f"git diff {delta_since} HEAD" in prompt) is expect_section
+    assert "$(" not in prompt
 
 
 class TestComposeFlashFindings:

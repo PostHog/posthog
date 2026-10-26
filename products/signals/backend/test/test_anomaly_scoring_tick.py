@@ -703,14 +703,19 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
         insights = {
             name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
-            for name in ("never_scored", "stale", "fresh")
+            for name in ("never_scored", "stale", "fresh", "past_day_window")
         }
         for insight in insights.values():
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
             cache.delete(_cooldown_key(insight.id))
         cache.delete_many([_fleet_budget_key(NOW), _project_budget_key(self.team.id, NOW)])
         today = NOW.replace(hour=0)
-        for name, bucket in (("stale", today - timedelta(days=3)), ("fresh", today - timedelta(days=1))):
+        for name, bucket in (
+            ("stale", today - timedelta(days=3)),
+            ("fresh", today - timedelta(days=1)),
+            # Inside the window of a month insight, but older than the window of a day insight.
+            ("past_day_window", today - timedelta(days=40)),
+        ):
             _create_event(
                 team=self.team,
                 event="$anomaly_score",
@@ -729,8 +734,10 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
 
-        assert [pick.insight_id for pick in selection.picks] == [insights["never_scored"].id, insights["stale"].id]
-        assert selection.picks[1].scored_through == {"stale": today - timedelta(days=3)}
+        picks = {pick.insight_id: pick for pick in selection.picks}
+        assert set(picks) == {insights[name].id for name in ("never_scored", "stale", "past_day_window")}
+        assert picks[insights["stale"].id].scored_through == {"stale": today - timedelta(days=3)}
+        assert picks[insights["past_day_window"].id].scored_through == {}
 
     @time_machine.travel(NOW, tick=False)
     def test_select_insights_lets_each_project_pick_before_any_project_picks_twice(self) -> None:
@@ -763,6 +770,38 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
         assert selection.picks[1].insight_id == small_insight.id
         assert selection.candidates == 4
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_skips_a_project_whose_scored_buckets_query_times_out(self) -> None:
+        slow_team = Team.objects.create(organization=self.organization, name="Slow")
+        dashboards = {team.id: Dashboard.objects.create(team=team, name="Main") for team in (self.team, slow_team)}
+        insights = {}
+        for team in (self.team, slow_team):
+            insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            DashboardTile.objects.create(dashboard=dashboards[team.id], insight=insight)
+            cache.delete(_cooldown_key(insight.id))
+            insights[team.id] = insight
+        cache.delete_many(
+            [_fleet_budget_key(NOW), *(_project_budget_key(team_id, NOW) for team_id in (self.team.id, slow_team.id))]
+        )
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, slow_team.id),
+        )
+
+        def buckets(team: Team, *args: Any) -> dict[int, dict[str, datetime]]:
+            if team.id == slow_team.id:
+                raise ClickHouseQueryTimeOut()
+            return scored_buckets(team, *args)
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue.scored_buckets", side_effect=buckets),
+        ):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
+
+        assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id].id]
 
 
 async def _run_tick(

@@ -16,6 +16,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayPhoneHeader } from './TodayPhoneHeader'
+import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
@@ -92,7 +93,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
-                <TodayAnalyticsSidebar />
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayAnalyticsSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
