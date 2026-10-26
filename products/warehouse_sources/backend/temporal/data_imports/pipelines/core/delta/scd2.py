@@ -1,8 +1,9 @@
 import json
 import asyncio
 from collections.abc import Collection, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
@@ -30,8 +31,12 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 
-def _key_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple[Any, ...]]:
-    return list(zip(*(table.column(name).to_pylist() for name in primary_keys)))
+# Rows per record batch when the writer re-reads full current rows, so that read stays bounded.
+_LOOKUP_BATCH_ROWS = 65_536
+_POSITION = "__ph_row_position"
+_INCOMING_HASH = "__ph_incoming_hash"
+_CURRENT_HASH = "__ph_current_hash"
+_CHANGED_POSITION = "__ph_changed_position"
 
 
 class Scd2DeltaWriter:
@@ -78,47 +83,92 @@ class Scd2DeltaWriter:
 
         Only leading rows go. A later row of the same key keeps the `valid_to` chain the caller
         stamped, and dropping it would leave the row before it closed at the wrong time.
+
+        The match runs as Arrow joins, so memory grows with the key and hash columns of the batch
+        and not with one Python object per row.
         """
         assert self._row_hash_column is not None
-        current_hashes = self._current_row_hashes(delta_table, data, primary_keys)
-        if not current_hashes:
+        dataset = delta_table.to_pyarrow_dataset()
+        current = self._current_row_hashes(dataset, data, primary_keys)
+        if current.num_rows == 0:
             return data
 
-        changed_keys: set[tuple[Any, ...]] = set()
-        keep: list[bool] = []
-        for key, row_hash in zip(_key_tuples(data, primary_keys), data.column(self._row_hash_column).to_pylist()):
-            unchanged = key not in changed_keys and current_hashes.get(key) == row_hash
-            if not unchanged:
-                changed_keys.add(key)
-            keep.append(not unchanged)
+        incoming = pa.table(
+            {
+                **{name: data.column(name).cast(dataset.schema.field(name).type) for name in primary_keys},
+                _POSITION: pa.array(np.arange(data.num_rows, dtype=np.int64)),
+                _INCOMING_HASH: data.column(self._row_hash_column).cast(pa.binary()),
+            }
+        )
+        matched = incoming.join(current, keys=primary_keys, join_type="inner")
+        same_hash = cast(
+            "pa.ChunkedArray[pa.BooleanScalar]", pc.equal(matched.column(_INCOMING_HASH), matched.column(_CURRENT_HASH))
+        )
+        unchanged = same_hash.fill_null(pa.scalar(False))
+        if not pc.any(unchanged).as_py():
+            return data
 
-        return data if all(keep) else data.filter(pa.array(keep, type=pa.bool_()))
+        first_changed = (
+            matched.select(primary_keys)
+            .append_column(_CHANGED_POSITION, pc.if_else(unchanged, None, matched.column(_POSITION)))
+            .group_by(primary_keys)
+            .aggregate([(_CHANGED_POSITION, "min")])
+        )
+        unchanged_rows = matched.filter(unchanged).select([*primary_keys, _POSITION])
+        unchanged_rows = unchanged_rows.join(first_changed, keys=primary_keys, join_type="left outer")
+        first_changed_position = unchanged_rows.column(f"{_CHANGED_POSITION}_min")
+        # Kleene OR, because the comparison is null for a key with no changed row in the batch.
+        leading = pc.or_kleene(
+            pc.is_null(first_changed_position),
+            pc.less(unchanged_rows.column(_POSITION), first_changed_position),
+        )
+        keep = np.ones(data.num_rows, dtype=bool)
+        keep[unchanged_rows.column(_POSITION).filter(leading).to_numpy()] = False
+        return data.filter(pa.array(keep))
 
-    def _current_row_hashes(
-        self, delta_table: deltalake.DeltaTable, data: pa.Table, primary_keys: list[str]
-    ) -> dict[tuple[Any, ...], bytes | None]:
+    def _current_row_hashes(self, dataset: pa_ds.Dataset, data: pa.Table, primary_keys: list[str]) -> pa.Table:
+        """The key columns and the comparable hash of the current row of each key in `data`."""
         assert self._row_hash_column is not None and self._row_hash_version_column is not None
-        dataset = delta_table.to_pyarrow_dataset()
         rows = dataset.to_table(
             columns=[*primary_keys, self._row_hash_column, self._row_hash_version_column],
             filter=self._current_rows_filter(dataset, data, primary_keys),
+            # One file and one batch at a time. Read-ahead holds several files of decoded columns in
+            # memory at once, which costs more than the round trips it saves.
+            batch_readahead=1,
+            fragment_readahead=1,
+            use_threads=False,
         )
-        keys = _key_tuples(rows, primary_keys)
-        current_hashes = dict(zip(keys, rows.column(self._row_hash_column).to_pylist()))
-
-        is_stale = [version != ROW_HASH_VERSION for version in rows.column(self._row_hash_version_column).to_pylist()]
-        if any(is_stale):
+        other_version = cast(
+            "pa.ChunkedArray[pa.BooleanScalar]",
+            pc.not_equal(rows.column(self._row_hash_version_column), pa.scalar(ROW_HASH_VERSION, pa.int16())),
+        )
+        is_stale = other_version.fill_null(pa.scalar(True))
+        fresh = rows.filter(pc.invert(is_stale))
+        parts = [
+            fresh.select(primary_keys).append_column(
+                _CURRENT_HASH, fresh.column(self._row_hash_column).cast(pa.binary())
+            )
+        ]
+        if pc.any(is_stale).as_py():
             # A row written before skip-unchanged was on, or under another hash version, has no
             # comparable hash. Hash its stored values instead, so that it does not read as changed.
-            stale_keys = {key for key, stale in zip(keys, is_stale) if stale}
-            stale_key_rows = rows.filter(pa.array(is_stale, type=pa.bool_())).select(primary_keys)
-            stale_rows = dataset.to_table(filter=self._current_rows_filter(dataset, stale_key_rows, primary_keys))
-            stale_hashes = compute_row_hashes(stale_rows, self._unhashed_columns).to_pylist()
-            for key, row_hash in zip(_key_tuples(stale_rows, primary_keys), stale_hashes):
-                if key in stale_keys:
-                    current_hashes[key] = row_hash
-
-        return current_hashes
+            # The full rows stream in record batches, and only their keys and hashes are kept.
+            stale_keys = rows.filter(is_stale).select(primary_keys)
+            scanner = dataset.scanner(
+                filter=self._current_rows_filter(dataset, stale_keys, primary_keys),
+                batch_size=_LOOKUP_BATCH_ROWS,
+                batch_readahead=1,
+                fragment_readahead=1,
+                use_threads=False,
+            )
+            for batch in scanner.to_batches():
+                stored = pa.Table.from_batches([batch])
+                rehashed = stored.select(primary_keys).append_column(
+                    _CURRENT_HASH, compute_row_hashes(stored, self._unhashed_columns).cast(pa.binary())
+                )
+                # A composite-key filter can match keys that are not stale, and those already have a hash.
+                parts.append(rehashed.join(stale_keys, keys=primary_keys, join_type="left semi"))
+        return pa.concat_tables(parts)
 
     def _current_rows_filter(self, dataset: pa_ds.Dataset, keys: pa.Table, primary_keys: list[str]) -> pc.Expression:
         """Match the current rows whose key columns each hold a value from `keys`.
