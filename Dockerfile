@@ -348,23 +348,17 @@ RUN groupadd -g 10001 posthog && \
     chown posthog:posthog /code
 USER posthog
 
-# Add the commit hash
-ARG COMMIT_HASH
-RUN echo $COMMIT_HASH > /code/commit.txt
+# Layers in this stage are ordered from least to most often changed. A layer is cached only when
+# every layer below it is unchanged, so a per-commit layer placed early forces a new copy of each
+# layer above it into the build cache on every build.
 
-# The error tracking release this build belongs to. The CD workflow creates the release before the
-# build and passes its id in (see "Resolve error tracking release" in
-# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
-# $release_id on every event, so a backend exception resolves to the same release as the frontend
-# bundles. Empty in every other build, which the SDK treats as unset.
-ARG POSTHOG_RELEASE_ID
-ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
-
-# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
-COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+# Copy the Python dependencies, then the Django staticfiles, from the posthog-build stage.
+# /python-runtime changes only with the Python dependencies, and staticfiles changes with every
+# commit, so the runtime goes first.
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
@@ -437,6 +431,19 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
+
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
+
 # Root is needed only so bin/docker-server can drop the app to nobody with setpriv.
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
