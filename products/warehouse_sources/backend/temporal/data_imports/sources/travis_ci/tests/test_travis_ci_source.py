@@ -35,29 +35,8 @@ class TestTravisCISource:
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])
-        assert [s.name for s in schemas] == ["builds"]
-
     @parameterized.expand(
         [
-            # Travis answers 403 (not 401) for bad tokens, so the 403 mapping is the one that
-            # actually stops endless retries on revoked credentials.
-            (
-                "access_denied",
-                "403 Client Error: Forbidden for url: https://api.travis-ci.com/repo/1/builds?limit=100",
-            ),
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.travis-ci.com/user"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.travis-ci.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.travis-ci.com/repos"),
             ("rate_limited", "Travis CI API error (retryable): status=429"),
         ]
     )

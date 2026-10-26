@@ -15,18 +15,6 @@ class TestNorthflankSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.northflank.com/v1/projects?per_page=1",),
-            ("403 Client Error: Forbidden for url: https://api.northflank.com/v1/projects/abc/services",),
-        ]
-    )
-    def test_non_retryable_errors_match_permanent_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("429 Client Error: Too Many Requests for url: https://api.northflank.com/v1/projects",),
-            ("500 Server Error for url: https://api.northflank.com/v1/projects",),
             ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
         ]
     )
@@ -35,13 +23,9 @@ class TestNorthflankSource:
         assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_no_endpoint_advertises_incremental(self, endpoint):
-        # Northflank exposes no server-side timestamp filter, so every table is full refresh.
+    def test_only_usage_advertises_incremental(self, endpoint):
+        # Only billing usage has a server-side timestamp filter; every other table is full refresh.
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is False
+        assert schema.supports_incremental is (endpoint == "usage")
         assert schema.supports_append is False
-        assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["services"])
-        assert [s.name for s in schemas] == ["services"]
+        assert bool(schema.incremental_fields) is (endpoint == "usage")

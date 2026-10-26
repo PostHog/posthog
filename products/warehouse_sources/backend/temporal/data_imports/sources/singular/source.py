@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -66,6 +67,14 @@ def report_query(config: SingularSourceConfig) -> SingularReportQuery:
 
 @SourceRegistry.register
 class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]):
+    codebase_detection = detect(
+        script_hosts=("web-sdk-cdn.singular.net",),
+        npm=("singular-sdk", "singular-react-native"),
+        cocoapods=("Singular-SDK", "Singular-Kids-SDK"),
+        pub=("singular_flutter_sdk",),
+        swiftpm=("github.com/singular-labs/singular-ios-sdk", "github.com/singular-labs/singular-kids-sdk"),
+    )
+
     supported_versions = ("v2.0",)
     default_version = "v2.0"
     api_docs_url = "https://support.singular.net/hc/en-us/articles/360045245692-Reporting-API-Reference"
@@ -109,7 +118,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
             iconPath="/static/services/singular.png",
             docsUrl="https://posthog.com/docs/cdp/sources/singular",
             keywords=["mmp", "attribution", "marketing measurement"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

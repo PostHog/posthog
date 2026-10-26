@@ -5,6 +5,7 @@
   "repository": "PostHog/posthog",
   "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
   "result": {
+    "reviewer_decision": null,
     "title": "fix(backups): correct 'succesful' typo in docstring",
     "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
     "charts": [],

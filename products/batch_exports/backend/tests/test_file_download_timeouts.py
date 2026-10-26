@@ -12,7 +12,11 @@ from temporalio.common import MetricMeter
 
 from products.batch_exports.backend import service
 from products.batch_exports.backend.models.batch_export import BatchExportOnDemand
-from products.batch_exports.backend.service import BatchExportModel, FileDownloadBatchExportInputs
+from products.batch_exports.backend.service import (
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    FileDownloadBatchExportInputs,
+)
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
     FileDownloadBatchExportWorkflow,
     export_to_file_download_bucket_with_temporary_credentials,
@@ -44,7 +48,7 @@ class TestFileDownloadTimeouts(SimpleTestCase):
         self, _name: str, start: dt.datetime | None, end: dt.datetime | None, main_seconds: int, query_seconds: int
     ) -> None:
         batch_export = BatchExportOnDemand(id=EXPORT_ID, team_id=1)
-        model = BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1 AS value")
+        model = BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={})
         client = AsyncMock(spec=Client)
 
         with (
@@ -96,7 +100,9 @@ class TestFileDownloadTimeouts(SimpleTestCase):
                     "file-download-test",
                     start,
                     end,
-                    BatchExportModel(name=model_name, schema=None),
+                    BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={})
+                    if model_name == "hogql"
+                    else BatchExportEventsModel(),
                     batch_export_run_id=run_id,
                 )
             connect.assert_not_called()
@@ -125,7 +131,7 @@ class TestFileDownloadTimeouts(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("hour", 21600, 7200, 24),
+            ("hour", 21600, 10800, 24),
             ("day", 86400, 21600, 7),
             ("week", 259200, 86400, 4),
             ("every 5 minutes", 1200, 1200, 12),
@@ -161,7 +167,7 @@ class TestFileDownloadTimeouts(SimpleTestCase):
             batch_export_id=str(EXPORT_ID),
             team_id=1,
             batch_export_run_id=RUN_ID,
-            batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1 AS value"),
+            batch_export_model=BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={}),
             data_interval_start=start,
             data_interval_end=end,
             main_activity_timeout_seconds=28800,

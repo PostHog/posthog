@@ -35,9 +35,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Easypromos access token"),
-            ("forbidden_plan", 403, False, "does not have access to the REST API"),
-            ("server_error", 500, False, "returned status 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:

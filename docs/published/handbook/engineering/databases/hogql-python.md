@@ -105,6 +105,20 @@ query_result.columns == ['event', 'timestamp']  # might be useful if you select 
 
 You can mix and match `parse_expr` and `ast` nodes as you please. The example above _still_ took a shortcut for the where clause because it was easier to write.
 
+Pass compiled ClickHouse SQL and `HogQLContext.values` together to the database client. The printer reserves `%(name)s` placeholders for values and rejects percent signs in identifiers. Do not apply brace formatting to compiled SQL: braces are valid identifier characters and must remain literal after authorization.
+
+For trusted SQL templates passed to the Temporal `ClickHouseClient`, distinguish the layer that consumes each placeholder:
+
+| Purpose              | Plain Python string | Python f-string source | Consumed by                                             |
+| -------------------- | ------------------- | ---------------------- | ------------------------------------------------------- |
+| Client-bound value   | `%(name)s`          | `%(name)s`             | `prepare_query`, after SQL value escaping               |
+| Server-bound value   | `{name:Type}`       | `{{name:Type}}`        | ClickHouse, using the HTTP `param_name` parameter       |
+| S3 partition marker  | `{_partition_id}`   | `{{_partition_id}}`    | ClickHouse                                              |
+| Empty JSON object    | `'{}'`              | `'{{}}'`               | Neither; SQL string data                                |
+| Literal percent sign | `%%`                | `%%`                   | `prepare_query`, when the parameter mapping is nonempty |
+
+An f-string consumes one brace-escaping layer in its source. It does not reinterpret braces inside an interpolated string. `string.Template` substitutes `$name` and leaves braces unchanged. If a trusted template uses `.format()`, that call also needs its own brace escaping. Count these construction steps separately from database binding; do not halve braces across a query indiscriminately.
+
 ## Snowflake date formatting
 
 For direct Snowflake queries, `formatDateTime` requires a literal format string and translates supported strftime specifiers into Snowflake format elements.
@@ -112,6 +126,9 @@ The printer binds the translated format as a query parameter, preserving literal
 Pass the printed SQL and `HogQLContext.values` together to the database driver.
 
 ## Database schema and features
+
+Built-in tables also accept the `posthog` namespace, such as `SELECT id FROM posthog.persons` and `SELECT count() FROM posthog.groups`.
+Explicit aliases work with these names, for example `SELECT p.id FROM posthog.persons AS p`.
 
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 

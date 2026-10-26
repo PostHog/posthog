@@ -606,13 +606,18 @@ class HyperCache:
         """Test helper alias for delete_cache_entry."""
         return self.delete_cache_entry(key, kinds)
 
-    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None, *, strict_mirror: bool = False):
         """Hard-delete an entry from the given tiers (default redis + s3).
 
         Production-safe: the gateway credential projection uses this to revoke a
         credential's blob immediately — a missing key fails closed at the gateway.
+
+        A failed Redis delete raises after the object-storage delete ran. With strict_mirror,
+        a failed delete on the secondary cache raises too. Otherwise the secondary delete is
+        best-effort.
         """
         kinds = kinds or ["redis", "s3"]
+        redis_error: Exception | None = None
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
@@ -634,17 +639,25 @@ class HyperCache:
                         raise first_error
 
                 # Mirror first so a primary failure cannot block the secondary.
-                self._mirror_to_secondary(delete_each)
-                delete_each(self.cache_client)
+                mirror_error = self._mirror_to_secondary(delete_each)
+                try:
+                    delete_each(self.cache_client)
+                except Exception as e:
+                    redis_error = e
+                else:
+                    redis_error = mirror_error if strict_mirror else None
+            # The object-storage copy has no TTL, so a Redis failure must not skip its delete.
             if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(cache_key)
+            if redis_error is not None:
+                raise redis_error
         finally:
             self._remove_expiry_tracking(key)
 
-    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
-        """Best-effort mirror op; failures are logged and captured, never propagated."""
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> Exception | None:
+        """Best-effort mirror op; failures are logged, captured and returned, never raised."""
         if self.secondary_cache_client is None:
-            return
+            return None
         try:
             op(self.secondary_cache_client)
         except Exception as e:
@@ -658,6 +671,8 @@ class HyperCache:
                 exc_info=True,
             )
             capture_exception(e)
+            return e
+        return None
 
     def _set_cache_value_redis(
         self,

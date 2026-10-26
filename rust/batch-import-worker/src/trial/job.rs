@@ -84,7 +84,13 @@ impl TrialJob {
         let source = model
             .import_config
             .source
-            .construct(&model.secrets, context.clone(), is_restarting, model.id)
+            .construct(
+                &model.secrets,
+                context.clone(),
+                is_restarting,
+                model.id,
+                model.team_id,
+            )
             .await
             .with_context(|| "Failed to construct data source for trial job".to_string())?;
         source.prepare_for_job().await?;

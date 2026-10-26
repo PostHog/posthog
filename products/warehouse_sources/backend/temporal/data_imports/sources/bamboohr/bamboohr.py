@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, quote, urlsplit
@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.s
     BAMBOOHR_ENDPOINTS,
     EMPLOYEE_TABLE_EMPLOYEE_ID,
     EMPLOYEE_TABLE_LAST_CHANGED,
+    ENCODED_PARENT_ID,
     GOAL_ID,
     BambooHREndpointConfig,
     ChunkedDateWindow,
@@ -278,6 +279,13 @@ def _rest_client(base_url: str, api_key: str) -> RESTClient:
     )
 
 
+def _encode_parent_id(field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def encode(row: dict[str, Any]) -> dict[str, Any]:
+        return {**row, ENCODED_PARENT_ID: quote(str(row[field]), safe="")}
+
+    return encode
+
+
 def _employee_table_rows(body: Any) -> Iterator[dict[str, Any]]:
     """Flatten one ``employees/changed/tables/{table}`` response into rows.
 
@@ -489,6 +497,7 @@ def bamboohr_source(
                 page_size_param=None,
                 parent_endpoint_extra=_endpoint_extra(parent_config),
                 child_endpoint_extra=_endpoint_extra(config),
+                parent_data_map=(_encode_parent_id(config.encode_parent_field) if config.encode_parent_field else None),
             ),
         )
         return SourceResponse(

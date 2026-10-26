@@ -73,24 +73,43 @@ class TestBuildParams:
 
 
 class TestPagination:
-    def test_walks_cursor_pages_and_saves_state_after_each_yield(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "history",
+                "history",
+                "history_item_id",
+                "start_after_history_item_id",
+                "last_history_item_id",
+                "page_size",
+                "1000",
+            ),
+            ("batch_calls", "batch_calls", "id", "last_doc", "next_doc", "limit", "100"),
+        ]
+    )
+    def test_walks_cursor_pages_and_saves_state_after_each_yield(
+        self,
+        endpoint: str,
+        items_key: str,
+        id_key: str,
+        cursor_param: str,
+        cursor_response_key: str,
+        page_size_param: str,
+        page_size: str,
+    ) -> None:
         result = _driver().run(
-            "history",
+            endpoint,
             [
-                ScriptedResponse(
-                    json={"history": [{"history_item_id": "a"}], "has_more": True, "last_history_item_id": "a"}
-                ),
-                ScriptedResponse(
-                    json={"history": [{"history_item_id": "b"}], "has_more": False, "last_history_item_id": "b"}
-                ),
+                ScriptedResponse(json={items_key: [{id_key: "a"}], "has_more": True, cursor_response_key: "a"}),
+                ScriptedResponse(json={items_key: [{id_key: "b"}], "has_more": False, cursor_response_key: "b"}),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [{"history_item_id": "a"}, {"history_item_id": "b"}]
+        assert result.rows == [{id_key: "a"}, {id_key: "b"}]
         # Page 1 sends no cursor; page 2 sends the cursor from page 1 under the endpoint's cursor param.
-        assert result.params("start_after_history_item_id") == [None, "a"]
-        assert result.params("page_size") == ["1000", "1000"]
+        assert result.params(cursor_param) == [None, "a"]
+        assert result.params(page_size_param) == [page_size, page_size]
         # Saved only once (after page 1, since page 2 is terminal) so a crash re-yields the last page.
         assert result.saved_states == [ElevenLabsResumeConfig(cursor="a")]
 
@@ -153,6 +172,49 @@ class TestFanOut:
         expected_start = ["1700000000"] * 3 if use_incremental else [None] * 3
         assert result.params("start_time")[1:] == expected_start
 
+    def test_agent_deployments_walk_page_numbers_and_carry_the_agent_id(self) -> None:
+        result = _driver().run(
+            "agent_deployments",
+            [
+                ScriptedResponse(json={"agents": [{"agent_id": "a1"}], "has_more": False, "next_cursor": None}),
+                ScriptedResponse(json={"results": [{"id": "d1"}], "meta": {"page": 1, "page_size": 100}}),
+                ScriptedResponse(json={"results": [{"id": "d2"}], "meta": {"page": 2, "page_size": 100}}),
+                ScriptedResponse(json={"results": [], "meta": {"page": 3, "page_size": 100}}),
+            ],
+        )
+
+        assert result.raised is None
+        # Deployment rows carry no agent id; without the parent id the primary key is not table-unique.
+        assert result.rows == [{"id": "d1", "agent_id": "a1"}, {"id": "d2", "agent_id": "a1"}]
+        assert result.params("page")[1:] == ["1", "2", "3"]
+        assert result.params("page_size")[1:] == ["100"] * 3
+
+    def test_flow_template_runs_walk_every_template_and_page(self) -> None:
+        result = _driver().run(
+            "flow_template_runs",
+            [
+                ScriptedResponse(
+                    json={"templates": [{"id": "t1"}, {"id": "t2"}], "has_more": False, "next_cursor": None}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r1", "template_id": "t1"}], "has_more": True, "next_cursor": "c1"}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r2", "template_id": "t1"}], "has_more": False, "next_cursor": None}
+                ),
+                ScriptedResponse(
+                    json={"runs": [{"id": "r3", "template_id": "t2"}], "has_more": False, "next_cursor": None}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r1", "r2", "r3"]
+        # The template list rejects a page size above 25.
+        assert result.requests[0].param("page_size") == "25"
+        assert result.requests[0].param("versions_per_template") == "1"
+        assert result.requests[2].param("cursor") == "c1"
+
 
 class TestSecretRedaction:
     @parameterized.expand(
@@ -200,10 +262,30 @@ class TestSecretRedaction:
                 ],
                 lambda row: row["tool_call_details"]["headers"],
             ),
+            *[
+                (
+                    f"sip_trunk_{trunk_key}_headers",
+                    "phone_numbers",
+                    [
+                        [
+                            {
+                                "phone_number_id": "p1",
+                                "provider": "sip_trunk",
+                                trunk_key: {
+                                    "address": "sip.example.com",
+                                    "headers": {"Authorization": "Bearer sk_fake", "X-Ref": {"secret_id": "s1"}},
+                                },
+                            }
+                        ]
+                    ],
+                    lambda row, key=trunk_key: row[key]["headers"],
+                )
+                for trunk_key in ("outbound_trunk", "provider_config")
+            ],
         ]
     )
     def test_literal_header_values_never_reach_the_warehouse(
-        self, _name: str, endpoint: str, bodies: list[dict[str, Any]], headers_of: Callable[[Any], Any]
+        self, _name: str, endpoint: str, bodies: list[Any], headers_of: Callable[[Any], Any]
     ) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=body) for body in bodies])
 
@@ -226,6 +308,28 @@ class TestUnpaginatedEndpoints:
             # jsonpath unwraps a single match, so a one-group body must still come back as one row.
             ("single_group", "workspace_groups", {"g1": {"id": "g1", "name": "a"}}, ["g1"], "id"),
             ("no_groups", "workspace_groups", {}, [], "id"),
+            (
+                "phone_numbers_bare_array",
+                "phone_numbers",
+                [{"phone_number_id": "p1", "provider": "twilio"}, {"phone_number_id": "p2", "provider": "exotel"}],
+                ["p1", "p2"],
+                "phone_number_id",
+            ),
+            (
+                "voice_collections_wrapped",
+                "voice_collections",
+                {"collections": [{"collection_id": "c1"}, {"collection_id": "c2"}]},
+                ["c1", "c2"],
+                "collection_id",
+            ),
+            # The subscription is one object, not a list, and must land as a single snapshot row.
+            (
+                "subscription_single_object",
+                "subscription",
+                {"tier": "creator", "character_count": 1200, "character_limit": 100000},
+                ["creator"],
+                "tier",
+            ),
         ]
     )
     def test_whole_collection_becomes_rows(
@@ -239,22 +343,34 @@ class TestUnpaginatedEndpoints:
         assert result.params("page_size") == [None]
 
 
+_INVALID_KEY_BODY = {"detail": {"status": "invalid_api_key", "message": "Invalid API key"}}
+_MISSING_PERMISSION_BODY = {
+    "detail": {"status": "missing_permissions", "message": "The API key you used is missing the permission user_read."}
+}
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, None, True),
-            ("bad_key", 401, None, False),
+            ("valid", 200, None, None, True),
+            ("bad_key", 401, None, _INVALID_KEY_BODY, False),
             # A 400 (the status users actually hit) is a deterministic client error, not transient.
-            ("bad_request_at_create", 400, None, False),
-            ("missing_scope_at_create", 403, None, True),
-            ("missing_scope_at_schema", 403, "history", False),
+            ("bad_request_at_create", 400, None, None, False),
+            # Payment required is a billing/plan problem, not a bad key — must not be accepted as valid.
+            ("payment_required_at_create", 402, None, None, False),
+            ("missing_scope_at_create", 403, None, None, True),
+            ("missing_scope_at_schema", 403, "history", None, False),
+            ("missing_permission_401_at_create", 401, None, _MISSING_PERMISSION_BODY, True),
+            ("missing_permission_401_at_schema", 401, "history", _MISSING_PERMISSION_BODY, False),
             # An unverified key (transient 429/5xx) must not be saved as valid at create time.
-            ("rate_limited_at_create", 429, None, False),
-            ("server_error_at_create", 500, None, False),
+            ("rate_limited_at_create", 429, None, None, False),
+            ("server_error_at_create", 500, None, None, False),
         ]
     )
-    def test_status_mapping(self, _name: str, status: int, schema_name: str | None, expected_ok: bool) -> None:
-        answer = ScriptedResponse(status=status)
+    def test_status_mapping(
+        self, _name: str, status: int, schema_name: str | None, body: Any, expected_ok: bool
+    ) -> None:
+        answer = ScriptedResponse(status=status, json=body)
         with scripted_network(always(answer) if status in (429, 500) else [answer]) as network:
             ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
@@ -264,6 +380,11 @@ class TestValidateCredentials:
         [
             ("fan_out_child_probes_parent", "tool_executions", "https://api.elevenlabs.io/v1/convai/tools?page_size=1"),
             ("unpaginated_sends_no_page_size", "workspace_members", "https://api.elevenlabs.io/v1/workspace/members"),
+            (
+                "custom_page_size_param",
+                "batch_calls",
+                "https://api.elevenlabs.io/v1/convai/batch-calling/workspace?limit=1",
+            ),
         ]
     )
     def test_schema_probe_url(self, _name: str, schema_name: str, expected_url: str) -> None:
@@ -271,11 +392,21 @@ class TestValidateCredentials:
             assert validate_credentials("k", schema_name) == (True, None)
         assert [request.url for request in network.requests_log] == [expected_url]
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
+    @parameterized.expand([("unauthorized", 401), ("bad_request", 400)])
+    def test_rejected_key_message_is_actionable(self, _name: str, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status)]):
             ok, msg = validate_credentials("k")
         assert ok is False
-        assert msg is not None
+        assert "Create a new key in your ElevenLabs account settings" in (msg or "")
+
+    def test_payment_required_message_points_to_billing_not_the_key(self) -> None:
+        # A 402 is a billing/plan problem, not a bad key, so it must not tell the user to rotate the
+        # key the way the 400/401 message above does.
+        with scripted_network([ScriptedResponse(status=402)]):
+            ok, msg = validate_credentials("k")
+        assert ok is False
+        assert "billing" in (msg or "").lower()
+        assert "Create a new key" not in (msg or "")
 
     def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would
@@ -309,10 +440,19 @@ class TestSourceResponse:
             ("tools", ["id"], "asc", None),
             # Executions from different tools interleave in time, so the watermark must wait for job end.
             ("tool_executions", ["tool_id", "id"], "desc", None),
+            ("phone_numbers", ["phone_number_id"], "asc", None),
+            ("batch_calls", ["id"], "asc", "created_at_unix"),
+            ("agent_deployments", ["agent_id", "id"], "desc", "deployed_at_unix_secs"),
+            ("flow_templates", ["id"], "asc", None),
+            # Runs from different templates interleave, and run ids are only documented per template.
+            ("flow_template_runs", ["template_id", "id"], "desc", None),
+            ("voice_collections", ["collection_id"], "asc", None),
+            # A single snapshot row has no unique column to merge on; full refresh replaces it.
+            ("subscription", None, "asc", None),
         ]
     )
     def test_response_shape_per_endpoint(
-        self, endpoint: str, primary_keys: list[str], sort_mode: str, partition_key: str | None
+        self, endpoint: str, primary_keys: list[str] | None, sort_mode: str, partition_key: str | None
     ) -> None:
         # sort_mode="asc" on a newest-first endpoint corrupts the watermark; the pk must be table-unique.
         result = _driver().run(endpoint, [ScriptedResponse(json={})])

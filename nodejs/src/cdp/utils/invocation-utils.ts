@@ -1,4 +1,5 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
+import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
@@ -244,6 +245,26 @@ export function cloneInvocation<T extends CyclotronJobInvocation>(
     }
 }
 
+export function createInputsFailureResult(
+    hogFunction: HogFunctionType,
+    globals: HogFunctionInvocationGlobals,
+    error: Error,
+    invocationId?: string
+): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+    const invocation = createInvocation({ ...globals, inputs: {} }, hogFunction)
+    if (invocationId) {
+        invocation.id = invocationId
+    }
+    return createInvocationResult<CyclotronJobInvocationHogFunction>(
+        invocation,
+        {},
+        {
+            error: error.message,
+            logs: [{ level: 'error', timestamp: DateTime.now(), message: `Error building inputs: ${error.message}` }],
+        }
+    )
+}
+
 /**
  * Safely creates an invocation result from an invocation, cloning it and resetting the relevant queue parameters
  */
@@ -264,6 +285,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         | 'metrics'
         | 'error'
         | 'execResult'
+        | 'emailSendResult'
     > = {}
 ): CyclotronJobInvocationResult<T> {
     return {

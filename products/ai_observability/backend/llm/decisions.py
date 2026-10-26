@@ -35,16 +35,26 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, decision_model_ids
 
 
-def is_decision_model(provider: str | None, model: str | None, *, openrouter_enabled: bool) -> bool:
+def is_decision_model(
+    provider: str | None,
+    model: str | None,
+    *,
+    openrouter_enabled: bool,
+    decision_only: bool = False,
+    openai_enabled: bool = False,
+) -> bool:
     if provider == "system_one":
         return True
+    if provider == "openai":
+        return openai_enabled and model in OpenAIConfig.DECISION_MODELS
     # Disabled projects keep the chat path independent of catalogue availability.
     if provider != "openrouter" or not model or not openrouter_enabled:
         return False
-    models = decision_model_ids()
+    models = decision_model_ids(decision_only=decision_only)
     if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
     return model in models
@@ -122,7 +132,7 @@ class DecisionClient:
         try:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
-                if path == "decisions" and verdict.reason == UNRESOLVED_HOST_REASON:
+                if verdict.reason == UNRESOLVED_HOST_REASON:
                     raise ProviderHostUnresolvedError()
                 raise SSRFBlockedError(verdict.reason)
             headers = dict(OPENROUTER_HEADERS) if path == "decisions" else {}

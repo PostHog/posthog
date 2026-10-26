@@ -1,17 +1,17 @@
 import type {
     BillingAlertConfigurationApi,
     BillingAlertEventApi,
-    BillingAlertMetricEnumApi,
+    BillingAlertConfigurationMetricEnumApi,
     NotificationDestinationTypeEnumApi,
-} from './generated/api.schemas'
+} from 'products/billing/frontend/generated/api.schemas'
 
-export function metricLabel(metric: BillingAlertMetricEnumApi | undefined): string {
+export function metricLabel(metric: BillingAlertConfigurationMetricEnumApi | undefined): string {
     return metric === 'projected_spend' ? 'Projected period spend' : 'Current period spend'
 }
 
 export function formatBillingValue(
     value: string | number | null | undefined,
-    metric: BillingAlertMetricEnumApi | undefined,
+    metric: BillingAlertConfigurationMetricEnumApi | undefined,
     currency = 'USD'
 ): string {
     if (value === null || value === undefined) {

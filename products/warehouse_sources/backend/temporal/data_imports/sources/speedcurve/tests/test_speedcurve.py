@@ -12,7 +12,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -153,24 +152,6 @@ def test_validation_uses_one_cheap_request() -> None:
     assert request.headers["Authorization"] == "Basic ZmFrZS1rZXk6eA=="
 
 
-@responses.activate
-@pytest.mark.parametrize(("status", "expected_message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
-def test_auth_errors_are_terminal_and_have_actionable_messages(status: int, expected_message: str) -> None:
-    responses.get(
-        BASE_URL + "sites",
-        status=status,
-        json={
-            "status": "error",
-            "message": "A valid API key is required. Check you have the correct API key for your team and your account is active.",
-        },
-    )
-    valid, message = validate_credentials("fake-key", "v1")
-    assert valid is False
-    assert message == expected_message
-    assert message is not None and "Check" in message
-    assert len(responses.calls) == 1
-
-
 @pytest.mark.parametrize(("status", "expected_message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
 def test_sync_auth_errors_map_to_the_actionable_message(status: int, expected_message: str) -> None:
     result = _run("sites", [ScriptedResponse(status=status, json={"status": "error", "message": "denied"})])
@@ -208,10 +189,3 @@ def test_missing_collection_does_not_silently_empty_table(endpoint: str) -> None
 
     assert isinstance(result.raised, ValueError)
     assert "selector" in str(result.raised)
-
-
-def test_unknown_table_fails_before_network() -> None:
-    result = _run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

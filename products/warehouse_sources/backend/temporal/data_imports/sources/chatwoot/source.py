@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -64,6 +66,13 @@ class ChatwootSource(
     ResumableSource[ChatwootSourceConfig, ChatwootResumeConfig],
     WebhookSource[ChatwootSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^CHATWOOT_",),
+        script_hosts=("app.chatwoot.com",),
+        npm=("@chatwoot/react-native-widget",),
+        pub=("chatwoot_sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -83,7 +92,7 @@ class ChatwootSource(
             name=ExternalDataSourceType.CHATWOOT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Chatwoot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync conversations, messages, contacts, agents, and more from Chatwoot into the PostHog Data warehouse.
 
 Copy your API access token from **Profile settings → Access token** in Chatwoot. Use an administrator's token: agent tokens only see their assigned inboxes, and only administrators can manage webhooks.
@@ -174,6 +183,10 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             "401 Client Error": "Chatwoot rejected your API access token. Check the token is correct, has not been revoked, and belongs to a member of the configured account, then reconnect.",
             "403 Client Error": "Your Chatwoot API access token does not have permission to read this data. Use an administrator's access token, then reconnect.",
             "404 Client Error": "Chatwoot could not find the configured account. Check the account ID and instance URL, then reconnect.",
+            # Chatwoot rejected a page/window combination as unprocessable. Page number and the
+            # since/until window are deterministic (the resume bookmark replays the same request),
+            # so retrying never changes the outcome.
+            "422 Client Error": "Chatwoot rejected a request while syncing this data. Please contact support if this persists.",
             REPORTING_EVENTS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve reporting events. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the reporting_events table to sync the rest.",
             INVALID_ACCOUNT_ID_ERROR: "The Chatwoot account ID must be a number (the number in your Chatwoot URL, e.g. app.chatwoot.com/app/accounts/1). Update the source configuration.",
             HOST_NOT_ALLOWED_ERROR: "The Chatwoot host is not allowed. Please use a publicly reachable instance URL.",

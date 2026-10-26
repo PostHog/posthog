@@ -5,11 +5,14 @@ from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import PROwnerAssignment, ReviewerCorrections, SuggestedReviewerEntry
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -58,7 +61,7 @@ def org_and_team():
 def _make_reviewer(org: Organization, login: str, *, opted_in: bool) -> User:
     user = User.objects.create(email=f"{login}@example.com", first_name="Reviewer")
     OrganizationMembership.objects.create(user=user, organization=org)
-    UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
+    UserSocialAuth.objects.create(user=user, provider="github", uid=str(100_000 + user.id), extra_data={"login": login})
     SignalUserAutonomyConfig.objects.create(user=user, github_assign_on_pull_request=opted_in)
     return user
 
@@ -86,6 +89,7 @@ def _open_pr_github() -> MagicMock:
         "merged": False,
         "assignees": [],
         "requested_reviewers": [],
+        "requested_teams": [],
     }
     github.add_pull_request_assignees.return_value = {"success": True, "assignees": ["opted-in"]}
     github.request_pull_request_reviews.return_value = {
@@ -93,6 +97,7 @@ def _open_pr_github() -> MagicMock:
         "requested_reviewers": ["opted-in"],
     }
     github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": []}
+    github.get_removed_pull_request_reviewers.return_value = set()
     return github
 
 
@@ -144,21 +149,38 @@ class TestOptedInReviewerLogins:
 
 class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
-    def test_opted_in_reviewers_are_added_as_assignees(self, org_and_team):
+    @pytest.mark.parametrize("disable_during_lookup", [False, True])
+    def test_opted_in_reviewers_are_added_as_assignees(self, org_and_team, disable_during_lookup):
         org, team = org_and_team
         _make_reviewer(org, "opted-in", opted_in=True)
         _make_reviewer(org, "opted-out", opted_in=False)
         report = _make_report(team, ["opted-in", "opted-out"])
         github = _open_pr_github()
 
-        with patch(
-            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
-            return_value=github,
+        with (
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True
+            ) as allowed,
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
         ):
+
+            def read_pr(*_args: object) -> dict[str, object]:
+                allowed.return_value = not disable_during_lookup
+                return github.get_pull_request.return_value
+
+            github.get_pull_request.side_effect = read_pr
             assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
-        assert assigned == ["opted-in"]
-        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
+        if disable_during_lookup:
+            assert assigned == []
+            github.add_pull_request_assignees.assert_not_called()
+            github.request_pull_request_reviews.assert_not_called()
+        else:
+            assert assigned == ["opted-in"]
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
 
     @pytest.mark.django_db
     def test_no_reviewers_or_assignment_work_skips_github_entirely(self, org_and_team):
@@ -172,19 +194,44 @@ class TestAssignReviewersToPullRequest:
         mock_lookup.assert_not_called()
 
     @pytest.mark.django_db
-    def test_suggested_reviewers_receive_review_requests(self, org_and_team):
+    @pytest.mark.parametrize(
+        ("assignees", "reviewed_by", "expected_reviewer"),
+        [
+            (["Assigned"], ["Completed"], "assigned"),
+            (["Lower-Ranked"], ["Completed"], "lower-ranked"),
+            (["Assigned", "Lower-Ranked"], ["Completed", "Assigned"], "new-reviewer"),
+            (["outside-report"], ["Completed"], "outside-report"),
+            (["Assigned"], ["Assigned"], None),
+            ([], ["Completed"], "assigned"),
+            (["Author"], [], None),
+        ],
+        ids=[
+            "top-ranked-assignee",
+            "lower-ranked-assignee",
+            "multiple-assignees",
+            "unlisted-assignee",
+            "owner-reviewed",
+            "no-owner",
+            "owner-is-author",
+        ],
+    )
+    def test_suggested_reviewers_receive_review_requests(
+        self,
+        org_and_team: tuple[Organization, Team],
+        assignees: list[str],
+        reviewed_by: list[str],
+        expected_reviewer: str | None,
+    ) -> None:
         org, team = org_and_team
-        for login in ("author", "assigned", "requested", "completed", "new-reviewer"):
+        for login in ("author", "assigned", "completed", "new-reviewer", "lower-ranked"):
             _make_reviewer(org, login, opted_in=False)
-        report = _make_report(team, ["author", "assigned", "requested", "completed", "new-reviewer"])
+        report = _make_report(team, ["author", "assigned", "completed", "new-reviewer", "lower-ranked"])
         github = _open_pr_github()
-        github.get_pull_request.return_value.update(
-            {"author": "Author", "assignees": ["Assigned"], "requested_reviewers": ["Requested"]}
-        )
-        github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": ["Completed"]}
+        github.get_pull_request.return_value.update({"author": "Author", "assignees": assignees})
+        github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": reviewed_by}
         github.request_pull_request_reviews.return_value = {
             "success": True,
-            "requested_reviewers": ["requested", "new-reviewer"],
+            "requested_reviewers": [expected_reviewer] if expected_reviewer else [],
         }
 
         with patch(
@@ -194,9 +241,69 @@ class TestAssignReviewersToPullRequest:
             assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
         assert assigned == []
-        github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
-        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["new-reviewer"])
+        if expected_reviewer:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [expected_reviewer])
+        else:
+            github.request_pull_request_reviews.assert_not_called()
         github.add_pull_request_assignees.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("existing_field", "existing_value"),
+        [
+            ("requested_reviewers", ["human-choice"]),
+            ("requested_teams", ["owning-team"]),
+            ("requested_reviewers", ["Suggested"]),
+        ],
+    )
+    @pytest.mark.parametrize("owner", [None, "suggested"])
+    def test_an_existing_review_request_only_allows_the_owner(
+        self, org_and_team: tuple[Organization, Team], existing_field: str, existing_value: list[str], owner: str | None
+    ) -> None:
+        org, team = org_and_team
+        _make_reviewer(org, "suggested", opted_in=False)
+        report = _make_report(team, ["suggested"])
+        github = _open_pr_github()
+        github.get_pull_request.return_value[existing_field] = existing_value
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        if owner and existing_value != ["Suggested"]:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [owner])
+        else:
+            github.list_submitted_pull_request_reviewers.assert_not_called()
+            github.request_pull_request_reviews.assert_not_called()
+        assert github.get_pull_request.return_value[existing_field] == existing_value
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("owner", [None, "selected"])
+    @pytest.mark.parametrize("removed", [{"selected"}, None])
+    def test_removed_requests_and_unavailable_history_are_not_overridden(
+        self, org_and_team: tuple[Organization, Team], owner: str | None, removed: set[str] | None
+    ) -> None:
+        org, team = org_and_team
+        for login in ["selected", "other"]:
+            _make_reviewer(org, login, opted_in=False)
+        report = _make_report(team, ["selected", "other"])
+        github = _open_pr_github()
+        github.get_pull_request.return_value["assignees"] = [owner] if owner else []
+        github.get_removed_pull_request_reviewers.return_value = removed
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        if owner is None and removed is not None:
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["other"])
+        else:
+            github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -280,7 +387,7 @@ class TestAssignReviewersToPullRequest:
             github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
             github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
         if failing_call == "request_pull_request_reviews":
-            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["opted-out"])
+            github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
 
     @pytest.mark.django_db
     def test_a_url_that_is_not_a_pull_request_is_not_assigned(self, org_and_team):
@@ -386,7 +493,7 @@ class TestPullRequestLinkingQueuesAssignment:
         self.mock_delay.assert_called_once_with(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
     @pytest.mark.django_db(transaction=True)
-    def test_reclaiming_the_same_pull_request_does_not_requeue(self, org_and_team):
+    def test_reclaiming_the_same_pull_request_reassesses_the_owner(self, org_and_team):
         _, team = org_and_team
         report = _make_report(team)
         user = User.objects.create(email="claimer@example.com")
@@ -405,10 +512,10 @@ class TestPullRequestLinkingQueuesAssignment:
                     release=False,
                 )
 
-        assert self.mock_delay.call_count == 1
+        assert self.mock_delay.call_count == 2
 
     @pytest.mark.django_db(transaction=True)
-    def test_syncing_a_task_pull_request_queues_assignment_once(self, org_and_team):
+    def test_syncing_a_task_pull_request_reassesses_each_verified_snapshot(self, org_and_team):
         _, team = org_and_team
         report = _make_report(team)
         task = Task.objects.create(team=team, title="Implementation", description="", origin_product="signals")
@@ -417,7 +524,8 @@ class TestPullRequestLinkingQueuesAssignment:
         for _ in range(2):
             sync_task_pull_request_to_assignments(team_id=team.id, task_id=str(task.id), pr_url=PR_URL, pr_state="open")
 
-        self.mock_delay.assert_called_once_with(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+        assert self.mock_delay.call_count == 2
+        self.mock_delay.assert_called_with(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
     @pytest.mark.django_db(transaction=True)
     def test_a_merged_task_pull_request_is_not_queued(self, org_and_team):
@@ -504,22 +612,34 @@ class TestDirectlyResponsibleIndividual:
 
     def _github(self, *, existing_assignees: list[str], assignable: set[str] | None) -> MagicMock:
         github = _open_pr_github()
-        github.get_pull_request.return_value = {
+        assignee_state = list(existing_assignees)
+        github.assignee_state = assignee_state
+        github.get_pull_request.side_effect = lambda *_args: {
             "success": True,
             "state": "open",
             "merged": False,
-            "assignees": existing_assignees,
+            "assignees": list(assignee_state),
         }
         github.is_assignable.side_effect = lambda _repo, login: {
             "success": True,
             "assignable": assignable is None or login in assignable,
         }
+        github.get_collaborator_permission.side_effect = lambda _repo, login, **_kwargs: (
+            "write" if assignable is None or login in assignable else "none"
+        )
         github.list_pull_request_files.return_value = {"success": True, "paths": ["posthog/api/a.py"]}
         github.was_ever_unassigned.return_value = {"success": True, "unassigned": False}
-        github.add_pull_request_assignees.side_effect = lambda _repo, _number, logins: {
-            "success": True,
-            "assignees": logins,
-        }
+
+        def add_assignees(_repo, _number, logins):
+            assignee_state[:] = list(dict.fromkeys([*assignee_state, *logins]))
+            return {"success": True, "assignees": list(assignee_state)}
+
+        def remove_assignees(_repo, _number, logins):
+            assignee_state[:] = [login for login in assignee_state if login not in logins]
+            return {"success": True, "assignees": list(assignee_state)}
+
+        github.add_pull_request_assignees.side_effect = add_assignees
+        github.remove_pull_request_assignees.side_effect = remove_assignees
         return github
 
     def _team_x(self, github: MagicMock) -> None:
@@ -593,13 +713,18 @@ class TestDirectlyResponsibleIndividual:
         assert calls == ([[expected_owner]] if expected_owner else [])
 
     @pytest.mark.django_db
-    def test_the_dri_does_not_receive_a_review_request(self, org_and_team):
+    @pytest.mark.parametrize("claimant", [None, "bob", "carol"])
+    def test_assigning_the_dri_requests_their_review(
+        self, org_and_team: tuple[Organization, Team], claimant: str | None
+    ) -> None:
         org, team = org_and_team
-        report, _ = self._setup(org, team, ["alice", "bob"])
+        report, users = self._setup(org, team, ["alice", "bob"])
+        if claimant:
+            self._claim(team, report, users, kind="user", login=claimant)
         github = self._github(existing_assignees=[], assignable=None)
 
-        assert self._assign(team, report, github) == [["alice"]]
-        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["bob"])
+        assert self._assign(team, report, github) == [[claimant or "alice"]]
+        github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, [claimant or "alice"])
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -637,11 +762,175 @@ class TestDirectlyResponsibleIndividual:
         org, team = org_and_team
         report, _ = self._setup(org, team, ["alice", "bob"])
         github = self._github(existing_assignees=[], assignable=None)
-        github.is_assignable.side_effect = None
-        github.is_assignable.return_value = {"success": False, "error": "Failed to check assignee"}
+        github.get_collaborator_permission.side_effect = RuntimeError("Failed to check assignee")
 
         assert self._assign(team, report, github) == []
-        assert github.is_assignable.call_count == 1
+        assert github.get_collaborator_permission.call_count == 1
+
+    @pytest.mark.django_db
+    def test_a_linked_login_must_still_name_the_same_github_account(self, org_and_team):
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        github = self._github(existing_assignees=[], assignable=None)
+        github.get_collaborator_permission.return_value = "none"
+        github.get_collaborator_permission.side_effect = None
+
+        assert self._assign(team, report, github) == []
+        github.get_collaborator_permission.assert_called_once_with(
+            "PostHog/posthog",
+            "alice",
+            expected_user_id=int(users["alice"].social_auth.get(provider="github").uid),
+        )
+        github.add_pull_request_assignees.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("live_change", "change_during_remove", "expected_adds", "expected_owner"),
+        [
+            (None, False, [["alice"], ["bob"]], "bob"),
+            ([], False, [["alice"]], "alice"),
+            (["alice", "teammate"], False, [["alice"]], "alice"),
+            (None, True, [["alice"], ["bob"]], "alice"),
+        ],
+        ids=[
+            "automatic_owner_replaced",
+            "manual_unassignment_preserved",
+            "additional_assignee_preserved",
+            "concurrent_additional_assignee_preserved",
+        ],
+    )
+    def test_only_the_last_automatic_owner_can_be_reassessed(
+        self,
+        org_and_team,
+        live_change: list[str] | None,
+        change_during_remove: bool,
+        expected_adds: list[list[str]],
+        expected_owner: str,
+    ):
+        org, team = org_and_team
+        report, _ = self._setup(org, team, ["alice", "bob"])
+        github = self._github(existing_assignees=[], assignable=None)
+
+        self._assign(team, report, github)
+        if live_change is not None:
+            github.assignee_state[:] = live_change
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "bob"}, {"github_login": "alice"}]),
+        )
+        if change_during_remove:
+            original_remove = github.remove_pull_request_assignees.side_effect
+
+            def remove_with_concurrent_assignee(repository: str, number: int, logins: list[str]) -> dict[str, object]:
+                if logins == ["alice"]:
+                    github.assignee_state.append("teammate")
+                return original_remove(repository, number, logins)
+
+            github.remove_pull_request_assignees.side_effect = remove_with_concurrent_assignee
+        calls = self._assign(team, report, github)
+
+        assert calls == expected_adds
+        assignments = [
+            PROwnerAssignment.model_validate_json(content)
+            for content in report.artefacts.filter(type="pr_owner_assignment")
+            .order_by("created_at", "id")
+            .values_list("content", flat=True)
+        ]
+        assert [owner.login for owner in assignments[-1].owners] == [expected_owner]
+        if live_change is None and not change_during_remove:
+            assert assignments[-1].replaced_logins == ("alice",)
+            assert assignments[-1].owners[0].proof is not None
+            assert assignments[-1].owners[0].proof.source == "github_oauth"
+            github.remove_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["alice"])
+        elif change_during_remove:
+            assert len(assignments) == 1
+            assert github.assignee_state == ["teammate"]
+            assert [call.args[2] for call in github.remove_pull_request_assignees.call_args_list] == [
+                ["alice"],
+                ["bob"],
+            ]
+        else:
+            assert len(assignments) == 1
+            github.remove_pull_request_assignees.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("correction", ["needs-review", "excluded-uuid", "excluded-login"])
+    def test_report_corrections_apply_to_owning_team_candidates(
+        self, org_and_team: tuple[Organization, Team], ownership: MagicMock, correction: str
+    ) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        ownership.return_value = PathOwnership(team_by_path={"posthog/api/a.py": "team-x"}, registry={}, resolved=True)
+        github = self._github(existing_assignees=[], assignable=None)
+        github.list_team_members.return_value = {"success": True, "logins": ["alice"]}
+        rules = ReviewerCorrections(
+            needs_review=correction == "needs-review",
+            excluded=(SuggestedReviewerEntry(user_uuid=str(users["alice"].uuid)),)
+            if correction == "excluded-uuid"
+            else (SuggestedReviewerEntry(github_login="alice"),)
+            if correction == "excluded-login"
+            else (),
+        )
+        SignalReportArtefact.objects.create(
+            team=team, report=report, type="reviewer_corrections", content=rules.model_dump_json()
+        )
+
+        assert self._assign(team, report, github) == []
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("source", ["claimant", "reviewer-uuid", "reviewer-login"])
+    @pytest.mark.parametrize("unavailable", ["inactive", "project"])
+    def test_ineligible_members_receive_no_assignment_or_review_request(
+        self, org_and_team: tuple[Organization, Team], source: str, unavailable: str
+    ) -> None:
+        org, team = org_and_team
+        reviewers = [] if source == "claimant" else ["uuid:alice" if source == "reviewer-uuid" else "alice"]
+        report, users = self._setup(org, team, reviewers)
+        if source == "claimant":
+            self._claim(team, report, users, kind="user", login="alice")
+        if unavailable == "inactive":
+            User.objects.filter(id=users["alice"].id).update(is_active=False)
+        else:
+            org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+            org.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
+        github = self._github(existing_assignees=[], assignable=None)
+
+        assert self._assign(team, report, github) == []
+        github.request_pull_request_reviews.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "change", ["assigned", "unassigned", "closed", "history-unavailable", "report", "claimant"]
+    )
+    def test_changes_during_github_checks_stop_dri_assignment(
+        self, org_and_team: tuple[Organization, Team], change: str
+    ) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        github = self._github(existing_assignees=[], assignable=None)
+
+        def check(_repo: str, _login: str) -> dict[str, bool]:
+            if change == "assigned":
+                github.assignee_state[:] = ["manual-owner"]
+            elif change == "unassigned":
+                github.was_ever_unassigned.return_value = {"success": True, "unassigned": True}
+            elif change == "closed":
+                github.get_pull_request.side_effect = None
+                github.get_pull_request.return_value = {"success": True, "state": "closed"}
+            elif change == "history-unavailable":
+                github.was_ever_unassigned.return_value = {"success": False}
+            elif change == "report":
+                SignalReportArtefact.objects.create(team=team, report=report, type="suggested_reviewers", content="[]")
+            elif change == "claimant":
+                self._claim(team, report, users, kind="user", login="bob")
+            return {"success": True, "assignable": True}
+
+        github.is_assignable.side_effect = check
+
+        assert self._assign(team, report, github) == []
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

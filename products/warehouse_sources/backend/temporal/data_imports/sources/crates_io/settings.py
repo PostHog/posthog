@@ -63,6 +63,15 @@ CRATES_IO_ENDPOINTS: dict[str, CratesIOEndpointConfig] = {
         description="Daily download counts per version of each configured crate, over the trailing "
         "~90-day window the crates.io API exposes.",
     ),
+    "version_downloads": CratesIOEndpointConfig(
+        name="version_downloads",
+        # Version ids are unique across the whole registry, so the version and day identify a row.
+        primary_keys=["version", "date"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+        partition_key="date",
+        description="Daily download counts for each of the most recent versions of each configured crate, "
+        "over the trailing ~90-day window the crates.io API exposes.",
+    ),
     "owners": CratesIOEndpointConfig(
         name="owners",
         # Owner (user/team) ids are global on crates.io; rows aggregate across crates.

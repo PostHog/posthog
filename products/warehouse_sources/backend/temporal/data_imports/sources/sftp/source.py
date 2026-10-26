@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^SFTP_",), npm=("ssh2-sftp-client",), pypi=("pysftp",), go=("github.com/pkg/sftp",)
+    )
+
     api_docs_url = "https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02"
 
     @property
@@ -101,7 +106,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             docsUrl="https://posthog.com/docs/cdp/sources/sftp",
             iconPath="/static/services/sftp.svg",
             keywords=["ssh file transfer", "ssh", "files"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

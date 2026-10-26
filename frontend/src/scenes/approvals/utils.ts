@@ -54,7 +54,7 @@ export const ApprovalResourceType = {
 
 // Maps resource types to display names and URL builders
 const APPROVAL_RESOURCE_CONFIG: Record<string, { label: string; urlBuilder: (id: string) => string }> = {
-    [ApprovalResourceType.FEATURE_FLAG]: { label: 'Feature flag', urlBuilder: (id) => `/feature_flags/${id}` },
+    [ApprovalResourceType.FEATURE_FLAG]: { label: 'Feature flag', urlBuilder: (id) => `/feature-flags/${id}` },
 }
 
 export function getApprovalResourceUrl(actionKey: string, resourceId: string | null): string | null {

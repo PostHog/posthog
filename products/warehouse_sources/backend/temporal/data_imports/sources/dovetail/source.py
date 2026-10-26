@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]):
+    codebase_detection = detect(env=("^DOVETAIL_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Dovetail's API has no versioned path/header (a bare `/v1/` that's never changed and isn't a
     # documented version choice) - only the docs URL is worth pinning.
@@ -107,7 +110,7 @@ class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]
             label="Dovetail",
             docsUrl="https://posthog.com/docs/cdp/sources/dovetail",
             iconPath="/static/services/dovetail.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["user research", "customer research", "qualitative research"],
             fields=cast(
                 list[FieldType],

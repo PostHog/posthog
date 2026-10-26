@@ -41,7 +41,7 @@ import type {
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
-import { aiObservabilityDatasetsLogic, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
+import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON, isStringJsonObject, parseJsonObject, prettifyJson } from './utils'
 
@@ -866,7 +866,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             metadata: parseJsonObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset created successfully')
-                        router.actions.replace(urls.aiObservabilityDataset(savedDataset.id))
+                        router.actions.replace(getDatasetDetailUrl(savedDataset.id, router.values.searchParams))
 
                         void actions.addProductIntent({
                             product_type: ProductKey.LLM_DATASETS,
@@ -1247,12 +1247,6 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             }
         },
 
-        setActiveTab: ({ tab }) => {
-            if (tab === DatasetTab.Items && props.datasetId !== 'new') {
-                actions.loadDatasetItems(true)
-            }
-        },
-
         closeModalAndRefetchDatasetItems: async ({ refetchDatasetItems }) => {
             if (refetchDatasetItems) {
                 await asyncActions.refreshAfterDatasetItemMutation()
@@ -1262,12 +1256,9 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
 
     urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityDataset(':id')]: (_, searchParams) => {
-            if (
-                searchParams.tab &&
-                Object.values(DatasetTab).includes(searchParams.tab as DatasetTab) &&
-                searchParams.tab !== values.activeTab
-            ) {
-                actions.setActiveTab(searchParams.tab as DatasetTab)
+            const activeTab = searchParams.tab === DatasetTab.Metadata ? DatasetTab.Metadata : DatasetTab.Items
+            if (activeTab !== values.activeTab) {
+                actions.setActiveTab(activeTab)
             }
 
             const newFilters = cleanFilters(searchParams)
@@ -1291,6 +1282,14 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
     })),
 
     trackedActionToUrl(({ values }) => ({
+        setActiveTab: () => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                tab: values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined,
+            },
+            router.values.hashParams,
+        ],
         setFilters: () => {
             const nextSearchParams = {
                 ...router.values.searchParams,

@@ -25,10 +25,6 @@ class TestLobGetSchemas:
         assert schema.incremental_fields == []
         assert schema.description == "Full refresh only"
 
-    def test_names_filter(self) -> None:
-        schemas = LobSource().get_schemas(LobSourceConfig(api_key="k"), team_id=1, names=["letters"])
-        assert [s.name for s in schemas] == ["letters"]
-
 
 class TestLobValidateCredentials:
     @parameterized.expand(

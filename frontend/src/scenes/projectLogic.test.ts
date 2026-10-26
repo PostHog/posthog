@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -61,5 +62,43 @@ describe('projectLogic', () => {
         }).toDispatchActions(['cancelProjectDeletionSuccess'])
 
         expect(requestedOrganizationIds).toEqual([MOCK_ORGANIZATION_ID])
+    })
+
+    it('loadCurrentProject reloads the tab project after another tab changes the current project', async () => {
+        initKeaTests()
+        const logic = projectLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCurrentProjectSuccess'])
+        useMocks({
+            get: {
+                '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_PROJECT, id: MOCK_DEFAULT_PROJECT.id + 1 }],
+                '/api/projects/:id': ({ params }) =>
+                    params.id === String(MOCK_DEFAULT_PROJECT.id)
+                        ? [200, { ...MOCK_DEFAULT_PROJECT, name: 'Reloaded project' }]
+                        : [404, {}],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadCurrentProject()
+        }).toDispatchActions(['loadCurrentProjectSuccess'])
+
+        expect(logic.values.currentProject?.id).toBe(MOCK_DEFAULT_PROJECT.id)
+        expect(logic.values.currentProject?.name).toBe('Reloaded project')
+    })
+
+    it.each([
+        ['/project/997/insights', false],
+        ['/project/997/my-tickets', true],
+    ])('on a project pending deletion, %s stays open: %s', async (path, staysOpen) => {
+        initKeaTests()
+        router.actions.push(path)
+        const logic = projectLogic()
+        logic.mount()
+
+        logic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname === path).toBe(staysOpen)
     })
 })

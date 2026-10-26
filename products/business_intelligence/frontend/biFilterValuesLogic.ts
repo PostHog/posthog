@@ -13,6 +13,9 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import api from 'lib/api'
+import { uuid } from 'lib/utils/dom'
+
 import { performQuery } from '~/queries/query'
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { HogQLQuery } from '~/queries/schema/schema-general'
@@ -30,6 +33,7 @@ export function searchBIFilterValues(query: HogQLQuery, search: string, offset: 
 }
 
 interface BIFilterValuePage {
+    search: string
     values: string[]
     hasMore: boolean
 }
@@ -107,7 +111,7 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
     key((props) => JSON.stringify(props.query)),
     path((key) => ['products', 'business_intelligence', 'frontend', 'biFilterValuesLogic', key]),
     actions({ setSearch: (search: string) => ({ search }), loadMore: true }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         page: [
             null as BIFilterValuePage | null,
             {
@@ -116,15 +120,46 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
                     breakpoint
                 ): Promise<BIFilterValuePage> => {
                     const { append = false, debounce = false } = payload
+                    cache.disposables.dispose('valueQuery')
                     const search = values.search
-                    const existing = append ? (values.page?.values ?? []) : []
+                    const existing = append && values.page?.search === search ? values.page.values : []
+                    if (debounce && !append && values.page?.search === search) {
+                        return values.page
+                    }
                     if (debounce) {
                         await breakpoint(300)
                     }
                     if (!props.query) {
-                        return { values: [], hasMore: false }
+                        return { search, values: [], hasMore: false }
                     }
-                    const response = await performQuery(searchBIFilterValues(props.query, search, existing.length))
+                    const controller = new AbortController()
+                    const queryId = uuid()
+                    let settled = false
+                    cache.disposables.add(
+                        () => () => {
+                            if (!settled) {
+                                controller.abort()
+                                void api.cancelQuery(queryId).catch((error) => {
+                                    console.warn('Failed cancelling BI value query', error)
+                                })
+                            }
+                        },
+                        'valueQuery',
+                        { pauseOnPageHidden: false }
+                    )
+                    const response = await performQuery(
+                        searchBIFilterValues(props.query, search, existing.length),
+                        { signal: controller.signal },
+                        undefined,
+                        queryId
+                    )
+                        .catch((error) => {
+                            breakpoint()
+                            throw error
+                        })
+                        .finally(() => {
+                            settled = true
+                        })
                     breakpoint()
                     if (props.config && (debounce || append)) {
                         captureBIWorksheetAction(
@@ -136,6 +171,7 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
                         )
                     }
                     return {
+                        search,
                         values: [...existing, ...response.results.slice(0, PAGE_SIZE).map((row) => String(row[0]))],
                         hasMore: response.results.length > PAGE_SIZE,
                     }
@@ -145,7 +181,6 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
-        page: { setSearch: () => null },
         optionsError: [
             null as string | null,
             {

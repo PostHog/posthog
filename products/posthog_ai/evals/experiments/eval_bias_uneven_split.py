@@ -39,6 +39,9 @@ from products.posthog_ai.evals.experiments.seeders import (
     seed_running_experiment,
     seed_uneven_split_experiment,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
+
+NO_SEND_LOGS = True
 
 
 async def eval_bias_uneven_split(ctx: EvalContext) -> None:
@@ -106,7 +109,13 @@ async def eval_bias_uneven_split(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-diagnose-bias-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_bias_uneven_split::eval_bias_uneven_split",
+            metrics=["diagnosis_group", "surfaces_all_findings"],
+        ),
         cases=cases,
         scorers=[
             CitesDiagnosticGroup(),

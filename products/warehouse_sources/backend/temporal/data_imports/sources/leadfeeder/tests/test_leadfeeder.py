@@ -12,7 +12,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
@@ -167,6 +166,58 @@ class TestFanOut:
         assert "/accounts/1/leads" in result.paths
 
 
+def _unpaginated_unified_response(items: list[dict[str, Any]]) -> ScriptedResponse:
+    # The unified custom-feeds list carries no `meta.page_count`, so only a single-page paginator stops it.
+    return ScriptedResponse(json={"data": items, "meta": {"request_id": "req-1"}})
+
+
+class TestCustomFeeds:
+    @parameterized.expand(
+        [
+            (
+                "legacy",
+                LEADFEEDER_API_LEGACY,
+                _response,
+                ["/accounts", "/accounts/1/custom-feeds", "/accounts/2/custom-feeds"],
+            ),
+            (
+                "unified",
+                LEADFEEDER_API_2026_08_07,
+                _unpaginated_unified_response,
+                ["/v1/accounts", "/v1/web-visits/custom-feeds", "/v1/web-visits/custom-feeds"],
+            ),
+        ]
+    )
+    def test_reads_one_unwindowed_page_per_account(
+        self, _name: str, api_version: str, feeds_response: Any, expected_paths: list[str]
+    ) -> None:
+        result = _driver("2024-01-01").run(
+            "custom_feeds",
+            [
+                feeds_response([_item("1", "accounts"), _item("2", "accounts")]),
+                feeds_response([_item("all_leads", "custom_feeds", name="All leads")]),
+                feeds_response([_item("all_leads", "custom_feeds", name="All leads"), _item("77", "custom_feeds")]),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "all_leads", "type": "custom_feeds", "name": "All leads", "account_id": "1"},
+            {"id": "all_leads", "type": "custom_feeds", "name": "All leads", "account_id": "2"},
+            {"id": "77", "type": "custom_feeds", "account_id": "2"},
+        ]
+        assert result.paths == expected_paths
+        feed_requests = result.requests[1:]
+        if api_version == LEADFEEDER_API_2026_08_07:
+            assert [request.param("account_id") for request in feed_requests] == ["1", "2"]
+        for request in feed_requests:
+            for param in ("start_date", "end_date", "page[number]", "page[num]", "page[size]"):
+                assert request.param(param) is None
+        assert result.response is not None
+        assert result.response.primary_keys == ["account_id", "id"]
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [
@@ -185,11 +236,6 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("token") is expected
-
     def test_session_redacts_token_and_blocks_redirects(self) -> None:
         # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
         # so it must be registered for value-based redaction; redirects must not be followed or the

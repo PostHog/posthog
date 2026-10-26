@@ -22,6 +22,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.authentication_checks import covers_authentication
 
 from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
@@ -34,6 +35,7 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
 
 SECRET = "test-tasks-create-jwt"
 
@@ -108,6 +110,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ]
         )
 
+    @covers_authentication(WorkflowTasksJWTAuthentication)
     def test_creates_a_task_and_run_attributed_to_the_workflow_and_its_owner(self) -> None:
         response = self._post()
 
@@ -440,14 +443,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
-    def test_rejects_creation_when_the_owner_is_over_the_usage_limit(self, usage_limit_response_mock) -> None:
-        usage_limit_response_mock.return_value = object()  # any non-None reply means blocked
-
-        response = self._post()
+    @parameterized.expand(
+        [
+            # Any non-None reply from the Desktop usage gate means blocked.
+            ("owner_over_usage_limit", "usage_limit_response", object(), "usage limit"),
+            ("team_out_of_ai_credits", "is_team_over_credit_budget", True, "monthly PostHog AI credits"),
+        ]
+    )
+    def test_rejects_creation_when_usage_is_blocked(self, _name: str, gate: str, blocked: Any, detail: str) -> None:
+        with patch(f"products.tasks.backend.logic.services.workflow_tasks.{gate}", return_value=blocked):
+            response = self._post()
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert "usage limit" in response.json()["detail"]
+        assert detail in response.json()["detail"]
         assert Task.objects.count() == 0
 
     def test_replaying_an_idempotency_key_returns_the_existing_task(self) -> None:

@@ -7,10 +7,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneHeader } from 'scenes/activity/ActivitySceneHeader'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -26,7 +24,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { buildLiveEventsAgentContext } from '../activityAgentContext'
 import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
-import { LIVE_EVENTS_SUPPORTED_OPERATORS, liveEventsLogic } from './liveEventsLogic'
+import { liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
@@ -40,7 +38,6 @@ export const scene: SceneExport = {
 export function LiveEventsTable(): JSX.Element {
     const { events, streamPaused, filters } = useValues(liveEventsLogic)
     const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAttachedContext(buildLiveEventsAgentContext(filters))
 
@@ -101,11 +98,7 @@ export function LiveEventsTable(): JSX.Element {
                         propertyFilters={filters.properties ?? []}
                         onChange={(properties) => setFilters({ ...filters, properties })}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        operatorAllowlist={
-                            featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]
-                                ? LIVE_EVENTS_SUPPORTED_OPERATORS
-                                : [PropertyOperator.Exact]
-                        }
+                        operatorAllowlist={[PropertyOperator.Exact]}
                         buttonText="Filter by property"
                     />
                     <LemonButton

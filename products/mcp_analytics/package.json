@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
@@ -21,6 +22,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }

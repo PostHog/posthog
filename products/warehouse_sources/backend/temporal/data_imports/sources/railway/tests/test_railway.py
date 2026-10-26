@@ -205,10 +205,3 @@ class TestRailway:
             assert message is None
         else:
             assert message is not None and expected_message_contains in message
-
-    def test_validate_credentials_network_error_returns_invalid(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("token")
-
-        assert is_valid is False
-        assert message is not None

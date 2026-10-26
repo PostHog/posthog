@@ -3,12 +3,13 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { IntegrationType } from '~/types'
+import type { IntegrationType, TeamPublicType, TeamType } from '~/types'
 
 import { newBroadcastAgentLogic } from '../../Broadcasts/newBroadcastAgentLogic'
 import type { HogFlowTemplate } from '../../Workflows/hogflows/types'
@@ -19,14 +20,28 @@ import type { SetupGuideStep } from '../setupGuideSteps'
 import { WorkflowsOnboardingPath, workflowsSetupGuideLogic } from '../workflowsSetupGuideLogic'
 import {
     BLANK_START_ID,
+    DATA_SUGGESTION_START_ID,
+    FrequencyCap,
+    FrequencyCapChoice,
+    RECOMMENDED_FREQUENCY_CAP,
     ONBOARDING_WIZARD_TAB,
+    WIZARD_ENTRIES,
     WIZARD_STEP_COPY,
     WizardConnection,
+    WizardEntry,
     WizardStepKey,
+    chosenFrequencyCap,
+    customFrequencyCapError,
     firstOpenStepIndex,
+    initialFrequencyCapChoice,
     requiredConnections,
+    sendingRulesToSave,
     wizardSteps,
 } from './onboardingWizardSteps'
+
+function isWizardEntry(value: unknown): value is WizardEntry {
+    return WIZARD_ENTRIES.includes(value as WizardEntry)
+}
 
 function isOnboardingPath(value: unknown): value is WorkflowsOnboardingPath {
     return value === 'messaging' || value === 'automation' || value === 'broadcast'
@@ -36,26 +51,42 @@ function isOnboardingPath(value: unknown): value is WorkflowsOnboardingPath {
 export interface workflowsOnboardingWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     integrations: IntegrationType[] | null // integrationsLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    currentTeamLoading: boolean // teamLogic
     workflowTemplates: HogFlowTemplate[] // workflowTemplatesLogic
     workflowTemplatesLoading: boolean // workflowTemplatesLogic
     guideSteps: SetupGuideStep[] | null // workflowsSetupGuideLogic
+    canEditSendingRules: boolean
+    chosenFrequencyCap: FrequencyCap
     connectionsNeeded: WizardConnection[]
     continueDisabledReason: string | null
     currentStep: WizardStepKey
+    customFrequencyCap: FrequencyCap | null
+    engagementEventsChoice: boolean | null
+    entry: WizardEntry | null
+    frequencyCapChoice: FrequencyCapChoice | null
+    frequencyCapError: string | null
     hasPositioned: boolean
     initialized: boolean
     isLastStep: boolean
     missingConnections: WizardConnection[]
+    offersSuggestions: boolean
     pushEnabled: boolean
     pushSetupStarted: boolean
+    savedFrequencyCap: FrequencyCap
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
     setupCheckFailed: boolean
+    shownCustomFrequencyCap: FrequencyCap
+    shownEngagementEvents: boolean
+    shownFrequencyCapChoice: FrequencyCapChoice
     startsBlank: boolean
     stepDone: Partial<Record<WizardStepKey, boolean>> | null
     stepIndex: number
     stepKeys: readonly WizardStepKey[]
+    suggestionsFirst: boolean
     templates: HogFlowTemplate[]
+    templatesShown: boolean
     wizardPath: WorkflowsOnboardingPath
 }
 
@@ -70,6 +101,7 @@ export interface workflowsOnboardingWizardLogicActions {
     createWorkflowFromTemplate: (template: HogFlowTemplate) => {
         template: HogFlowTemplate
     } // newWorkflowLogic
+    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     loadHasMessagingWorkflow: () => any // workflowsSetupGuideLogic
     loadHasMessagingWorkflowFailure: (
         error: string,
@@ -94,12 +126,23 @@ export interface workflowsOnboardingWizardLogicActions {
     finish: () => {
         value: true
     }
+    finishWithSuggestion: () => {
+        value: true
+    }
     initWizard: (
         path: WorkflowsOnboardingPath,
         step: WizardStepKey | null,
         stepIndex: number,
-        templateId: string | null
+        templateId: string | null,
+        entry: WizardEntry | null
     ) => {
+        entry:
+            | 'automation_banner'
+            | 'automation_empty_state'
+            | 'broadcasts_empty_state'
+            | 'messaging_setup_guide'
+            | 'path_choice'
+            | null
         path: WorkflowsOnboardingPath
         step: WizardStepKey | null
         stepIndex: number
@@ -117,8 +160,20 @@ export interface workflowsOnboardingWizardLogicActions {
     selectTemplate: (templateId: string) => {
         templateId: string
     }
+    setCustomFrequencyCap: (cap: FrequencyCap) => {
+        cap: FrequencyCap
+    }
+    setEngagementEventsChoice: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setFrequencyCapChoice: (choice: FrequencyCapChoice) => {
+        choice: FrequencyCapChoice
+    }
     setStepIndex: (index: number) => {
         index: number
+    }
+    setTemplatesShown: (shown: boolean) => {
+        shown: boolean
     }
     startPushSetup: () => {
         value: true
@@ -129,8 +184,35 @@ export interface workflowsOnboardingWizardLogicActions {
 export interface workflowsOnboardingWizardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pushEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        savedFrequencyCap: (currentTeam: TeamPublicType | TeamType | null) => FrequencyCap
+        shownFrequencyCapChoice: (
+            frequencyCapChoice: FrequencyCapChoice | null,
+            savedFrequencyCap: FrequencyCap,
+            canEditSendingRules: boolean
+        ) => FrequencyCapChoice
+        shownCustomFrequencyCap: (
+            customFrequencyCap: FrequencyCap | null,
+            savedFrequencyCap: FrequencyCap
+        ) => FrequencyCap
+        chosenFrequencyCap: (
+            shownFrequencyCapChoice: FrequencyCapChoice,
+            shownCustomFrequencyCap: FrequencyCap
+        ) => FrequencyCap
+        frequencyCapError: (
+            shownFrequencyCapChoice: FrequencyCapChoice,
+            shownCustomFrequencyCap: FrequencyCap,
+            canEditSendingRules: boolean
+        ) => string | null
+        shownEngagementEvents: (
+            engagementEventsChoice: boolean | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            canEditSendingRules: boolean
+        ) => boolean
+        canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath) => boolean
+        suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
         selectedTemplate: (
@@ -147,13 +229,16 @@ export interface workflowsOnboardingWizardLogicMeta {
             missingConnections: 'slack'[],
             integrations: IntegrationType[] | null,
             startsBlank: boolean,
-            setupCheckFailed: boolean
+            setupCheckFailed: boolean,
+            savedFrequencyCap: FrequencyCap
         ) => Partial<Record<WizardStepKey, boolean>> | null
         continueDisabledReason: (
             currentStep: WizardStepKey,
             stepDone: Partial<Record<WizardStepKey, boolean>> | null,
             selectedTemplate: HogFlowTemplate | null,
-            startsBlank: boolean
+            startsBlank: boolean,
+            frequencyCapError: string | null,
+            currentTeamLoading: boolean
         ) => string | null
     }
 }
@@ -177,6 +262,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             ['featureFlags'],
             workflowTemplatesLogic,
             ['workflowTemplates', 'workflowTemplatesLoading'],
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
         ],
         actions: [
             newWorkflowLogic,
@@ -185,6 +272,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             ['startNewBroadcast'],
             workflowsSetupGuideLogic,
             ['loadHasMessagingWorkflow', 'loadHasMessagingWorkflowFailure', 'loadHasMessagingWorkflowSuccess'],
+            teamLogic,
+            ['updateCurrentTeam'],
         ],
     })),
     actions({
@@ -192,12 +281,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             path: WorkflowsOnboardingPath,
             step: WizardStepKey | null,
             stepIndex: number,
-            templateId: string | null
+            templateId: string | null,
+            entry: WizardEntry | null
         ) => ({
             path,
             step,
             stepIndex,
             templateId,
+            entry,
         }),
         setStepIndex: (index: number) => ({ index }),
         next: true,
@@ -208,12 +299,23 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         positionAtFirstOpenStep: (index: number) => ({ index }),
         positionIfReady: true,
         startPushSetup: true,
+        setEngagementEventsChoice: (enabled: boolean) => ({ enabled }),
+        setFrequencyCapChoice: (choice: FrequencyCapChoice) => ({ choice }),
+        setCustomFrequencyCap: (cap: FrequencyCap) => ({ cap }),
+        setTemplatesShown: (shown: boolean) => ({ shown }),
+        finishWithSuggestion: true,
     }),
     reducers({
         wizardPath: [
             'messaging' as WorkflowsOnboardingPath,
             {
                 initWizard: (_, { path }) => path,
+            },
+        ],
+        entry: [
+            null as WizardEntry | null,
+            {
+                initWizard: (_, { entry }) => entry,
             },
         ],
         stepIndex: [
@@ -249,6 +351,33 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 initWizard: () => true,
             },
         ],
+        // A person who comes back with a template picked, or picks one, stays on the template list.
+        templatesShown: [
+            false,
+            {
+                initWizard: (_, { templateId }) => templateId !== null,
+                selectTemplate: () => true,
+                setTemplatesShown: (_, { shown }) => shown,
+            },
+        ],
+        frequencyCapChoice: [
+            null as FrequencyCapChoice | null,
+            {
+                setFrequencyCapChoice: (_, { choice }) => choice,
+            },
+        ],
+        customFrequencyCap: [
+            null as FrequencyCap | null,
+            {
+                setCustomFrequencyCap: (_, { cap }) => cap,
+            },
+        ],
+        engagementEventsChoice: [
+            null as boolean | null,
+            {
+                setEngagementEventsChoice: (_, { enabled }) => enabled,
+            },
+        ],
         pushSetupStarted: [
             false,
             {
@@ -269,6 +398,63 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS],
         ],
+        savedFrequencyCap: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): FrequencyCap => ({
+                maxMessages: currentTeam?.workflows_config?.marketing_frequency_cap_max_messages ?? null,
+                windowDays: currentTeam?.workflows_config?.marketing_frequency_cap_window_days ?? null,
+            }),
+        ],
+        // A non-admin cannot save, so the step shows what is saved instead of the defaults.
+        shownFrequencyCapChoice: [
+            (s) => [s.frequencyCapChoice, s.savedFrequencyCap, s.canEditSendingRules],
+            (
+                frequencyCapChoice: FrequencyCapChoice | null,
+                savedFrequencyCap: FrequencyCap,
+                canEditSendingRules: boolean
+            ): FrequencyCapChoice =>
+                frequencyCapChoice ?? initialFrequencyCapChoice(savedFrequencyCap, canEditSendingRules),
+        ],
+        shownCustomFrequencyCap: [
+            (s) => [s.customFrequencyCap, s.savedFrequencyCap],
+            (customFrequencyCap: FrequencyCap | null, savedFrequencyCap: FrequencyCap): FrequencyCap =>
+                customFrequencyCap ??
+                (savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null
+                    ? savedFrequencyCap
+                    : RECOMMENDED_FREQUENCY_CAP),
+        ],
+        chosenFrequencyCap: [
+            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap],
+            (shownFrequencyCapChoice: FrequencyCapChoice, shownCustomFrequencyCap: FrequencyCap): FrequencyCap =>
+                chosenFrequencyCap(shownFrequencyCapChoice, shownCustomFrequencyCap),
+        ],
+        frequencyCapError: [
+            (s) => [s.shownFrequencyCapChoice, s.shownCustomFrequencyCap, s.canEditSendingRules],
+            (
+                shownFrequencyCapChoice: FrequencyCapChoice,
+                shownCustomFrequencyCap: FrequencyCap,
+                canEditSendingRules: boolean
+            ): string | null =>
+                canEditSendingRules && shownFrequencyCapChoice === 'custom'
+                    ? customFrequencyCapError(shownCustomFrequencyCap)
+                    : null,
+        ],
+        shownEngagementEvents: [
+            (s) => [s.engagementEventsChoice, s.currentTeam, s.canEditSendingRules],
+            (
+                engagementEventsChoice: boolean | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                canEditSendingRules: boolean
+            ): boolean =>
+                engagementEventsChoice ??
+                (canEditSendingRules || !!currentTeam?.workflows_config?.capture_workflows_engagement_events),
+        ],
+        // Matches the admin restriction on the frequency cap in project settings.
+        canEditSendingRules: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | null): boolean =>
+                (currentTeam?.effective_membership_level ?? -1) >= TeamMembershipLevel.Admin,
+        ],
         stepKeys: [
             (s) => [s.wizardPath, s.pushEnabled],
             (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean): readonly WizardStepKey[] =>
@@ -278,6 +464,16 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (s) => [s.stepKeys, s.stepIndex],
             (stepKeys: readonly WizardStepKey[], stepIndex: number): WizardStepKey =>
                 stepKeys[Math.min(stepIndex, stepKeys.length - 1)],
+        ],
+        // Suggestions are messages to users, so the automation path never offers them.
+        offersSuggestions: [
+            (s) => [s.wizardPath],
+            (wizardPath: WorkflowsOnboardingPath): boolean => wizardPath === 'messaging',
+        ],
+        suggestionsFirst: [
+            (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],
+            (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean): boolean =>
+                offersSuggestions && currentStep === 'journey' && !templatesShown,
         ],
         isLastStep: [
             (s) => [s.stepKeys, s.stepIndex],
@@ -321,6 +517,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 s.integrations,
                 s.startsBlank,
                 s.setupCheckFailed,
+                s.savedFrequencyCap,
             ],
             (
                 wizardPath: WorkflowsOnboardingPath,
@@ -329,7 +526,8 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 missingConnections: WizardConnection[],
                 integrations: IntegrationType[] | null,
                 startsBlank: boolean,
-                setupCheckFailed: boolean
+                setupCheckFailed: boolean,
+                savedFrequencyCap: FrequencyCap
             ): Partial<Record<WizardStepKey, boolean>> | null => {
                 const picked = !!selectedTemplate || startsBlank
                 if (wizardPath === 'automation') {
@@ -345,6 +543,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     channel: !!integrations?.some((integration) => integration.kind === 'email'),
                     domain: guideDone('domain'),
                     'opt-outs': guideDone('opt-outs'),
+                    'sending-rules': savedFrequencyCap.maxMessages !== null && savedFrequencyCap.windowDays !== null,
                     push: !!integrations?.some(
                         (integration) => integration.kind === 'firebase' || integration.kind === 'apns'
                     ),
@@ -355,13 +554,28 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
         ],
         /** Why the person cannot move on from this step yet, or null when they can. */
         continueDisabledReason: [
-            (s) => [s.currentStep, s.stepDone, s.selectedTemplate, s.startsBlank],
+            (s) => [
+                s.currentStep,
+                s.stepDone,
+                s.selectedTemplate,
+                s.startsBlank,
+                s.frequencyCapError,
+                s.currentTeamLoading,
+            ],
             (
                 currentStep: WizardStepKey,
                 stepDone: Partial<Record<WizardStepKey, boolean>> | null,
                 selectedTemplate: HogFlowTemplate | null,
-                startsBlank: boolean
+                startsBlank: boolean,
+                frequencyCapError: string | null,
+                currentTeamLoading: boolean
             ): string | null => {
+                if (currentStep === 'sending-rules') {
+                    if (currentTeamLoading) {
+                        return 'Saving your sending rules'
+                    }
+                    return frequencyCapError ? 'Fix the frequency cap to continue' : null
+                }
                 if (currentStep === 'broadcast') {
                     return null
                 }
@@ -378,76 +592,132 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        next: () => {
-            const step = values.currentStep
+    listeners(({ actions, values }) => {
+        // Sent once the wizard settles on a step, so a person who opens it fresh does not count a view of
+        // the first step before it moves to their first open one.
+        const captureStepViewed = (): void => {
             // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard step completed', {
+            posthog.capture('workflows onboarding wizard step viewed', {
                 path: values.wizardPath,
-                step,
-                skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
+                step: values.currentStep,
+                step_index: values.stepIndex,
+                entry: values.entry,
             })
-            if (values.isLastStep) {
-                actions.finish()
-            } else {
-                actions.setStepIndex(values.stepIndex + 1)
-            }
-        },
-        back: () => {
-            actions.setStepIndex(Math.max(0, values.stepIndex - 1))
-        },
-        initWizard: () => {
-            actions.positionIfReady()
-        },
-        positionIfReady: () => {
-            const { stepDone, initialized, hasPositioned, wizardPath, stepKeys } = values
-            if (stepDone && initialized && !hasPositioned && wizardPath !== 'automation') {
-                actions.positionAtFirstOpenStep(firstOpenStepIndex(stepKeys, stepDone))
-            }
-        },
-        finish: () => {
-            if (values.wizardPath === 'broadcast') {
+        }
+        return {
+            setStepIndex: captureStepViewed,
+            positionAtFirstOpenStep: captureStepViewed,
+            next: () => {
+                const step = values.currentStep
                 // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('workflows onboarding wizard finished', { path: values.wizardPath })
-                actions.startNewBroadcast()
-                return
-            }
-            if (values.startsBlank) {
+                posthog.capture('workflows onboarding wizard step completed', {
+                    path: values.wizardPath,
+                    step,
+                    skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
+                    ...(step === 'sending-rules'
+                        ? {
+                              frequency_cap: values.shownFrequencyCapChoice,
+                              engagement_events: values.shownEngagementEvents,
+                          }
+                        : {}),
+                })
+                const rulesToSave =
+                    step === 'sending-rules'
+                        ? sendingRulesToSave(
+                              {
+                                  ...values.savedFrequencyCap,
+                                  engagementEvents:
+                                      !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
+                              },
+                              values.chosenFrequencyCap,
+                              values.shownEngagementEvents,
+                              values.canEditSendingRules
+                          )
+                        : null
+                if (rulesToSave) {
+                    actions.updateCurrentTeam({ workflows_config: rulesToSave })
+                }
+                if (values.isLastStep) {
+                    actions.finish()
+                } else {
+                    actions.setStepIndex(values.stepIndex + 1)
+                }
+            },
+            back: () => {
+                actions.setStepIndex(Math.max(0, values.stepIndex - 1))
+            },
+            initWizard: ({ path, step }) => {
+                // The automation path and a link to a named step never move, so their first step is already settled.
+                // Reads the payload, because positioning can run before this listener and set `hasPositioned`.
+                if (step !== null || path === 'automation') {
+                    captureStepViewed()
+                }
+                actions.positionIfReady()
+            },
+            positionIfReady: () => {
+                const { stepDone, initialized, hasPositioned, wizardPath, stepKeys } = values
+                if (stepDone && initialized && !hasPositioned && wizardPath !== 'automation') {
+                    actions.positionAtFirstOpenStep(firstOpenStepIndex(stepKeys, stepDone))
+                }
+            },
+            finish: () => {
+                if (values.wizardPath === 'broadcast') {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows onboarding wizard finished', { path: values.wizardPath })
+                    actions.startNewBroadcast()
+                    return
+                }
+                if (values.startsBlank) {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows onboarding wizard finished', {
+                        path: values.wizardPath,
+                        template_id: BLANK_START_ID,
+                    })
+                    actions.createEmptyWorkflow()
+                    return
+                }
+                const template = values.selectedTemplate
+                if (!template) {
+                    return
+                }
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows onboarding wizard finished', {
                     path: values.wizardPath,
-                    template_id: BLANK_START_ID,
+                    template_id: template.id,
+                    template_scope: template.scope,
                 })
-                actions.createEmptyWorkflow()
-                return
-            }
-            const template = values.selectedTemplate
-            if (!template) {
-                return
-            }
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard finished', {
-                path: values.wizardPath,
-                template_id: template.id,
-                template_scope: template.scope,
-            })
-            actions.createWorkflowFromTemplate(template)
-        },
-        exit: () => {
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard exited', {
-                path: values.wizardPath,
-                step: values.currentStep,
-            })
-            router.actions.push(
-                values.wizardPath === 'messaging'
-                    ? urls.workflows('channels')
-                    : values.wizardPath === 'broadcast'
-                      ? urls.broadcasts()
-                      : urls.workflows()
-            )
-        },
-    })),
+                actions.createWorkflowFromTemplate(template)
+            },
+            // A suggestion card creates and opens the workflow itself, so it skips `next` and `finish`.
+            finishWithSuggestion: () => {
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard step completed', {
+                    path: values.wizardPath,
+                    step: values.currentStep,
+                    skipped: false,
+                })
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard finished', {
+                    path: values.wizardPath,
+                    template_id: DATA_SUGGESTION_START_ID,
+                })
+            },
+            exit: () => {
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard exited', {
+                    path: values.wizardPath,
+                    step: values.currentStep,
+                })
+                router.actions.push(
+                    values.wizardPath === 'messaging'
+                        ? urls.workflows('channels')
+                        : values.wizardPath === 'broadcast'
+                          ? urls.broadcasts()
+                          : urls.workflows()
+                )
+            },
+        }
+    }),
     subscriptions(({ actions }) => ({
         stepDone: () => {
             actions.positionIfReady()
@@ -462,8 +732,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             const steps = wizardSteps(path, values.pushEnabled)
             const step = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
             const templateId = searchParams.template ? String(searchParams.template) : null
-            if (path !== values.wizardPath || step !== values.currentStep || templateId !== values.selectedTemplateId) {
-                actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId)
+            const entry = isWizardEntry(searchParams.entry) ? searchParams.entry : null
+            if (
+                !values.initialized ||
+                path !== values.wizardPath ||
+                step !== values.currentStep ||
+                templateId !== values.selectedTemplateId
+            ) {
+                actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId, entry)
             }
         },
     })),

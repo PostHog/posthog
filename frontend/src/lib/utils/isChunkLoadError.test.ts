@@ -23,6 +23,34 @@ describe('isChunkLoadError', () => {
             { name: 'Error', message: 'Importing a module script failed.' },
             true,
         ],
+        [
+            'Chrome unmapped stable chunk specifier',
+            {
+                name: 'TypeError',
+                message:
+                    'Failed to resolve module specifier "@c/c0A1B2C3D4E". Relative references must start with either "/", "./", or "../".',
+            },
+            true,
+        ],
+        [
+            'Firefox unmapped stable chunk specifier',
+            {
+                name: 'TypeError',
+                message:
+                    'The specifier “@c/c0A1B2C3D4E” was a bare specifier, but was not remapped to anything. Relative module specifiers must start with “./”, “../” or “/”.',
+            },
+            true,
+        ],
+        [
+            'Safari unmapped stable chunk specifier',
+            { name: 'TypeError', message: "Module name, '@c/c0A1B2C3D4E' does not resolve to a valid URL." },
+            true,
+        ],
+        [
+            'unmapped specifier outside the stable chunk build',
+            { name: 'TypeError', message: 'Failed to resolve module specifier "lodash".' },
+            false,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],

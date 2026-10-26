@@ -16,7 +16,7 @@ from posthog.event_usage import AnalyticsProps, groups
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
 from .. import logic, weekly_digest, weekly_digest_delivery
-from ..indexed_embedding import EMBEDDING_TABLES
+from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
 from ..logic import external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
@@ -154,7 +154,7 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
             status=ErrorTrackingIssue.Status.ACTIVE,
         )
         .order_by("-created_at")
-        .values("team_id", "name", "id")
+        .values("team_id", "name", "description", "id")
     )
 
 
@@ -190,6 +190,7 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
         description=issue.description,
         status=issue.status,
         severity=issue.severity,
+        first_seen=getattr(issue, "first_seen", None),
     )
 
 
@@ -314,6 +315,13 @@ def list_releases(
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_release(release) for release in rows], total
+
+
+def list_releases_created_between(
+    team_id: int, *, start: datetime, end: datetime, limit: int
+) -> list[contracts.ErrorTrackingRelease]:
+    rows = logic.list_releases(team_id).filter(created_at__gte=start, created_at__lte=end)[:limit]
+    return [_to_release(release) for release in rows]
 
 
 def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:
@@ -805,3 +813,8 @@ def document_embedding_tables() -> list[DocumentEmbeddingTable]:
         )
         for table in EMBEDDING_TABLES
     ]
+
+
+def document_embeddings_buffer_table() -> str:
+    """The sharded buffer that holds every new document, in each model, until its TTL drops it."""
+    return DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE

@@ -41,7 +41,6 @@ from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
     GitHubIntegration,
-    GitHubUserAuthorization,
     Integration,
     defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
@@ -113,24 +112,6 @@ def create_team_github_integration_from_oauth_code(
     if authorization is None:
         raise ValidationError("Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured")
 
-    return link_github_installation_for_user(
-        user=user, team_id=team_id, installation_id=installation_id, authorization=authorization
-    )
-
-
-def link_github_installation_for_user(
-    *,
-    user: User,
-    team_id: int,
-    installation_id: str,
-    authorization: "GitHubUserAuthorization",
-) -> Integration:
-    """Verify the user controls the installation, then create both GitHub records:
-    the team-scoped Integration and the personal UserIntegration.
-
-    Request-free core of the team GitHub link, shared with flows that hold an
-    already-exchanged authorization (e.g. agentic provisioning GitHub grants).
-    """
     if not is_valid_github_installation_id(installation_id):
         raise ValidationError("Invalid installation_id")
     audit = GitHubAudit(
