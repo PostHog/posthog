@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
 import {
@@ -10,6 +10,7 @@ import {
     LemonSkeleton,
     lemonToast,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { ZoomableImage } from 'lib/components/ZoomableImage/ZoomableImage'
@@ -38,39 +39,107 @@ export function VariantScreenshot({
         return Array.isArray(variantImages) ? variantImages : [variantImages]
     }
 
+    // Local state so thumbnails update immediately, while the experiment save runs in the background
     const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
+
+    return (
+        <VariantScreenshotEditor
+            mediaIds={mediaIds}
+            onChange={(newMediaIds) => {
+                setMediaIds(newMediaIds)
+                updateExperimentVariantImages({
+                    ...experiment.parameters?.variant_screenshot_media_ids,
+                    [variantKey]: newMediaIds,
+                })
+            }}
+            onUploaded={() => reportExperimentVariantScreenshotUploaded(experiment.id)}
+            viewerTitle={
+                <>
+                    <VariantTag variantKey={variantKey} />
+                    {rolloutPercentage !== undefined && (
+                        <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
+                    )}
+                </>
+            }
+        />
+    )
+}
+
+/** Controlled, so the wizard can use it on an unsaved draft, and `VariantScreenshot` on a saved experiment */
+export function VariantScreenshotEditor({
+    mediaIds,
+    onChange,
+    onUploaded,
+    viewerTitle,
+    size = 'medium',
+    uploadTarget,
+    onUploadingChange,
+}: {
+    mediaIds: string[]
+    onChange: (mediaIds: string[]) => void
+    onUploaded?: () => void
+    viewerTitle?: ReactNode
+    size?: 'small' | 'medium'
+    /** What the screenshots belong to. An upload that finishes after it changes is dropped, so it can't land on another item */
+    uploadTarget?: string
+    /** Called with true when an upload starts and false when it ends, through the callback current at the start */
+    onUploadingChange?: (uploading: boolean) => void
+}): JSX.Element {
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
     const [isFocused, setIsFocused] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
+    // `onUpload` comes from the render that started the upload, so read current props or a removed screenshot returns
+    const latestPropsRef = useRef({ mediaIds, onChange, onUploaded, uploadTarget, onUploadingChange })
+    latestPropsRef.current = { mediaIds, onChange, onUploaded, uploadTarget, onUploadingChange }
+    // The editor can be reused for another item mid-upload, for example when a row above it is removed
+    const startedUploadTargetRef = useRef(uploadTarget)
+    const endUploadingRef = useRef<((uploading: boolean) => void) | undefined>(undefined)
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
             if (!id) {
                 return
             }
-            if (mediaIds.length >= 5) {
+            const latest = latestPropsRef.current
+            if (latest.uploadTarget !== startedUploadTargetRef.current) {
+                return
+            }
+            if (latest.mediaIds.length >= 5) {
                 lemonToast.error('Maximum of 5 images allowed')
                 return
             }
 
-            setMediaIds((prev) => {
-                const newMediaIds = [...prev, id]
-                const updatedVariantImages = {
-                    ...experiment.parameters?.variant_screenshot_media_ids,
-                    [variantKey]: newMediaIds,
-                }
-
-                updateExperimentVariantImages(updatedVariantImages)
-                reportExperimentVariantScreenshotUploaded(experiment.id)
-                return newMediaIds
-            })
+            latest.onChange([...latest.mediaIds, id])
+            latest.onUploaded?.()
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    const startUpload = useCallback(
+        (files: File[]): void => {
+            startedUploadTargetRef.current = latestPropsRef.current.uploadTarget
+            setFilesToUpload(files)
+        },
+        [setFilesToUpload]
+    )
+
+    useEffect(() => {
+        if (uploading) {
+            endUploadingRef.current = latestPropsRef.current.onUploadingChange
+            endUploadingRef.current?.(true)
+        } else if (endUploadingRef.current) {
+            endUploadingRef.current(false)
+            endUploadingRef.current = undefined
+        }
+    }, [uploading])
+
+    // An upload cut off by unmounting never reports its end
+    useEffect(() => () => endUploadingRef.current?.(false), [])
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent): void => {
@@ -93,7 +162,7 @@ export function VariantScreenshot({
                             lemonToast.error('Maximum of 5 images allowed')
                             return
                         }
-                        setFilesToUpload([file])
+                        startUpload([file])
                     } else {
                         lemonToast.error('Could not read image from clipboard')
                     }
@@ -101,7 +170,7 @@ export function VariantScreenshot({
                 }
             }
         },
-        [mediaIds.length, setFilesToUpload, uploading]
+        [mediaIds.length, startUpload, uploading]
     )
 
     const handleImageLoad = (mediaId: string): void => {
@@ -113,15 +182,7 @@ export function VariantScreenshot({
     }
 
     const handleDelete = (indexToDelete: number): void => {
-        const newMediaIds = mediaIds.filter((_, index) => index !== indexToDelete)
-        setMediaIds(newMediaIds)
-
-        const updatedVariantImages = {
-            ...experiment.parameters?.variant_screenshot_media_ids,
-            [variantKey]: newMediaIds,
-        }
-
-        updateExperimentVariantImages(updatedVariantImages)
+        onChange(mediaIds.filter((_, index) => index !== indexToDelete))
     }
 
     const getThumbnailWidth = (): string => {
@@ -142,7 +203,13 @@ export function VariantScreenshot({
         }
     }
 
-    const widthClass = getThumbnailWidth()
+    const isSmall = size === 'small'
+    const heightClass = isSmall ? 'h-[calc(2.125rem+3px)]' : 'h-16'
+    const widthClass = isSmall ? 'w-14' : getThumbnailWidth()
+    const addWidthClass = isSmall ? 'w-[calc(2.125rem+3px)]' : widthClass
+    // In a form row, show one thumbnail at a fixed width so adding screenshots never resizes the table
+    const visibleMediaIds = isSmall ? mediaIds.slice(0, 1) : mediaIds
+    const hiddenCount = mediaIds.length - visibleMediaIds.length
 
     const getMediaSrc = (mediaId: string): string =>
         mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)
@@ -183,13 +250,15 @@ export function VariantScreenshot({
                 }
             }}
         >
-            <div className="flex gap-4 items-start">
-                {mediaIds.map((mediaId, index) => (
+            <div className={`flex items-start ${isSmall ? 'gap-2 w-[calc(4rem+2.125rem+3px)] shrink-0' : 'gap-4'}`}>
+                {visibleMediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
-                        <div className="text-secondary inline-flex flow-row items-center gap-1 cursor-pointer">
+                        <div
+                            className={`text-secondary ${isSmall ? 'flex' : 'inline-flex'} flow-row items-center gap-1 cursor-pointer`}
+                        >
                             <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
                                 <div
-                                    className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
+                                    className={`relative flex overflow-hidden select-none ${widthClass} ${heightClass} rounded before:absolute before:inset-0 before:border before:rounded`}
                                 >
                                     {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
                                     <img
@@ -199,6 +268,11 @@ export function VariantScreenshot({
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
                                     />
+                                    {index === 0 && hiddenCount > 0 && (
+                                        <span className="absolute bottom-0.5 right-0.5 rounded bg-surface-primary px-1 text-[10px] font-semibold leading-4">
+                                            +{hiddenCount}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="absolute -inset-2 group">
                                     <LemonButton
@@ -220,28 +294,34 @@ export function VariantScreenshot({
                 ))}
 
                 {mediaIds.length < 5 && (
-                    <div className={`relative ${widthClass} h-16`}>
+                    <div className={`relative ${addWidthClass} ${heightClass}`}>
                         <LemonFileInput
                             accept="image/*"
                             multiple={false}
-                            onChange={setFilesToUpload}
+                            onChange={startUpload}
                             loading={uploading}
                             value={filesToUpload}
                             showUploadedFiles={false}
                             callToAction={
-                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
-                                    {uploading ? (
-                                        <Spinner className="text-secondary" />
-                                    ) : (
-                                        <span className="text-2xl text-secondary">+</span>
-                                    )}
-                                </div>
+                                <Tooltip title={isSmall ? 'Add a screenshot, or paste one with ⌘V' : undefined}>
+                                    <div
+                                        className={`flex items-center justify-center w-full ${heightClass} border border-dashed rounded cursor-pointer hover:border-accent`}
+                                    >
+                                        {uploading ? (
+                                            <Spinner className="text-secondary" />
+                                        ) : (
+                                            <span className={`${isSmall ? 'text-lg' : 'text-2xl'} text-secondary`}>
+                                                +
+                                            </span>
+                                        )}
+                                    </div>
+                                </Tooltip>
                             }
                         />
                     </div>
                 )}
-                {isFocused && mediaIds.length < 5 && (
-                    <div className="flex items-center h-16">
+                {isFocused && !isSmall && mediaIds.length < 5 && (
+                    <div className={`flex items-center ${heightClass}`}>
                         <span className="text-xs text-secondary whitespace-nowrap">⌘V to paste</span>
                     </div>
                 )}
@@ -252,15 +332,33 @@ export function VariantScreenshot({
                 onClose={() => setSelectedImageIndex(null)}
                 width="90vw"
                 maxWidth={1400}
+                footer={
+                    isSmall && selectedImageIndex !== null ? (
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                const remaining = mediaIds.length - 1
+                                handleDelete(selectedImageIndex)
+                                setSelectedImageIndex(
+                                    remaining > 0 ? Math.min(selectedImageIndex, remaining - 1) : null
+                                )
+                            }}
+                        >
+                            Remove screenshot
+                        </LemonButton>
+                    ) : undefined
+                }
                 title={
                     <div className="flex items-center gap-2">
                         <span>
                             Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''} of {mediaIds.length}
                         </span>
-                        <LemonDivider className="my-0 mx-1" vertical />
-                        <VariantTag variantKey={variantKey} />
-                        {rolloutPercentage !== undefined && (
-                            <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
+                        {viewerTitle && (
+                            <>
+                                <LemonDivider className="my-0 mx-1" vertical />
+                                {viewerTitle}
+                            </>
                         )}
                     </div>
                 }
@@ -278,7 +376,7 @@ export function VariantScreenshot({
                         )}
                         <ZoomableImage
                             src={getMediaSrc(mediaIds[selectedImageIndex])}
-                            alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
+                            alt={`Screenshot ${selectedImageIndex + 1}`}
                             resetKey={selectedImageIndex}
                             className="flex-1 h-[80vh]"
                         />

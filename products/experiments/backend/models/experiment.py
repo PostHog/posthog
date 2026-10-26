@@ -295,6 +295,11 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     def get_analytics_metadata(self) -> dict[str, Any]:
         variants = self.feature_flag.variants
+        parameters = self.parameters if isinstance(self.parameters, dict) else {}
+        variant_notes = parameters.get("variant_notes")
+        variant_screenshots = parameters.get("variant_screenshot_media_ids")
+        # Details outlive a renamed or removed variant in `parameters`, and the Variants tab can't show them
+        variant_keys = {variant.get("key") for variant in variants if isinstance(variant, dict)}
 
         return {
             "experiment_id": self.id,
@@ -308,6 +313,20 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
+            "variants_with_notes_count": sum(
+                1
+                for key, note in variant_notes.items()
+                if key in variant_keys and isinstance(note, str) and note.strip()
+            )
+            if isinstance(variant_notes, dict)
+            else 0,
+            "variants_with_screenshots_count": sum(
+                1
+                for key, media_ids in variant_screenshots.items()
+                if key in variant_keys and isinstance(media_ids, list) and media_ids
+            )
+            if isinstance(variant_screenshots, dict)
+            else 0,
             "created_at": self.created_at,
         }
 
