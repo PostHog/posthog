@@ -177,8 +177,8 @@ function prepareOrval(moduleName, filteredSchema, tmpDir) {
     return { config, outputFile, moduleOutputDir }
 }
 
-function postprocessOrvalOutput(outputFile, openPathsByExport) {
-    const generated = loosenOpenObjects(fs.readFileSync(outputFile, 'utf-8'), openPathsByExport)
+function postprocessOrvalOutput(outputFile, openTargetsByExport) {
+    const generated = loosenOpenObjects(fs.readFileSync(outputFile, 'utf-8'), openTargetsByExport)
     const withoutRedundantEnumDescriptions = generated.replace(
         /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
         ''
@@ -243,8 +243,10 @@ for (const def of definitions) {
     const schemaCount = Object.keys(filtered.components.schemas).length
 
     const { config, outputFile, moduleOutputDir } = prepareOrval(def.moduleName, filtered, tmpDir)
-    const openPathsByExport = modulesWithStrictBodies.has(def.moduleName) ? collectOpenObjectPaths(filtered) : new Map()
-    tasks.push({ def, config, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds, openPathsByExport })
+    const openTargetsByExport = modulesWithStrictBodies.has(def.moduleName)
+        ? collectOpenObjectPaths(filtered, def.moduleName)
+        : new Map()
+    tasks.push({ def, config, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds, openTargetsByExport })
 }
 
 // Phase 2: Run all Orval generations in parallel (in-process, no subprocess overhead)
@@ -257,7 +259,13 @@ for (let i = 0; i < results.length; i++) {
     const result = results[i]
     const task = tasks[i]
     if (result.status === 'fulfilled') {
-        postprocessOrvalOutput(task.outputFile, task.openPathsByExport)
+        try {
+            postprocessOrvalOutput(task.outputFile, task.openTargetsByExport)
+        } catch (error) {
+            console.error(`   ✗ ${task.def.moduleName}: post-processing failed — ${error.message}`)
+            failed = true
+            continue
+        }
         console.log(
             `   ✓ ${task.def.moduleName}: ${task.pathCount} paths, ${task.schemaCount} schemas (${task.operationIds.size} enabled ops)`
         )
