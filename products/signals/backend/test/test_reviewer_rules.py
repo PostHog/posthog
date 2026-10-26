@@ -35,7 +35,12 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
 )
-from products.signals.backend.reviewer_exclusions import create_exclusion, revise_exclusion, revoke_exclusion
+from products.signals.backend.reviewer_exclusions import (
+    DuplicateExclusion,
+    create_exclusion,
+    revise_exclusion,
+    revoke_exclusion,
+)
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers, sync_suggested_reviewer_index
 
@@ -485,15 +490,14 @@ class TestStandingExclusions(BaseTest):
         )
 
     def exclude(self, **area: str) -> str:
-        return str(
-            create_exclusion(
-                team_id=self.team.id,
-                actor_id=self.member.id,
-                instruction="I moved off this area.",
-                subject_user_uuid=self.member.uuid,
-                **area,
-            ).id
+        exclusion, _ = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            **area,
         )
+        return str(exclusion.id)
 
     def write(self, *reviewers: SuggestedReviewerEntry, source: str = "research") -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -507,31 +511,66 @@ class TestStandingExclusions(BaseTest):
 
     @parameterized.expand(
         [
-            ("research_any_repo", "research", {}, True, True),
-            ("scout_same_repo", "scout", {"repository": "org/app"}, True, True),
-            ("custom_agent_path", "custom_agent", {"repository": "org/app", "path_prefix": "src/billing"}, True, True),
-            ("other_repo", "research", {"repository": "org/other"}, True, False),
-            ("other_path", "scout", {"repository": "org/app", "path_prefix": "src/bill"}, True, False),
-            ("writer_disabled", "research", {"repository": "org/app"}, False, True),
+            ("research_any_repo", "research", {}, True, True, None, False),
+            ("scout_same_repo", "scout", {"repository": "org/app"}, True, True, None, False),
+            (
+                "custom_agent_path",
+                "custom_agent",
+                {"repository": "org/app", "path_prefix": "src/billing"},
+                True,
+                True,
+                None,
+                False,
+            ),
+            ("other_repo", "research", {"repository": "org/other"}, True, False, None, False),
+            ("other_path", "scout", {"repository": "org/app", "path_prefix": "src/bill"}, True, False, None, False),
+            (
+                "superseded_finding_path",
+                "research",
+                {"repository": "org/app", "path_prefix": "src/billing"},
+                True,
+                False,
+                ["src/search/query.py"],
+                False,
+            ),
+            ("writer_disabled", "research", {"repository": "org/app"}, False, True, None, False),
+            ("writer_disabled_login_only", "custom_agent", {}, False, True, None, True),
         ]
     )
     def test_matching_instruction_suppresses_the_subject_for_every_writer(
-        self, _name: str, source: str, area: dict[str, str], enabled: bool, suppressed: bool
+        self,
+        _name: str,
+        source: str,
+        area: dict[str, str],
+        enabled: bool,
+        suppressed: bool,
+        rewritten_paths: list[str] | None,
+        by_login: bool,
     ) -> None:
         self.enabled = enabled
+        if rewritten_paths is not None:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.report,
+                type="signal_finding",
+                content=json.dumps({"signal_id": "s1", "relevant_code_paths": rewritten_paths}),
+            )
+        other = self.other
+        if by_login:
+            UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+            other = SuggestedReviewerEntry(github_login="member")
         exclusion_id = self.exclude(**area)
-        self.write(self.me, self.other, source=source)
-        assert [entry.user_uuid for entry in self.rules.read().reviewers] == (
-            [self.me.user_uuid] if suppressed else [self.me.user_uuid, self.other.user_uuid]
+        self.write(self.me, other, source=source)
+        assert [entry.user_uuid or entry.github_login for entry in self.rules.read().reviewers] == (
+            [self.me.user_uuid] if suppressed else [self.me.user_uuid, other.user_uuid or other.github_login]
         )
         assert [call.kwargs for call in self.capture.call_args_list] == (
             [
                 {
                     "team_id": self.team.id,
                     "report_id": str(self.report.id),
-                    "outcome": "suppressed",
                     "source": source,
-                    "exclusion_ids": [exclusion_id],
+                    "events": [("suppressed", [exclusion_id])],
                 }
             ]
             if suppressed
@@ -557,14 +596,23 @@ class TestStandingExclusions(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_repository", {"repository": "org/app"}, "repo_selection", None),
-            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", None),
-            ("identities_disagree", {}, None, "someone-else"),
+            ("no_repository", {"repository": "org/app"}, "repo_selection", None, True),
+            ("no_repository_writer_disabled", {"repository": "org/app"}, "repo_selection", None, False),
+            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", None, True),
+            (
+                "no_paths_writer_disabled",
+                {"repository": "org/app", "path_prefix": "src"},
+                "signal_finding",
+                None,
+                False,
+            ),
+            ("identities_disagree", {}, None, "someone-else", True),
         ]
     )
     def test_missing_or_ambiguous_state_keeps_the_current_selection(
-        self, _name: str, area: dict[str, str], missing: str | None, login: str | None
+        self, _name: str, area: dict[str, str], missing: str | None, login: str | None, enabled: bool
     ) -> None:
+        self.enabled = enabled
         self.write(self.me)
         if missing:
             SignalReportArtefact.objects.filter(report=self.report, type=missing).delete()
@@ -576,9 +624,12 @@ class TestStandingExclusions(BaseTest):
             UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
         self.write(self.other)
         assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
-        assert [call.kwargs["outcome"] for call in self.capture.call_args_list] == ["unresolved"]
+        assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
+            ("unresolved", [])
+        ]
 
-    def test_report_pin_wins_and_needs_a_person(self) -> None:
+    @parameterized.expand([("covered", True), ("repository_unknown", False)])
+    def test_report_pin_wins_and_needs_a_person(self, _name: str, area_known: bool) -> None:
         SignalReportArtefact.append_status(
             team_id=self.team.id,
             report_id=str(self.report.id),
@@ -586,14 +637,27 @@ class TestStandingExclusions(BaseTest):
             attribution=ArtefactAttribution.from_user(self.user.id),
             reviewer_edit=ReviewerEdit(action="add"),
         )
-        exclusion_id = self.exclude()
+        if not area_known:
+            SignalReportArtefact.objects.filter(report=self.report, type="repo_selection").delete()
+        exclusion_id = self.exclude(repository="org/app")
         self.write(self.me, self.other)
         snapshot = self.rules.read()
-        assert [entry.user_uuid for entry in snapshot.reviewers] == [self.me.user_uuid, self.other.user_uuid]
-        assert snapshot.corrections.needs_review
-        assert [(call.kwargs["outcome"], call.kwargs["exclusion_ids"]) for call in self.capture.call_args_list] == [
-            ("pin_conflict", [exclusion_id])
+        assert [entry.user_uuid for entry in snapshot.reviewers] == (
+            [self.me.user_uuid, self.other.user_uuid] if area_known else [self.other.user_uuid]
+        )
+        assert snapshot.corrections.needs_review is area_known
+        assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
+            ("pin_conflict", [exclusion_id]) if area_known else ("unresolved", [])
         ]
+
+    def test_create_rejects_a_blank_subject_and_returns_the_active_twin(self) -> None:
+        with self.assertRaises(ValueError):
+            create_exclusion(team_id=self.team.id, actor_id=self.user.id, instruction="x", subject_github_login="   ")
+        first = self.exclude(repository="org/app")
+        assert self.exclude(repository=" Org/App ") == first
+        second = self.exclude(repository="org/other")
+        with self.assertRaises(DuplicateExclusion):
+            revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
 
 
 class TestAssignmentReleaseControls(SimpleTestCase):

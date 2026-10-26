@@ -12,7 +12,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models.functions import Upper
+from django.db.models.functions import Cast, Coalesce, Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -2658,6 +2658,16 @@ class SignalReviewerExclusion(TeamScopedRootMixin, UUIDModel):
             models.CheckConstraint(
                 condition=models.Q(path_prefix="") | ~models.Q(repository=""),
                 name="signals_rev_excl_path_needs_repo",
+            ),
+            # One active instruction per subject and area, so a retried create cannot leave a twin
+            # that stays active after the other is revoked.
+            models.UniqueConstraint(
+                Coalesce(Cast("subject_user_uuid", models.TextField()), models.Value("")),
+                Coalesce("subject_github_login", models.Value("")),
+                "repository",
+                "path_prefix",
+                condition=models.Q(status="active"),
+                name="signals_rev_excl_active_uniq",
             ),
         ]
 

@@ -198,11 +198,10 @@ def capture_reviewer_exclusion_applied(
     *,
     team_id: int,
     report_id: str,
-    outcome: ReviewerExclusionOutcome,
     source: str,
-    exclusion_ids: list[str],
+    events: list[tuple[ReviewerExclusionOutcome, list[str]]],
 ) -> None:
-    """Emit `signals_reviewer_exclusion_applied` when a standing exclusion changes a selection.
+    """Emit one `signals_reviewer_exclusion_applied` per outcome when standing exclusions change a selection.
 
     `suppressed` fires once per candidate an instruction removed. `pin_conflict` fires when a
     report-specific pin keeps a person an instruction excludes, so a person must resolve it.
@@ -213,17 +212,19 @@ def capture_reviewer_exclusion_applied(
     """
     try:
         team = Team.objects.select_related("organization").get(id=team_id)
-        ph_background_capture()(
-            event="signals_reviewer_exclusion_applied",
-            distinct_id=str(team.uuid),
-            properties={
-                "team_id": team_id,
-                "report_id": report_id,
-                "outcome": outcome,
-                "source": source,
-                "exclusion_ids": exclusion_ids[:_MAX_LOGINS_PER_EVENT],
-            },
-            groups=groups(team.organization, team),
-        )
+        capture = ph_background_capture()
+        for outcome, exclusion_ids in events:
+            capture(
+                event="signals_reviewer_exclusion_applied",
+                distinct_id=str(team.uuid),
+                properties={
+                    "team_id": team_id,
+                    "report_id": report_id,
+                    "outcome": outcome,
+                    "source": source,
+                    "exclusion_ids": exclusion_ids[:_MAX_LOGINS_PER_EVENT],
+                },
+                groups=groups(team.organization, team),
+            )
     except Exception:
         logger.exception("Failed to capture signals_reviewer_exclusion_applied for report %s", report_id)

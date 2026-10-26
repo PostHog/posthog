@@ -263,17 +263,11 @@ class ReviewerRules:
     def _capture_exclusion_events(
         self, events: list[tuple[ReviewerExclusionOutcome, list[str]]], *, source: str
     ) -> None:
-        def capture() -> None:
-            for outcome, exclusion_ids in events:
-                capture_reviewer_exclusion_applied(
-                    team_id=self.team.id,
-                    report_id=self.report_id,
-                    outcome=outcome,
-                    source=source,
-                    exclusion_ids=exclusion_ids,
-                )
-
-        transaction.on_commit(capture)
+        transaction.on_commit(
+            lambda: capture_reviewer_exclusion_applied(
+                team_id=self.team.id, report_id=self.report_id, source=source, events=events
+            )
+        )
 
     def prepare(
         self,
@@ -396,16 +390,20 @@ class ReviewerRules:
                     )
                     proposed += self._validate_members(extra_pins).reviewers if extra_pins else ()
                     members_validated = True
-                    conflicts = (
+                    pin_review = (
                         standing.review(
                             tuple(entry for entry in proposed if contains_reviewer(corrections.pinned, entry))
-                        ).suppressed
+                        )
                         if standing
-                        else ()
+                        else None
                     )
-                    if conflicts:
+                    if pin_review and pin_review.unresolved:
+                        exclusion_events = [("unresolved", [])]
+                        proposed = snapshot.reviewers
+                        members_validated = False
+                    elif pin_review and pin_review.suppressed:
                         corrections = corrections.model_copy(update={"needs_review": True})
-                        exclusion_events.append(("pin_conflict", [item.exclusion_id for item in conflicts]))
+                        exclusion_events.append(("pin_conflict", [item.exclusion_id for item in pin_review.suppressed]))
         elif (
             proposal
             and proposal.source == "research"
@@ -413,13 +411,18 @@ class ReviewerRules:
         ):
             proposed = snapshot.reviewers
         elif standing and not protected:
-            review = standing.review(proposed)
+            # Writers without the protected flow store login-only entries, so match on resolved
+            # identities and keep each entry as it was written.
+            resolved = self._resolve_identities(self.team.id, proposed)
+            review = standing.review(resolved)
             if review.unresolved:
                 exclusion_events.append(("unresolved", []))
                 proposed = snapshot.reviewers
             else:
                 exclusion_events.extend(("suppressed", [item.exclusion_id]) for item in review.suppressed)
-                proposed = review.kept
+                proposed = tuple(
+                    entry for entry, match in zip(proposed, resolved) if contains_reviewer(review.kept, match)
+                )
         if exclusion_events:
             self._capture_exclusion_events(exclusion_events, source=proposal.source if proposal else attribution.kind)
         if protected and not members_validated:
