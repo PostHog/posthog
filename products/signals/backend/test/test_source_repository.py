@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.report_generation import select_repo
@@ -53,6 +54,14 @@ def test_source_repository_from_signals(signals: list[SignalData], expected: str
 
 
 class TestSelectRepositoryPinsTheSourceRepository(BaseTest):
+    @parameterized.expand([(False, "temporarily_unavailable"), (True, "no_repositories")])
+    def test_only_a_transient_repository_failure_is_retryable(self, archived_only: bool, blocked_reason: str) -> None:
+        error = select_repo.RepoSelectionUnavailableError("Repository listing unavailable", archived_only=archived_only)
+        with patch.object(select_repo, "select_repository", new=AsyncMock(side_effect=error)):
+            result = async_to_sync(select_repo.select_repository_for_report)(self.team.id, self.user.id, [_signal()])
+        assert result.repository is None
+        assert result.blocked_reason == blocked_reason
+
     def test_report_selection_pins_the_repository_its_issue_was_filed_against(self):
         select = AsyncMock(return_value=RepoSelectionResult(repository="posthog/posthog", reason="pinned"))
         with (

@@ -72,8 +72,10 @@ class RepoSelectionUnavailableError(Exception):
     and route to that fallback rather than silently creating a no-repo task.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, archived_only: bool = False) -> None:
         self.reason = reason
+        # Every candidate is archived. Unlike a cache or sync failure, a retry cannot change that.
+        self.archived_only = archived_only
         super().__init__(reason)
 
 
@@ -271,6 +273,11 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     return set(qs.values_list("full_name", flat=True))
 
 
+def _list_archived_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
+    qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=True)
+    return set(qs.values_list("full_name", flat=True))
+
+
 def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None:
     """Rendered prompt lines of the team's configured routing rules, or None when there are none.
 
@@ -353,6 +360,7 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    schema.get("properties", {}).pop("blocked_reason", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
     repo_list = "\n".join(
@@ -695,6 +703,9 @@ async def select_repository(
         logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
         candidate_repos = [r for r in candidate_repos if r in eligible]
     if len(candidate_repos) == 0:
+        archived = await database_sync_to_async(_list_archived_full_names, thread_sensitive=False)(github, team_id)
+        if set(dropped) <= archived:
+            raise RepoSelectionUnavailableError("Every connected GitHub repository is archived.", archived_only=True)
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
@@ -772,6 +783,7 @@ async def select_repository(
     # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
+    result.blocked_reason = None
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

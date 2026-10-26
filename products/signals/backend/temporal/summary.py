@@ -37,6 +37,12 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.github_readiness import (
+    CheckReportGitHubReadinessInput,
+    ReleaseGitHubRecoveryInput,
+    check_report_github_readiness_activity,
+    release_github_recovery_activity,
+)
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
     SignalReport,
@@ -282,7 +288,9 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
-        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, enabled_sources_only=inputs.github_recovery
+        )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             fetch_input,
@@ -290,7 +298,12 @@ class SignalReportSummaryWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         # patched(): histories recorded before the retry loop have no timers to replay.
-        if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
+        # Signals that the disabled-source filter removed are visible already, so no retry can add them.
+        if (
+            fetch_result.signals
+            or fetch_result.fetched_signal_count
+            or not workflow.patched("signals-empty-fetch-retry")
+        ):
             return fetch_result
         for attempt in range(1, EMPTY_FETCH_RETRY_ATTEMPTS + 1):
             log.info("No signals visible in ClickHouse yet, retrying fetch", attempt=attempt)
@@ -352,9 +365,31 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
+        if workflow.patched("signals-github-readiness") and not await workflow.execute_activity(
+            check_report_github_readiness_activity,
+            CheckReportGitHubReadinessInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, recovery=inputs.github_recovery
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ):
+            return False
         # 1. Fetch signals for the report
         fetch_result = await self._fetch_signals(inputs, log)
         if not fetch_result.signals:
+            if fetch_result.fetched_signal_count and workflow.patched("signals-github-disabled-sources"):
+                # Every assigned signal comes from a disabled source. Take the report out of GitHub
+                # recovery so the sweep stops restarting it. A new matching signal starts it again.
+                log.info("Report research skipped: every signal source is disabled")
+                await workflow.execute_activity(
+                    release_github_recovery_activity,
+                    ReleaseGitHubRecoveryInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return False
+            if inputs.github_recovery:
+                return False
             # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
             if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
                 report_has_assigned_signals_activity,
@@ -383,6 +418,7 @@ class SignalReportSummaryWorkflow:
             # No loop, as no signals to process
             return False
         signal_count = len(fetch_result.signals)
+        researched_signal_count = fetch_result.fetched_signal_count or signal_count
         source_products = sorted({s.source_product for s in fetch_result.signals})
         # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
         await workflow.execute_activity(
@@ -456,6 +492,20 @@ class SignalReportSummaryWorkflow:
                 # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if (
+                repo_result.repository is None
+                and repo_result.blocked_reason
+                and workflow.patched("signals-github-readiness")
+            ):
+                await workflow.execute_activity(
+                    check_report_github_readiness_activity,
+                    CheckReportGitHubReadinessInput(
+                        team_id=inputs.team_id, report_id=inputs.report_id, reason=repo_result.blocked_reason
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return False
             if repo_result.repository is None:
                 log.warning(
                     "Report has no repository selected",
@@ -574,6 +624,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    researched_signal_count=researched_signal_count,
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
@@ -886,6 +937,9 @@ class MarkReportReadyInput:
     summary: str
     processed_signal_count: int
     source_products: list[str] = field(default_factory=list)
+    # Signals the run covered, including those it skipped because their source is disabled. The
+    # research bucket schedule reads this. `None` falls back to `processed_signal_count`.
+    researched_signal_count: int | None = None
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
     # history that predates this field replays cleanly.
@@ -1012,7 +1066,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
             # previous value standing and so leaves the report's next bucket where it was.
-            report.signals_researched = input.processed_signal_count
+            report.signals_researched = (
+                input.processed_signal_count if input.researched_signal_count is None else input.researched_signal_count
+            )
             updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts

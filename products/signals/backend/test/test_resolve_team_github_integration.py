@@ -1,18 +1,21 @@
 import datetime
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team, User
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+from posthog.models.integration_repository_cache import GitHubRepositoryFullCache, IntegrationRepositoryCacheEntry
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration, select_repository
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import RepoSelectionUnavailableError
 
 
 @pytest.fixture
@@ -385,3 +388,37 @@ def test_prefers_oldest_among_same_account_type(organization, team):
 
     assert isinstance(resolved, GitHubIntegration)
     assert resolved.integration.id == older.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("archived,archived_only", [(True, True), (None, False)])
+async def test_select_repository_marks_archived_only_candidates_as_permanent(
+    organization, team, archived, archived_only
+):
+    integration = await database_sync_to_async(_create_team_integration)(team)
+    if archived is not None:
+        await IntegrationRepositoryCacheEntry.objects.acreate(
+            integration=integration,
+            team=team,
+            full_name="posthog/posthog",
+            archived=archived,
+            default_branch="main",
+            default_branch_sha="0" * 40,
+        )
+
+    with (
+        patch.object(GitHubRepositoryFullCache, "sync_full_cache", new=AsyncMock()),
+        pytest.raises(RepoSelectionUnavailableError) as error,
+    ):
+        await select_repository(
+            team_id=team.id,
+            user_id=0,
+            context="Investigate this signal",
+            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            priority=Priority.BATCH,
+            github=GitHubIntegration(integration, source="test", priority=Priority.BATCH),
+            candidate_repos=["posthog/posthog"],
+        )
+
+    assert error.value.archived_only is archived_only

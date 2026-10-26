@@ -18,10 +18,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.github_readiness import enabled_recovery_signals
 from products.signals.backend.models import SignalEmissionRecord, SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
@@ -604,15 +606,20 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    enabled_sources_only: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
+    # Signals assigned to the report before the disabled-source filter. Research progress counts
+    # these, so a filtered signal does not read as a new signal that reaches the next bucket.
+    # `None` in histories recorded before the field existed.
+    fetched_signal_count: int | None = None
 
 
 @temporalio.activity.defn
@@ -630,6 +637,19 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
 
         signals = [_parse_signal_row(row) for row in (result.results or [])]
+        fetched_signal_count = len(signals)
+        # A run that a new signal starts on a GitHub-blocked report has no recovery input, so the
+        # persisted blocker also selects the filter. The report clears the blocker when it moves to
+        # in progress, which is after this fetch.
+        if signals and (
+            input.enabled_sources_only
+            or await SignalReport.objects.filter(
+                team_id=input.team_id, id=input.report_id, research_blocked_reason__isnull=False
+            ).aexists()
+        ):
+            signals = await database_sync_to_async(enabled_recovery_signals, thread_sensitive=False)(
+                input.team_id, signals
+            )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -637,7 +657,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(signals=signals, fetched_signal_count=fetched_signal_count)
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",
