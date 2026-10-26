@@ -69,11 +69,13 @@ export function QuillSceneStaticName({ name, icon, description, className }: Qui
         <Tooltip disableHoverablePopup open={open || copied} onOpenChange={setOpen}>
             <TooltipTrigger delay={300} render={crumb} />
             <TooltipContent className="max-w-80">
-                {description && <div>{description}</div>}
-                {copyableName && (
-                    <div className="text-muted-foreground" role="status">
-                        {copied ? 'Copied' : 'Click to copy'}
-                    </div>
+                {copied ? (
+                    <div role="status">Copied</div>
+                ) : (
+                    <>
+                        {description && <div>{description}</div>}
+                        {copyableName && <div className="text-muted-foreground">Click to copy</div>}
+                    </>
                 )}
             </TooltipContent>
         </Tooltip>

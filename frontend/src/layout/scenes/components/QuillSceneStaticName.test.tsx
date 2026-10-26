@@ -30,14 +30,16 @@ describe('QuillSceneStaticName', () => {
         expect(copyToClipboard).toHaveBeenCalledWith('my-flag-key', 'name', { silent: true })
     })
 
-    test('confirms the copy in the tooltip', async () => {
-        render(<QuillSceneStaticName name="my-flag-key" />)
+    test('confirms the copy in the tooltip, hiding the description', async () => {
+        render(<QuillSceneStaticName name="my-flag-key" description="Tier request rollout" />)
 
         await userEvent.tab()
         expect(await screen.findByText('Click to copy')).toBeInTheDocument()
         await userEvent.click(screen.getByText('my-flag-key'))
 
         expect(await screen.findByText('Copied')).toBeInTheDocument()
+        expect(screen.queryByText('Tier request rollout')).not.toBeInTheDocument()
+        expect(screen.queryByText('Click to copy')).not.toBeInTheDocument()
     })
 
     test('does not confirm a copy that failed', async () => {
