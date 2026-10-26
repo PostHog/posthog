@@ -26,6 +26,7 @@
         "update:production": "node scripts/releases/release.mjs hosted-only",
         "release:request": "node scripts/releases/release.mjs request",
         "release:check": "node scripts/releases/release.mjs check",
+        "release:fingerprint": "node scripts/releases/release.mjs fingerprint",
         "release:test": "node --test scripts/releases/*.test.mjs"
     },
     "expo": {

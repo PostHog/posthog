@@ -48,7 +48,7 @@ This deliberately establishes new binaries and a verified baseline instead of gu
 ### What runs after merge
 
 1. `Mobile Release` checks the exact master push diff. It selects only the newly added request, rather than sweeping historical requests.
-2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. Native UI smoke remains advisory.
+2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. The simulator demo flows do not run in CI; run them locally before you merge.
 3. The publisher enters the `mobile-production` GitHub environment, loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
 4. Before contacting EAS to build or publish, it creates a durable draft GitHub receipt at `mobile-release/<id>`. This claims the request so an interrupted retry cannot duplicate a release.
 5. A `mobile-staging` deployment records the stage. Native requests build production binaries; OTA requests publish to an unlinked `mobile-staging-<id>` EAS branch.

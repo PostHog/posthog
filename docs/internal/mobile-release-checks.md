@@ -12,8 +12,8 @@ Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.
   the app PR and verify the completed Mobile Release receipt identifies the tested commit and exact
   builds or update group. Native requests submit both platforms to TestFlight and Play internal testing;
   public promotion is manual. For development or preview, select the profile and platforms in Mobile Build
-  and verify the resulting EAS build records that commit. Argent demo flows are advisory and do not replace
-  the manual checks below.
+  and verify the resulting EAS build records that commit. The Argent demo flows run locally only and do not
+  replace the manual checks below.
 
 - Confirm the app identity and update channel. Development and preview identities have `.dev` and
   `.preview` suffixes and install alongside production.

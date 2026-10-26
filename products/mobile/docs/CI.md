@@ -4,10 +4,13 @@ Three GitHub Actions workflows cover the app. They install the independent `prod
 
 ## Mobile CI
 
-`.github/workflows/mobile-ci.yml` runs on pull requests and on pushes to `master` that change `products/mobile/**` or the workflow file.
-Markdown changes alone do not start it.
+`.github/workflows/mobile-ci.yml` is a reusable workflow. `pr-housekeeping.yml` calls it on every pull request, and it also runs on pushes to `master` that change `products/mobile/**` or the workflow file.
 
-One job runs these steps, the same commands you run locally:
+A `changes` job reads the pull request diff. When nothing under `products/mobile/**` (Markdown excluded), the generated Signals API types, or the workflow changed, the check job is skipped and the run ends in seconds.
+The `Mobile CI Pass` job reports a verdict on every run, so it can be a required branch-protection check.
+A trigger-level `paths:` filter cannot do this: a required check that never dispatches leaves the pull request waiting for a status that never arrives. See `/authoring-ci-workflows`.
+
+The check job runs these steps, the same commands you run locally:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -27,21 +30,10 @@ Details:
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
 - A newer push to the same pull request cancels the older run.
-- The check is not required by branch protection.
-  It uses trigger paths, so most pull requests never start it.
-  A required check must report on every pull request, so making it required needs a `changes` job instead of trigger paths.
-  See `/authoring-ci-workflows`.
+- The required check is `Mobile CI Pass`. The parent job id in `pr-housekeeping.yml` prefixes the check-run name, so the `master` ruleset lists it as `mobile-ci / Mobile CI Pass`. Confirm the exact name on a run before you add it.
+- The release workflow calls Mobile CI on the merged commit. A push has no pull request diff to filter, so the checks always run there.
 
-### Argent demo flows (optional)
-
-A separate macOS job runs `demo-smoke` and `views-smoke` only when mobile source/configuration files change.
-Changing the workflow alone does not start the simulator job. It is advisory (`continue-on-error`) and must not be made a required branch-protection check yet.
-
-The job uses Xcode 26.6 on `macos-26`, builds a bundled Release simulator app, and runs pinned Argent 0.30.1 on a fresh simulator. Each flow gets a fresh installation and enters **Try the demo**. Analytics, OTA downloads and tool telemetry are disabled; no account or project credentials are supplied. Failure artifacts include build logs, flow results and screenshots, retained for seven days.
-
-See [TESTING.md](TESTING.md#advisory-ci-demo-flows) for the same commands locally. Native build time is separate from flow execution time.
-
-The release workflow calls Mobile CI with `release_validation: true`. That runs the required checks above without repeating the advisory simulator job. A smoke failure therefore does not block a merge or a release while this job is optional.
+The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
 
 ## Mobile Build
 
@@ -73,7 +65,7 @@ The `mobile-production` environment and Expo credentials govern publication. A d
 
 Production build/submit/OTA package commands now direct developers to this request flow. No active release request is included with the automation itself.
 
-Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md) before sharing builds or promoting an internal build publicly. Hosted checks and the advisory demo flows do not verify real sign-in, push delivery or physical-device behavior.
+Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md) before sharing builds or promoting an internal build publicly. Hosted checks and the local demo flows do not verify real sign-in, push delivery or physical-device behavior.
 
 ## Check workflow changes
 

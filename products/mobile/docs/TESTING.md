@@ -81,7 +81,7 @@ Actions use the app's `testID`s, except the hand-off sheet drag, which starts on
 
 ### Set up once
 
-1. Install the same Argent version as CI: `npm install -g @swmansion/argent@0.30.1`.
+1. Install the pinned Argent version: `npm install -g @swmansion/argent@0.30.1`.
 2. Install ffmpeg if you want screen recordings: `brew install ffmpeg`.
 3. Install Xcode with an iOS simulator runtime, and CocoaPods.
 
@@ -108,25 +108,28 @@ argent flow run demo-smoke --platform ios
 
 A pass prints one line per step and exits with code 0. Locally, `demo-smoke` took about 49 seconds and
 `views-smoke` about 80 seconds on Xcode 27.1 / iOS 27.0. A fresh native compile took about 8 minutes,
-with simulator setup adding more time. CI uses Xcode 26.6 / iOS 26.5; hosted-runner timing has not been measured.
+with simulator setup adding more time.
 If more than one simulator is booted, add `--device <udid>` (see `xcrun simctl list devices booted`).
 
 Two `idle` steps can warn that a small part of the screen was still changing, such as the text caret.
 The step after each one waits for a stable element, so these warnings are expected.
 
-### Advisory CI demo flows
+### Demo flows before you merge
 
-Mobile CI runs both `demo-smoke` and `views-smoke` when mobile source changes. The simulator job is advisory;
-its result does not gate a release. It uses a bundled Release app with no Metro connection. Argent reads the
-native view hierarchy, so the flows do not need a development build or its overlays.
+CI does not run the simulator flows. Run `demo-smoke` and `views-smoke` locally before you merge a change to a screen,
+navigation, the demo fixtures, or a flow. The `/running-mobile-demo-flows` skill in `.agents/skills/` walks an agent
+through the same steps and the result files.
 
-The build disables analytics and over-the-air updates. The runner creates a temporary iPhone 17 Pro simulator,
+The scripts below build a bundled Release app with no Metro connection. Argent reads the native view hierarchy,
+so the flows do not need a development build or its overlays.
+
+The build disables analytics and over-the-air updates. The script creates a temporary iPhone 17 Pro simulator,
 installs the app again before each flow, and deletes the simulator on success, failure, or interruption.
 Only demo fixtures are used; no PostHog account, API key, Expo token, or Apple signing credentials are needed.
-Both flows run even when the first fails. JSON reports, failed-step screenshots, and build logs are uploaded
-as the `mobile-argent` workflow artifact.
+Both flows run even when the first fails. JSON reports, failed-step screenshots, and build logs land in the
+artifact directory you pass.
 
-To run the same checks locally, install the app dependencies, CocoaPods, and Xcode 26.6 with the iOS 26.5 runtime,
+Install the app dependencies, CocoaPods, and Xcode 26.6 with the iOS 26.5 runtime,
 then run from `products/mobile`. A dedicated Argent install keeps the runner separate from an editor's server:
 
 ```sh
