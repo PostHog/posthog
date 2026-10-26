@@ -203,6 +203,7 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "updated_at",
     "status",
     "origin_product",
+    "source_record",
     "optimization_enabled",
 )
 
@@ -494,7 +495,7 @@ class _WorkflowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in _list_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product", "source_record"]
 
     def filter_optimization_enabled(self, queryset, name: str, value: bool):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
