@@ -97,6 +97,7 @@ const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'o
 // build takes tens of minutes, so this is slow polling, unlike the 1s loop the daily calculation uses.
 export const REALTIME_POLL_INTERVAL_MS = 15_000
 
+const PAYLOAD_TOO_LARGE_STATUS = 413
 const BUILDING_STATES: CohortRealtimeStateEnumApi[] = ['building', 'rebuilding']
 
 const isBuildingHistory = (cohort: CohortType): boolean =>
@@ -1023,7 +1024,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             }
                         }
 
-                        if (error.status === 413) {
+                        if (error.status === PAYLOAD_TOO_LARGE_STATUS) {
                             lemonToast.error(cohortCsvTooLargeMessage(values.csvMaxBytes))
                             return values.cohort
                         }
