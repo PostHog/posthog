@@ -32,7 +32,7 @@ export function OfflineScorerHistoryTable({
 }): JSX.Element {
     return (
         <LemonTable<OfflineHistoryPointApi>
-            className="@max-[50rem]/scorer-history:[&_colgroup]:hidden"
+            className="@max-[50rem]/scorer-history:[&_colgroup]:hidden @max-[50rem]/scorer-history:[&_table]:table-auto"
             rowKey={offlineHistoryPointKey}
             dataSource={page?.results || []}
             loading={loading || !page}
@@ -43,6 +43,7 @@ export function OfflineScorerHistoryTable({
                 {
                     title: 'Experiment',
                     key: 'name',
+                    className: '@max-[50rem]/scorer-history:w-2/5 @max-[50rem]/scorer-history:max-w-0',
                     width: breakdown ? '24%' : '28%',
                     render: (_, point) => {
                         const key = `${periodKey}:${offlineHistoryPointKey(point)}`
@@ -73,6 +74,7 @@ export function OfflineScorerHistoryTable({
                           {
                               title: OFFLINE_HISTORY_BREAKDOWN_LABELS[breakdown],
                               key: 'breakdown',
+                              className: '@max-[50rem]/scorer-history:w-1/5 @max-[50rem]/scorer-history:max-w-0',
                               width: '16%',
                               render: (_: unknown, point: OfflineHistoryPointApi) => (
                                   <Tooltip title={offlineBreakdownValueLabel(point.breakdown_value, breakdown)}>
