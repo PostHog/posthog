@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
-import { hasIsolatedPoints, passFailCounts } from './evaluationOverviewDisplay'
+import { bucketDateRange, hasIsolatedPoints, passFailCounts } from './evaluationOverviewDisplay'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import {
     evaluationsOverviewLogic,
@@ -146,6 +146,13 @@ describe('evaluationsOverviewLogic', () => {
     ])('finds isolated points in %s', (_, values, expected) => {
         const sparse = { ...ROWS[0], trend: { values, volume: values.map((value) => (value === null ? 0 : 10)) } }
         expect(hasIsolatedPoints(sparse)).toBe(expected)
+    })
+
+    test.each([
+        ['a day in a time zone ahead of UTC', '2026-10-20T00:00:00+02:00', 'day', '2026-10-20', '2026-10-20'],
+        ['an hour', '2026-10-20T14:00:00+02:00', 'hour', '2026-10-20T12:00:00Z', '2026-10-20T12:59:59Z'],
+    ] as const)('narrows the runs to %s', (_, bucket, interval, dateFrom, dateTo) => {
+        expect(bucketDateRange(bucket, interval)).toEqual({ dateFrom, dateTo })
     })
 
     it('splits pass rate volume into exact passed and failed counts, with empty buckets as zero', () => {
