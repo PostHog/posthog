@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
 
 from . import base
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
-from .source_setup import CALLER_CREATED_VIA_CHOICES, ExternalDataSourceSetupMixin
+from .source_setup import ExternalDataSourceCreateCreatedVia, ExternalDataSourceSetupMixin
 
 # Source creation gives every table this cadence, so a plan that matches it needs no second pass.
 _CREATED_SYNC_FREQUENCY = "6hour"
@@ -42,7 +42,7 @@ class ApplyMigrationItemSerializer(serializers.Serializer):
         help_text="Destinations to write the new source to. Omit to write to the PostHog warehouse.",
     )
     created_via = serializers.ChoiceField(
-        choices=CALLER_CREATED_VIA_CHOICES,
+        choices=ExternalDataSourceCreateCreatedVia.choices,
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )

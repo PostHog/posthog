@@ -655,8 +655,6 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
-            # Source creation and migration apply both take this caller-settable subset of CreatedVia.
-            "ExternalDataSourceCreateCreatedViaEnum": "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.CALLER_CREATED_VIA_CHOICES",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
