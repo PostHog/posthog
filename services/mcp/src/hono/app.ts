@@ -15,6 +15,8 @@ import { confirmedActionRuntimeInstalled } from './metrics'
 import { devRequestLogger, httpMetrics, securityHeaders } from './middleware'
 import { registerPublicRoutes } from './public-routes'
 import { StreamableMcpHandler } from './streamable-handler'
+import { AGENT_SURFACE, MAIN_SURFACE } from './surfaces'
+import { ToolCatalog } from './tool-catalog'
 import type { HonoCtx, RedisWithPing } from './types'
 
 export type Lifecycle = { shuttingDown: boolean }
@@ -76,16 +78,25 @@ export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby
     app.all('/sse', sseRedirect)
     app.all('/sse/*', sseRedirect)
 
-    const streamable = new StreamableMcpHandler(redis, lifecycle)
+    // One catalog for both endpoints, so the tool factories are built once.
+    const catalog = new ToolCatalog()
+    const streamable = new StreamableMcpHandler(redis, lifecycle, { surface: MAIN_SURFACE, catalog })
+    const agent = new StreamableMcpHandler(redis, lifecycle, { surface: AGENT_SURFACE, catalog })
 
     app.all('/mcp', streamable.fetch)
     app.all('/mcp/*', streamable.fetch)
+    app.all('/agent', agent.fetch)
+    app.all('/agent/*', agent.fetch)
 
     app.all('*', (c) => c.notFound())
 
     return {
         app,
         lifecycle,
-        warmup: () => streamable.warmup(),
+        warmup: async () => {
+            // Sequential, because both dispatchers warm the shared catalog.
+            await streamable.warmup()
+            await agent.warmup()
+        },
     }
 }

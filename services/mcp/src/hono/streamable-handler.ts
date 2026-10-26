@@ -4,6 +4,7 @@ import { McpDispatcher } from './dispatcher'
 import { recordRateLimitBlock } from './rate-limit-telemetry'
 import { buildRateLimitResponse, DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT, RateLimiter } from './rate-limiter'
 import { authenticateAndParse, handleCatchError } from './request-utils'
+import { MAIN_SURFACE, type McpSurface } from './surfaces'
 import { ToolCatalog } from './tool-catalog'
 import type { HonoCtx } from './types'
 
@@ -13,9 +14,14 @@ export class StreamableMcpHandler {
 
     constructor(
         private readonly redis: RedisLike,
-        private readonly lifecycle: Lifecycle
+        private readonly lifecycle: Lifecycle,
+        options: { surface?: McpSurface; catalog?: ToolCatalog } = {}
     ) {
-        this.dispatcher = new McpDispatcher(new ToolCatalog(), redis)
+        this.dispatcher = new McpDispatcher(
+            options.catalog ?? new ToolCatalog(),
+            redis,
+            options.surface ?? MAIN_SURFACE
+        )
         this.rateLimiter = new RateLimiter(redis, [DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT])
     }
 

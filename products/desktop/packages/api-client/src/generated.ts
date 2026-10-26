@@ -18773,11 +18773,13 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
+     * * `agent_mcp` - PostHog Agent MCP
      */
     export type TaskClientProvenanceEnum =
         | "posthog_desktop"
         | "posthog_mobile"
-        | "posthog_web";
+        | "posthog_web"
+        | "agent_mcp";
     /**
      * Detail response for a task.
      *
@@ -23052,7 +23054,8 @@ export namespace Endpoints {
                 client_provenance:
                     | "posthog_desktop"
                     | "posthog_mobile"
-                    | "posthog_web";
+                    | "posthog_web"
+                    | "agent_mcp";
                 commented_by: number;
                 created_by: number;
                 exclude_origin_product:
@@ -23145,6 +23148,7 @@ export namespace Endpoints {
             path: { project_id: string };
             header: Partial<{
                 "X-PostHog-Client-Provenance":
+                    | "agent_mcp"
                     | "posthog_desktop"
                     | "posthog_mobile"
                     | "posthog_web";

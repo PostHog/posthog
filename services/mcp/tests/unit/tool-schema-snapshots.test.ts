@@ -112,6 +112,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'activity-summary': true,
         'aeo-citation-tracking': true,
         'anomalies-search': true,
+        'posthog-agent-mcp': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

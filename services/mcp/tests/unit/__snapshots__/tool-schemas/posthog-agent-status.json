@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "The cursor from the last operation response. Omit it on the first status call.",
+            "type": "string"
+        },
+        "operation_id": {
+            "description": "The operation id that posthog-agent-run returned.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "project_id": {
+            "description": "The project id of the operation, from the `project.id` field of the operation.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
+        "wait_seconds": {
+            "default": 25,
+            "description": "How long this status request waits for a change, from 0 to 50 seconds. The request returns early when the operation changes. This limit applies to one status request, not to the task.",
+            "maximum": 50,
+            "minimum": 0,
+            "type": "integer"
+        }
+    },
+    "required": ["operation_id", "project_id"],
+    "type": "object"
+}

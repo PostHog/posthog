@@ -17,13 +17,12 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
-import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -48,6 +47,7 @@ import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
+import { MAIN_SURFACE, type McpSurface } from './surfaces'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -156,15 +156,21 @@ class McpDispatcher {
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService
     private readonly interviewRecruitment: InterviewRecruitment
+    private readonly surface: McpSurface
 
     private warmupPromise: Promise<void> | undefined
 
-    constructor(catalog: ToolCatalog, redis: RedisLike) {
+    constructor(catalog: ToolCatalog, redis: RedisLike, surface: McpSurface = MAIN_SURFACE) {
         const env = getEnv()
         this.catalog = catalog
-        this.resourceCatalog = new ResourceCatalog(env, redis)
-        this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
+        this.surface = surface
+        this.resourceCatalog = new ResourceCatalog(
+            env,
+            redis,
+            surface.uiAppUris ? { uiAppUris: surface.uiAppUris } : {}
+        )
+        this.stateResolver = new RequestStateResolver(catalog, redis, env, surface)
+        this.instructionsBuilder = new InstructionsBuilder(surface.guidelines)
         this.skillCatalogService = new SkillCatalogService(redis, {
             archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
             expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
@@ -180,7 +186,8 @@ class McpDispatcher {
 
     private async doWarmup(): Promise<void> {
         await this.catalog.warmup()
-        const skillsEnabled = resolveFeatureFlagOverrides()[MCP_EXEC_SKILLS_FEATURE_FLAG] !== false
+        const skillsEnabled =
+            !this.surface.fixedTools && resolveFeatureFlagOverrides()[MCP_EXEC_SKILLS_FEATURE_FLAG] !== false
         await Promise.all([
             this.resourceCatalog.warmup(),
             skillsEnabled ? this.skillCatalogService.warmup() : undefined,
@@ -521,7 +528,7 @@ class McpDispatcher {
                 : {}),
             _meta: {
                 ...existingMeta,
-                [META_SERVER_INFO]: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+                [META_SERVER_INFO]: { name: this.surface.serverName, version: MCP_SERVER_VERSION },
             },
         }
     }
@@ -545,7 +552,7 @@ class McpDispatcher {
         return {
             protocolVersion,
             capabilities: SERVER_CAPABILITIES,
-            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            serverInfo: { name: this.surface.serverName, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
     }
@@ -563,7 +570,7 @@ class McpDispatcher {
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
             capabilities: SERVER_CAPABILITIES,
-            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            serverInfo: { name: this.surface.serverName, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
     }
@@ -580,7 +587,7 @@ class McpDispatcher {
     ): Promise<string | undefined> {
         try {
             await this.resourceCatalog.revalidateContextMillResources(source)
-            const instructions = this.instructionsBuilder.build(state)
+            const instructions = this.buildInstructions(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
@@ -592,5 +599,12 @@ class McpDispatcher {
             initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
             throw error
         }
+    }
+
+    private buildInstructions(state: ResolvedState): string {
+        if (!this.surface.fixedTools) {
+            return this.instructionsBuilder.build(state)
+        }
+        return state.clientProfile.capabilities.supportsInstructions ? this.surface.guidelines : ''
     }
 }

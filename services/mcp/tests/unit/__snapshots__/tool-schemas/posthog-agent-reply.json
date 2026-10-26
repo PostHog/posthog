@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "client_request_id": {
+            "description": "A new unique identifier for this request, for example a UUID. If the response is lost, send the same call again with the same value. Do not reuse the value for a different request.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "message": {
+            "description": "The answer to the question of the operation, an approval decision, or a correction from the user.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "operation_id": {
+            "description": "The operation id that posthog-agent-run returned.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "project_id": {
+            "description": "The project id of the operation, from the `project.id` field of the operation.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        }
+    },
+    "required": ["operation_id", "project_id", "message", "client_request_id"],
+    "type": "object"
+}

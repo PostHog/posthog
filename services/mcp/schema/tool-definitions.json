@@ -815,5 +815,69 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "posthog-agent-run": {
+        "description": "Delegate a product goal to PostHog Agent. PostHog Agent is PostHog AI that runs in a cloud sandbox with access to one PostHog project. The permissions of this connection limit what it can read and change. Send it questions about product data and users, feature planning that needs product evidence, experiment and feature flag setup, error and session replay investigation, surveys, and dashboards. Do not send it local code edits. Do those yourself, and use its result as input. This call starts the operation and returns at once. Then call posthog-agent-status with the operation_id until the state is terminal: succeeded, failed, cancelled, or expired. Send a new client_request_id for each goal. If the response is lost, call again with the same client_request_id. You then get the same operation, and no second run starts. A user can have at most 3 active operations.",
+        "category": "PostHog Agent",
+        "feature": "posthog_agent",
+        "summary": "Start a PostHog Agent operation for a product goal.",
+        "title": "Start PostHog Agent operation",
+        "required_scopes": ["conversation:write"],
+        "requires_ai_consent": true,
+        "feature_flag": "posthog-agent-mcp",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "posthog-agent-status": {
+        "description": "Get the progress and the result of a PostHog Agent operation. The request waits up to wait_seconds (maximum 50) and returns early when the operation changes. The 50-second limit applies to one status request, not to the task. A task can run for up to 2 hours. When the request returns without a change, the operation continues. Call again with the returned cursor until the state is succeeded, failed, cancelled, or expired. A status timeout does not mean that the task failed. When the state is needs_input, show the question to the user, then call posthog-agent-reply. When the state is succeeded, show the answer, the assumptions, and the links to the user.",
+        "category": "PostHog Agent",
+        "feature": "posthog_agent",
+        "summary": "Wait for progress or the result of a PostHog Agent operation.",
+        "title": "Get PostHog Agent operation status",
+        "required_scopes": ["conversation:read"],
+        "requires_ai_consent": true,
+        "feature_flag": "posthog-agent-mcp",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "posthog-agent-reply": {
+        "description": "Send a message to a PostHog Agent operation: the answer to its question, an approval decision, or a correction from the user. Use it when the state is needs_input, or to steer a running operation. The same operation continues. Send a new client_request_id for each message. If the response is lost, call again with the same client_request_id. The message is not delivered twice.",
+        "category": "PostHog Agent",
+        "feature": "posthog_agent",
+        "summary": "Answer or steer a PostHog Agent operation.",
+        "title": "Reply to PostHog Agent operation",
+        "required_scopes": ["conversation:write"],
+        "requires_ai_consent": true,
+        "feature_flag": "posthog-agent-mcp",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
+    "posthog-agent-cancel": {
+        "description": "Cancel a PostHog Agent operation. The state changes to cancelling, and then to cancelled when the worker stops. Call posthog-agent-status to see the final state. Closing the conversation or losing the connection does not cancel an operation.",
+        "category": "PostHog Agent",
+        "feature": "posthog_agent",
+        "summary": "Cancel a PostHog Agent operation.",
+        "title": "Cancel PostHog Agent operation",
+        "required_scopes": ["conversation:write"],
+        "requires_ai_consent": true,
+        "feature_flag": "posthog-agent-mcp",
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
     }
 }

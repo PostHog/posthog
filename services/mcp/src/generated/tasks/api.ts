@@ -174,10 +174,10 @@ export const TasksListQueryParams = () => zod.object({
             "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
         ),
     client_provenance: zod
-        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web', 'agent_mcp'])
         .optional()
         .describe(
-            'Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop\n\* `posthog_mobile` - PostHog Mobile\n\* `posthog_web` - PostHog Web'
+            'Filter by the client that created the task\n\n\* `posthog_desktop` - PostHog Desktop\n\* `posthog_mobile` - PostHog Mobile\n\* `posthog_web` - PostHog Web\n\* `agent_mcp` - PostHog Agent MCP'
         ),
     commented_by: zod
         .number()
@@ -321,7 +321,7 @@ export const TasksCreateParams = () => zod.object({
 
 export const TasksCreateHeader = () => zod.object({
     'X-PostHog-Client-Provenance': zod
-        .enum(['posthog_desktop', 'posthog_mobile', 'posthog_web'])
+        .enum(['agent_mcp', 'posthog_desktop', 'posthog_mobile', 'posthog_web'])
         .optional()
         .describe('First-party client creating the task. Accepted only with an interactive PostHog OAuth grant.'),
     'X-PostHog-Warm-Retry': zod

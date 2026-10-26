@@ -5,7 +5,11 @@
 category: PostHog AI
 feature: posthog_ai
 url_prefix: /ai
-ui_apps: {}
+ui_apps:
+    posthog-agent-run:
+        type: custom
+        app_name: PostHog Agent
+        description: Live progress and result of a PostHog Agent operation
 tools:
     conversations-list:
         operation: conversations_list
