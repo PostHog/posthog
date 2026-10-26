@@ -609,12 +609,13 @@ describe('RequestStateResolver MCP client contexts', () => {
         [{ projectHasData: false }, false],
         [{ projectHasData: true }, true],
         [undefined, undefined],
-    ])('carries the project ingestion state from analytics context %j', async (analyticsContext, expectedHasData) => {
+    ])('carries the analytics context and its ingestion state %j', async (analyticsContext, expectedHasData) => {
         mockAnalyticsContext.current = analyticsContext
 
         const result = await makeResolver().resolve(makeProps())
 
         expect(result.projectHasData).toBe(expectedHasData)
+        expect(result.analyticsContext).toBe(mockAnalyticsContext.current)
     })
 
     it.each([

@@ -70,6 +70,7 @@ rules:
                               |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
+                              |AEOPromptVersion
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -183,6 +184,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -348,6 +350,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -407,6 +410,7 @@ rules:
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |AnomalyScoringState
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -665,6 +669,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -820,6 +825,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -879,6 +885,7 @@ rules:
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |AnomalyScoringState
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -1098,6 +1105,7 @@ rules:
                         |EvaluationReport
                         |Event
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset

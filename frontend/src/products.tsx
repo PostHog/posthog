@@ -159,6 +159,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
+    '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
@@ -651,6 +652,7 @@ export const productConfiguration: Record<string, any> = {
     AIObservabilityOfflineExperiments: {
         projectBased: true,
         name: 'Offline evals',
+        description: 'Manage datasets, follow score trends, and inspect offline experiment results.',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },
@@ -854,6 +856,7 @@ export const productConfiguration: Record<string, any> = {
         docsHref: 'https://posthog.com/docs/semantic-layer',
     },
     DataCatalogMetric: { projectBased: true, name: 'Metric' },
+    DataCatalogNewMetric: { projectBased: true, name: 'New metric' },
     Models: {
         name: 'Models',
         projectBased: true,
@@ -1505,6 +1508,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
@@ -1991,6 +1995,7 @@ export const productUrls = {
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
+    workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -2578,7 +2583,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Certifications', href: urls.dataCatalog('certifications') },
         ],
         sceneKey: 'DataCatalog',
-        sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
+        sceneKeys: ['DataCatalog', 'DataCatalogMetric', 'DataCatalogNewMetric'],
     },
     {
         path: 'Data warehouse',

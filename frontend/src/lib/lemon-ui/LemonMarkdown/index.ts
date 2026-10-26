@@ -1,6 +1,7 @@
 export {
     CHART_REF_PREFIX,
     LemonMarkdown,
+    type LemonMarkdownComponents,
     type LemonMarkdownProps,
     TIMESTAMP_REF_PREFIX,
     slugifyHeading,

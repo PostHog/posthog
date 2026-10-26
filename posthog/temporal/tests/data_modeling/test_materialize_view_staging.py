@@ -129,3 +129,20 @@ class TestPropertySinkResolutionReportsOnlyNonTransientFailures:
 
         assert result is False
         assert mock_capture.called is expect_capture
+
+    @parameterized.expand(
+        [
+            ("transient_connection_drop", OperationalError("server closed the connection unexpectedly"), False),
+            ("other_error", RuntimeError("boom"), True),
+        ]
+    )
+    async def test_cdp_row_sink_prepare(self, _name, error, expect_capture) -> None:
+        producer = _producer()
+        producer.should_run = AsyncMock(side_effect=error)
+        sink = _CDPRowSink(producer, MagicMock(awarning=AsyncMock()))
+
+        with patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception") as mock_capture:
+            await sink.prepare()
+
+        assert sink.enabled is False
+        assert mock_capture.called is expect_capture
