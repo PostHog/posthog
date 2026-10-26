@@ -28,6 +28,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
+    ViewableInsight,
     WatchedTrendsInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
@@ -225,6 +226,20 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
         return False
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     return access_control.check_access_level_for_object(insight, "viewer")
+
+
+def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -> list[ViewableInsight]:
+    """The live insights of this team among ``insight_ids`` that the user may view, in one query."""
+    if not insight_ids:
+        return []
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team.id, id__in=insight_ids, deleted=False), resource="insight"
+    )
+    return [
+        ViewableInsight(id=insight_id, short_id=short_id, name=name or derived_name)
+        for insight_id, short_id, name, derived_name in insights.values_list("id", "short_id", "name", "derived_name")
+    ]
 
 
 def save_saved_insight_query(

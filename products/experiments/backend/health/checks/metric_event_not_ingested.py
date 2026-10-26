@@ -11,13 +11,13 @@ from products.experiments.backend.health.context import HealthContext, MetricEve
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
-    CheckSkip,
+    CheckOutcome,
     not_applicable,
     not_checked,
 )
 
 
-def metric_event_not_ingested_skip(ctx: HealthContext) -> CheckSkip | None:
+def metric_event_not_ingested(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
     if ctx.has_ended:
@@ -27,12 +27,6 @@ def metric_event_not_ingested_skip(ctx: HealthContext) -> CheckSkip | None:
         return not_applicable("Runs once a metric uses an event")
     if not names & ctx.events_received.keys():
         return not_checked("Couldn't check because PostHog keeps no record of these event names")
-    return None
-
-
-def metric_event_not_ingested(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    if ctx.archived or ctx.has_ended:
-        return None
     affected = [
         (metric, missing)
         for metric in ctx.metric_events

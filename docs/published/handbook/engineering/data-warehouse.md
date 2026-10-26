@@ -16,6 +16,25 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model materialization usage
+
+The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
+Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
+The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
+
+A daily partitioned Dagster job, `model_job_usage_job`, collects usage from the regional query log archive at 03:00 UTC for the previous day.
+It stores totals on `DataModelingJob`, keeping usage reads independent of query-log retention and leaving the streaming materialization path unchanged.
+The collector matches team, workflow ID, and workflow run ID, and leaves ambiguous or missing matches unmeasured.
+Re-running a partition replaces totals rather than adding them.
+Runs that start outside the supported 14-day archive backfill window remain unmeasured.
+Runs that cross midnight include queries from the full run.
+
+Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
+The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.
+The current UTC day is excluded because usage is updated daily.
+These measurements describe query work and are not billing amounts.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -25,6 +44,8 @@ API-key requests and background jobs retain the query runner's existing exemptio
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
@@ -102,7 +123,7 @@ The **Marks** card offers table calculations per measure: percent of total, runn
 
 **Analysis → Missing dates** defaults to **Observed points only**. **Show gaps** creates empty buckets that occupy a point in the window but do not contribute to an average. **Fill with zero** makes those buckets contribute zero. Filling runs before calculations, separately for each series and comparison period, across the selected date range. It requires one bucketed date dimension matching the worksheet date column and a bounded range. It is available for project and warehouse tables in tables and time-series charts; direct connections do not support it. Saved worksheets and dashboard date overrides retain these semantics.
 
-Pivot tables display every measure beneath nested column headers. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
+**Table** automatically uses a pivot layout when both **Rows** and **Columns** contain dimensions. Row members run down the table; column members run across it, with every measure beneath each column header. Move all dimensions onto one shelf to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns; wider results ask you to reduce column dimensions or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
 
 **Hierarchies** in the data pane names an ordered set of dimensions, such as Country → State → City. Create a hierarchy with 2–10 levels, then start it on rows or columns. The level list marks the current field and shows the next levels. Selecting a result offers **Drill to** the next level in the current editor worksheet, retaining parent filters, date range, measures, variables, and formatting. The path above the result offers **Drill up**, removing only filters introduced by that drill. Navigation participates in undo/redo and respects Auto update. Changed or removed hierarchy levels disable an incompatible return path. Outside the editor, the action explicitly opens a new worksheet. Leaf values and levels already on a shelf do not offer another drill action; nested pivot expansion remains available for those shelves. Definitions stay with the saved worksheet and survive **Clear sheet**. **Import from worksheet** copies a hierarchy from an accessible saved worksheet using the same table and connection. The copy is independent: edits do not change the source worksheet or create global fields. Deleting a local calculated field removes its uses from hierarchy levels, dropping definitions with fewer than two remaining levels.
 
