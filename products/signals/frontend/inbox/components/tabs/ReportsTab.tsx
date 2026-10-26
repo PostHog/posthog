@@ -274,15 +274,19 @@ export function ReportsTab(): JSX.Element {
         settledOnceRef.current = true
     }
     const showFirstLoadSkeleton = firstLoadPending && (!settledOnceRef.current || rows.length === 0)
-    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed && !sections[key].isLoaded)
+    const anyLoadFailed = selectedSections.some((key) => sections[key].reportsLoadFailed)
     const pageLoading = selectedSections.some((key) => sections[key].reportsResponseLoading)
     const pageLoadFailed = selectedSections.some((key) => sections[key].pageLoadFailed)
     const hasMore = selectedSections.some((key) => sections[key].hasMore)
 
-    // `ensureLoaded` only fetches a state with nothing loaded and nothing in flight, so retrying
-    // after a partial failure refetches the failed states and leaves the loaded ones alone.
     const retryFailedSections = (): void => {
-        selectedSections.forEach((key) => reportListLogic(sectionListLogicProps(key)).actions.ensureLoaded())
+        selectedSections.forEach((key) => {
+            if (sections[key].reportsLoadFailed && !sections[key].reportsResponseLoading) {
+                const { actions } = reportListLogic(sectionListLogicProps(key))
+                actions.loadCount()
+                actions.loadReports()
+            }
+        })
     }
     // `loadMore` self-guards on `hasMore` and in-flight requests, so this only refetches the pages
     // that actually failed.
@@ -362,7 +366,7 @@ export function ReportsTab(): JSX.Element {
                 </div>
             )}
 
-            {inboxIsEmpty ? (
+            {inboxIsEmpty && !anyLoadFailed ? (
                 showActivation ? null : (
                     <InboxWaitingForWork />
                 )
@@ -379,6 +383,7 @@ export function ReportsTab(): JSX.Element {
                         <LemonButton
                             size="small"
                             type="secondary"
+                            loading={pageLoading}
                             onClick={retryFailedSections}
                             data-attr="inbox-report-list-retry"
                         >
@@ -411,6 +416,7 @@ export function ReportsTab(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
+                                loading={pageLoading}
                                 onClick={retryFailedSections}
                                 data-attr="inbox-report-list-retry"
                             >

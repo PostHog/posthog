@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
@@ -200,32 +200,55 @@ describe('ReportsTab', () => {
 
     // Polling flips the state while the card is on screen. The card has to go and the report has to
     // land in the list without a page reload.
-    it('replaces the first-report card with the report once it exists', async () => {
-        mockReportCounts([])
-        mockOnboarding({ status: 'running', task_id: 'task-1', task_run_id: 'run-1' }, true)
-        inboxFiltersLogic.mount()
-        inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+    it.each(['none', 'rows', 'counts-and-rows'])(
+        'replaces the first-report card with the report (refresh failure: %s)',
+        async (refreshFailure) => {
+            mockReportCounts([])
+            mockOnboarding({ status: 'running', task_id: 'task-1', task_run_id: 'run-1' }, true)
+            inboxFiltersLogic.mount()
+            inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
 
-        const { container } = render(<ReportsTab />)
-        expect(await screen.findByText('Looking for your first report')).toBeVisible()
-        await waitFor(() => expect(reportListLogic(sectionListLogicProps('needs-decision')).values.isLoaded).toBe(true))
+            const { container } = render(<ReportsTab />)
+            expect(await screen.findByText('Looking for your first report')).toBeVisible()
+            await waitFor(() =>
+                expect(reportListLogic(sectionListLogicProps('needs-decision')).values.isLoaded).toBe(true)
+            )
 
-        const first = makeReport('first', SignalReportStatus.READY)
-        useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/': ({ request }) => {
-                    const results = new URL(request.url).searchParams.get('view') === 'needs_decision' ? [first] : []
-                    return [200, { count: results.length, next: null, previous: null, results }]
+            const first = makeReport('first', SignalReportStatus.READY)
+            let failRefresh = refreshFailure !== 'none'
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (
+                            failRefresh &&
+                            (refreshFailure === 'counts-and-rows' || params.get('count_only') !== 'true')
+                        ) {
+                            return [503, { detail: 'Reports temporarily unavailable' }]
+                        }
+                        const results = params.get('view') === 'needs_decision' ? [first] : []
+                        return [200, { count: results.length, next: null, previous: null, results }]
+                    },
                 },
-            },
-        })
-        mockOnboarding({ status: 'report_created', task_id: 'task-1', task_run_id: 'run-1', report_id: first.id }, true)
-        inboxSetupLogic.actions.loadSetup()
+            })
+            mockOnboarding(
+                { status: 'report_created', task_id: 'task-1', task_run_id: 'run-1', report_id: first.id },
+                true
+            )
+            inboxSetupLogic.actions.loadSetup()
 
-        await waitFor(() => expect(document.querySelector('[data-attr="report-card-first"]')).not.toBeNull())
-        expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
-        expect(screen.queryByText('Your first report is ready')).toBeNull()
-    })
+            if (failRefresh) {
+                const retry = await screen.findByText('Retry')
+                expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+                failRefresh = false
+                fireEvent.click(retry)
+            }
+            await waitFor(() => expect(document.querySelector('[data-attr="report-card-first"]')).not.toBeNull())
+            expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+            expect(container.querySelector('[data-attr="inbox-first-report-progress"]')).toBeNull()
+            expect(screen.queryByText('Your first report is ready')).toBeNull()
+        }
+    )
 
     // `Inbox viewed` fires once every count has settled, so it doubles as "the empty verdict is in".
     async function waitForCountsToSettle(): Promise<void> {
