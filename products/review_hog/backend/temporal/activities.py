@@ -693,6 +693,8 @@ class GatePushInput:
     review_mode: str
     zero_change_skip: bool = False
     delta_band: bool = False
+    # A coordinated PR always records the control arm of the delta split, so evaluations leave these PRs out.
+    coordinator: bool = False
 
 
 @dataclass(frozen=False)
@@ -2390,6 +2392,7 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
             "pr_changed_lines": decision.pr_changed_lines,
             "zero_change_skip_arm": input.zero_change_skip,
             "delta_band_arm": input.delta_band,
+            "coordinator": input.coordinator,
             "delta_eligible": decision.delta_eligible,
             "delta_review": decision.delta_review,
         },

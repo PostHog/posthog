@@ -611,6 +611,7 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                         zero_change_skip=meta.zero_change_skip,
                         delta_band=meta.delta_band,
+                        coordinator=meta.coordinator,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

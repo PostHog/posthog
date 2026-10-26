@@ -551,12 +551,17 @@ class TestTrackReviewCompleted(BaseTest):
                     review_mode=REVIEW_MODE_FLASH,
                     zero_change_skip=treatment,
                     delta_band=treatment,
+                    coordinator=not treatment,
                 )
             )
 
         props = capture.call_args.kwargs["properties"]
         assert (result.skip, result.reason, props["pr_changed_lines"], result.delta_review) == expected
-        assert (props["zero_change_skip_arm"], props["delta_band_arm"]) == (treatment, treatment)
+        assert (props["zero_change_skip_arm"], props["delta_band_arm"], props["coordinator"]) == (
+            treatment,
+            treatment,
+            not treatment,
+        )
 
     def _gate_draft_push(self, report_id: str, live_pr: dict[str, object] | Exception) -> tuple[PushGateDecision, Any]:
         live = MagicMock(side_effect=live_pr) if isinstance(live_pr, Exception) else MagicMock()
