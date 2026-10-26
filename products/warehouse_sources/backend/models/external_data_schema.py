@@ -83,6 +83,10 @@ def resolve_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
 AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
 
 # `Any_Source_Errors` rewrites the raised exception into this copy, so a blocked schema carries it
@@ -582,6 +586,10 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         if self.sync_type_config:
             return self.sync_type_config.get("cdc_table_mode", "consolidated")
         return "consolidated"
+
+    @property
+    def keeps_history(self) -> bool:
+        return self.is_cdc and self.cdc_table_mode in ("cdc_only", "both")
 
     @property
     def should_use_incremental_field(self):

@@ -15,12 +15,19 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.alerts.backend.platform_chart_detail import (
+    CHART_ASSET_ID_KEY,
+    CHART_PENDING_KEY,
+    CHART_RENDER_USER_ID_KEY,
+    RenderedChart,
+)
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
     EVALUATION_BUDGET,
     AdmittedInsightCheck,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
+    InsightChartInputs,
     InsightCheckInputs,
     evaluate_platform_insight_llm_check_activity,
 )
@@ -293,6 +300,81 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
     assert [sorted(str(o.configuration_id) for o in batch.outcomes) for batch in recorded] == [expected]
 
 
+@pytest.mark.parametrize(
+    "failed_attempts, expected_detail",
+    [
+        (0, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        # The render pool was full at first, so the render waited for a slot.
+        (1, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        (None, {"alert_id": "legacy-alert"}),
+    ],
+)
+async def test_a_firing_records_the_chart_rendered_after_its_check(
+    environment: WorkflowEnvironment, failed_attempts: int | None, expected_detail: dict[str, object]
+) -> None:
+    events: list[str] = []
+    recorded: list[SourceOutcomeInputs] = []
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [AdmittedInsightCheck(configuration_id=ADMITTED[0])] if not inputs.exclude else []
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        events.append("check")
+        outcome = PlatformAlertOutcome(
+            configuration_id=uuid.UUID(inputs.configuration_id),
+            evaluation_key="slot:2026-09-16T10:00:00+00:00",
+            consecutive_failures=0,
+            groups=(
+                GroupOutcome(
+                    grouping_key="",
+                    kind=AlertEventKind.FIRING,
+                    new_state="firing",
+                    notified=True,
+                    source_detail={"alert_id": "legacy-alert", CHART_PENDING_KEY: "legacy-alert"},
+                ),
+            ),
+        )
+        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=())
+
+    @activity.defn(name="render_platform_insight_chart_activity")
+    async def render(inputs: InsightChartInputs) -> RenderedChart | None:
+        if failed_attempts is None or activity.info().attempt <= failed_attempts:
+            raise ApplicationError("render pool full")
+        events.append(f"render:{inputs.alert_id}")
+        return RenderedChart(asset_id=7, render_user_id=3)
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        events.append("record")
+        recorded.append(inputs)
+        return len(inputs.outcomes)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, render, record],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await environment.client.execute_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+
+    assert events == (["check", "record"] if failed_attempts is None else ["check", "render:legacy-alert", "record"])
+    assert [group.source_detail for batch in recorded for o in batch.outcomes for group in o.groups] == [
+        expected_detail
+    ]
+
+
 def test_the_binding_holds_the_whole_batch() -> None:
     assert source_evaluation_timeout(SourceKind.INSIGHT) > EVALUATION_BUDGET
 
@@ -303,9 +385,10 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
 
     def blocking(inputs: InsightCheckInputs, *_args: object, **_kwargs: object) -> None:
         started.append(inputs.configuration_id)
-        release.wait(timeout=30)
+        if not inputs.owned_by_platform:
+            release.wait(timeout=30)
 
-    def check(configuration_id: str) -> InsightCheckInputs:
+    def check(configuration_id: str, *, owned: bool = False) -> InsightCheckInputs:
         return InsightCheckInputs(
             evaluation=SourceEvaluationInputs(
                 source=SourceKind.INSIGHT,
@@ -315,6 +398,7 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
             configuration_id=configuration_id,
             held_until=0.0,
             uses_llm_detector=True,
+            owned_by_platform=owned,
         )
 
     first, second = ActivityEnvironment(), ActivityEnvironment()
@@ -335,6 +419,12 @@ async def test_a_cancelled_platform_ai_check_keeps_its_place_in_the_cap_until_it
                 await cancelled
             # Its thread still runs, so the parallel run still holds both of its places.
             assert PLATFORM_LLM_CHECKS.locked()
+            # A check of an alert the platform owns is production's own, so the full cap does not hold it back.
+            async with asyncio.timeout(10):
+                await ActivityEnvironment().run(
+                    evaluate_platform_insight_llm_check_activity, check("owned", owned=True)
+                )
+            assert "owned" in started
 
             release.set()
             await running

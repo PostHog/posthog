@@ -118,7 +118,7 @@ export type Option = {
     searchInput?: string
 }
 
-const getPropertyKey = (
+export const getPropertyKey = (
     type: PropertyDefinitionType,
     propertyName?: BreakdownKeyType,
     groupTypeIndex?: number | null

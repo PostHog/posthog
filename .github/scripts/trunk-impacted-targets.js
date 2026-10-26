@@ -182,6 +182,9 @@ const DESKTOP = 'desktop'
 // from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
 const CLI_ARTIFACTS = 'cli-artifacts'
 
+// The hogbox preview-environment workflows, which read the hogbox tooling.
+const HOGBOX_PREVIEW = 'hogbox-preview'
+
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -253,9 +256,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-nodejs.yml', NODE],
     ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
-    ['.github/workflows/ci-backend.yml', PYTHON],
+    ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-shadow-drift.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON],
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
@@ -318,6 +322,10 @@ const TRIPWIRE_RULES = [
     // the rust lanes on top of deploy: those PR checks parse it, even though
     // only the image builds act on what it maps.
     ['.github/rust-images.yml', [RUST, DEPLOY]],
+    // The hogbox preview environment gates no check, and its deploys read the
+    // hogbox tooling, which owns a lane already.
+    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
+    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
@@ -325,6 +333,8 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    // ci-backend's events_json leg and its test selection read this list.
+    ['.github/new-events-schema-targets.txt', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -409,9 +419,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
-    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/auto-assign-labels.json', REPO_AUTOMATION],
@@ -587,6 +594,7 @@ const TRIPWIRE_RULES = [
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
+    ['.depot/workflows/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
@@ -929,16 +937,13 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
-// .depot/ holds Depot-runner shadows of the workflows and composite actions in
-// .github/, kept apples-to-apples with their canonicals by the shadow-drift
-// check, and their statuses are non-blocking. A shadow can only affect what
-// its canonical affects, so it resolves through the canonical's rules: the
-// ci-backend shadow takes the python lanes, and a shadow of something unplaced
-// still lands on the .github/** blanket.
-const DEPOT_MIRROR_PREFIX = '.depot/'
+// .depot/actions/ holds Depot CI's mirrors of the composite actions in .github/actions/,
+// kept in sync by the action-mirrors check, so a mirror resolves through its canonical
+// action's rules. Depot CI's own workflows under .depot/workflows/ carry rules of their own.
+const DEPOT_MIRROR_PREFIX = '.depot/actions/'
 
 function canonicalPath(file) {
-    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/actions/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
 }
 
 // The domain of the first rule matching the file, or null when no rule claims
@@ -1503,8 +1508,8 @@ const rustCrate = (crate) => `rust:crate:${crate}`
 const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the two binding packages
-// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer, @posthog/ai-research-v4-native) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here. The
 // image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
@@ -1730,6 +1735,11 @@ function addHobbyLane(targets) {
     return true
 }
 
+function addHogboxPreviewLane(targets) {
+    targets.add('tools:hogbox-preview')
+    return true
+}
+
 function addCliArtifactLanes(targets) {
     targets.add('cli')
     targets.add('svc:mcp')
@@ -1859,6 +1869,7 @@ const DOMAIN_LANES = new Map([
     [FULLSTACK, addFullstackLanes],
     [DEPLOY, addDeployLane],
     [HOBBY, addHobbyLane],
+    [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
@@ -2981,6 +2992,7 @@ module.exports = {
     DESKTOP,
     FULLSTACK,
     HOBBY,
+    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

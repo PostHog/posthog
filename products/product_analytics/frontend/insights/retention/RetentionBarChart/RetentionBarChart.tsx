@@ -27,6 +27,7 @@ import {
 } from '../shared/retentionChartTransforms'
 
 interface RetentionBarChartProps {
+    resultMenuEnabled?: boolean
     inSharedMode?: boolean
 }
 const EMPTY_GOAL_LINES: GoalLine[] = []
@@ -51,7 +52,10 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
+export function RetentionBarChart({
+    inSharedMode = false,
+    resultMenuEnabled = false,
+}: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const theme = useChartTheme()
 
@@ -158,12 +162,15 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
                 isPercentage,
                 goalLines,
                 series,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: {
+                    ...INSIGHT_TOOLTIP_CONFIG,
+                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
+                },
                 isIntervalView,
                 period,
                 timezone,
             }),
-        [isPercentage, goalLines, series, isIntervalView, period, timezone]
+        [resultMenuEnabled, inSharedMode, isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

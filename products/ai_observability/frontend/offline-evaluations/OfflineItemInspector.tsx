@@ -7,6 +7,7 @@ import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon
 import { urls } from 'scenes/urls'
 
 import type { OfflineResultReadApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineItemInspectorLogicProps, offlineItemInspectorLogic } from './offlineItemInspectorLogic'
 import { OfflinePayload } from './OfflinePayload'
 import { OfflineResultTag } from './OfflineResultTag'
@@ -70,6 +71,7 @@ export function OfflineItemInspector({
                                     {item.id}
                                 </span>
                                 {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
                                 {item.application_trace_id && (
                                     <Link to={urls.aiObservabilityTrace(item.application_trace_id)}>
                                         Application trace
@@ -217,7 +219,9 @@ export function OfflineItemInspector({
                                             className="max-w-full"
                                             active={result.id === selectedResult?.id}
                                             onClick={() => onSelectResult(result)}
-                                        >{`${result.scorer.name} v${result.scorer.version}`}</LemonButton>
+                                        >
+                                            <ScorerLabel scorer={result.scorer} />
+                                        </LemonButton>
                                     ),
                                 },
                                 {

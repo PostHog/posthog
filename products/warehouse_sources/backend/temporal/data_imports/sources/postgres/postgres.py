@@ -4,6 +4,7 @@ import re
 import math
 import time
 import errno
+import weakref
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -94,6 +95,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLSOptions,
+    libpq_tls_kwargs,
+    tls_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -938,6 +945,11 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
 # reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
 # or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
 # raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+# The source type the managed-warehouse host exemption is keyed on. Kept next to the one
+# connect this module opens so a managed warehouse host is treated the same at connect time
+# as it is at validation time.
+_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
 
 
@@ -945,7 +957,16 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+# libpq mentions SSL when it refuses the server certificate or the server refuses ours. The server
+# does speak TLS there, so the "enable SSL" advice of `SSLRequiredError` would mislead.
+def _is_certificate_rejection(error: BaseException) -> bool:
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(marker in message for marker in CERTIFICATE_ERRORS)
+
+
+def _open_connection(
+    *, team_id: int | None = None, tls: TLSOptions | None = None, **connect_kwargs: Any
+) -> psycopg.Connection:
     """The one `psycopg.connect` in this module. Every connection to a source database opens
     here so that `pinned_host_kwargs` decides what gets dialed.
 
@@ -953,12 +974,25 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
     `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    if tls is not None:
+        tls_files = ExitStack()
+        tls_kwargs = tls_files.enter_context(libpq_tls_kwargs(tls))
+        try:
+            connection = _open_connection(team_id=team_id, **{**connect_kwargs, **tls_kwargs})
+        except BaseException:
+            tls_files.close()
+            raise
+        # libpq 17 reads the certificate files again for every `cancel_safe` request, so they must
+        # last as long as the connection.
+        weakref.finalize(connection, tls_files.close)
+        return connection
     connect_kwargs.update(
         pinned_host_kwargs(
             connect_kwargs["host"],
             port=connect_kwargs.get("port", 5432),
             connect_timeout=connect_kwargs.get("connect_timeout", 15),
             team_id=team_id,
+            source_type=_HOST_CHECK_SOURCE_TYPE,
         )
     )
     try:
@@ -982,6 +1016,7 @@ def _connect_to_postgres(
     require_ssl: bool = False,
     connect_timeout: int = 15,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -995,6 +1030,7 @@ def _connect_to_postgres(
     try:
         return _open_connection(
             team_id=team_id,
+            tls=tls,
             host=host,
             port=port,
             dbname=database,
@@ -1014,6 +1050,7 @@ def _connect_to_postgres(
             require_ssl
             and "SSL" in str(e)
             and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_certificate_rejection(e)
             and not _is_connection_dropped_error(e)
         ):
             raise SSLRequiredError(
@@ -1033,6 +1070,7 @@ def pg_connection(
     password: str,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
@@ -1043,6 +1081,7 @@ def pg_connection(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     )
     try:
         yield conn
@@ -1611,6 +1650,7 @@ def get_postgres_row_count(
     schema: str | None,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
@@ -1624,6 +1664,7 @@ def get_postgres_row_count(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1742,6 +1783,7 @@ def get_schemas(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1772,6 +1814,7 @@ def get_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1796,6 +1839,7 @@ def get_primary_keys_for_schemas(
     table_names: list[str],
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
@@ -1809,6 +1853,7 @@ def get_primary_keys_for_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1896,6 +1941,7 @@ def get_foreign_keys(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
@@ -1907,6 +1953,7 @@ def get_foreign_keys(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
 
@@ -1931,6 +1978,7 @@ def get_connection_metadata(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
         host=host,
@@ -1940,6 +1988,7 @@ def get_connection_metadata(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -3685,6 +3734,7 @@ def postgres_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
+    tls: TLSOptions | None = None,
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
@@ -3716,6 +3766,7 @@ def postgres_source(
             try:
                 conn = _open_connection(
                     team_id=team_id,
+                    tls=tls,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3734,6 +3785,7 @@ def postgres_source(
                     require_ssl
                     and "SSL" in str(e)
                     and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_certificate_rejection(e)
                     and not _is_connection_dropped_error(e)
                 ):
                     raise SSLRequiredError(
@@ -4112,6 +4164,7 @@ def postgres_source(
                 try:
                     connection = _open_connection(
                         team_id=team_id,
+                        tls=tls,
                         host=host,
                         port=port,
                         dbname=database,
@@ -4131,6 +4184,7 @@ def postgres_source(
                         require_ssl
                         and "SSL" in str(e)
                         and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_certificate_rejection(e)
                         and not _is_connection_dropped_error(e)
                     ):
                         raise SSLRequiredError(
@@ -4851,6 +4905,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 password=config.password,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls_options(config),
             ) as conn:
                 yield conn
 

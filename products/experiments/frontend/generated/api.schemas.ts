@@ -178,26 +178,25 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 }
 
 /**
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
  * * `semver_gt` - semver_gt
  * * `semver_gte` - semver_gte
  * * `semver_lt` - semver_lt
  * * `semver_lte` - semver_lte
- * * `semver_eq` - semver_eq
- * * `semver_neq` - semver_neq
  * * `semver_tilde` - semver_tilde
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
     SemverGte: 'semver_gte',
     SemverLt: 'semver_lt',
     SemverLte: 'semver_lte',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
     SemverTilde: 'semver_tilde',
     SemverCaret: 'semver_caret',
     SemverWildcard: 'semver_wildcard',
@@ -224,16 +223,16 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
     group_type_index?: number | null
     /** Semantic version comparison operator.
      *
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }
@@ -2288,6 +2287,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `early_significance` - Early Significance
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2310,6 +2310,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     NewFlagNoTraffic: 'new_flag_no_traffic',
+    EarlySignificance: 'early_significance',
 } as const
 
 /**
@@ -2374,7 +2375,8 @@ export interface ExperimentHealthFindingApi {
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `new_flag_no_traffic` - New Flag No Traffic */
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2414,6 +2416,7 @@ export interface ExperimentHealthFindingApi {
  * * `no_metric` - No Metric
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `early_significance` - Early Significance
  * * `zero_exposures` - Zero Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -2434,6 +2437,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     NoMetric: 'no_metric',
     MetricEventNotIngested: 'metric_event_not_ingested',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    EarlySignificance: 'early_significance',
     ZeroExposures: 'zero_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -2470,6 +2474,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -3652,6 +3657,7 @@ export interface ExperimentInSessionExposureApi {
  * * `manual` - Manual
  * * `manual_retry` - Manual Retry
  * * `cold_run` - Cold Run
+ * * `stale_refresh` - Stale Refresh
  * * `heal_latest_run` - Heal Latest Run
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
@@ -3663,6 +3669,7 @@ export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
     Manual: 'manual',
     ManualRetry: 'manual_retry',
     ColdRun: 'cold_run',
+    StaleRefresh: 'stale_refresh',
     HealLatestRun: 'heal_latest_run',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
@@ -3677,6 +3684,7 @@ export interface RecalculateMetricsRequestApi {
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
      * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change */
