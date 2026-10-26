@@ -12,6 +12,7 @@ from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -86,7 +87,14 @@ from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @with_team_scope()
 def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     from products.signals.backend.onboarding_activation import (
