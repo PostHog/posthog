@@ -2617,6 +2617,47 @@ class SignalReportMonitoringAttempt(UUIDModel):
         ]
 
 
+class SignalReportAgentEvaluation(UUIDModel):
+    class State(models.TextChoices):
+        PENDING = "pending"
+        RUNNING = "running"
+        SUBMITTED = "submitted"
+        ERRORED = "errored"
+        ABANDONED = "abandoned"
+
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="agent_evaluations")
+    attempt = models.ForeignKey(
+        SignalReportMonitoringAttempt, on_delete=models.CASCADE, related_name="agent_evaluations"
+    )
+    report_check = models.ForeignKey(SignalReportCheck, on_delete=models.CASCADE, related_name="agent_evaluations")
+    definition_version = models.CharField(max_length=64)
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    sequence = models.PositiveIntegerField()
+    state = models.CharField(max_length=20, choices=State, default=State.PENDING)
+    user_id = models.BigIntegerField(null=True)
+    task_id = models.UUIDField(null=True, db_index=True)
+    task_run_id = models.UUIDField(null=True, unique=True)
+    bound_at = models.DateTimeField(null=True)
+    output = models.JSONField(null=True)
+    completed_at = models.DateTimeField(null=True)
+    drained_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["attempt", "report_check", "sequence"], name="signals_agent_eval_sequence"),
+            models.UniqueConstraint(
+                fields=["attempt", "report_check"],
+                condition=models.Q(state__in=["pending", "running"]),
+                name="signals_agent_eval_inflight",
+            ),
+        ]
+
+
 class SignalReportMonitoringResult(UUIDModel):
     class EvidenceStatus(models.TextChoices):
         SUFFICIENT = "sufficient"

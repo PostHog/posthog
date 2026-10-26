@@ -11,6 +11,11 @@ from products.signals.backend.anomaly_scores.tick import (
     score_anomaly_insight_activity,
 )
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
+from products.signals.backend.temporal.agentic.monitoring_agents import (
+    MonitoringAgentWorkflow,
+    finish_monitoring_agent_activity,
+    run_monitoring_agent_activity,
+)
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
@@ -131,6 +136,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    MonitoringAgentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
@@ -155,6 +161,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    run_monitoring_agent_activity,
+    finish_monitoring_agent_activity,
     update_signal_spend_activity,
     confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,

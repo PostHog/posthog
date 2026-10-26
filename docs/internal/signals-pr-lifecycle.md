@@ -150,6 +150,37 @@ No interim samples are required. A short, nonempty window can qualify from its f
 
 Final evaluator integration must enforce the organization-level `signals-report-monitoring` gate and its fail-closed Resolved fallback. Source adapters must validate aggregation semantics, preserve the population and fixed window, collect required supporting counts, and establish data readiness. Supported property sums exclude formulas and session-level aggregations. Arbitrary formulas, distinct counts, and quantiles need their own adapter/policy. `MetricMeasurement` supplies neither activity counts nor denominators, and report-metric `minimum_data_points`/`eligibility_query` fields are not inferred as check policy. Final evaluators must bind evidence to the current attempt/check version, compare only sufficient measurements, and separately handle insufficient evidence, unsupported measurements, and query errors. Scheduling, retries, persistence, and report transitions remain outside this contract.
 
+### Final authored-agent checks
+
+The coordinator dispatches only authored-agent checks in the current attempt's frozen membership,
+after each check's explicit soak. Missing configuration or soak blocks execution. Technical errors
+and safety expiry do not remove a frozen obligation. Changed definitions and canceled checks cannot
+submit a result. Each evaluation keeps the original Monitoring start and check deadline, including
+when execution runs late or an archived report is restored.
+
+`SignalReportAgentEvaluation` records each technical attempt and binds it to the report environment,
+report, implementation attempt, check, authored version, fixed window, and authorized TaskRun.
+Workflow IDs derive from that durable record. Dispatch recovery reuses the identity; a technical
+retry cannot overlap an existing live run. Technical failures use the existing limit of three
+attempts and six-hour retry delay. Insufficient and unsupported evaluations remain final submissions
+for the check; they do not trigger another authored investigation.
+
+The dedicated Monitoring workflow supplies the authored criteria, original findings, implementation
+history, and current-attempt evidence through a session attachment. The agent uses read-only tools
+as a user with access to the report's environment. Analytics context retains query permission
+markers on the TaskRun. A queued task rechecks Monitoring, the definition, user access, and execution
+controls before it starts paid work.
+
+Only the bound run can stage an immutable structured response. Delivery uses `MonitoringEvaluation`
+and `save_monitoring_result`, preserving evidence qualification separately from expectation matching,
+reasoning, and evidence references. A lost delivery retries the staged payload with the same submission
+ID. Empty windows cannot produce a sufficient verdict. Leaving Monitoring invalidates pending or
+running dispatches; a restored period can resume work with the same fixed window and fresh dispatch.
+Legacy check workflows and callbacks remain retired.
+
+This path records per-check results and keeps reports in Monitoring. Report aggregation, automatic
+completion, report-level assessment, and follow-up research are separate stages.
+
 ## Inbox value summary
 
 The `signals-inbox-value-summary` flag shows project-wide counts above the web

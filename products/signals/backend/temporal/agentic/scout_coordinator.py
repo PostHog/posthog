@@ -204,8 +204,13 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
     and no scout enrolment. An `agent` check is dispatched here as a scout run and answers itself
     later, so this activity never waits on one.
     """
+    from products.signals.backend.report_check_final_agents import (
+        run_due_agent_evaluations,  # noqa: PLC0415 - keeps final-agent dispatch off the coordinator import path
+    )
+
     async with Heartbeater():
         summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
+        await database_sync_to_async(run_due_agent_evaluations, thread_sensitive=False)()
     return RunDueChecksOutput(
         expired=summary.expired,
         passed=summary.passed,

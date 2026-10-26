@@ -24,10 +24,17 @@ class SignalsConfig(AppConfig):
         )
 
         receivers.connect_task_run_assignment_sync()
+        self._register_monitoring_agent_guard()
         spend_receivers.connect_spend_receivers()
         self._register_signal_emission_gate()
         self._register_scout_skill_archive_guard()
         self._register_scout_skill_rename_hook()
+
+    def _register_monitoring_agent_guard(self) -> None:
+        from products.signals.backend.monitoring_agent_guards import monitoring_agent_start_guard
+        from products.tasks.backend.facade.task_run_signals import register_task_run_start_guard
+
+        register_task_run_start_guard(monitoring_agent_start_guard, name="signals_monitoring_authored_check")
 
     def _register_signal_emission_gate(self) -> None:
         """Let the data-import pipeline ask whether to emit signals for a source without

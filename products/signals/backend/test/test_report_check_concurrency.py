@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
@@ -8,29 +9,41 @@ from uuid import uuid4
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import connection, transaction
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework.test import APIClient
+
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckObservation
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportAgentEvaluation,
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportMonitoringAttempt,
     SignalReportMonitoringResult,
+    SignalScoutConfig,
 )
+from products.signals.backend.report_check_agent import FALLBACK_CHECK_SKILL_NAME
+from products.signals.backend.report_check_agent_runner import run_monitoring_agent
 from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_check_evaluation import CheckVerdict
 from products.signals.backend.report_check_execution import (
     expire_overdue_checks,
     record_check_verdict,
     run_due_report_checks,
+)
+from products.signals.backend.report_check_final_agents import (
+    AgentMonitoringResult,
+    claim_agent_evaluation,
+    stage_agent_result,
 )
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
@@ -42,6 +55,8 @@ from products.signals.backend.report_monitoring_results import (
     save_monitoring_result,
 )
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.models import Task, TaskRun
 
 
 @time_machine.travel("2026-10-01T12:00:00Z", tick=False)
@@ -96,6 +111,155 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                 if cursor.fetchone()[0]:
                     return
         self.fail("The competing write did not wait for the holder transaction")
+
+    def _agent_attempt(self) -> SignalReportMonitoringAttempt:
+        now = timezone.now()
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = now - timedelta(hours=2)
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        self.check.kind = SignalReportCheck.Kind.AGENT
+        self.check.config = {"instructions": "Verify checkout during the fixed window."}
+        self.check.soak_minutes = 60
+        self.check.expires_at = now + timedelta(days=1)
+        self.check.save(update_fields=["kind", "config", "soak_minutes", "expires_at"])
+        return SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report_id=self.report.id,
+            monitoring_started_at=self.report.monitoring_started_at,
+            check_versions={str(self.check.id): check_definition_version(self.check)},
+        )
+
+    def test_agent_runner_binds_before_dispatch_and_supplies_context_as_a_file(self) -> None:
+        LLMSkill.objects.create(team=self.team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
+        SignalScoutConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, skill_name=FALLBACK_CHECK_SKILL_NAME, enabled=True
+        )
+        task = Task.objects.create(team=self.team, created_by=self.user, title="Verify outcome")
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        session = AsyncMock()
+        session.task_run = run
+        supplied: dict[str, object] = {}
+        result = AgentMonitoringResult(
+            evidence_status="sufficient",
+            evidence_reason="The checkout trace covers the fixed window.",
+            expectation_matches=True,
+            explanation="Checkout completed.",
+            evidence_refs=("event:example",),
+        )
+
+        async def start(**kwargs: object) -> tuple[object, AgentMonitoringResult]:
+            callback = kwargs["before_task_dispatch"]
+            assert callable(callback)
+            await database_sync_to_async(callback)(run.id)
+            supplied.update(kwargs)
+            return session, result
+
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id]},
+            ),
+            patch(
+                "products.signals.backend.scout_harness.team_limits._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id]},
+            ),
+            patch("products.signals.backend.report_check_agent_runner.MultiTurnSession.start", side_effect=start),
+            patch(
+                "products.signals.backend.report_check_agent_runner.get_or_create_signals_sandbox_env",
+                return_value="test-env",
+            ),
+            patch("products.signals.backend.agent_runtime._read_flag_payload", return_value={}),
+        ):
+            attempt = self._agent_attempt()
+            evaluation = claim_agent_evaluation(team_id=self.team.id, report_id=self.report.id, check_id=self.check.id)
+            assert evaluation is not None
+            async_to_sync(run_monitoring_agent)(team_id=self.team.id, evaluation_id=evaluation.id)
+        stored = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
+        assert stored.evidence_refs[-1] == f"task-run:{run.id}"
+        files = supplied["files"]
+        assert isinstance(files, list)
+        context = json.loads(files[0].content)
+        assert context["check"]["config"] == self.check.config
+        assert context["window_end"] == evaluation.window_end.isoformat()
+        assert context["attempt_id"] == str(attempt.id)
+        session.end.assert_awaited_once()
+
+    def test_concurrent_agent_dispatch_claims_share_one_durable_identity(self) -> None:
+        LLMSkill.objects.create(team=self.team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
+        SignalScoutConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, skill_name=FALLBACK_CHECK_SKILL_NAME, enabled=True
+        )
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch(
+                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id]},
+            ),
+            patch(
+                "products.signals.backend.scout_harness.team_limits._read_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id]},
+            ),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            self._agent_attempt()
+
+            def claim() -> SignalReportAgentEvaluation | None:
+                return claim_agent_evaluation(team_id=self.team.id, report_id=self.report.id, check_id=self.check.id)
+
+            with transaction.atomic():
+                SignalReport.objects.select_for_update(no_key=True).get(id=self.report.id)
+                future = self._start_write(executor, claim)
+                self._assert_write_waits(future)
+                first = claim()
+                assert first is not None
+            second = future.result(timeout=10)
+        assert isinstance(second, SignalReportAgentEvaluation)
+        assert first.id == second.id
+        assert SignalReportAgentEvaluation.objects.for_team(self.team.id).count() == 1
+
+    def test_agent_result_waiting_for_report_lock_rechecks_manual_completion(self) -> None:
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            attempt = self._agent_attempt()
+            evaluation = SignalReportAgentEvaluation.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report_id=self.report.id,
+                attempt_id=attempt.id,
+                report_check_id=self.check.id,
+                definition_version=check_definition_version(self.check),
+                window_start=attempt.monitoring_started_at,
+                window_end=attempt.monitoring_started_at + timedelta(hours=1),
+                sequence=1,
+                state="running",
+                task_run_id=self.check.id,
+                user_id=self.user.id,
+            )
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                with transaction.atomic():
+                    SignalReport.objects.select_for_update(no_key=True).get(id=self.report.id)
+                    future = self._start_write(
+                        executor,
+                        lambda: stage_agent_result(
+                            team_id=self.team.id,
+                            evaluation_id=evaluation.id,
+                            task_run_id=self.check.id,
+                            result=AgentMonitoringResult(
+                                evidence_status="sufficient",
+                                evidence_reason="A checkout trace covers the window.",
+                                expectation_matches=True,
+                                explanation="Checkout succeeded.",
+                                evidence_refs=("event:example",),
+                            ),
+                        ),
+                    )
+                    self._assert_write_waits(future)
+                    self.report.status = SignalReport.Status.RESOLVED
+                    self.report.save(update_fields=["status"])
+                with self.assertRaises(InvalidMonitoringResult):
+                    future.result(timeout=10)
+        evaluation.refresh_from_db()
+        assert evaluation.output is None
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
 
     @parameterized.expand([(False,), (True,)])
     def test_stopping_monitoring_rejects_a_verdict_waiting_for_the_report_lock(self, bulk: bool) -> None:

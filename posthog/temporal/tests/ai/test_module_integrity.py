@@ -91,6 +91,7 @@ class TestSignalsProductModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected signals product workflows are present."""
         expected_workflows = [
+            "MonitoringAgentWorkflow",
             "UpdateSignalSpendWorkflow",
             "GenerateScoutRubricsWorkflow",
             "BackfillErrorTrackingWorkflow",
@@ -126,6 +127,8 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "run_monitoring_agent_activity",
+            "finish_monitoring_agent_activity",
             "update_signal_spend_activity",
             "confirm_signal_spend_activity",
             "publish_report_spend_activity",

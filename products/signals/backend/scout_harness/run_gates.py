@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from enum import Enum
+from uuid import UUID
 
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -67,7 +68,11 @@ class ScoutRunRejection:
 
 
 def check_fleet_gates(
-    team_id: int, *, check_run_budget: bool = True, requested_runs: int = 1
+    team_id: int,
+    *,
+    check_run_budget: bool = True,
+    requested_runs: int = 1,
+    exclude_monitoring_evaluation_id: UUID | None = None,
 ) -> ScoutRunRejection | None:
     """The fleet-level controls the scheduled coordinator enforces, applied to an off-schedule run.
 
@@ -93,7 +98,11 @@ def check_fleet_gates(
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
     if per_day is not None:
-        runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
+        runs_today = _runs_today_by_team(
+            {team_id},
+            timezone.now() - DAILY_BUDGET_WINDOW,
+            exclude_monitoring_evaluation_id=exclude_monitoring_evaluation_id,
+        ).get(team_id, 0)
         if runs_today + requested_runs > per_day:
             return ScoutRunRejection(
                 kind=ScoutRunRejectionKind.THROTTLED,

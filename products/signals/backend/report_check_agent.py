@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
@@ -202,7 +203,9 @@ def build_check_run_note(check: SignalReportCheck, config: AgentCheckConfig) -> 
     return "\n".join(lines)
 
 
-def _refuse_dispatch(skill_name: str, canonical_team_id: int) -> CheckDispatchRefusal | None:
+def _refuse_dispatch(
+    skill_name: str, canonical_team_id: int, *, monitoring_evaluation_id: UUID | None = None
+) -> CheckDispatchRefusal | None:
     """The gates between a due check and a scout run, applied in order of cost.
 
     A check run is an ordinary scout run once it starts, so it honours every control the scheduled
@@ -211,7 +214,7 @@ def _refuse_dispatch(skill_name: str, canonical_team_id: int) -> CheckDispatchRe
     can actually run, which the coordinator gets from the schedule and this path has to check for
     itself.
     """
-    fleet_rejection = check_fleet_gates(canonical_team_id)
+    fleet_rejection = check_fleet_gates(canonical_team_id, exclude_monitoring_evaluation_id=monitoring_evaluation_id)
     if fleet_rejection is not None:
         # Not enrolled is permanent for this check's horizon; the daily budget is not.
         return CheckDispatchRefusal(

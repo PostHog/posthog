@@ -15,9 +15,11 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, F, Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -27,7 +29,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalReportAgentEvaluation, SignalScoutRun
 from products.signals.backend.scout_harness.limits import (
     COORDINATOR_INTERVAL_MINUTES,
     MAX_DISPATCH_SMEAR_SECONDS,
@@ -734,13 +736,14 @@ def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[st
     return seed_config_layers, withheld
 
 
-def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int, int]:
+def _runs_today_by_team(
+    team_ids: set[int], window_start: datetime, *, exclude_monitoring_evaluation_id: UUID | None = None
+) -> dict[int, int]:
     """Scout runs dispatched per team within the trailing daily-budget window.
 
-    Counts `SignalScoutRun` bridge rows (created at run start), so the budget tracks runs that
-    actually happened — the durable, cost-relevant signal. Uses the unscoped `all_teams` manager,
-    matching the coordinator's other cross-team reads. A run dispatched this tick but not yet
-    started isn't counted until its row lands; the per-tick cap bounds that brief window.
+    Bound Monitoring runs share the scout budget without acquiring scout write capabilities.
+    A queued task excludes its own reservation when it rechecks the budget before starting.
+    Pending dispatches without a bound TaskRun do not consume the budget.
     """
     if not team_ids:
         return {}
@@ -749,7 +752,21 @@ def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int,
         .values("team_id")
         .annotate(n=Count("id"))
     )
-    return {row["team_id"]: row["n"] for row in rows}
+    counts = {row["team_id"]: row["n"] for row in rows}
+    monitoring = SignalReportAgentEvaluation.objects.unscoped().filter(
+        Q(team_id__in=team_ids) | Q(team__parent_team_id__in=team_ids),
+        bound_at__gte=window_start,
+    )
+    if exclude_monitoring_evaluation_id is not None:
+        monitoring = monitoring.exclude(id=exclude_monitoring_evaluation_id)
+    for row in (
+        monitoring.annotate(canonical_team_id=Coalesce(F("team__parent_team_id"), F("team_id")))
+        .values("canonical_team_id")
+        .annotate(n=Count("id"))
+    ):
+        team_id = row["canonical_team_id"]
+        counts[team_id] = counts.get(team_id, 0) + row["n"]
+    return counts
 
 
 def _canonicalize_team_config_keys(team_configs: dict[int, dict]) -> dict[int, dict]:
