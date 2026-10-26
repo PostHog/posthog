@@ -11,18 +11,16 @@ import { urls } from 'scenes/urls'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
-import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { scannerLabel } from '../../utils/observation'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { WATCH_GROUP_PREVIEW_SIZE, type WatchFeedGroupLogicProps, watchFeedGroupLogic } from '../watchFeedGroupLogic'
-import { observationKeyMomentMs, watchCardHeadline, watchStartSeconds } from './WatchFeedCard'
+import { observationKeyMomentMs, watchCardHeadline, watchFeedObservationUrl } from './WatchFeedCard'
 
 function WatchFeedGroupMember({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     const keyMomentMs = observationKeyMomentMs(observation)
-    const url = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: watchStartSeconds(keyMomentMs),
-        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
-    }).url
+    const url = watchFeedObservationUrl(observation)
+    const captureOpened = (target: string) => (): void =>
+        posthog.capture('replay_vision_watch_group_member_opened', { target })
     const person = observation.recording_subject_email || observation.distinct_id
     const title = watchCardHeadline(observation)?.title ?? scannerLabel(observation)
     return (
@@ -30,7 +28,7 @@ function WatchFeedGroupMember({ observation }: { observation: ReplayObservationA
             <Link
                 to={url}
                 className="w-24 shrink-0 overflow-hidden rounded border border-primary"
-                onClick={() => posthog.capture('replay_vision_watch_group_member_opened', { target: 'thumbnail' })}
+                onClick={captureOpened('thumbnail')}
             >
                 <ObservationThumbnail observation={observation} className="rounded-none border-0" />
             </Link>
@@ -39,7 +37,7 @@ function WatchFeedGroupMember({ observation }: { observation: ReplayObservationA
                     to={url}
                     className="truncate text-sm font-medium text-default"
                     title={title}
-                    onClick={() => posthog.capture('replay_vision_watch_group_member_opened', { target: 'title' })}
+                    onClick={captureOpened('title')}
                 >
                     {title}
                 </Link>
@@ -55,7 +53,7 @@ function WatchFeedGroupMember({ observation }: { observation: ReplayObservationA
                 icon={<IconPlayFilled />}
                 to={url}
                 tooltip="Watch session"
-                onClick={() => posthog.capture('replay_vision_watch_group_member_opened', { target: 'watch' })}
+                onClick={captureOpened('watch')}
             >
                 {keyMomentMs !== null ? colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null) : null}
             </LemonButton>
@@ -101,11 +99,10 @@ export function WatchFeedGroupList({
     if (!expanded) {
         return null
     }
-    const shown = members ?? []
     return (
         // Sits above the card's full-size link, so a click here never opens the card's own session.
         <div className="relative z-10 flex flex-col gap-3 border-t pt-3" data-attr="vision-watch-feed-group">
-            {membersLoading && shown.length === 0 ? (
+            {membersLoading ? (
                 <div className="flex flex-col gap-3" aria-busy>
                     {Array.from({ length: Math.min(similarCount, 3) }, (_, i) => (
                         <LemonSkeleton key={i} className="h-14 rounded" />
@@ -118,11 +115,11 @@ export function WatchFeedGroupList({
                         Try again
                     </LemonButton>
                 </div>
-            ) : shown.length === 0 ? (
+            ) : members.length === 0 ? (
                 <p className="m-0 text-sm text-secondary">The similar sessions are outside this time range.</p>
             ) : (
                 <ul className="m-0 flex list-none flex-col gap-3 p-0">
-                    {shown.map((member) => (
+                    {members.map((member) => (
                         <WatchFeedGroupMember key={member.id} observation={member} />
                     ))}
                 </ul>

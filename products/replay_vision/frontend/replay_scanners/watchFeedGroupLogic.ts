@@ -54,7 +54,8 @@ export const WATCH_GROUP_PREVIEW_SIZE = 5
 export const watchFeedGroupLogic = kea<watchFeedGroupLogicType>([
     path((key) => ['products', 'replay_vision', 'frontend', 'replay_scanners', 'watchFeedGroupLogic', key]),
     props({} as WatchFeedGroupLogicProps),
-    key((props) => props.observationId),
+    // The window is part of the key, so a range change lists that range's sessions rather than the cached ones.
+    key((props) => `${props.observationId}:${props.dateFrom}`),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
     })),
@@ -75,7 +76,6 @@ export const watchFeedGroupLogic = kea<watchFeedGroupLogicType>([
                     const page = await visionScannersObservationsList(String(values.currentTeamId), props.scannerId, {
                         watch_group: props.observationId,
                         date_from: props.dateFrom,
-                        status: 'succeeded',
                         limit: WATCH_GROUP_PREVIEW_SIZE + 1,
                     })
                     // The card's own session already sits above the list.

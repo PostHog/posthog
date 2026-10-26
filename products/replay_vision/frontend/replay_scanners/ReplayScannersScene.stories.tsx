@@ -1231,37 +1231,51 @@ export const HomeWatchFeedJevArm: StoryObj = {
     ],
 }
 
-// The embedding ranker arm: each pick names its category, and the first stands for three similar sessions.
 // The other sessions in the first embedding card's duplicate group, as the scanner's observation list returns them.
 const checkoutGroupMembers = [
-    ['bob@example.com', 'The card form rejected a valid card twice, then the user switched cards.', 2, 98000],
-    ['carol@example.com', 'A valid card failed with a generic error before the user gave up.', 5, 212000],
-    ['dan@example.com', 'The card form cleared itself after a failed charge and the user retyped it.', 9, 41000],
-    ['erin@example.com', 'The payment step rejected the card and the user left checkout.', 26, 305000],
-    ['frank@example.com', 'The user retried a declined card three times in a row.', 50, null],
-].map(([email, reasoning, hoursAgo, keyMomentMs], index) =>
+    {
+        email: 'bob@example.com',
+        reasoning: 'The card form rejected a valid card twice, then the user switched cards.',
+        hoursAgo: 2,
+        keyMomentMs: 98000,
+    },
+    {
+        email: 'carol@example.com',
+        reasoning: 'A valid card failed with a generic error before the user gave up.',
+        hoursAgo: 5,
+        keyMomentMs: 212000,
+    },
+    {
+        email: 'dan@example.com',
+        reasoning: 'The card form cleared itself after a failed charge and the user retyped it.',
+        hoursAgo: 9,
+        keyMomentMs: 41000,
+    },
+    {
+        email: 'erin@example.com',
+        reasoning: 'The payment step rejected the card and the user left checkout.',
+        hoursAgo: 26,
+        keyMomentMs: 305000,
+    },
+    {
+        email: 'frank@example.com',
+        reasoning: 'The user retried a declined card three times in a row.',
+        hoursAgo: 50,
+        keyMomentMs: null,
+    },
+].map(({ email, reasoning, hoursAgo, keyMomentMs }, index) =>
     observation({
         id: `00000000-0000-0000-0000-0000000000c${index}`,
         scanner_id: scanners.results[0].id,
-        recording_subject_email: email as string,
-        created_at: dayjs('2026-05-11T09:00:00Z')
-            .subtract(hoursAgo as number, 'hour')
-            .toISOString(),
-        scanner_snapshot: {
-            name: 'Confused checkout',
-            scanner_type: 'monitor',
-            scanner_version: 1,
-            model: 'gemini-3.8-flash',
-            provider: 'google',
-            emits_signals: true,
-            scanner_config: { prompt: 'Did the user hesitate at checkout?' },
-        },
+        recording_subject_email: email,
+        created_at: dayjs('2026-05-11T09:00:00Z').subtract(hoursAgo, 'hour').toISOString(),
+        scanner_snapshot: { ...observation().scanner_snapshot!, name: 'Confused checkout', scanner_type: 'monitor' },
         scanner_result: {
             model_output: {
                 scanner_type: 'monitor',
                 verdict: 'yes',
                 confidence: 0.9,
-                reasoning: reasoning as string,
+                reasoning,
                 ...(keyMomentMs !== null ? { key_moment_ms: keyMomentMs } : {}),
             },
             signals_count: 0,
@@ -1269,6 +1283,7 @@ const checkoutGroupMembers = [
     })
 )
 
+// The embedding ranker arm: each pick names its category, and the first stands for seven similar sessions.
 export const HomeWatchFeedEmbeddingArm: StoryObj = {
     decorators: [
         mswDecorator({

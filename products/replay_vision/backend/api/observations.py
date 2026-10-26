@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, IntegerField, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Coalesce
 from django.http.response import HttpResponseBase
@@ -903,20 +903,24 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_watch_group(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
     ) -> QuerySet[ReplayObservation]:
-        # The same root expression and predicates as the partial `rlo_ranked_group_idx`, so the lookup can use it.
-        ranked = queryset.alias(
-            _watch_group_root=Coalesce(
-                KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
-            ),
-            _watch_category=KeyTextTransform("category", "watch_rank"),
-        ).filter(
+        root = Coalesce(
+            KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
+        )
+        current = Q(
             status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
         )
-        root = ranked.filter(id=value).annotate(_root=F("_watch_group_root")).values_list("_root", flat=True).first()
-        if root is None:
-            return queryset.none()
+        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
+        asked_root = Subquery(
+            ReplayObservation.objects.filter(current, id=value, team_id=OuterRef("team_id"))
+            .annotate(_root=root)
+            .values("_root")[:1]
+        )
         # Matches the rows the feed counts for a card, which leaves out routine rows.
-        return ranked.filter(_watch_group_root=root, _watch_category__in=ISSUE_CATEGORIES)
+        return (
+            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
+            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
+            .filter(_watch_group_root=asked_root)
+        )
 
     def _filter_variant(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str

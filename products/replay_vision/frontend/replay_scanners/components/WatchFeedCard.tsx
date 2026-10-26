@@ -180,6 +180,14 @@ export function watchStartSeconds(keyMomentMs: number | null): number {
     return keyMomentMs === null ? 0 : Math.max(0, Math.floor(keyMomentMs / 1000) - KEY_MOMENT_LEAD_IN_S)
 }
 
+/** The observation page. `t` is always set, so the player opens expanded, and `from` makes the back button return to the feed. */
+export function watchFeedObservationUrl(observation: ReplayObservationApi): string {
+    return combineUrl(urls.replayVisionObservation(observation.id), {
+        t: watchStartSeconds(observationKeyMomentMs(observation)),
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
+}
+
 /**
  * The card's bold headline, plus the prose that follows it. A summarizer authored a title, so its
  * summary rides along whole (with citation chips). Otherwise the first sentence of the prose the
@@ -388,12 +396,7 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const scannerName = scannerLabel(observation)
     const person = observation.recording_subject_email || observation.distinct_id
     const keyMomentMs = observationKeyMomentMs(observation)
-    // `t` is always set, so the observation page opens with the player expanded. `from` marks the feed as
-    // the origin, so the observation's back button returns here rather than the scanner.
-    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: watchStartSeconds(keyMomentMs),
-        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
-    }).url
+    const observationUrl = watchFeedObservationUrl(observation)
     const title = watchFeedRowTitle(observation, reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
