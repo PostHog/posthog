@@ -465,6 +465,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
+        expect(result.renderUiEnabled).toBe(false)
         expect(props.mode).toBe('cli')
     })
 
@@ -546,8 +547,18 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
     })
 
-    it('puts Claude web/desktop in single-exec and enables render-ui', async () => {
-        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
+    it.each([
+        { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
+        { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'Cowork' },
+        { mcpClientName: 'codex' },
+        { mcpClientName: 'Codex CLI' },
+        { mcpClientName: 'ChatGPT' },
+        { mcpClientName: 'openai-mcp' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+    ])('puts UI host %j in single-exec and enables render-ui', async (clientProps) => {
+        const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(true)

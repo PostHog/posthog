@@ -25,9 +25,8 @@
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Desktop Tasks wrapper.
  *
- * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
- *   that render interactive UI (iframes). Used to advertise the `render-ui`
- *   tool to them.
+ * - `isRenderUiHost()` matches the clients that receive the `render-ui` tool:
+ *   Claude web/desktop, Cowork, Codex, ChatGPT, and the shared OpenAI MCP client.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
@@ -204,6 +203,8 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
+const RENDER_UI_CLIENT_FRAGMENTS = ['codex', 'chatgpt', 'openai-mcp'] as const
+
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
@@ -314,6 +315,14 @@ export class MCPClientProfile {
 
     isPostHogCodeConsumer(): boolean {
         return this.consumer === POSTHOG_CODE_CONSUMER
+    }
+
+    isRenderUiHost(): boolean {
+        return (
+            this.isClaudeUiHost() ||
+            matchesAnyFragment(this.clientName, RENDER_UI_CLIENT_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, RENDER_UI_CLIENT_FRAGMENTS)
+        )
     }
 
     isClaudeUiHost(): boolean {

@@ -310,6 +310,14 @@ after ten minutes and are bound to the authenticated user, PostHog instance, inv
 token. They remain valid after project changes or flag changes because they cannot execute a tool.
 Duplicate, expired, and mismatched replies do not update suppression or emit response events.
 
+## MCP UI hosts
+
+In CLI mode, Claude web and desktop, Cowork, Codex, and ChatGPT receive a separate `render-ui` tool beside `exec`.
+The server offers `render-ui` only when a tool with a UI app is available.
+`MCPClientProfile.isRenderUiHost()` identifies these clients from the existing Claude detection, the client name, or the user agent.
+The OpenAI check includes the shared `openai-mcp` client because requests can omit the product name and share a cached tool list.
+This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
+
 ## Claude web and desktop exec schema budget
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
