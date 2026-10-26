@@ -51,15 +51,10 @@ interface HighlightProps extends Omit<useRender.ComponentProps<'mark'>, 'color'>
     delay?: number
 }
 
-function Highlight({
-    className,
-    color = 'orange',
-    animate = false,
-    duration,
-    delay = 0,
-    render,
-    ...props
-}: HighlightProps): React.ReactElement {
+const Highlight = React.forwardRef<HTMLElement, HighlightProps>(function Highlight(
+    { className, color = 'orange', animate = false, duration, delay = 0, render, ...props },
+    ref
+) {
     const elementRef = React.useRef<HTMLElement>(null)
     const reducedMotion = useReducedMotion()
     const strokes = animate && !reducedMotion
@@ -73,7 +68,11 @@ function Highlight({
         }
         // Re-arm when `animate` turns back on after an earlier stroke.
         setStroke(WAITING)
-        const draw = (): void => setStroke({ phase: 'drawing', durationMs: strokeDuration(element.textContent ?? '') })
+        const draw = (): void =>
+            setStroke({
+                phase: 'drawing',
+                durationMs: strokeDuration(element.textContent ?? ''),
+            })
         if (typeof IntersectionObserver === 'undefined') {
             draw()
             return
@@ -90,7 +89,7 @@ function Highlight({
 
     return useRender({
         defaultTagName: 'mark',
-        ref: elementRef,
+        ref: [elementRef, ref],
         props: mergeProps<'mark'>(
             {
                 'data-quill': '',
@@ -117,7 +116,7 @@ function Highlight({
             phase: stroke.phase,
         },
     })
-}
+})
 
 export { Highlight, highlightVariants }
 export type { HighlightColor, HighlightProps }

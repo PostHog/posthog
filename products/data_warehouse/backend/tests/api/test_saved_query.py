@@ -13,16 +13,19 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -34,11 +37,17 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query.editing import DataWarehouseSavedQuerySerializer
+from products.data_warehouse.backend.presentation.views.saved_query.editing import (
+    INCREMENTAL_CONFIG_CHANGED_REFUSAL,
+    DataWarehouseSavedQuerySerializer,
+    _capture_unless_user_error,
+)
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
+    SavedQueryRunSerializer,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -1480,58 +1489,6 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
 
-    def test_create_with_saved_query(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events",
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, 201, response.content)
-        saved_query_id = response.json()["id"]
-        paths = list(DataWarehouseModelPath.objects.filter(saved_query_id=saved_query_id).all())
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(["events", uuid.UUID(saved_query_id).hex], paths[0].path)
-
-    def test_create_with_nested_saved_query(self):
-        response_1 = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events",
-                },
-            },
-        )
-        self.assertEqual(response_1.status_code, 201, response_1.content)
-
-        response_2 = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view_2",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from event_view",
-                },
-            },
-        )
-        self.assertEqual(response_2.status_code, 201, response_1.content)
-
-        saved_query_id_hex_1 = uuid.UUID(response_1.json()["id"]).hex
-        saved_query_id_hex_2 = uuid.UUID(response_2.json()["id"]).hex
-
-        paths = [model_path.path for model_path in DataWarehouseModelPath.objects.all()]
-        self.assertEqual(len(paths), 3)
-        self.assertIn(["events"], paths)
-        self.assertIn(["events", saved_query_id_hex_1], paths)
-        self.assertIn(["events", saved_query_id_hex_1, saved_query_id_hex_2], paths)
-
     def test_ancestors(self):
         query = """\
           select
@@ -1745,10 +1702,7 @@ class TestSavedQuery(APIBaseTest):
         child_ancestors = response.json()["descendants"]
         self.assertEqual(child_ancestors, [])
 
-    def test_ancestors_identify_warehouse_and_cross_dag_nodes_by_id(self):
-        # An imported warehouse table and a cross-DAG proxy are lineage nodes with no saved_query
-        # FK; the id lives in properties. Both must be returned by id, not by name, so the answer
-        # stays resolvable for a caller. These node shapes mirror resolve_dependency_to_node.
+    def test_ancestors_identify_warehouse_table_nodes_by_id(self):
         dag = DAG.get_or_create_default(self.team)
         consumer = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -1757,7 +1711,6 @@ class TestSavedQuery(APIBaseTest):
             created_by=self.user,
         )
         consumer_node = Node.objects.create(team=self.team, saved_query=consumer, dag=dag, type=NodeType.VIEW)
-
         warehouse_table = DataWarehouseTable.objects.create(
             team=self.team, name="stripe_charges", format="Parquet", url_pattern="s3://bucket/path"
         )
@@ -1768,65 +1721,14 @@ class TestSavedQuery(APIBaseTest):
             type=NodeType.TABLE,
             properties={"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
         )
-
-        revenue_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="revenue_view",
-            query={"kind": "HogQLQuery", "query": "select 1"},
-            created_by=self.user,
-        )
-        proxy_node = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="revenue_view",
-            type=NodeType.TABLE,
-            properties={"origin": "cross_dag_view", "saved_query_id": str(revenue_query.id)},
-        )
-
         Edge.objects.create(team=self.team, dag=dag, source=warehouse_node, target=consumer_node)
-        Edge.objects.create(team=self.team, dag=dag, source=proxy_node, target=consumer_node)
-
-        # The query the proxy stands in for has its real node in the managed DAG, with its own
-        # consumer there. Its descendants must union both: the managed consumer through the real
-        # node and the Default-DAG consumer through the proxy, or the relationship is one-way.
-        managed_dag = DAG.objects.create(team=self.team, name="PostHog Revenue Analytics")
-        revenue_node = Node.objects.create(
-            team=self.team, saved_query=revenue_query, dag=managed_dag, type=NodeType.VIEW
-        )
-        managed_consumer = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="managed_consumer_view",
-            query={"kind": "HogQLQuery", "query": "select 1"},
-            created_by=self.user,
-        )
-        managed_consumer_node = Node.objects.create(
-            team=self.team, saved_query=managed_consumer, dag=managed_dag, type=NodeType.VIEW
-        )
-        Edge.objects.create(team=self.team, dag=managed_dag, source=revenue_node, target=managed_consumer_node)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{consumer.id}/ancestors",
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            sorted(response.json()["ancestors"]),
-            sorted([str(warehouse_table.id), str(revenue_query.id)]),
-        )
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/descendants",
-        )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            sorted(response.json()["descendants"]),
-            sorted([str(consumer.id), str(managed_consumer.id)]),
-        )
-
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/{revenue_query.id}/dependencies",
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json(), {"upstream_count": 0, "downstream_count": 2})
+        self.assertEqual(response.json()["ancestors"], [str(warehouse_table.id)])
 
     def test_descendants_omit_a_metric_that_reads_the_view(self):
         dag = DAG.get_or_create_default(self.team)
@@ -2161,18 +2063,33 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.is_materialized = True
 
         mock_table = DataWarehouseTable.objects.create(
-            team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
+            team=self.team, name="event_view", format="Parquet", url_pattern="s3://bucket/path"
         )
         db_saved_query.table = mock_table
         db_saved_query.save()
-
-        DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
+        Node.objects.filter(saved_query=db_saved_query).update(type=NodeType.MAT_VIEW)
+        view_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="event_view",
+            source_table_key="event",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=db_saved_query).values_list("type", flat=True)), [NodeType.VIEW]
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=saved_query_id, activity="materialization_disabled"
+            ).exists()
+        )
 
         db_saved_query.refresh_from_db()
         self.assertIsNone(db_saved_query.sync_frequency_interval)
@@ -2185,13 +2102,8 @@ class TestSavedQuery(APIBaseTest):
         # Check the table has been deleted
         mock_table.refresh_from_db()
         self.assertTrue(mock_table.deleted)
-
-        self.assertEqual(
-            DataWarehouseModelPath.objects.filter(
-                team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
-            ).count(),
-            0,
-        )
+        view_join.refresh_from_db()
+        self.assertFalse(view_join.deleted)
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(
@@ -2754,6 +2666,36 @@ class TestSavedQuery(APIBaseTest):
 
                 cache.clear()
 
+    def test_a_query_edit_is_refused_when_the_incremental_settings_changed_after_the_view_was_read(self) -> None:
+        stored_config = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="daily_counts",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
+            },
+            created_by=self.user,
+        )
+        new_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+        }
+
+        def store_config_concurrently(*_args: object, **_kwargs: object) -> dict:
+            DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=stored_config)
+            return {"day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "valid": True}}
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=store_config_concurrently):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{view.id}",
+                {"query": new_query, "edited_history_id": str(view.query_revision)},
+            )
+
+        view.refresh_from_db()
+        assert (response.status_code, response.json()["detail"]) == (400, INCREMENTAL_CONFIG_CHANGED_REFUSAL)
+        assert view.query != new_query
+
 
 class TestSavedQueryNameValidation(SimpleTestCase):
     def test_unchanged_legacy_root_name_is_allowed_by_serializer(self) -> None:
@@ -2796,6 +2738,24 @@ class TestSavedQueryNameValidation(SimpleTestCase):
         assert error.exception.messages == [
             "The system namespace is reserved for built-in tables. Choose a different view name."
         ]
+
+
+class TestCaptureUnlessUserError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_identifier", wrap_clickhouse_query_error(ServerException("Unknown identifier", code=47)), False),
+            ("exposed_ch_error", wrap_clickhouse_query_error(ServerException("Bad argument", code=43)), False),
+            ("exposed_hogql_error", ExposedHogQLError("Unknown table"), False),
+            ("internal_ch_error", CHQueryErrorS3Error("S3 failed", code=499), True),
+            ("unexpected_error", ValueError("boom"), True),
+        ]
+    )
+    def test_captures_only_errors_the_user_did_not_cause(self, _name: str, error: Exception, captured: bool) -> None:
+        with patch(
+            "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+        ) as mock_capture:
+            _capture_unless_user_error(error)
+        assert mock_capture.called is captured
 
 
 class TestSavedQueryModelsNamespaceGuard(BaseTest):
@@ -2850,6 +2810,14 @@ class TestMaterializeRequestBody(SimpleTestCase):
         assert "sync_frequency" in serializer.errors
 
 
+class TestSavedQueryRunRequestBody(SimpleTestCase):
+    def test_related_run_rejects_full_refresh(self):
+        serializer = SavedQueryRunSerializer(data={"direction": "upstream", "full_refresh": True})
+
+        assert not serializer.is_valid()
+        assert "full_refresh" in serializer.errors
+
+
 class TestResumeSchedulesRequestBody(SimpleTestCase):
     @parameterized.expand(
         [
@@ -2884,7 +2852,7 @@ class TestSavedQueryRun(APIBaseTest):
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_materializes_node(self, mock_sync_connect):
-        saved_query, _dag, _node = self._make_saved_query_with_node("v2_view")
+        saved_query, _dag, node = self._make_saved_query_with_node("v2_view")
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 
@@ -2893,8 +2861,68 @@ class TestSavedQueryRun(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["node_ids"], [str(node.id)])
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+
+    @parameterized.expand([("upstream",), ("downstream",)])
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_dependencies(self, direction, mock_sync_connect):
+        saved_query, dag, node = self._make_saved_query_with_node(f"{direction}_view")
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{direction}_related",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        related_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            saved_query=related_saved_query,
+            type=NodeType.VIEW,
+        )
+        source, target = (related_node, node) if direction == "upstream" else (node, related_node)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            {"direction": direction},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(set(response.json()["node_ids"]), {str(node.id), str(related_node.id)})
+        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(mock_client.start_workflow.call_args.args[0], "data-modeling-execute-dag")
+        self.assertEqual(
+            set(mock_client.start_workflow.call_args.args[1]["node_ids"]),
+            {str(node.id), str(related_node.id)},
+        )
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):
+        saved_query, dag, node = self._make_saved_query_with_node("readable_view")
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="read_only_dependent",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=NodeType.VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=node, target=related_node)
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level, **_: obj.id != related_saved_query.id,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"direction": "downstream"},
+            )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_without_backing_node_reports_the_failure(self, mock_sync_connect):

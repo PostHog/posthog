@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TinyemailSource(SimpleSource[TinyemailSourceConfig]):
+    codebase_detection = detect(env=("^TINYEMAIL_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.tinyemail.com/docs/tiny-email/tinyemail"
 
@@ -66,7 +69,7 @@ You can generate an API key in tinyEmail under **My account → API keys**. Note
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

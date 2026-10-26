@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -12,10 +10,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
-import { ExperimentHealthDebug } from 'products/experiments/frontend/health/ExperimentHealthDebug'
+import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debug/ExperimentHealthDebug'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
-import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
+import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { MetricSourceModal } from 'products/experiments/frontend/modals/MetricSourceModal/MetricSourceModal'
@@ -44,22 +42,11 @@ import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 
 const MetricsTab = (): JSX.Element => {
-    const {
-        experiment,
-        orderedPrimaryMetricsWithResults,
-        orderedSecondaryMetricsWithResults,
-        isExperimentLaunched,
-        healthFindings,
-        browserNoMetricsWarning,
-    } = useValues(experimentLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
-    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
+    const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
+        useValues(experimentLogic)
 
     // With health findings, the health panel above the tabs shows the "No metrics defined" and bias warnings.
     const showsHealthPanel = healthFindings !== null
@@ -75,8 +62,6 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <ResultsNotificationBanner />
-
             <div className="w-full mb-4 flex flex-col gap-4">
                 <Hypothesis />
                 <div>
@@ -85,7 +70,7 @@ const MetricsTab = (): JSX.Element => {
                 </div>
             </div>
 
-            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
+            {hasMetrics && <RecalculationStatus experiment={experiment} />}
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
@@ -169,9 +154,9 @@ export function ExperimentView(): JSX.Element {
     }
 
     // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
-    // feature tabs (Recordings, User feedback), audit trail (History). Which of these actually
-    // render is resolved by experimentSceneLogic's availableTabs, so the tab set, the URL, and the
-    // tracked tab stay in agreement.
+    // feature tabs (Recordings, User feedback), audit trail (History), staff debugging (Health debug).
+    // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
+    // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
             { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
@@ -185,6 +170,7 @@ export function ExperimentView(): JSX.Element {
                 label: 'History',
                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
             },
+            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
         ] satisfies LemonTab<ExperimentTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
 
@@ -212,7 +198,6 @@ export function ExperimentView(): JSX.Element {
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHealthPanel />
-                    <ExperimentHealthDebug />
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden

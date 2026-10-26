@@ -148,7 +148,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
                 page.waitForResponse(
                     (resp) => resp.url().includes('/evaluations/') && resp.request().method() === 'POST'
                 ),
-                page.getByRole('button', { name: 'Create evaluation' }).click(),
+                page.getByTestId('llma-evaluation-save-bottom').click(),
             ])
             await expect(page).toHaveURL(/\/ai-evals\/evaluations$/, { timeout: 30_000 })
             const created = await createResponse.json()
@@ -176,7 +176,7 @@ test.describe('AI observability boolean evaluation polarity', () => {
                 'aria-checked',
                 'false'
             )
-            await page.getByRole('button', { name: 'Save changes' }).click()
+            await page.getByTestId('llma-evaluation-save-bottom').click()
             await expect(page).toHaveURL(/\/ai-evals\/evaluations$/, { timeout: 30_000 })
 
             await gotoEvalA()

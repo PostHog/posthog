@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UservoiceSource(ResumableSource[UservoiceSourceConfig, UservoiceResumeConfig]):
+    codebase_detection = detect(
+        env=("^USERVOICE_",), script_hosts=("widget.uservoice.com",), pypi=("uservoice",), rubygems=("uservoice-ruby",)
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,7 +57,7 @@ class UservoiceSource(ResumableSource[UservoiceSourceConfig, UservoiceResumeConf
             name=ExternalDataSourceType.USERVOICE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="UserVoice",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your UserVoice account subdomain and API access token to pull your UserVoice data into the PostHog Data warehouse.
 
 Create a trusted API client under **Settings → Channels → Add API Client** in your UserVoice Admin Console, then generate an access token to use here. The token has admin-level read access to your account's feedback data.""",

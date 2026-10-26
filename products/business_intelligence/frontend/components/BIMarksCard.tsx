@@ -1,37 +1,80 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ChartDisplayType } from '~/types'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
-import { getChartTypeOptions } from 'products/business_intelligence/frontend/biEditorOptions'
+import { getBIFieldPillLabel, isDateTimeBIField } from 'products/business_intelligence/frontend/biEditorTypes'
 import { BIShelfCard } from 'products/business_intelligence/frontend/components/BIShelfCard'
 
 import { BIMeasureAnalysis } from '../BIMeasureAnalysis'
+import { getBIChartFields } from '../biPaneConfig'
+import { BIPaneControls } from '../BIPaneControls'
+import { getBIScatterAxisOptions } from '../biScatter'
+import { biSceneLogic } from '../biSceneLogic'
 
 export function BIMarksCard(): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { setChartType, combineMeasures } = useActions(biEditorLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { combineMeasures, setColorBy } = useActions(biEditorLogic)
+    const { worksheet } = useValues(biSceneLogic)
+    const { setScatterAxis } = useActions(biSceneLogic)
+    const scatter = config.chartType === ChartDisplayType.ScatterPlot
+    const measures = getBIScatterAxisOptions(config)
 
     return (
-        <BIShelfCard title="Marks">
+        <BIShelfCard title="Series">
+            {scatter && (
+                <>
+                    <LemonLabel className="text-xs">X axis</LemonLabel>
+                    <LemonSelect
+                        fullWidth
+                        size="xsmall"
+                        value={worksheet.chartSettings?.xAxis?.column ?? ''}
+                        options={measures}
+                        onChange={(column) => setScatterAxis('x', column)}
+                        data-attr="bi-scatter-x-measure"
+                    />
+                    <LemonLabel className="mt-2 text-xs">Y axis</LemonLabel>
+                    <LemonSelect
+                        fullWidth
+                        size="xsmall"
+                        value={worksheet.chartSettings?.yAxis?.[0]?.column ?? ''}
+                        options={measures.filter((measure) => measure.value !== worksheet.chartSettings?.xAxis?.column)}
+                        onChange={(column) => setScatterAxis('y', column)}
+                        data-attr="bi-scatter-y-measure"
+                    />
+                    <p className="my-2 text-xs text-secondary">
+                        {config.rows.length + config.columns.length
+                            ? `One point per ${[...config.rows, ...config.columns].map(getBIFieldPillLabel).join(' × ')}. Add detail dimensions to Rows or Columns.`
+                            : 'One point across all matching rows. Add dimensions to Rows or Columns to define point detail.'}
+                    </p>
+                </>
+            )}
+            <LemonLabel className="mt-2 text-xs">Color</LemonLabel>
             <LemonSelect
-                value={config.chartType}
-                options={getChartTypeOptions(featureFlags).map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                    icon: option.icon,
-                }))}
-                onChange={setChartType}
+                value={config.colorBy === undefined ? '__automatic' : config.colorBy}
+                options={[
+                    { value: '__automatic', label: 'Automatic colors' },
+                    { value: null, label: 'Single color' },
+                    ...((scatter || getBIChartFields(config).length === 2) && !config.compareFilter?.compare
+                        ? getBIChartFields(config)
+                              .filter((field) => !isDateTimeBIField(field))
+                              .map((field) => ({ value: field.id, label: `By ${getBIFieldPillLabel(field)}` }))
+                        : []),
+                ]}
+                onChange={(colorBy) => setColorBy(colorBy === '__automatic' ? undefined : colorBy)}
+                aria-label="Color series by"
                 size="xsmall"
                 fullWidth
-                aria-label="Mark type"
-                data-attr="bi-editor-mark-type"
-                tooltip="Change how measures on Rows are displayed"
+                data-attr="bi-editor-color-by"
             />
-            {config.values.length === 2 ? (
+            <span className="text-xs text-secondary">
+                {scatter
+                    ? 'Every shelf dimension contributes to point detail, including the color dimension.'
+                    : 'Shelves define the groups. Color changes how series are distinguished.'}
+            </span>
+            {config.values.length === 2 && !scatter ? (
                 <LemonButton
                     size="xsmall"
                     fullWidth
@@ -49,6 +92,7 @@ export function BIMarksCard(): JSX.Element {
             {config.values.map((_, index) => (
                 <BIMeasureAnalysis key={index} index={index} />
             ))}
+            <BIPaneControls />
         </BIShelfCard>
     )
 }

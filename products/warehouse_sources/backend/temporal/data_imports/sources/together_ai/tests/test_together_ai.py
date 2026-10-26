@@ -1,73 +1,41 @@
-import json
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai import together_ai
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.togetherai import (
+    TogetherAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.settings import TOGETHER_AI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.source import TogetherAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.together_ai.together_ai import (
     TOGETHER_AI_BASE_URL,
     get_status_code,
-    together_ai_source,
 )
 
-# RESTClient builds its request session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# Neutralize tenacity's backoff sleeps so the retry path runs instantly.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+
+def _response(body: Any, status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
 
 
-def _response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and snapshot each request's url/params/auth AT SEND TIME.
-
-    The framework builds a single ``Request`` and mutates it in place across pages, so inspecting it
-    after the run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append(
-            {
-                "method": request.method,
-                "url": request.url,
-                "params": dict(request.params or {}),
-                "auth": request.auth,
-            }
-        )
-        prepared = mock.MagicMock()
-        prepared.url = request.url
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _run(endpoint: str, script: Script, api_key: str = "together_test") -> DriveResult:
+    return SourceDriver(TogetherAISource(), TogetherAISourceConfig(api_key=api_key)).run(endpoint, script)
 
 
 class TestRequests:
     @parameterized.expand([("wrapped_empty", "files", {"data": []}), ("bare_empty", "evaluations", [])])
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_collection_yields_nothing(self, _name: str, endpoint: str, body: Any, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
+    def test_empty_collection_yields_nothing(self, _name: str, endpoint: str, body: Any) -> None:
+        result = _run(endpoint, [_response(body)])
 
-        assert _rows(together_ai_source("together_test", endpoint, team_id=1, job_id="j")) == []
+        assert result.raised is None
+        assert result.rows == []
 
     @parameterized.expand(
         [
@@ -79,90 +47,67 @@ class TestRequests:
             ("bare_string_body", "models", "error"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_unexpected_shape_fails_loud(self, _name: str, endpoint: str, body: Any, MockSession) -> None:
+    def test_unexpected_shape_fails_loud(self, _name: str, endpoint: str, body: Any) -> None:
         # A silently-swallowed shape change would sync an empty table and look like data loss.
-        session = MockSession.return_value
-        _wire(session, [_response(body)])
+        result = _run(endpoint, [_response(body)])
 
-        with pytest.raises(ValueError):
-            _rows(together_ai_source("together_test", endpoint, team_id=1, job_id="j"))
+        assert isinstance(result.raised, ValueError)
 
 
 class TestRetryAndErrorClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_are_retried_then_succeed(self, _name, status_code, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "transient"}, status_code), _response({"data": [{"id": "ft-1"}]})])
+    def test_retryable_statuses_are_retried_then_succeed(self, _name, status_code) -> None:
+        result = _run(
+            "fine_tunes", [_response({"error": "transient"}, status_code), _response({"data": [{"id": "ft-1"}]})]
+        )
 
-        rows = _rows(together_ai_source("together_test", "fine_tunes", team_id=1, job_id="j"))
-
-        assert rows == [{"id": "ft-1"}]
+        assert result.rows == [{"id": "ft-1"}]
         # First attempt hit the retryable status, second attempt succeeded.
-        assert session.send.call_count == 2
+        assert len(result.requests) == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_errors_raise_without_retry(self, _name, status_code, MockSession, _sleep) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "nope"}, status_code)])
+    def test_client_errors_raise_without_retry(self, _name, status_code) -> None:
+        result = _run("fine_tunes", [_response({"error": "nope"}, status_code)])
 
-        with pytest.raises(HTTPError):
-            _rows(together_ai_source("together_test", "fine_tunes", team_id=1, job_id="j"))
+        assert isinstance(result.raised, HTTPError)
+        assert len(result.requests) == 1
 
-        assert session.send.call_count == 1
-
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_does_not_leak_bearer_token(self, MockSession, _sleep) -> None:
+    def test_client_error_does_not_leak_bearer_token(self) -> None:
         # The token rides in the Authorization header (never the URL), and the framework scrubs
         # configured secrets from raised error messages — so it can't reach a stored latest_error.
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "nope"}, 401)])
+        result = _run("fine_tunes", [_response({"error": "nope"}, 401)], api_key="super-secret-key")
 
-        with pytest.raises(HTTPError) as exc_info:
-            _rows(together_ai_source("super-secret-key", "fine_tunes", team_id=1, job_id="j"))
-
-        assert "super-secret-key" not in str(exc_info.value)
+        assert isinstance(result.raised, HTTPError)
+        assert "super-secret-key" not in str(result.raised)
 
 
 class TestGetStatusCode:
     def test_default_probe_hits_files_with_bearer_auth(self) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
-
-        with mock.patch.object(together_ai, "make_tracked_session", return_value=session):
+        with scripted_network([_response({})]) as network:
             status = get_status_code("together_test")
 
         assert status == 200
-        args, kwargs = session.get.call_args
-        assert args[0] == f"{TOGETHER_AI_BASE_URL}/files"
-        assert kwargs["headers"]["Authorization"] == "Bearer together_test"
+        request = network.requests_log[0]
+        assert request.url == f"{TOGETHER_AI_BASE_URL}/files"
+        assert request.headers["authorization"] == "Bearer together_test"
 
     def test_schema_probe_hits_that_endpoint_with_its_params(self) -> None:
-        response = mock.MagicMock()
-        response.status_code = 200
-        session = mock.MagicMock()
-        session.get.return_value = response
-
-        with mock.patch.object(together_ai, "make_tracked_session", return_value=session):
+        with scripted_network([_response({})]) as network:
             get_status_code("together_test", "endpoints")
 
-        args, kwargs = session.get.call_args
-        assert args[0] == f"{TOGETHER_AI_BASE_URL}/endpoints"
-        assert kwargs["params"] == {"type": "dedicated"}
+        request = network.requests_log[0]
+        assert request.path == "/v1/endpoints"
+        assert request.query == {"type": ("dedicated",)}
 
 
 class TestTogetherAISourceResponse:
     @parameterized.expand(list(TOGETHER_AI_ENDPOINTS.keys()))
     def test_source_response_uses_endpoint_primary_keys_and_stable_partition(self, endpoint: str) -> None:
-        response = together_ai_source("together_test", endpoint, team_id=1, job_id="j")
         cfg = TOGETHER_AI_ENDPOINTS[endpoint]
+        result = _run(endpoint, [_response({"data": []} if cfg.data_selector else [])])
+
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == cfg.primary_keys
         # Partition on the stable creation timestamp — never updated_at — so partitions

@@ -61,6 +61,7 @@ describe('autoresearchLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(statusLogicValues()).toBe('unknown')
         expect(logic.values.pipelinesLoadFailed).toBe(true)
+        expect(logic.values.pipelines).toEqual([])
 
         mockList.mockReturnValue(new Promise(() => {}))
         logic.actions.loadPipelines()

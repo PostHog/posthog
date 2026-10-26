@@ -42,10 +42,6 @@ class TestScalewaySource:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(_config(), self.team_id, names=["invoices", "users"])
-        assert {s.name for s in schemas} == {"invoices", "users"}
-
     @parameterized.expand(
         [
             # (probe status, schema_name, expected valid)

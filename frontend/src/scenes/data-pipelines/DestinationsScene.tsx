@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,7 +18,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { DestinationsIncidentReplayBanner } from 'products/cdp/frontend/DestinationsIncidentReplayBanner'
 import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
@@ -64,6 +66,7 @@ const TABS: LemonTab<DestinationsSceneTab>[] = [
 export function DestinationsScene(): JSX.Element {
     const { activeTab } = useValues(destinationsSceneLogic)
     const { setActiveTab } = useActions(destinationsSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const action = (
         <Shortcut
@@ -73,16 +76,28 @@ export function DestinationsScene(): JSX.Element {
             interaction="click"
             scope={Scene.Destinations}
         >
-            <LemonButton
-                type="primary"
-                to={urls.dataPipelinesNew('destination')}
-                icon={<IconPlusSmall />}
-                size="small"
-                tooltip="New destination"
-                data-attr="new-destination"
-            >
-                New destination
-            </LemonButton>
+            {todayRailNav ? (
+                <Button
+                    variant="primary"
+                    render={<LinkPrimitive to={urls.dataPipelinesNew('destination')} />}
+                    tooltip="New destination"
+                    data-attr="new-destination"
+                >
+                    <IconPlus />
+                    New destination
+                </Button>
+            ) : (
+                <LemonButton
+                    type="primary"
+                    to={urls.dataPipelinesNew('destination')}
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    tooltip="New destination"
+                    data-attr="new-destination"
+                >
+                    New destination
+                </LemonButton>
+            )}
         </Shortcut>
     )
 
@@ -96,7 +111,6 @@ export function DestinationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
-            <DestinationsIncidentReplayBanner />
             <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
         </SceneContent>
     )

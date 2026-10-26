@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
+    codebase_detection = detect(env=("^(BING_WEBMASTER_TOOLS|BINGWEBMASTERTOOLS)_",))
+
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
@@ -56,6 +59,14 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
             # A site filter naming a site the account can't see fails every sync until the config
             # changes; the raised message already tells the user how to fix it.
             "not verified sites on the connected account": None,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # Bing's rate-limit fault, raised as `BingWebmasterToolsError` by `_request_payload`.
+            # The key is per API user rather than per request, so a Temporal retry with backoff
+            # normally clears it once the window rolls over; it must not page as a bug.
+            "ERROR!!! ThrottleUser",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -122,7 +133,7 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
 
 Generate an API key in [Bing Webmaster Tools](https://www.bing.com/webmasters) under **Settings > API access > API key**. The key is issued per user and covers every verified site on the account.
 """,
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/bing_webmaster_tools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-webmaster-tools",
             fields=cast(

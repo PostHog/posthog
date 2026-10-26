@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, PluralsightFlowResumeConfig]):
+    codebase_detection = detect(env=("^(PLURALSIGHT_FLOW|PLURALSIGHTFLOW)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802076213/Flow+REST+API+introduction"
 
@@ -129,7 +132,7 @@ class PluralsightFlowSource(ResumableSource[PluralsightFlowSourceConfig, Plurals
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/pluralsight-flow",
             iconPath="/static/services/pluralsight_flow.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["pluralsight", "flow", "gitprime", "engineering"],
             fields=cast(
                 list[FieldType],

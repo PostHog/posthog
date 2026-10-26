@@ -7,11 +7,11 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { useThreadSkin } from 'products/posthog_ai/frontend/api/logics'
 import {
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
-    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -24,6 +24,7 @@ import {
 import {
     cycleMode,
     getModesForRuntimeAdapter,
+    type PermissionMode,
     resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
@@ -47,6 +48,7 @@ import { QuillComposerSendButton } from '../../../components/quill/QuillComposer
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
+import { TaskComposerEnvironmentSelect } from './TaskComposerEnvironmentSelect'
 
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
@@ -55,9 +57,20 @@ export interface TaskComposerProps {
     focusRequest?: number
     /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
     autoFocus?: boolean
+    prefillRequest?: ComposerPrefillRequest | null
 }
 
-export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+export interface ComposerPrefillRequest {
+    prompt: string
+    mode?: PermissionMode
+}
+
+export function TaskComposer({
+    variant = 'page',
+    focusRequest = 0,
+    autoFocus = true,
+    prefillRequest,
+}: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const {
         submitNewTask,
@@ -65,6 +78,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
         pickPermissionMode,
         setActiveSuggestionGroup,
         applySuggestion,
+        applyPrefill,
         clearConsentBlock,
     } = useActions(taskTrackerSceneLogic)
     const {
@@ -118,6 +132,16 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
             textAreaRef.current?.focus()
         }
     }
+
+    const appliedPrefill = useRef<ComposerPrefillRequest | null>(null)
+    useEffect(() => {
+        if (!prefillRequest || prefillRequest === appliedPrefill.current) {
+            return
+        }
+        appliedPrefill.current = prefillRequest
+        applyPrefill(prefillRequest.prompt, prefillRequest.mode)
+        textAreaRef.current?.focus()
+    }, [prefillRequest, applyPrefill])
 
     const field = (
         <Composer.Field>
@@ -206,10 +230,13 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
                         {!composerOverride?.hideRepositorySelector && (
-                            <RepositorySelector
-                                value={newTaskData.repositoryConfig}
-                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                            />
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
+                                {skin === 'quill' && <TaskComposerEnvironmentSelect />}
+                                <RepositorySelector
+                                    value={newTaskData.repositoryConfig}
+                                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                                />
+                            </div>
                         )}
                         <ComposerModeShortcut
                             onCycle={() => pickPermissionMode(cycleMode(composerAdapter, newTaskData.permissionMode))}
@@ -274,8 +301,7 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                             {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
-
-                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
+                    {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
                 </Suggestions.Root>
             </div>
         </div>

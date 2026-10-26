@@ -21,6 +21,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { initPromQLLanguage } from 'lib/monaco/languages/promql'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { registerMountedCodeEditor } from 'lib/monaco/mountedCodeEditors'
 import 'lib/monaco/monacoEnvironment'
@@ -103,9 +104,13 @@ function initEditor(
     if (editorProps?.language === 'codeowners') {
         initCodeownersLanguage(monaco)
     }
+    if (editorProps?.language === 'promql') {
+        initPromQLLanguage(monaco)
+    }
 
     editor.onKeyDown((evt) => {
-        if (evt.keyCode === monaco.KeyCode.Space) {
+        // Monaco handles Ctrl+Space on a parent DOM listener, including in an empty editor.
+        if (evt.keyCode === monaco.KeyCode.Space && !evt.ctrlKey) {
             evt.stopPropagation()
         }
 

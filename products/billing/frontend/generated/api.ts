@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BillingActivationRequestApi,
+    BillingActivationResponseApi,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -17,18 +19,27 @@ import type {
     BillingAlertsEventsListParams,
     BillingAlertsListParams,
     BillingApi,
+    BillingAuthorizationResponseApi,
+    BillingAuthorizationStatusRequestApi,
+    BillingAuthorizationStatusResponseApi,
     BillingFeaturesApi,
     BillingForecastApi,
     BillingInvoicesApi,
     BillingInvoicesListParams,
     BillingLimitsApi,
+    BillingListParams,
     BillingOverviewResponseApi,
+    BillingPaymentOrganizationApi,
     BillingPeriodResponseApi,
     BillingProductApi,
     BillingProductsApi,
     BillingProductsListParams,
     BillingProductsRetrieveParams,
     BillingProductsSummaryApi,
+    BillingProjectSpendExportDownloadParams,
+    BillingProjectSpendTimeseriesRetrieveParams,
+    BillingProjectUsageExportDownloadParams,
+    BillingProjectUsageTimeseriesRetrieveParams,
     BillingProjectsApi,
     BillingSpendExportDownloadParams,
     BillingSpendExportRetrieveParams,
@@ -49,6 +60,7 @@ import type {
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    ProjectUsageSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -68,12 +80,25 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getBillingListUrl = () => {
-    return `/api/billing/`
+export const getBillingListUrl = (params?: BillingListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/billing/?${stringifiedParams}` : `/api/billing/`
 }
 
-export const billingList = async (options?: RequestInit): Promise<BillingOverviewResponseApi> => {
-    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
+export const billingList = async (
+    params?: BillingListParams,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -83,12 +108,15 @@ export const getBillingActivateCreateUrl = () => {
     return `/api/billing/activate/`
 }
 
-export const billingActivateCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateCreateUrl(), {
+export const billingActivateCreate = async (
+    billingActivationRequestApi: BillingActivationRequestApi,
+    options?: RequestInit
+): Promise<BillingActivationResponseApi> => {
+    return apiMutator<BillingActivationResponseApi>(getBillingActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingActivationRequestApi),
     })
 }
 
@@ -96,12 +124,15 @@ export const getBillingActivateAuthorizeCreateUrl = () => {
     return `/api/billing/activate/authorize/`
 }
 
-export const billingActivateAuthorizeCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeCreateUrl(), {
+export const billingActivateAuthorizeCreate = async (
+    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationResponseApi> => {
+    return apiMutator<BillingAuthorizationResponseApi>(getBillingActivateAuthorizeCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingPaymentOrganizationApi),
     })
 }
 
@@ -110,14 +141,14 @@ export const getBillingActivateAuthorizeStatusCreateUrl = () => {
 }
 
 export const billingActivateAuthorizeStatusCreate = async (
-    billingApi: BillingApi,
+    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingActivateAuthorizeStatusCreateUrl(), {
+): Promise<BillingAuthorizationStatusResponseApi> => {
+    return apiMutator<BillingAuthorizationStatusResponseApi>(getBillingActivateAuthorizeStatusCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(billingAuthorizationStatusRequestApi),
     })
 }
 
@@ -1030,6 +1061,166 @@ export const billingUsageTimeseriesRetrieve = async (
 ): Promise<PaginatedBillingTimeSeriesPointListApi> => {
     return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
         getBillingUsageTimeseriesRetrieveUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingProjectSpendExportDownloadUrl = (
+    projectId: string,
+    params?: BillingProjectSpendExportDownloadParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/spend/export/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/spend/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export a project's share of spend as CSV
+ */
+export const billingProjectSpendExportDownload = async (
+    projectId: string,
+    params?: BillingProjectSpendExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingProjectSpendExportDownloadUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectSpendTimeseriesRetrieveUrl = (
+    projectId: string,
+    params?: BillingProjectSpendTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/spend/timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/spend/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary A project's share of spend over time
+ */
+export const billingProjectSpendTimeseriesRetrieve = async (
+    projectId: string,
+    params?: BillingProjectSpendTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingProjectSpendTimeseriesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getBillingProjectUsageRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/usage/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get a project's usage so far this billing period
+ */
+export const billingProjectUsageRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProjectUsageSummaryApi> => {
+    return apiMutator<ProjectUsageSummaryApi>(getBillingProjectUsageRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectUsageExportDownloadUrl = (
+    projectId: string,
+    params?: BillingProjectUsageExportDownloadParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/usage/export/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/usage/export/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Export a project's usage as CSV
+ */
+export const billingProjectUsageExportDownload = async (
+    projectId: string,
+    params?: BillingProjectUsageExportDownloadParams,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getBillingProjectUsageExportDownloadUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingProjectUsageTimeseriesRetrieveUrl = (
+    projectId: string,
+    params?: BillingProjectUsageTimeseriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/billing/usage/timeseries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/billing/usage/timeseries/`
+}
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary A project's usage over time
+ */
+export const billingProjectUsageTimeseriesRetrieve = async (
+    projectId: string,
+    params?: BillingProjectUsageTimeseriesRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedBillingTimeSeriesPointListApi> => {
+    return apiMutator<PaginatedBillingTimeSeriesPointListApi>(
+        getBillingProjectUsageTimeseriesRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',

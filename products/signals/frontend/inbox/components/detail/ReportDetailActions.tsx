@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconCheckCircle, IconHide, IconReceipt, IconUndo } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -11,9 +11,10 @@ import { urls } from 'scenes/urls'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canResolveReport } from '../../utils/reportActions'
+import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
@@ -38,6 +39,9 @@ export interface ReportDetailAction {
 }
 
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
+    const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { changeReportState } = useActions(detailLogic)
+    const { reportStateSaving, reportChecks } = useValues(detailLogic)
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -101,11 +105,13 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const onRestoreClick = async (): Promise<void> => {
-        // Prefer the mounted Dismissed list logic so it optimistically drops the row and fixes its
-        // count + view badge synchronously (it also fires the API call + toast). Navigate straight back.
+        // Prefer the mounted list logic of the state the report sits in, Dismissed or Held back, so it
+        // optimistically drops the row and fixes its count + view badge synchronously (it also fires
+        // the API call + toast). Navigate straight back.
+        const sectionKey = report.suppression_source === 'dismissed' ? 'dismissed' : 'held-back'
         const dismissedList = reportListLogic.findMounted({
-            sectionKey: 'dismissed',
-            listParams: INBOX_REPORT_SECTION_LIST_PARAMS.dismissed,
+            sectionKey,
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })
         if (dismissedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
@@ -113,7 +119,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
+        // Fallback for a deep-linked detail with no mounted list for its state (e.g. cold load), and for
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
@@ -165,7 +171,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         label: 'Resolve',
         icon: <IconCheckCircle />,
         loading: isResolving,
-        tooltip: 'Mark this report as done',
+        tooltip:
+            report.status === SignalReportStatus.MONITORING
+                ? 'Resolve manually without automatic verification or an evidence amendment'
+                : 'Mark this report as done',
         // The judge found the fix already in flight, so Create PR is withheld and closing the
         // report is the step it waits on.
         primary: report.already_addressed === true,
@@ -173,6 +182,29 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
+        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
+            ? [
+                  {
+                      key: 'monitor',
+                      label: 'Start monitoring',
+                      icon: <IconClock />,
+                      loading: reportStateSaving,
+                      tooltip: 'PostHog watches to make sure the fix works',
+                      onClick: () => changeReportState('monitoring'),
+                  },
+              ]
+            : []),
+        ...(report.status === SignalReportStatus.MONITORING
+            ? [
+                  {
+                      key: 'reopen',
+                      label: 'Reopen',
+                      icon: <IconUndo />,
+                      loading: reportStateSaving,
+                      onClick: () => changeReportState('potential'),
+                  },
+              ]
+            : []),
         ...(canResolve ? [resolve] : []),
         {
             key: 'dismiss',
@@ -185,5 +217,9 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ...(canRefund ? [refund] : []),
     ]
 
-    return actions
+    const updating = reportStateSaving || isResolving || isDismissing || isRefunding
+    return actions.map((action) => ({
+        ...action,
+        disabledReason: action.disabledReason ?? (updating ? 'Updating report…' : undefined),
+    }))
 }

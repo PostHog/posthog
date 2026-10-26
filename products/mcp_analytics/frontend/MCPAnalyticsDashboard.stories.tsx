@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -9,6 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
+import { modelLab } from './aiLabs'
+import { labMark } from './brandMarks'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -651,10 +656,24 @@ function activityEventsResponse(select: string[]): Record<string, any> {
                 return durationMs
             }
             if (column.endsWith('-- Client')) {
-                return clientName
+                if (!column.startsWith('withIcon(')) {
+                    return clientName
+                }
+                const mark =
+                    {
+                        'claude-code': 'Claude',
+                        'claude-ai': 'Claude',
+                        cursor: 'Cursor',
+                        'posthog-cli': 'PostHog',
+                        windsurf: 'Windsurf',
+                    }[clientName] ?? 'Other harnesses'
+                return ['__hx_tag', 'BrandMarkLabel', 'label', clientName || 'Other', 'mark', mark]
             }
             if (column.endsWith('-- Model')) {
-                return model
+                if (!column.startsWith('withIcon(')) {
+                    return model
+                }
+                return ['__hx_tag', 'BrandMarkLabel', 'label', model, 'mark', labMark(modelLab(model))]
             }
             return null
         })
@@ -672,6 +691,66 @@ const INTENT_DIGEST = {
     digest: 'Agents are extensively analyzing and validating feature flags, especially participant and scope-related flags, across multiple projects to ensure correct configuration and deployment. They are investigating user behavior, event schemas, and telemetry to support product analytics, adoption, and revenue reporting, and to diagnose issues such as interface unresponsiveness, conversion tracking failures, and LLM-related errors. Additionally, they are auditing dashboards, saved insights, and survey data to verify data freshness and rebuild product usage metrics.',
     intent_count: 100,
 }
+
+// Leaderboard home tab. Counts are invented; the model names only need to map to the labs the tab groups by.
+const MODEL_SHARES: [string, number][] = [
+    ['claude-sonnet-4-5', 0.34],
+    ['gpt-5-codex', 0.2],
+    ['claude-opus-4-1', 0.12],
+    ['gemini-2.5-pro', 0.1],
+    ['gpt-5', 0.08],
+    ['composer-1', 0.05],
+    ['grok-4', 0.04],
+    ['qwen3-coder', 0.03],
+    ['Unknown', 0.04],
+]
+
+const PROTOCOL_SHARES: [string, number][] = [
+    ['2025-06-18', 0.5],
+    ['2025-11-25', 0.35],
+    ['2025-03-26', 0.1],
+    ['Unknown', 0.05],
+]
+
+// The tool facet groups by the effective tool name, which reads `$mcp_exec_tool_call_name` first.
+const facetProperty = (query: string): string => {
+    if (query.includes('$mcp_protocol_version')) {
+        return '$mcp_protocol_version'
+    }
+    if (query.includes('$mcp_exec_tool_call_name')) {
+        return '$mcp_tool_name'
+    }
+    return query.match(/toString\(properties\.(\$\w+)\)/)?.[1] ?? ''
+}
+
+const bucketedShareResults = (shares: [string, number][]): [string, string, number][] =>
+    DAILY_TOTALS.flatMap(([day, calls]) =>
+        shares.map(([label, share]): [string, string, number] => [day, label, Math.round(calls * share)])
+    )
+
+// [label, calls, users, errors] per leaderboard facet, keyed by the event property the query groups by.
+const WINDOW_FACET_RESULTS: Record<string, [string, number, number, number][]> = {
+    $mcp_tool_name: TOOL_RESULTS.map((r): [string, number, number, number] => [
+        String(r[0]),
+        Number(r[1]),
+        100,
+        Number(r[2]),
+    ]),
+    $mcp_error_type: [
+        ['timeout', 90, 40, 90],
+        ['validation', 60, 30, 60],
+        ['auth', 30, 15, 30],
+        ['rate_limit', 15, 9, 15],
+    ],
+}
+
+const RELIABILITY_RESULTS = DAILY_TOTALS.map(([day, calls, errors], index) => [
+    day,
+    calls,
+    errors,
+    700 + index * 20,
+    3100 + index * 90,
+])
 
 const meta: Meta = {
     component: App,
@@ -829,6 +908,41 @@ const meta: Meta = {
                     if (body?.query?.kind === 'EventsQuery') {
                         return [200, activityEventsResponse(body.query.select ?? [])]
                     }
+                    // Leaderboard home tab queries. Match before the KPI query below: both select AS bucket.
+                    if (query.includes('AS lab,')) {
+                        return [
+                            200,
+                            {
+                                results: [
+                                    ['Anthropic', 190],
+                                    ['OpenAI', 150],
+                                    ['Google', 80],
+                                    ['Open weights', 20],
+                                    ['Unknown', 40],
+                                ],
+                            },
+                        ]
+                    }
+                    if (query.includes("!= 'Unknown'")) {
+                        return [200, { results: [[260]] }]
+                    }
+                    if (query.includes('AS label')) {
+                        const property = facetProperty(query)
+                        if (query.includes('AS bucket')) {
+                            return [
+                                200,
+                                {
+                                    results: bucketedShareResults(
+                                        property === '$mcp_protocol_version' ? PROTOCOL_SHARES : MODEL_SHARES
+                                    ),
+                                },
+                            ]
+                        }
+                        return [200, { results: WINDOW_FACET_RESULTS[property] ?? [] }]
+                    }
+                    if (query.includes('AS p50')) {
+                        return [200, { results: RELIABILITY_RESULTS }]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -877,6 +991,13 @@ export const DashboardNarrow: Story = {
     ),
 }
 
+export const DashboardLeaderboardHome: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME],
+        testOptions: { viewportWidths: ['medium', 'wide'] },
+    },
+}
+
 export const DashboardWithMenuBar: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SCENE_MENU_BAR],
@@ -886,8 +1007,14 @@ export const DashboardWithMenuBar: Story = {
 // The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
 // viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
+    tags: ['manual-icons'],
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
+        await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
     },
 }
 
@@ -911,5 +1038,18 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// The journey chart is the last section of a pane sized to the viewport, so the default 720px
+// snapshot ends above it. A taller viewport brings it into the snapshot.
+export const IntentClusteringJourney: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        testOptions: {
+            viewport: { width: 1280, height: 1800 },
+            waitForSelector: '[data-attr=mcp-cluster-journey-sankey] [data-attr=hog-chart-sankey-node-label]',
+        },
     },
 }

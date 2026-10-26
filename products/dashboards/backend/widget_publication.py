@@ -3,14 +3,12 @@ from typing import Any
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
-from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -45,11 +43,7 @@ class DashboardWidgetPublication:
             tile = get_object_or_404(DashboardTile, id=tile_id, team_id=team.id, dashboard__deleted=False)
             dashboard_id = tile.dashboard_id
         self.dashboard = get_object_or_404(Dashboard, id=dashboard_id, team_id=team.id, deleted=False)
-        if not dashboard_widgets_enabled(team=team, user=user):
-            raise ValidationError("Dashboard widgets are not enabled for this project.")
-        if not UserPermissions(user, team).dashboard(
-            self.dashboard
-        ).can_edit or not self.access.check_access_level_for_object(self.dashboard, "editor"):
+        if not self.access.check_access_level_for_object(self.dashboard, "editor"):
             raise PermissionDenied("You don't have edit permissions for this dashboard.")
 
     def publish(

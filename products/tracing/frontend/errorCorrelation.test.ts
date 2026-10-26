@@ -1,4 +1,4 @@
-import { sessionErrorsWindow, traceErrorsWindow, usableId } from './errorCorrelation'
+import { sessionErrorsWindow, traceErrorsWindow } from './errorCorrelation'
 
 describe('errorCorrelation', () => {
     // A span whose timestamp the parser rejects must not widen the range to an invalid one, which
@@ -22,16 +22,6 @@ describe('errorCorrelation', () => {
         ['only missing timestamps', [null]],
     ])('resolves no range when there are %s', (_name, timestamps) => {
         expect(sessionErrorsWindow(timestamps)).toBeNull()
-    })
-
-    it.each([
-        ['a real id', '4BF92F3577B34DA6A3CE929D0E0E4736', '4bf92f3577b34da6a3ce929d0e0e4736'],
-        ['an all-zero trace id', '0'.repeat(32), null],
-        ['an all-zero span id', '0'.repeat(16), null],
-        ['a missing id', null, null],
-        ['an empty id', '', null],
-    ])('resolves %s', (_name, value, expected) => {
-        expect(usableId(value)).toBe(expected)
     })
 
     // The exact join only has to cover the trace's own run, so it asks over a much narrower range

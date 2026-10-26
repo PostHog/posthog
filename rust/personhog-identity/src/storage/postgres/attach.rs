@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use sqlx::Row;
 
-use crate::config::IdentityTables;
+use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::types::AttachOutcome;
@@ -21,12 +21,17 @@ use personhog_common::query_tag;
 /// no longer sweep: the join rejects committed deletions, and the mark
 /// check rejects persons held by a live op. The rare statement that slips
 /// both leaves an orphaned mapping the next resolve treats as absent.
+///
+/// With outbox writes on, the same statement also queues one publish
+/// outbox row per mapping it wrote, through a data-modifying CTE, so the
+/// mapping and its row commit together without a transaction.
 pub(super) async fn attach_distinct_ids(
     pools: &IdentityPools,
     tables: &IdentityTables,
     team_id: i64,
     person_id: i64,
     distinct_ids: &[String],
+    outbox_writes: OutboxWrites,
 ) -> StorageResult<HashMap<String, AttachOutcome>> {
     if distinct_ids.is_empty() {
         return Ok(HashMap::new());
@@ -34,7 +39,7 @@ pub(super) async fn attach_distinct_ids(
     let mut sorted: Vec<String> = distinct_ids.to_vec();
     sorted.sort_unstable();
 
-    let insert_sql = format!(
+    let insert = format!(
         r#"
         INSERT INTO {pdi} (distinct_id, person_id, team_id, version)
         SELECT u.d, p.id, p.team_id, 1
@@ -57,8 +62,31 @@ pub(super) async fn attach_distinct_ids(
         person = tables.person,
         lop = tables.lifecycle_op_person,
     );
+    let insert_sql = match outbox_writes {
+        OutboxWrites::Enabled => format!(
+            r#"
+            WITH written AS ({insert}),
+            queued AS (
+                INSERT INTO {outbox} (team_id, kind, person_uuid, distinct_id, version)
+                SELECT $3, 'attach', p.uuid, w.distinct_id, w.version
+                FROM written w
+                JOIN {person} p ON p.team_id = $3 AND p.id = $2
+            )
+            SELECT distinct_id, version FROM written
+            "#,
+            outbox = tables.person_publish_outbox,
+            person = tables.person,
+        ),
+        OutboxWrites::Disabled => insert,
+    };
     let mut conn = pools.acquire(Lane::Heavy).await?;
-    let written = sqlx::query(&query_tag!("attach_mappings", insert_sql))
+    // Tagged apart so the statement that also writes the outbox is
+    // attributable on its own in query statistics.
+    let tagged = match outbox_writes {
+        OutboxWrites::Enabled => query_tag!("attach_mappings_with_outbox", insert_sql),
+        OutboxWrites::Disabled => query_tag!("attach_mappings", insert_sql),
+    };
+    let written = sqlx::query(&tagged)
         .bind(&sorted)
         .bind(person_id)
         .bind(team_id as i32)

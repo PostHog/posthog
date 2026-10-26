@@ -86,6 +86,7 @@ class DatabaseSchemaUnavailable(APIException):
 class ClickHouseAtCapacity(APIException):
     wait: int
     status_code = 503
+    default_code = "clickhouse_at_capacity"
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
@@ -93,7 +94,7 @@ class ClickHouseAtCapacity(APIException):
     def __init__(self, detail: Optional[str] = None, code: Optional[str] = None) -> None:
         super().__init__(detail=detail, code=code)
         # Spread retries across requests while keeping a minimum recovery window.
-        self.wait = random.randint(30, 60)
+        self.wait = random.randint(5, 20)
 
 
 class QueryRanConcurrently(APIException):
@@ -103,6 +104,10 @@ class QueryRanConcurrently(APIException):
     status_code = 503
     default_code = "query_ran_concurrently"
     default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
+
+
+# Failures that clear on their own. A caller that reads one of these codes should wait and run the same query again.
+TRANSIENT_QUERY_ERROR_CODES = frozenset({ClickHouseAtCapacity.default_code, QueryRanConcurrently.default_code})
 
 
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):

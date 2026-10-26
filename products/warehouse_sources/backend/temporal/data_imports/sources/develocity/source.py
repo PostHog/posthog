@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,18 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DevelocitySource(ResumableSource[DevelocitySourceConfig, DevelocityResumeConfig]):
+    codebase_detection = detect(
+        env=("^DEVELOCITY_", "^GRADLE_ENTERPRISE_ACCESS_KEY$"),
+        npm=("@gradle-tech/develocity-agent",),
+        maven=(
+            "com.gradle:develocity-maven-extension",
+            "com.gradle:develocity-gradle-plugin-adapters",
+            "com.gradle:develocity-maven-extension-adapters",
+            "com.gradle:sbt-develocity-common-custom-user-data_2.12_1.0",
+            "com.gradle:sbt-develocity_2.12_1.0",
+        ),
+    )
+
     lists_tables_without_credentials = True
     api_docs_url = API_DOCS_URL
 
@@ -99,7 +112,7 @@ class DevelocitySource(ResumableSource[DevelocitySourceConfig, DevelocityResumeC
             'The account needs the "Access build data via the API" permission.',
             docsUrl=API_DOCS_URL,
             iconPath="/static/services/develocity.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
