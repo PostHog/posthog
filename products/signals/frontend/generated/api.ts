@@ -37,6 +37,7 @@ import type {
     PaginatedSignalReportListListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
+    PatchedReviewerExclusionUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigUpdateApi,
@@ -60,6 +61,9 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReviewerExclusionApi,
+    ReviewerExclusionCreateApi,
+    ReviewerExclusionCreateResultApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
     ScoutCheckSummaryApi,
@@ -1629,6 +1633,102 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/`
+}
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const signalsReviewerExclusionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi[]> => {
+    return apiMutator<ReviewerExclusionApi[]>(getSignalsReviewerExclusionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReviewerExclusionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/`
+}
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const signalsReviewerExclusionsCreate = async (
+    projectId: string,
+    reviewerExclusionCreateApi: ReviewerExclusionCreateApi,
+    options?: RequestInit
+): Promise<ReviewerExclusionCreateResultApi> => {
+    return apiMutator<ReviewerExclusionCreateResultApi>(getSignalsReviewerExclusionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewerExclusionCreateApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/`
+}
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReviewerExclusionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/`
+}
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedReviewerExclusionUpdateApi?: PatchedReviewerExclusionUpdateApi,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedReviewerExclusionUpdateApi),
+    })
+}
+
+export const getSignalsReviewerExclusionsRevokeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reviewer_exclusions/${id}/revoke/`
+}
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const signalsReviewerExclusionsRevokeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReviewerExclusionApi> => {
+    return apiMutator<ReviewerExclusionApi>(getSignalsReviewerExclusionsRevokeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

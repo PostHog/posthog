@@ -8178,6 +8178,86 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reviewer-exclusions-create": {
+        "description": "Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area, for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first. `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the report removal succeeded but the instruction is not saved: send the same request again. Sending an area that an active instruction already covers returns that instruction with a 200. The instruction does not change other existing reports.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Stay off automatic reviewer selection in an area",
+        "title": "Stay off automatic reviewer selection in an area",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-get": {
+        "description": "Get one of the authenticated user's standing reviewer exclusions by id. Another member's instruction returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get one of your reviewer exclusions",
+        "title": "Get one of your reviewer exclusions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-list": {
+        "description": "List the authenticated user's standing instructions that keep them off automatic reviewer selection, active and revoked. Each instruction covers every repository, one repository, or one path in a repository. Only the user's own instructions come back.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your reviewer exclusions",
+        "title": "List your reviewer exclusions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-revoke": {
+        "description": "Revoke one of the authenticated user's reviewer exclusions, so automatic reviewer selection can pick them in that area again. Revoking does not add the user to any report and does not change old reports.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Revoke one of your reviewer exclusions",
+        "title": "Revoke one of your reviewer exclusions",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/{id}/revoke/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-update": {
+        "description": "Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps the earlier version in the history, and a request that changes nothing records no new version. A revoked instruction cannot change: create a new one instead.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Change one of your reviewer exclusions",
+        "title": "Change one of your reviewer exclusions",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
     "inbox-source-configs-create": {
         "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: evaluation_report, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability evaluation report findings in the inbox, create `source_product=llm_analytics`, `source_type=evaluation_report` — there is no per-evaluation-run source. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals; the warehouse still syncs the whole workspace. Omit it to use every team.",
         "category": "Signals",
