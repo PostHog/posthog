@@ -746,6 +746,74 @@
             },
             "required": ["summary", "feedback_type", "sentiment"]
         },
+        "FlagRulesV2UpdateInputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "A unique integer value identifying this feature flag."
+                },
+                "version": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag changed after it."
+                },
+                "filters": {
+                    "type": "object",
+                    "properties": {
+                        "version": {
+                            "type": "number",
+                            "const": 2,
+                            "description": "Config format. Always 2 here; unrelated to the top-level `version`."
+                        },
+                        "return_type": {
+                            "type": "string",
+                            "description": "Copy it from the flag you read. It cannot change."
+                        },
+                        "default_value": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Value served when no rule returns one. Must match `return_type`, or null."
+                        },
+                        "rules": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            },
+                            "description": "The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on every rule you keep; omit both on a new rule."
+                        }
+                    },
+                    "required": ["version", "return_type", "default_value", "rules"],
+                    "additionalProperties": {},
+                    "description": "The complete new configuration. It replaces the stored `filters`."
+                }
+            },
+            "required": ["id", "version", "filters"]
+        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
