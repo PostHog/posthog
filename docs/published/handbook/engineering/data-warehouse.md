@@ -8,6 +8,8 @@ This is an internal guide to setting up and working with the data warehouse for 
 
 Projects with a connected warehouse source or warehouse table use ordinary empty insight results, even before ingesting events. They do not show sample-data placeholders or the project-wide "This project has no events yet" notice. Both onboarding messages wait until the warehouse setup check confirms no sources or tables exist; an unavailable check does not imply an empty project.
 
+Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
