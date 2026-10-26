@@ -10,8 +10,6 @@ Run this after a @posthog/brand upgrade changes the fonts:
 """
 
 import sys
-import json
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,7 +19,6 @@ from fontTools.ttLib import TTFont
 FRONTEND = Path(__file__).resolve().parents[1]
 SOURCE = FRONTEND / "node_modules" / "@posthog" / "brand" / "dist" / "fonts"
 TARGET = FRONTEND / "public" / "fonts" / "roundhog"
-MANIFEST = TARGET / "manifest.json"
 
 FONTS = [
     "RoundHog",
@@ -89,26 +86,21 @@ def complement(ranges: list[CodepointRange]) -> list[CodepointRange]:
     return result
 
 
-def subset_font(name: str) -> str:
-    source = SOURCE / f"{name}.woff2"
+def subset_font(name: str) -> None:
     options = subset.Options()
     options.flavor = "woff2"
     options.layout_features = LAYOUT_FEATURES
-    font = TTFont(source, recalcTimestamp=False)
+    font = TTFont(SOURCE / f"{name}.woff2", recalcTimestamp=False)
     subsetter = subset.Subsetter(options)
     subsetter.populate(unicodes=[cp for r in LATIN_RANGES for cp in range(r.first, r.last + 1)])
     subsetter.subset(font)
     subset.save_font(font, TARGET / f"{name}-latin.woff2", options)
-    return hashlib.sha256(source.read_bytes()).hexdigest()
 
 
 def main() -> None:
     TARGET.mkdir(parents=True, exist_ok=True)
-    manifest = {
-        "sources": {f"{name}.woff2": subset_font(name) for name in FONTS},
-        "script": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-    }
-    MANIFEST.write_text(json.dumps(manifest, indent=4) + "\n")
+    for name in FONTS:
+        subset_font(name)
     sys.stdout.write(f"latin range: {css_range(LATIN_RANGES)}\n")
     other = sorted([*complement(LATIN_RANGES), COMBINING_MARKS], key=lambda r: r.first)
     sys.stdout.write(f"other range: {css_range(other)}\n")
