@@ -10,11 +10,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_diff import (
     MAX_BUCKET_KEYS,
-    MIN_BUCKET_KEYS,
     HistoryColumns,
     HistoryDiff,
     bucket_keys_for_budget,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_hash import ROW_HASH_TYPE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
@@ -128,7 +128,7 @@ class TestHistoryDiff:
             "valid_to": pa.array([None, None, None, _T1], type=_TS_TYPE),
         }
         if with_hash:
-            history["row_hash"] = pa.nulls(4, type=pa.binary(16))
+            history["row_hash"] = pa.nulls(4, type=ROW_HASH_TYPE)
             history["row_hash_version"] = pa.nulls(4, type=pa.int16())
         deltalake.write_deltalake(str(history_path), pa.table(history))
         read = _read(tmp_path / "read", [(1, "free"), (2, "team"), (3, "free")], pa.int64(), _T2)
@@ -146,13 +146,48 @@ class TestHistoryDiff:
             (r["id"], r["plan"], r["_ph_deleted"], r["valid_from"], r["valid_to"]) for r in bucket.rows.to_pylist()
         ) == [(2, "team", False, _T2, None), (3, "free", False, _T2, None)]
 
+    @parameterized.expand([("one_bucket", None), ("one_key_per_bucket", 1)])
+    def test_null_key_part_matches_its_open_row(self, _name: str, max_bucket_keys: int | None) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._diff_null_keys(Path(tmp), max_bucket_keys)
+
+    def _diff_null_keys(self, tmp_path: Path, max_bucket_keys: int | None) -> None:
+        rows = {
+            "account": pa.array([1, 1], type=pa.int64()),
+            "device": pa.array([None, "mobile"]),
+            "clicks": pa.array([5, 3], type=pa.int64()),
+        }
+        history = {
+            **rows,
+            "_ph_deleted": pa.array([False, False]),
+            "valid_from": pa.array([_T1, _T1], type=_TS_TYPE),
+            "valid_to": pa.nulls(2, type=_TS_TYPE),
+            # Stale hashes, so the open rows are found again by key and rehashed.
+            "row_hash": pa.nulls(2, type=ROW_HASH_TYPE),
+            "row_hash_version": pa.nulls(2, type=pa.int16()),
+        }
+        deltalake.write_deltalake(str(tmp_path / "history"), pa.table(history))
+        deltalake.write_deltalake(str(tmp_path / "read"), pa.table(rows))
+
+        diff = HistoryDiff(
+            primary_keys=["account", "device"], columns=_COLUMNS, valid_from=_T2, max_bucket_keys=max_bucket_keys
+        )
+        buckets = list(
+            diff.buckets(
+                deltalake.DeltaTable(str(tmp_path / "read")).to_pyarrow_dataset(), _history(tmp_path / "history")
+            )
+        )
+
+        assert sum(bucket.unchanged_keys for bucket in buckets) == 2
+        assert sum(bucket.rows.num_rows for bucket in buckets) == 0
+
 
 @parameterized.expand(
     [
         ("unknown_budget", None, 100.0, MAX_BUCKET_KEYS),
         ("roomy_budget", 100_000.0, 100.0, MAX_BUCKET_KEYS),
-        ("fits_between_bounds", 2_000.0, 1_000.0, 419_430),
-        ("tight_budget", 10.0, 1_000.0, MIN_BUCKET_KEYS),
+        ("fits_the_budget", 2_000.0, 1_000.0, 419_430),
+        ("wide_rows_in_a_small_budget", 10.0, 1_000.0, 2_097),
     ]
 )
 def test_bucket_keys_for_budget(_name: str, budget_mb: float | None, row_bytes: float, expected: int) -> None:

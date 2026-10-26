@@ -20,7 +20,7 @@ time for memory on a table larger than one bucket.
 import math
 from collections.abc import Collection, Iterator, Sequence
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -37,14 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     get_governor,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_hash import (
+    ROW_HASH_TYPE,
     ROW_HASH_VERSION,
     compute_row_hashes,
 )
 
 MAX_BUCKET_KEYS = 2_000_000
-# Each bucket scans the whole read again, so a smaller bucket than this costs more scans than the
-# memory it saves is worth. A table that needs smaller buckets runs above its memory slice instead.
-MIN_BUCKET_KEYS = 250_000
 # Peak memory of a bucket per decoded byte of its read rows: the rows, their hash payload while it
 # is built, the join tables, and one decoded row group per scan. As of October 2026, a 2M-key diff
 # of ~100-byte rows peaked at about 1 GB, five times the decoded rows.
@@ -95,8 +93,10 @@ def bucket_keys_for_budget(budget_mb: float | None, read_row_bytes: float) -> in
     """The number of keys one bucket may hold so that its peak fits `budget_mb`."""
     if budget_mb is None or read_row_bytes <= 0:
         return MAX_BUCKET_KEYS
+    # No lower bound: wide rows get small buckets and more scans of the read, because a bucket
+    # above its slice can push the pod past its memory limit.
     fitting = int(budget_mb * MB / (read_row_bytes * _PEAK_BYTES_PER_READ_BYTE))
-    return min(MAX_BUCKET_KEYS, max(MIN_BUCKET_KEYS, fitting))
+    return min(MAX_BUCKET_KEYS, max(1, fitting))
 
 
 class HistoryDiff:
@@ -199,7 +199,7 @@ class HistoryDiff:
         read_keys = read_keys.append_column(_ROW, pa.array(range(read_rows.num_rows), type=pa.int64()))
 
         open_rows = self._open_rows(history, key_types, bucket, bucket_count)
-        joined = read_keys.join(open_rows, self._primary_keys, join_type="left outer")
+        joined = _join(read_keys, open_rows, self._primary_keys, "left")
         is_new = pc.is_null(joined.column(_OPEN))
         is_changed = pc.and_(
             pc.invert(is_new),
@@ -211,8 +211,14 @@ class HistoryDiff:
         versions = read_rows.take(joined.filter(pc.or_(is_new, is_changed)).sort_by(_ROW).column(_ROW))
 
         live_open_keys = open_rows.filter(pc.invert(_filled(open_rows.column(_OPEN_DELETED), False)))
-        gone = live_open_keys.select(self._primary_keys).join(
-            read_keys.select(self._primary_keys), self._primary_keys, join_type="left anti"
+        gone = self._with_key_types(
+            _join(
+                live_open_keys.select(self._primary_keys),
+                read_keys.select(self._primary_keys),
+                self._primary_keys,
+                "anti",
+            ),
+            key_types,
         )
         tombstones = self._tombstones(gone, history)
 
@@ -230,47 +236,77 @@ class HistoryDiff:
         self, history: pa_ds.Dataset | None, key_types: dict[str, pa.DataType], bucket: int, bucket_count: int
     ) -> pa.Table:
         """The keys of the bucket's open rows, with their row hash and deleted flag."""
-        schema = pa.schema(
+        if history is None:
+            return self._open_schema(key_types).empty_table()
+
+        names = set(history.schema.names)
+        columns = self._columns
+        if columns.row_hash in names and columns.row_hash_version in names:
+            stored = [name for name in (columns.row_hash, columns.row_hash_version, columns.deleted) if name in names]
+            rows = self._scan_bucket(
+                history, [*self._primary_keys, *stored], self._open_filter(), key_types, bucket, bucket_count
+            )
+            stale = self._stale_hashes(rows)
+            fresh = rows.filter(pc.invert(stale))
+            parts = [self._open_keys(fresh, fresh.column(columns.row_hash), key_types)]
+            if pc.any(stale).as_py():
+                stale_keys = rows.filter(stale).select(self._primary_keys)
+                parts.append(self._rehashed_open_rows(history, stale_keys, key_types, bucket, bucket_count))
+            keyed = pa.concat_tables(parts)
+        else:
+            keyed = self._rehashed_open_rows(history, None, key_types, bucket, bucket_count)
+        # Two open rows of one key would each match the read row and emit it twice.
+        return first_per_pk_table(keyed, self._primary_keys)
+
+    def _rehashed_open_rows(
+        self,
+        history: pa_ds.Dataset,
+        stale_keys: pa.Table | None,
+        key_types: dict[str, pa.DataType],
+        bucket: int,
+        bucket_count: int,
+    ) -> pa.Table:
+        """Hash the stored values of open rows that have no comparable hash. `None` means every open row.
+
+        A row written before row hashes, or under another hash version, would otherwise read as
+        changed. Full rows stream in batches and only their keys and hashes are kept.
+        """
+        row_filter = self._open_filter()
+        if stale_keys is not None:
+            for name in self._primary_keys:
+                row_filter = row_filter & pc.field(name).isin(pc.unique(stale_keys.column(name)))
+        parts = [self._open_schema(key_types).empty_table()]
+        for rows in self._scan_parts(history, None, row_filter, key_types, bucket, bucket_count):
+            keyed = self._open_keys(rows, compute_row_hashes(rows, self._unhashed_columns), key_types)
+            if stale_keys is not None:
+                # A composite-key filter also matches keys that are not stale, and those keep their stored hash.
+                keyed = _join(keyed, stale_keys, self._primary_keys, "semi").cast(self._open_schema(key_types))
+            parts.append(keyed)
+        return pa.concat_tables(parts)
+
+    def _open_keys(
+        self, rows: pa.Table, hashes: pa.Array | pa.ChunkedArray, key_types: dict[str, pa.DataType]
+    ) -> pa.Table:
+        deleted = self._columns.deleted
+        return pa.table(
+            [
+                *(rows.column(name) for name in self._primary_keys),
+                pc.cast(hashes, ROW_HASH_TYPE),
+                rows.column(deleted) if deleted in rows.column_names else pa.repeat(False, rows.num_rows),
+                pa.repeat(True, rows.num_rows),
+            ],
+            schema=self._open_schema(key_types),
+        )
+
+    def _open_schema(self, key_types: dict[str, pa.DataType]) -> pa.Schema:
+        return pa.schema(
             [
                 *(pa.field(name, key_types[name]) for name in self._primary_keys),
-                pa.field(_OPEN_HASH, pa.binary(16)),
+                pa.field(_OPEN_HASH, ROW_HASH_TYPE),
                 pa.field(_OPEN_DELETED, pa.bool_()),
                 pa.field(_OPEN, pa.bool_()),
             ]
         )
-        if history is None:
-            return schema.empty_table()
-
-        names = set(history.schema.names)
-        columns = self._columns
-        has_hashes = columns.row_hash in names and columns.row_hash_version in names
-        stored = [name for name in (columns.row_hash, columns.row_hash_version, columns.deleted) if name in names]
-        rows = self._scan_bucket(
-            history, [*self._primary_keys, *stored], self._open_filter(), key_types, bucket, bucket_count
-        )
-        hashes: pa.Array | pa.ChunkedArray
-        if has_hashes and not pc.any(self._stale_hashes(rows)).as_py():
-            hashes = rows.column(columns.row_hash)
-        else:
-            # A row written before row hashes, or under another hash version, has no comparable
-            # hash. Hash its stored values instead, so that it does not read as changed.
-            rows = self._scan_bucket(history, None, self._open_filter(), key_types, bucket, bucket_count)
-            hashes = compute_row_hashes(rows, self._unhashed_columns)
-            if has_hashes:
-                hashes = pc.if_else(self._stale_hashes(rows), hashes, rows.column(columns.row_hash))
-
-        deleted = rows.column(columns.deleted) if columns.deleted in names else pa.repeat(False, rows.num_rows)
-        keyed = pa.table(
-            [
-                *(rows.column(name) for name in self._primary_keys),
-                pc.cast(hashes, pa.binary(16)),
-                deleted,
-                pa.repeat(True, rows.num_rows),
-            ],
-            schema=schema,
-        )
-        # Two open rows of one key would each match the read row and emit it twice.
-        return first_per_pk_table(keyed, self._primary_keys)
 
     def _stale_hashes(self, rows: pa.Table) -> pa.BooleanArray:
         version = rows.column(self._columns.row_hash_version)
@@ -285,19 +321,31 @@ class HistoryDiff:
         bucket: int,
         bucket_count: int,
     ) -> pa.Table:
+        parts = list(self._scan_parts(dataset, columns, row_filter, key_types, bucket, bucket_count))
+        if not parts:
+            empty = dataset.scanner(columns=columns).projected_schema.empty_table()
+            return self._with_key_types(empty, key_types)
+        return pa.concat_tables(parts)
+
+    def _scan_parts(
+        self,
+        dataset: pa_ds.Dataset,
+        columns: list[str] | None,
+        row_filter: pc.Expression | None,
+        key_types: dict[str, pa.DataType],
+        bucket: int,
+        bucket_count: int,
+    ) -> Iterator[pa.Table]:
+        """Yield the bucket's rows of `dataset`, one record batch at a time."""
         scanner = dataset.scanner(
             columns=columns, filter=row_filter, batch_size=_SCAN_BATCH_ROWS, batch_readahead=1, fragment_readahead=1
         )
-        parts: list[pa.Table] = []
         for batch in scanner.to_batches():
             part = self._with_key_types(pa.Table.from_batches([batch]), key_types)
             if bucket_count > 1:
                 part = part.filter(self._bucket_mask(part, bucket, bucket_count))
             if part.num_rows:
-                parts.append(part)
-        if not parts:
-            return self._with_key_types(scanner.projected_schema.empty_table(), key_types)
-        return pa.concat_tables(parts)
+                yield part
 
     def _with_key_types(self, table: pa.Table, key_types: dict[str, pa.DataType]) -> pa.Table:
         for name, key_type in key_types.items():
@@ -334,6 +382,20 @@ class HistoryDiff:
         if history is not None and name in history.schema.names:
             return history.schema.field(name).type
         return _TIMESTAMP_TYPE
+
+
+def _join(left: pa.Table, right: pa.Table, keys: list[str], how: Literal["left", "anti", "semi"]) -> pa.Table:
+    """Join on `keys` with a null key part equal to a null key part.
+
+    Some sources have nullable key columns, and the Delta writers match keys the same way
+    (`IS NOT DISTINCT FROM`). Arrow's own joins never match a null key part.
+    """
+    import polars as pl  # noqa: PLC0415 — keeps polars off the import path of every pipeline that loads the delta package
+
+    joined = cast(pl.DataFrame, pl.from_arrow(left)).join(
+        cast(pl.DataFrame, pl.from_arrow(right)), on=keys, how=how, nulls_equal=True
+    )
+    return joined.to_arrow(compat_level=pl.CompatLevel.oldest())
 
 
 def _filled(mask: pa.Array | pa.ChunkedArray, value: bool) -> pa.BooleanArray:
