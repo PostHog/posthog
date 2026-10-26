@@ -8554,10 +8554,10 @@ Today (11): `channels`, `deployments`, `environments`, `events`, `machines`, `pr
 
 Diffed against: <https://demo.octopus.app/api>
 
-- [ ] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
+- [x] `users (/api/users)` — Lookup that resolves the user ids already carried on events, deployments, tasks and interruptions (high)
 - [ ] `teams + teammembership (/api/teams, /api/teammembership)` — Team definitions and the user→team junction — the only way to aggregate deployment activity by team (high)
-- [ ] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
-- [ ] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
+- [x] `lifecycles (/api/{space}/lifecycles)` — Lookup resolving the LifecycleId on projects/releases into ordered phases and environments, needed to judge whether a deployment progressed normally (high)
+- [x] `interruptions (/api/{space}/interruptions)` — Manual intervention and approval records with responsible-team and resolution timestamps — the wait time inside deployment lead time (high)
 - [ ] `insights/reports (/api/{space}/insights/reports)` — Octopus's own DORA-style reporting objects (deployment frequency, lead time, failure rate) — the vendor's headline metric (high)
 - [ ] `runbookRuns (/api/{space}/runbookRuns)` — Operational run history that sits alongside deployments; without it half of what Octopus executes is invisible (medium)
 - [ ] `runbooks (/api/{space}/runbooks)` — Lookup resolving the RunbookId on runbook runs and project triggers (medium)
@@ -8567,7 +8567,7 @@ Diffed against: <https://demo.octopus.app/api>
 - [ ] `workers + workerpools (/api/{space}/workers, /api/{space}/workerpools)` — We sync machines (deployment targets) but not the worker fleet that actually executes steps, so execution capacity analysis is impossible (medium)
 - [ ] `deploymentprocesses (/api/{space}/deploymentprocesses)` — Step-level definition per project, needed to break deployment duration down by step (low)
 
-Note: Diffed against the live self-describing API root on the public demo instance, which enumerates every resource link (space-scoped links are templated as /api/Spaces-1/...). Excluded as config/plumbing: subscriptions (webhooks), gitcredentials, certificates, signingkeys, accounts, feeds, proxies, smtp/telemetry/maintenance/performance configuration, migrations and import/export. Event lookup tables (events/categories, events/groups, events/agents, events/documenttypes) exist and would enrich the events table, but are low value on their own.
+Note: Diffed against the live self-describing API root on the public demo instance, which enumerates every resource link (space-scoped links are templated as /api/Spaces-1/...). Excluded as config/plumbing: subscriptions (webhooks), gitcredentials, certificates, signingkeys, accounts, feeds, proxies, smtp/telemetry/maintenance/performance configuration, migrations and import/export. Event lookup tables (events/categories, events/groups, events/agents, events/documenttypes) exist and would enrich the events table, but are low value on their own. `insights/reports` lists only Insights report definitions (scope filters and time zone, Enterprise-only); the DORA metrics sit behind a per-report `/metrics` call that returns pre-aggregated series for a chosen time range, which the synced `deployments` and `tasks` tables already let you compute, so it is not synced.
 
 ## Okendo — gaps
 
