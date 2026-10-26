@@ -98,6 +98,7 @@ class MatrixManager:
     _person_distinct_ids_created: int
     _events_created: int
     _native_events_created: int
+    _groups_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
@@ -107,6 +108,7 @@ class MatrixManager:
         self._person_distinct_ids_created = 0
         self._events_created = 0
         self._native_events_created = 0
+        self._groups_created = 0
 
     def ensure_account_and_save(
         self,
@@ -260,6 +262,7 @@ class MatrixManager:
                     group,
                     self.matrix.now,
                 )
+                self._groups_created += 1
         bulk_create_group_type_mappings(data_team.id, data_team.project_id, group_type_mapping_dicts)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
@@ -403,11 +406,8 @@ class MatrixManager:
     def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        # Native ingestion runs independently of person and legacy-event ingestion. A pre-saved source must be
-        # complete in both tables before any demo project copies it.
-        wait_for_native = False
-        if team_id == self.MASTER_TEAM_ID:
-            wait_for_native = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
+        # Native ingestion runs independently, including for eval source teams whose IDs are not MASTER_TEAM_ID.
+        wait_for_native = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
         MAX_WAIT_ITERATIONS = 600
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
@@ -420,6 +420,10 @@ class MatrixManager:
                 0
             ][0]
             events_ready = event_count >= self._events_created
+            group_count = sync_execute("SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id})[
+                0
+            ][0]
+            groups_ready = group_count >= self._groups_created
             native_event_count = 0
             if wait_for_native:
                 native_event_count = sync_execute(
@@ -429,10 +433,12 @@ class MatrixManager:
                 events_ready = events_ready and native_event_count >= self._native_events_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
-            event_progress = f"Events: {event_count}/{self._events_created}"
+            event_progress = (
+                f"Events: {event_count}/{self._events_created}. Groups: {group_count}/{self._groups_created}"
+            )
             if wait_for_native:
                 event_progress += f". Native events: {native_event_count}/{self._native_events_created}"
-            if persons_ready and person_distinct_ids_ready and events_ready:
+            if persons_ready and person_distinct_ids_ready and events_ready and groups_ready:
                 if self.print_steps:
                     print(
                         f"Source data fully loaded into ClickHouse after {i * 0.5:.1f}s. "

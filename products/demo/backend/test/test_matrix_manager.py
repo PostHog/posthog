@@ -160,13 +160,13 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         copied = execute_hogql_query("SELECT count() FROM events WHERE properties.foo = 'bar'", team=self.team)
         assert copied.results[0][0] >= 3
         # The copy retains event payloads and identities, while the new insert gets its own ingestion metadata.
-        for read_table in ("events", "events_json"):
+        for read_table in ("events", "events_json", "groups"):
             rows = sync_execute(
                 f"""
                 SELECT team_id, toJSONString(tuple(* EXCEPT (
                     team_id, _timestamp, _offset, _partition, inserted_at, consumer_breadcrumbs, historical_migration
                 )))
-                FROM {read_table} WHERE team_id IN (0, %(team_id)s) ORDER BY uuid
+                FROM {read_table} WHERE team_id IN (0, %(team_id)s) ORDER BY 2
                 """,
                 {"team_id": self.team.pk},
             )
