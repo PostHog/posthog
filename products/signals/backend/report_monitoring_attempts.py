@@ -76,16 +76,16 @@ def complete_implementation(
             if attempt is None:
                 raise ValueError("The Monitoring period has no check snapshot.")
             return attempt
+        if not enabled:
+            report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
+            report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+            return None
         if report.status not in {
             SignalReport.Status.READY,
             SignalReport.Status.PENDING_INPUT,
             SignalReport.Status.FAILED,
         }:
             raise InvalidStatusTransition(report.status, SignalReport.Status.MONITORING)
-        if not enabled:
-            report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
-            report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
-            return None
         earlier_attempts = SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id=report.id)
         if monitoring_started_at is not None:
             earlier_attempts = earlier_attempts.filter(monitoring_started_at__gte=monitoring_started_at)

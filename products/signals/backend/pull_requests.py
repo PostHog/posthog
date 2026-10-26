@@ -10,12 +10,16 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.github_integration_base import GitHubIntegrationBase
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
 from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 
 if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_assignments import PullRequestDetails
 
 logger = structlog.get_logger(__name__)
@@ -185,6 +189,36 @@ def link_pull_request(
     return pr
 
 
+def _repair_missing_merge_times(report: SignalReport, prs: Sequence["ImplementationPr"]) -> None:
+    from products.signals.backend.report_assignments import MAX_PR_NUMBER, MAX_REPOSITORY_LENGTH, PullRequestDetails
+    from products.signals.backend.tasks import refresh_pull_request_review_decision
+
+    for pr in prs:
+        if pr.state != "merged" or pr.merged_at is not None:
+            continue
+        parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+        if parsed is None or not 0 < parsed.number <= MAX_PR_NUMBER or len(parsed.repository) > MAX_REPOSITORY_LENGTH:
+            continue
+        stored = link_pull_request(
+            report=report,
+            details=PullRequestDetails(
+                url=pr.url, repository=parsed.repository.lower(), number=parsed.number, state="merged", merged=True
+            ),
+            actor=ArtefactAttribution.from_task(pr.task_id) if pr.task_id else ArtefactAttribution.system(),
+            claim_id=pr.claim_id,
+            state_source=PullRequestStateSource.TASK_OUTPUT,
+            notify_reviewers=False,
+        )
+        transaction.on_commit(
+            partial(
+                refresh_pull_request_review_decision.delay,
+                team_id=report.team_id,
+                repository=stored.repository,
+                pr_number=stored.number,
+            )
+        )
+
+
 def apply_report_completion(report: SignalReport) -> None:
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
     from products.signals.backend.report_assignments import _apply_pr_report_state
@@ -202,6 +236,14 @@ def apply_report_completion(report: SignalReport) -> None:
         merge_times = [pr.merged_at for pr in merged_prs if pr.merged_at is not None]
         merged_at = max(merge_times) if merge_times and len(merge_times) == len(merged_prs) else None
         _apply_pr_report_state(report, state, merged_at=merged_at)
+        if (
+            state == "merged"
+            and merged_at is None
+            and report.status
+            in {SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT, SignalReport.Status.FAILED}
+            and team_report_monitoring_enabled(report.team_id)
+        ):
+            _repair_missing_merge_times(report, prs)
 
 
 def import_report_pull_requests(report: SignalReport, *, notify_reviewers: bool = False) -> None:
