@@ -305,6 +305,7 @@ export interface workflowLogicValues {
     isWorkflowValid: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
+    manualTriggerDisabledReason: string | undefined
     originalWorkflow: HogFlow | null
     originalWorkflowLoading: boolean
     pendingSchedule:
@@ -330,7 +331,6 @@ export interface workflowLogicValues {
     showDraftActions: boolean
     showWorkflowErrors: boolean
     statusToggleDisabledReason: string | undefined
-    manualTriggerDisabledReason: string | undefined
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
