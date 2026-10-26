@@ -182,7 +182,7 @@ class ItemProposal:
 class SourceCapabilities:
     release_status: ReleaseStatus | None
     unreleased: bool
-    # None for sources that discover tables from the user's own system (databases, files).
+    # None when the tables are known only once PostHog connects (databases, files, sources that need credentials to list them).
     documented_tables: frozenset[str] | None
     supports_column_selection: bool
     supports_row_filters: bool
@@ -190,6 +190,8 @@ class SourceCapabilities:
     row_filter_columns: Mapping[str, frozenset[str]] = field(default_factory=dict)
     # Config fields that hold a group of settings behind an on/off switch, like `ssh_tunnel`.
     toggle_groups: frozenset[str] = frozenset()
+    # Feature flags a team needs before it can create this source.
+    feature_flags: frozenset[str] = frozenset()
 
 
 _SNAPSHOT_ADAPTER: TypeAdapter[VendorSnapshot] = TypeAdapter(VendorSnapshot)
