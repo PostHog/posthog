@@ -696,11 +696,9 @@ def compile_filters_bytecode(
         # property filters referencing a cohort) still hit the bytecode compiler's
         # generic "Can't use cohorts in real-time filters" error.
         if "Can't use cohorts in real-time filters" in error_msg:
-            settings_url = _internal_user_settings_url(team.id)
             error_msg = (
-                f"Cohort membership can't be evaluated in real-time filters. "
-                f"Replace cohorts with equivalent inline person property filters. "
-                f"Update your filters at: {settings_url}"
+                "Cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people."
             )
 
         filters["bytecode"] = None

@@ -1030,7 +1030,25 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         res = execute_bytecode(result["bytecode"], hog_globals)
         assert res.result is False
 
-    def test_behavioral_cohort_still_errors(self):
+    @parameterized.expand(
+        [
+            (
+                "test_account_filters",
+                "Your internal/test user filters include cohorts that can't be used in real-time filters: "
+                "cohort 'Behavioral cohort' (id=N) contains behavioral filters — "
+                "only cohorts with exclusively person property filters can be used in real-time filters. "
+                "Either switch to a cohort that only uses person properties, "
+                "or replace the cohort with inline person property filters. "
+                "Update your filters at: SETTINGS_URL#internal-user-filtering",
+            ),
+            (
+                "own_filters",
+                "Cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people.",
+            ),
+        ]
+    )
+    def test_behavioral_cohort_still_errors(self, cohort_source: str, expected_error: str) -> None:
         cohort = Cohort.objects.create(
             team=self.team,
             name="Behavioral cohort",
@@ -1049,19 +1067,17 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             is_static=False,
         )
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk}]
-        self.team.save()
+        cohort_filter = {"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}
+        if cohort_source == "test_account_filters":
+            self.team.test_account_filters = [cohort_filter]
+            self.team.save()
+            filters: dict = {"filter_test_accounts": True}
+        else:
+            filters = {"properties": [cohort_filter]}
 
-        result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
+        result = compile_filters_bytecode(filters, self.team)
         assert result["bytecode"] is None
-        assert _normalize_error(result["bytecode_error"]) == (
-            "Your internal/test user filters include cohorts that can't be used in real-time filters: "
-            "cohort 'Behavioral cohort' (id=N) contains behavioral filters — "
-            "only cohorts with exclusively person property filters can be used in real-time filters. "
-            "Either switch to a cohort that only uses person properties, "
-            "or replace the cohort with inline person property filters. "
-            "Update your filters at: SETTINGS_URL#internal-user-filtering"
-        )
+        assert _normalize_error(result["bytecode_error"]) == expected_error
 
     def test_nested_cohort_reference_still_errors(self):
         inner_cohort = Cohort.objects.create(
