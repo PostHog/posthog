@@ -675,7 +675,7 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
 
 V2_CONDITIONS_UNAVAILABLE_REASON = (
     "Per-rule analysis is not available for flags with config version 2. "
-    "`condition_index` is the index of the deciding rule in `filters.rules`, or null when no rule decided."
+    "`condition_index` is the zero-based index of the deciding rule in `filters.rules`, or null when no rule decided."
 )
 
 
@@ -3467,8 +3467,8 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     condition_index = serializers.IntegerField(
         allow_null=True,
         help_text=(
-            "The index of the condition that matched, if applicable. For a flag with config version 2, the index "
-            "of the rule in `filters.rules` that decided the result, or null when no rule decided it."
+            "The index of the condition that matched, if applicable. For a flag with config version 2, the "
+            "zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it."
         ),
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")

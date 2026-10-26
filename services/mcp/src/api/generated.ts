@@ -54397,7 +54397,7 @@ export namespace Schemas {
          */
       reason_description?: string | null;
       /**
-         * The index of the condition that matched, if applicable. For a flag with config version 2, the index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
+         * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
          * @nullable
          */
       condition_index: number | null;
