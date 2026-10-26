@@ -266,6 +266,7 @@ async def _arun_signals_scout(
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trigger_workflow_id: str | None = None,
+    queued_trigger_count: int = 0,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -286,6 +287,10 @@ async def _arun_signals_scout(
 
     `trigger_workflow_id` is the workflow whose "Run scout" step started a `"workflow"` run. It
     renders in the run's identity and is stamped on the run row.
+
+    `queued_trigger_count` is how many queued workflow fires the run took when it started. When it
+    is set, `run_note` holds their coalesced notes, which render as the subjects the run handles
+    first. It is stamped on the run row.
 
     `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
     They render in their own prompt section as untrusted data. `precheck_query_source` says which
@@ -560,6 +565,7 @@ async def _arun_signals_scout(
             triggered_by=triggered_by,
             run_note=run_note,
             trigger_workflow_id=trigger_workflow_id,
+            queued_trigger_count=queued_trigger_count,
             trial=trial,
             check_id=check_id,
             precheck_rows=precheck_rows,
@@ -789,6 +795,7 @@ async def arun_signals_scout(
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trigger_workflow_id: str | None = None,
+    queued_trigger_count: int = 0,
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
@@ -805,6 +812,7 @@ async def arun_signals_scout(
             triggered_by=triggered_by,
             run_note=run_note,
             trigger_workflow_id=trigger_workflow_id,
+            queued_trigger_count=queued_trigger_count,
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
@@ -997,6 +1005,7 @@ async def _spawn_and_run(
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trigger_workflow_id: str | None = None,
+    queued_trigger_count: int = 0,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_rows: str | None = None,
@@ -1121,6 +1130,7 @@ async def _spawn_and_run(
         tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
         trigger_workflow_id=trigger_workflow_id,
+        queued_trigger_count=queued_trigger_count,
         # The repositories the sandbox clones, so the prompt can point the agent at the checkout
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
         # the prompt can never describe a tree the run does not have.
@@ -1163,6 +1173,7 @@ async def _spawn_and_run(
             triggered_by=triggered_by,
             run_note=run_note,
             trigger_workflow_id=trigger_workflow_id,
+            queued_trigger_count=queued_trigger_count,
             trial=trial,
             check_id=check_id,
             precheck_query_source=precheck_query_source,
@@ -1466,6 +1477,7 @@ def _create_run_row(
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trigger_workflow_id: str | None = None,
+    queued_trigger_count: int = 0,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_query_source: str | None = None,
@@ -1556,6 +1568,9 @@ def _create_run_row(
     # The only record of which workflow spent the run, so its author can find the runs it started.
     if trigger_workflow_id:
         metadata["trigger_workflow_id"] = trigger_workflow_id
+    # How many queued workflow fires the run took, so a wait can be traced to the run that ended it.
+    if queued_trigger_count:
+        metadata["queued_trigger_count"] = queued_trigger_count
     # The only record of why a manual run behaved differently from the scheduled ones around it,
     # because the note is deliberately never stored as a scout note.
     if run_note:

@@ -205,9 +205,17 @@ TRIGGERED_BY_CHECK = "check"
 # customer-editable config, so this backstop deliberately does not trust it: an event trigger on a
 # high-volume event would otherwise fire hundreds of times an hour. 30 minutes is the floor the
 # system already applies to `run_interval_minutes` for the same worker-pool reason, and it bounds
-# the workflow path at 48 runs/day/skill regardless of how the workflow is configured. Suppressed
-# fires are dropped, not queued — there is deliberately no trailing-edge coalescing.
+# the workflow path at 48 runs/day/skill regardless of how the workflow is configured. A fire this
+# gate or the in-flight gate turns away is queued (`workflow_trigger_queue.py`), and the coordinator
+# drains a lane's queue into one run, so a burst still costs at most one extra run per window.
 WORKFLOW_RUN_COOLDOWN_S = 30 * 60
+
+# Cap on the fires one scout keeps queued while it is busy. Each one renders a line in the run that
+# drains them, so the cap also bounds that prompt section. The oldest fire drops first when full.
+MAX_PENDING_WORKFLOW_TRIGGERS = 20
+
+# How a queued fire without a note renders, so the run still sees that an event fired.
+QUEUED_TRIGGER_NO_NOTE_LINE = "an event fired with no note"
 
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
 # is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so

@@ -91,6 +91,11 @@ from products.signals.backend.scout_harness.team_limits import (
     background_sample_bucket,
     resolve_max_enabled_scouts,
 )
+from products.signals.backend.scout_harness.workflow_runs import (
+    drain_pending_workflow_triggers,
+    pending_trigger_lanes_for_scheduled_runs,
+)
+from products.signals.backend.scout_harness.workflow_trigger_queue import PendingTriggerLane
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 from products.signals.backend.temporal.metrics import (
     COORDINATOR_DISPATCH_DEDUPED,
@@ -135,6 +140,9 @@ class PlannedRun:
     skill_name: str
     # How long the child sleeps before it starts work. See `_start_delay_seconds`.
     start_delay_seconds: int = 0
+    # Queued workflow fires this scheduled run takes when it starts. Only ids, so the tick's payload
+    # stays small however many lanes have fires waiting.
+    pending_trigger_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -176,6 +184,21 @@ class CoordinatorWorkflowOutput:
     planned_count: int
     started_count: int
     skipped_count: int
+
+
+@frozen
+class DrainPendingTriggersInput:
+    """The lanes this tick dispatches on schedule. Their queued fires ride on that run instead."""
+
+    scheduled_runs: list[PlannedRun]
+
+
+@frozen
+class DrainPendingTriggersOutput:
+    lanes: int = 0
+    dispatched: int = 0
+    deferred: int = 0
+    dropped: int = 0
 
 
 @frozen
@@ -259,6 +282,33 @@ async def fetch_enabled_signals_scout_runs_activity(
     increment_coordinator_tick(len(planned))
     return FetchEnabledRunsOutput(
         planned_runs=planned, dispatch_smear_seconds=smear_seconds, child_start_delay=child_start_delay
+    )
+
+
+@activity.defn
+async def drain_pending_workflow_triggers_activity(input: DrainPendingTriggersInput) -> DrainPendingTriggersOutput:
+    """Start one workflow-triggered run for each lane whose queued fires can run now.
+
+    Never raises: a failed drain leaves every fire queued for the next tick, and must not fail the
+    tick's scheduled dispatch.
+    """
+    excluded = {(run.team_id, run.skill_name) for run in input.scheduled_runs}
+    try:
+        async with Heartbeater():
+            summary = await database_sync_to_async(drain_pending_workflow_triggers, thread_sensitive=False)(excluded)
+    except Exception:
+        logger.exception("signals_scout coordinator: draining pending workflow triggers failed")
+        return DrainPendingTriggersOutput()
+    if summary.lanes:
+        logger.info(
+            "signals_scout coordinator: drained pending workflow triggers",
+            lanes=summary.lanes,
+            dispatched=summary.dispatched,
+            deferred=summary.deferred,
+            dropped=summary.dropped,
+        )
+    return DrainPendingTriggersOutput(
+        lanes=summary.lanes, dispatched=summary.dispatched, deferred=summary.deferred, dropped=summary.dropped
     )
 
 
@@ -721,12 +771,35 @@ def _collect_planned_runs(
     _capture_capacity_tick(due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick)
     if background is not None and background.enabled:
         _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
+    pending_lanes = _pending_trigger_lanes_for(selected)
     planned = [
-        PlannedRun(team_id=d.team_id, skill_name=d.skill_name, start_delay_seconds=d.start_delay_s) for d in selected
+        PlannedRun(
+            team_id=d.team_id,
+            skill_name=d.skill_name,
+            start_delay_seconds=d.start_delay_s,
+            pending_trigger_ids=pending_lanes[(d.team_id, d.skill_name)].trigger_ids
+            if (d.team_id, d.skill_name) in pending_lanes
+            else (),
+        )
+        for d in selected
     ]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
+
+
+def _pending_trigger_lanes_for(selected: list[_DueRun]) -> dict[tuple[int, str], PendingTriggerLane]:
+    """The queued workflow fires the scheduled runs this tick may take, so no extra run is spent on them.
+
+    A failure here costs only the attachment: the fires stay queued and drain separately.
+    """
+    if not selected:
+        return {}
+    try:
+        return pending_trigger_lanes_for_scheduled_runs({(d.team_id, d.skill_name) for d in selected})
+    except Exception:
+        logger.exception("signals_scout coordinator: reading pending workflow triggers failed; continuing")
+        return {}
 
 
 def _background_runs_since(background: BackgroundEnrollment, listed_team_ids: set[int], since: datetime) -> int:
@@ -1590,6 +1663,13 @@ class SignalsScoutCoordinatorWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         planned_runs = fetch_result.planned_runs
+        if workflow.patched("scout-drain-workflow-triggers-2026-10"):
+            await workflow.execute_activity(
+                drain_pending_workflow_triggers_activity,
+                DrainPendingTriggersInput(scheduled_runs=planned_runs),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
         if not planned_runs:
             return CoordinatorWorkflowOutput(0, 0, 0)
 
@@ -1735,6 +1815,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
                 start_delay_seconds=planned.start_delay_seconds,
+                pending_trigger_ids=planned.pending_trigger_ids,
             ),
             id=child_id,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,

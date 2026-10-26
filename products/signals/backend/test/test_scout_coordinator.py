@@ -30,6 +30,7 @@ from products.signals.backend.models import (
     SignalReportAction,
     SignalScoutBackgroundBand,
     SignalScoutConfig,
+    SignalScoutPendingTrigger,
     SignalScoutRun,
 )
 from products.signals.backend.scout_harness import lazy_seed
@@ -98,6 +99,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _stamp_dispatched_runs,
     _start_delay_seconds,
     _tick_capacity_properties,
+    drain_pending_workflow_triggers_activity,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -536,6 +538,33 @@ async def test_a_tick_that_plans_nothing_still_counts_itself(ateam):
         assert await _run_activity() == []
 
     increment_tick.assert_called_once_with(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("run_live", [False, True])
+async def test_a_due_scheduled_run_takes_the_lanes_queued_workflow_triggers(ateam, run_live):
+    # Attached, the fires cost no extra run. With a run live, the scheduled run would skip at the
+    # runner's single-flight, so the fires stay queued for the drain instead.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    config = await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
+    trigger = await database_sync_to_async(SignalScoutPendingTrigger.all_teams.create)(
+        team_id=ateam.id, skill_name="signals-scout-errors", note="Issue #42", received_at=_TICK_STARTED_AT
+    )
+    if run_live:
+        task = await database_sync_to_async(Task.objects.create)(team=ateam, title="t", description="d")
+        task_run = await database_sync_to_async(TaskRun.objects.create)(
+            task=task, team=ateam, status=TaskRun.Status.IN_PROGRESS
+        )
+        await database_sync_to_async(SignalScoutRun.objects.create)(
+            task_run=task_run, team=ateam, scout_config=config, skill_name="signals-scout-errors", skill_version=1
+        )
+
+    planned = await _run_activity()
+
+    assert [(p.skill_name, p.pending_trigger_ids) for p in planned] == [
+        ("signals-scout-errors", () if run_live else (str(trigger.id),))
+    ]
 
 
 # ── Auto-register: author a skill, get a scout ──────────────────────────────────
@@ -2802,11 +2831,18 @@ async def test_workflow_returns_zero_counts_when_no_planned_runs():
 @pytest.mark.parametrize(
     "gate_open,expected_activities",
     [
-        (True, [run_due_signal_report_checks_activity, fetch_enabled_signals_scout_runs_activity]),
+        (
+            True,
+            [
+                run_due_signal_report_checks_activity,
+                fetch_enabled_signals_scout_runs_activity,
+                drain_pending_workflow_triggers_activity,
+            ],
+        ),
         (False, [fetch_enabled_signals_scout_runs_activity]),
     ],
 )
-async def test_report_checks_run_only_on_the_patched_path(gate_open, expected_activities):
+async def test_report_checks_and_the_trigger_drain_run_only_on_the_patched_path(gate_open, expected_activities):
     # An in-flight coordinator replays its recorded history through the closed gate. Commanding the
     # new activity there fails that replay with a non-determinism error, which under
     # `ScheduleOverlapPolicy.SKIP` starves every later tick.
@@ -2838,7 +2874,7 @@ async def test_workflow_dispatches_children_fire_and_forget():
     planned = [
         PlannedRun(team_id=1, skill_name="signals-scout-a"),
         PlannedRun(team_id=1, skill_name="signals-scout-b"),
-        PlannedRun(team_id=2, skill_name="signals-scout-c"),
+        PlannedRun(team_id=2, skill_name="signals-scout-c", pending_trigger_ids=("trigger-1", "trigger-2")),
     ]
 
     # Second dispatch raises WorkflowAlreadyStartedError → counted as skipped, others as started.
@@ -2847,12 +2883,12 @@ async def test_workflow_dispatches_children_fire_and_forget():
         WorkflowAlreadyStartedError("dup", "signals-scout-run-1-signals-scout-b-tick-1-1"),
         None,
     ]
-    dispatch_calls: list[tuple[int, str]] = []
+    dispatch_calls: list[tuple[int, str, tuple[str, ...]]] = []
     stamp_calls: list[StampDispatchedRunsInput] = []
 
     async def fake_start_child(_workflow_run, run_input, **kwargs):
         idx = len(dispatch_calls)
-        dispatch_calls.append((run_input.team_id, run_input.skill_name))
+        dispatch_calls.append((run_input.team_id, run_input.skill_name, run_input.pending_trigger_ids))
         outcome = dispatch_outcomes[idx]
         if isinstance(outcome, BaseException):
             raise outcome
@@ -2892,10 +2928,11 @@ async def test_workflow_dispatches_children_fire_and_forget():
     assert output.planned_count == 3
     assert output.started_count == 2
     assert output.skipped_count == 1
+    # Queued workflow fires ride on the scheduled run, which claims them when it starts.
     assert dispatch_calls == [
-        (1, "signals-scout-a"),
-        (1, "signals-scout-b"),
-        (2, "signals-scout-c"),
+        (1, "signals-scout-a", ()),
+        (1, "signals-scout-b", ()),
+        (2, "signals-scout-c", ("trigger-1", "trigger-2")),
     ]
     sleep_mock.assert_not_awaited()
     assert [call.dispatched_runs for call in stamp_calls] == [planned]
@@ -3060,10 +3097,11 @@ async def test_hard_dispatch_error_does_not_stamp():
         with pytest.raises(RuntimeError, match="temporal unavailable"):
             await coordinator.run(CoordinatorWorkflowInput())
 
-    # Only the report checks and the planning activity ran — the stamp activity never executed.
+    # Only the report checks, the planning activity, and the drain ran — the stamp activity never executed.
     assert execute_activity_calls == [
         run_due_signal_report_checks_activity,
         fetch_enabled_signals_scout_runs_activity,
+        drain_pending_workflow_triggers_activity,
     ]
 
 

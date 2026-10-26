@@ -1,6 +1,8 @@
 import uuid
 from typing import Any, cast
 
+from django.db import models
+
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -14,6 +16,7 @@ from posthog.redis import get_client
 from products.signals.backend.facade.api import (
     MAX_RUN_NOTE_CHARS,
     ScoutRunRejectionKind,
+    WorkflowScoutRunQueued,
     WorkflowScoutRunRejected,
     start_workflow_scout_run,
 )
@@ -37,9 +40,14 @@ def _idempotency_cache_key(hog_flow_id: uuid.UUID, idempotency_key: str) -> str:
     return f"workflow_scout_run_idempotency:{hog_flow_id}:{idempotency_key}"
 
 
+# Cached under an idempotency key in place of a workflow id when the fire was queued. A workflow id
+# never takes this value, so a replay can tell the two apart.
+_QUEUED_CACHE_VALUE = "queued"
+
+
 # The step only treats 409 as a graceful skip, so every backpressure kind (paused, cooldown,
 # budget, quota, run in flight) maps onto it; a scout that cannot run at all fails the step so the
-# author notices.
+# author notices. A busy scout queues the fire instead, unless the step asked to skip it.
 _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
     ScoutRunRejectionKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
     ScoutRunRejectionKind.FORBIDDEN: status.HTTP_403_FORBIDDEN,
@@ -50,6 +58,11 @@ _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
 
 class WorkflowScoutRunsJWTAuthentication(WorkflowStepJWTAuthentication):
     purpose = WORKFLOW_SCOUT_RUN_PURPOSE
+
+
+class WorkflowScoutRunWhenBusy(models.TextChoices):
+    QUEUE = "queue", "Queue the trigger"
+    SKIP = "skip", "Skip it"
 
 
 class WorkflowScoutRunCreateSerializer(serializers.Serializer):
@@ -72,11 +85,29 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
             "input. Blank means no note."
         ),
     )
+    when_busy = serializers.ChoiceField(
+        choices=WorkflowScoutRunWhenBusy.choices,
+        required=False,
+        default=WorkflowScoutRunWhenBusy.QUEUE,
+        help_text=(
+            "What happens when the scout is busy, which means it ran from a workflow in the last 30 minutes or one "
+            "of its runs is in progress. 'queue' keeps the trigger, and a later run handles its note. 'skip' drops "
+            "the trigger and answers 409."
+        ),
+    )
 
 
 class WorkflowScoutRunResponseSerializer(serializers.Serializer):
-    scout = serializers.CharField(help_text="The scout that was run.")
-    workflow_id = serializers.CharField(help_text="Temporal workflow ID of the dispatched scout run.")
+    scout = serializers.CharField(help_text="The scout that was run, or that will handle the queued trigger.")
+    workflow_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Temporal workflow ID of the dispatched scout run. Null when the trigger was queued.",
+    )
+    queued = serializers.BooleanField(
+        default=False,
+        help_text="True when the scout was busy and the trigger waits for a later run. No run has started for it yet.",
+    )
 
 
 class WorkflowScoutRunRejectedSerializer(serializers.Serializer):
@@ -93,7 +124,10 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
     one, the scout is told a workflow started it and otherwise runs as it does on its schedule. A
     run never stamps the scout's last_run_at and never feeds
     its failure-streak breaker — a workflow trigger is additive to the schedule, not a
-    substitute for it."""
+    substitute for it.
+
+    A fire that arrives while the scout is busy is queued, and a later run handles its note,
+    unless the step's `when_busy` asks to skip it."""
 
     authentication_classes = [WorkflowScoutRunsJWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -104,7 +138,10 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         responses={
             202: OpenApiResponse(
                 response=WorkflowScoutRunResponseSerializer,
-                description="The scout run was dispatched. It runs asynchronously; poll the scout's runs for the result",
+                description=(
+                    "The scout run was dispatched, or the scout was busy and the trigger was queued for a later run. "
+                    "A dispatched run runs asynchronously; poll the scout's runs for the result"
+                ),
             ),
             403: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
@@ -116,7 +153,9 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             ),
             409: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
-                description="The scout is paused or over its cooldown, daily budget, or quota",
+                description=(
+                    "The scout is paused or over its daily budget or quota, or it is busy and the step asked to skip"
+                ),
             ),
             422: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
@@ -144,7 +183,10 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         if cache_key is not None:
             cached = get_client().get(cache_key)
             if cached is not None:
-                return _dispatched(skill_name, cached.decode() if isinstance(cached, bytes) else cached)
+                cached_value = cached.decode() if isinstance(cached, bytes) else cached
+                if cached_value == _QUEUED_CACHE_VALUE:
+                    return _queued(skill_name)
+                return _dispatched(skill_name, cached_value)
 
         # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
         # chain), so a deleted workflow must not still be able to spend scout runs.
@@ -152,12 +194,13 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         try:
-            started = start_workflow_scout_run(
+            outcome = start_workflow_scout_run(
                 team_id=team_id,
                 skill_name=skill_name,
                 workflow_origin_key=idempotency_key,
                 run_note=note,
                 trigger_workflow_id=str(hog_flow_id),
+                queue_when_busy=serializer.validated_data["when_busy"] == WorkflowScoutRunWhenBusy.QUEUE,
             )
         except WorkflowScoutRunRejected as error:
             logger.info(
@@ -169,21 +212,40 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             )
             return _rejected(error.rejection.detail, _REJECTION_STATUS[error.rejection.kind])
 
+        if isinstance(outcome, WorkflowScoutRunQueued):
+            logger.info(
+                "workflow_scout_run_queued",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                skill_name=outcome.skill_name,
+                pending_count=outcome.pending_count,
+            )
+            if cache_key is not None:
+                get_client().set(cache_key, _QUEUED_CACHE_VALUE, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
+            return _queued(outcome.skill_name)
+
         logger.info(
             "workflow_scout_run_started",
             team_id=team_id,
             hog_flow_id=str(hog_flow_id),
-            skill_name=started.skill_name,
-            workflow_id=started.workflow_id,
+            skill_name=outcome.skill_name,
+            workflow_id=outcome.workflow_id,
         )
         if cache_key is not None:
-            get_client().set(cache_key, started.workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
-        return _dispatched(started.skill_name, started.workflow_id)
+            get_client().set(cache_key, outcome.workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
+        return _dispatched(outcome.skill_name, outcome.workflow_id)
 
 
 def _dispatched(skill_name: str, workflow_id: str) -> Response:
     return Response(
         WorkflowScoutRunResponseSerializer({"scout": skill_name, "workflow_id": workflow_id}).data,
+        status=status.HTTP_202_ACCEPTED,
+    )
+
+
+def _queued(skill_name: str) -> Response:
+    return Response(
+        WorkflowScoutRunResponseSerializer({"scout": skill_name, "workflow_id": None, "queued": True}).data,
         status=status.HTTP_202_ACCEPTED,
     )
 
