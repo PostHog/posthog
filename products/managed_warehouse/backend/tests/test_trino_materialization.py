@@ -1,17 +1,21 @@
+import re
 import datetime as dt
 from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLQuery
 
+from posthog.hogql.parser import parse_select
+
 from posthog.models import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.managed_warehouse.backend.facade.client import execute_trino_shadow_materialization
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
@@ -26,7 +30,11 @@ from products.managed_warehouse.backend.models import (
     ManagedWarehouseViewTranslationResult,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
-from products.managed_warehouse.backend.trino_materialization import DuplicateUniqueKeyError
+from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
+from products.managed_warehouse.backend.trino_materialization import (
+    DuplicateUniqueKeyError,
+    execute_trino_shadow_materialization as execute_trino_model_statements,
+)
 from products.managed_warehouse.backend.view_translation_status import source_query_hash
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -83,8 +91,10 @@ class TestTrinoShadowMaterialization(BaseTest):
             HogQLQuery.model_validate(self.query),
             team=self.team,
             bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
             expansion_mode=TrinoExpansionMode.DJANGO,
-            select_transform=None,
+            select_transform=ANY,
+            preserve_clickhouse_output_names=True,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -164,6 +174,147 @@ class TestTrinoShadowMaterialization(BaseTest):
         assert writes[1][0].endswith("LIMIT 75000")
         assert writes[1][1] == ["purchase"]
 
+    @parameterized.expand(
+        [
+            (
+                "full_build",
+                "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("count()",),
+            ),
+            (
+                "merge_stage",
+                "SELECT event, count(), max(timestamp) AS ts FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()",),
+            ),
+            (
+                "columns_regex",
+                "SELECT COLUMNS('^event$'), count(), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("count()",),
+            ),
+            (
+                "columns_list",
+                "SELECT COLUMNS(event), count(), max(timestamp) AS ts FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()",),
+            ),
+            (
+                "union_repeats_expressions",
+                "SELECT event, count(), count() AS hits, max(timestamp) AS ts FROM events GROUP BY event "
+                "UNION ALL SELECT event, count(), count(), max(timestamp) FROM events GROUP BY event",
+                None,
+                ("count()",),
+            ),
+            (
+                "union_by_name",
+                "SELECT event, count() AS hits, max(timestamp) AS ts, 1 AS one FROM events GROUP BY event "
+                "UNION ALL BY NAME SELECT 1 AS one, max(timestamp) AS ts, count() AS hits, event "
+                "FROM events GROUP BY event",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("hits", "one"),
+            ),
+            (
+                "resolved_calls",
+                "SELECT max(timestamp), toStartOfDay(timestamp), toDate(timestamp), timestamp AS ts "
+                "FROM events GROUP BY timestamp",
+                None,
+                (
+                    "max(toTimeZone(timestamp, 'UTC'))",
+                    "toStartOfDay(toTimeZone(timestamp, 'UTC'))",
+                    "toDate(toTimeZone(timestamp, 'UTC'))",
+                ),
+            ),
+            (
+                "resolved_property_and_boolean",
+                "SELECT person.properties.x, true, timestamp AS ts FROM events",
+                None,
+                ("x", "1"),
+            ),
+            (
+                "guard_names_inner_columns",
+                "SELECT event, count(), max(timestamp), timestamp AS ts FROM events GROUP BY event, timestamp",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("count()", "max(timestamp)"),
+            ),
+            (
+                "string_constant",
+                "SELECT event, 'hello', max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("'hello'",),
+            ),
+            (
+                "tuple_constant",
+                "SELECT event, (1, 2), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("(1, 2)",),
+            ),
+            (
+                "question_mark_full_build",
+                "SELECT event, countIf(match(event, 'sign.?up')), max(timestamp) AS ts FROM events GROUP BY event",
+                None,
+                ("countIf(match(event, 'sign.?up'))",),
+            ),
+            (
+                "question_mark_merge_stage",
+                "SELECT event, countIf(match(event, 'sign.?up')), timestamp AS ts FROM events GROUP BY event, timestamp",
+                dt.datetime(2026, 10, 1, tzinfo=dt.UTC),
+                ("countIf(match(event, 'sign.?up'))",),
+            ),
+        ]
+    )
+    def test_names_unaliased_columns_in_create_table_as(
+        self, _name: str, query: str, since: dt.datetime | None, expected_names: tuple[str, ...]
+    ) -> None:
+        self.query = {"kind": "HogQLQuery", "query": query}
+        membership = ManagedWarehouseTeamMembership(
+            team_id=self.team.pk,
+            organization_id=str(self.organization.pk),
+            schema_name="production",
+            enabled=True,
+            backfill_enabled=True,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_current", persons_table="persons_current", data_imports_schema="imports"
+            ),
+            earliest_event_date=None,
+        )
+        cursor = _ScriptedCursor(table_exists=True, staged=1)
+        self.connection.cursor.return_value = cursor
+        with (
+            patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = self.connection
+            execute_trino_shadow_materialization(
+                organization_id=str(self.organization.pk),
+                team_id=self.team.pk,
+                saved_query_id=self.saved_query_id,
+                source_query=self.query,
+                incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("event",), since=since),
+            )
+
+        (write,) = [statement for statement, _ in cursor.statements if statement.startswith("CREATE OR REPLACE TABLE")]
+        for expected_name in expected_names:
+            assert f'AS "{expected_name}"' in write
+        assert ("__ph_incremental_stage" in write) == (since is not None)
+        if since is not None:
+            guarded = write[write.index("FROM (") :]
+            references = re.findall(r'"__ph_incremental"\.("(?:[^"]|"")*")', write)
+            assert references
+            for reference in references:
+                assert f"AS {reference}" in guarded or f".{reference}," in guarded
+
     def test_compilation_failure_does_not_connect_or_write(self) -> None:
         with (
             patch(
@@ -193,7 +344,6 @@ class TestTrinoShadowMaterialization(BaseTest):
         connect.assert_not_called()
 
     def test_materialized_dependency_matches_downstream_locator(self) -> None:
-
         backing_table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", url_pattern="https://example.com/orders/*.parquet"
         )
@@ -233,7 +383,17 @@ class TestTrinoShadowMaterialization(BaseTest):
 class _ScriptedCursor:
     """Answers each statement by its leading words, and records every statement it ran."""
 
-    def __init__(self, *, table_exists: bool, staged: int, duplicate: bool = False, max_key: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        table_exists: bool,
+        staged: int,
+        duplicate: bool = False,
+        max_key: Any = None,
+        processed_bytes: int = 0,
+        cpu_milliseconds: int = 0,
+        unreachable_from: str | None = None,
+    ) -> None:
         self.table_exists = table_exists
         self.staged = staged
         self.duplicate = duplicate
@@ -241,11 +401,18 @@ class _ScriptedCursor:
         self.statements: list[tuple[str, Any]] = []
         self.rowcount = -1
         self.description: list[tuple[str]] | None = None
+        self.processed_bytes = processed_bytes
+        self.cpu_milliseconds = cpu_milliseconds
+        self.unreachable_from = unreachable_from
+        self.stats: dict[str, Any] | None = None
         self._rows: list[tuple[Any, ...]] = []
 
     def execute(self, statement: str, parameters: Any = None) -> None:
+        if self.unreachable_from and statement.startswith(self.unreachable_from):
+            raise ConnectionError("coordinator unreachable")
         self.statements.append((statement, parameters))
         self.rowcount, self._rows = -1, []
+        self.stats = {"processedBytes": self.processed_bytes, "cpuTimeMillis": self.cpu_milliseconds}
         if "information_schema.tables" in statement:
             self._rows = [(1,)] if self.table_exists else []
         elif statement.startswith("CREATE OR REPLACE TABLE"):
@@ -272,7 +439,7 @@ class TestTrinoIncrementalMaterialization(BaseTest):
     since = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
 
     def run_build(
-        self, cursor: _ScriptedCursor, since: Any
+        self, cursor: _ScriptedCursor, since: Any, control: TrinoQueryControl | None = None
     ) -> tuple[DuckLakeTableResult | Exception, list[str], list[Any]]:
         compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={})
         connection = MagicMock(catalog="cat")
@@ -288,12 +455,13 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         ):
             connect.return_value.__enter__.return_value = connection
             try:
-                result: DuckLakeTableResult | Exception = execute_trino_shadow_materialization(
+                result: DuckLakeTableResult | Exception = execute_trino_model_statements(
                     organization_id=str(self.organization.pk),
                     team_id=self.team.pk,
                     saved_query_id=self.saved_query_id,
                     source_query=self.query,
                     incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("id",), since=since),
+                    control=control,
                 )
             except Exception as error:
                 result = error
@@ -348,8 +516,41 @@ class TestTrinoIncrementalMaterialization(BaseTest):
         assert isinstance(result, DuckLakeTableResult)
         assert (result.row_count, result.watermark, result.merged) == (9, latest, False)
         # The table is rebuilt from the unfiltered query.
-        assert transforms[-1] is None
+        assert transforms[-1](parse_select("SELECT id, ts FROM orders")).where is None
         table = f'"cat"."posthog_data_modeling_team_{self.team.pk}"."model_{self.saved_query_id.hex}"'
         assert f"CREATE OR REPLACE TABLE {table} AS SELECT id, ts FROM orders" in statements
         assert not any("__ph_incremental_stage" in statement for statement in statements)
         assert statements[-1] == f'SELECT max("ts") FROM {table}'
+
+    @parameterized.expand(
+        [
+            # Schema, table check, stage build, duplicate check, column read, merge and watermark read.
+            ("merge_succeeds", False, 7),
+            # The run stops at the duplicate check, and its statements still count.
+            ("duplicate_keys_fail_the_merge", True, 4),
+        ]
+    )
+    def test_reports_usage_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
+        processed: list[int] = []
+        cpu: list[int] = []
+        cursor = _ScriptedCursor(
+            table_exists=True, staged=3, duplicate=duplicate, processed_bytes=100, cpu_milliseconds=25
+        )
+
+        self.run_build(
+            cursor,
+            self.since,
+            TrinoQueryControl(on_processed_bytes=processed.append, on_cpu_milliseconds=cpu.append),
+        )
+
+        assert processed == [100] * statements
+        assert cpu == [25] * statements
+
+    def test_a_statement_that_never_starts_does_not_recount_the_previous_one(self) -> None:
+        processed: list[int] = []
+        cursor = _ScriptedCursor(table_exists=True, staged=3, processed_bytes=100, unreachable_from="MERGE")
+
+        result, _, _ = self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
+
+        assert isinstance(result, ConnectionError)
+        assert processed == [100] * 5

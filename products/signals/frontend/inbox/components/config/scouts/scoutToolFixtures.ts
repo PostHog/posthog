@@ -29,6 +29,8 @@ function tool(
 /** A small catalogue with read, write, unavailable, and run context tools, for tests and stories. */
 export const SCOUT_TOOL_CATALOGUE: ScoutToolCatalogueApi = {
     tools: [
+        tool('skill-get', 'Get skill', 'Skills'),
+        tool('skill-file-get', 'Get skill file', 'Skills'),
         tool('dashboard-get', 'Get dashboard', 'Dashboards', { required_scopes: ['dashboard:read'] }),
         tool('dashboard-update', 'Update dashboard', 'Dashboards', {
             required_scopes: ['dashboard:write'],
@@ -63,5 +65,6 @@ export const SCOUT_TOOL_CATALOGUE: ScoutToolCatalogueApi = {
         },
     ],
     presets: [],
+    run_context_tools: ['scout-emit-report', 'scout-notes-list', 'skill-get', 'skill-file-get'],
     grantable_write_scopes: ['dashboard:write', 'insight:write'],
 }

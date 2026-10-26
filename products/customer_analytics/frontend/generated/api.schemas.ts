@@ -1883,7 +1883,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -2343,6 +2343,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2575,7 +2579,6 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariableApi[] | null
@@ -4642,6 +4645,7 @@ export interface PatchedGroupUsageMetricApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -4649,15 +4653,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface PinnedAccountPropertyApi {
-    /** Definition type for this pinned account property.
+    /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Team-scoped custom property or relationship definition UUID. */
+    /**
+     * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 

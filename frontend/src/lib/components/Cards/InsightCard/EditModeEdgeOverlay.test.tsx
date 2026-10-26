@@ -173,6 +173,16 @@ describe('EditModeEdgeOverlay', () => {
             expect(zones[0]).not.toHaveStyle({ pointerEvents: 'none' })
         })
 
+        it('keeps the southeast corner available over a scrollbar', () => {
+            const { onEnterEditMode, zones } = renderWithScrollableUnderneath()
+
+            fireEvent.mouseMove(zones[4], { clientX: 392, clientY: 292 })
+            expect(zones[4]).not.toHaveStyle({ pointerEvents: 'none' })
+
+            fireEvent.mouseDown(zones[4], { clientX: 392, clientY: 292 })
+            expect(onEnterEditMode).toHaveBeenCalledTimes(1)
+        })
+
         it('yields every zone stacked on the point, not just the hovered one', () => {
             const { zones } = renderWithScrollableUnderneath()
             // Corner zones paint above edge zones near card corners. jsdom has no layout, so give the
@@ -244,6 +254,24 @@ describe('EditModeEdgeOverlay', () => {
 
             expect(cornerHandle.style.pointerEvents).toBe('none')
             expect(handle.style.pointerEvents).toBe('none')
+        })
+
+        it('keeps the southeast corner available over a table scrollbar', () => {
+            const { gridItem, handle } = mountEditModeTile()
+            const cornerHandle = document.createElement('span')
+            cornerHandle.className = 'react-resizable-handle react-resizable-handle-se'
+            cornerHandle.getBoundingClientRect = () =>
+                ({ left: 368, top: 268, right: 400, bottom: 300, width: 32, height: 32 }) as DOMRect
+            gridItem.appendChild(cornerHandle)
+            const cornerPress = jest.fn()
+            gridItem.addEventListener('mousedown', cornerPress)
+
+            fireEvent.mouseMove(cornerHandle, { clientX: 392, clientY: 292 })
+            expect(cornerHandle.style.pointerEvents).toBe('')
+            expect(handle.style.pointerEvents).toBe('')
+
+            fireEvent.mouseDown(cornerHandle, { clientX: 392, clientY: 292 })
+            expect(cornerPress).toHaveBeenCalledTimes(1)
         })
 
         it('stops a press over a scrollbar from reaching the grid item, but not one elsewhere', () => {

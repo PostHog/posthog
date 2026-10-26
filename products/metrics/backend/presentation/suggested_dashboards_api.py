@@ -28,6 +28,7 @@ from products.metrics.backend.facade.api import (
     list_dashboard_templates,
     list_suggested_dashboards,
     open_dashboard_template_preview,
+    regenerate_dashboard_template,
     reject_dashboard_template,
 )
 from products.metrics.backend.facade.contracts import (
@@ -240,6 +241,18 @@ class MetricsDashboardTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ValidationError(str(error))
         return Response(MetricsDashboardTemplateSerializer(asdict(template)).data)
 
+    @extend_schema(request=None, responses={200: MetricsDashboardTemplateSerializer})
+    @action(detail=True, methods=["POST"])
+    def regenerate(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        """Discard the panels and the preview of a generated template, and generate it again from its metrics."""
+        try:
+            template = regenerate_dashboard_template(user=cast(User, request.user), template_id=str(pk))
+        except SuggestedDashboardNotFound as error:
+            raise NotFound(str(error))
+        except SuggestedDashboardError as error:
+            raise ValidationError(str(error))
+        return Response(MetricsDashboardTemplateSerializer(asdict(template)).data)
+
     @extend_schema(
         parameters=[OpenApiParameter("round", OpenApiTypes.INT, required=True, description="Check round, from 1.")],
         responses={(200, "image/png"): OpenApiResponse(description="The picture of the preview dashboard.")},
@@ -258,7 +271,8 @@ class MetricsDashboardTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if content is None:
             raise NotFound("This round has no picture.")
         response = HttpResponse(content, content_type="image/png")
-        response["Cache-Control"] = "private, max-age=3600"
+        # A regeneration reuses the round numbers, so a cached picture could show an older generation.
+        response["Cache-Control"] = "private, no-cache"
         return response
 
     @extend_schema(request=None, responses={202: None})

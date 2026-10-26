@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -80,9 +81,36 @@ class TestFirstReportNotification(BaseTest):
     def notification(self) -> SignalFirstReportNotification:
         return SignalFirstReportNotification.objects.for_team(self.team.id).get()
 
+    @parameterized.expand(
+        [
+            (
+                "summary_lead",
+                "Users cannot accept expired invitations.\n\n## Evidence\nMore details.",
+                "Users cannot accept expired invitations.",
+                "P1",
+            ),
+            ("long_summary_without_priority", "x" * 400, "x" * 319 + "…", ""),
+            (
+                "markdown_summary",
+                "Signups **dropped** after the [pricing change](https://example.com/pricing).\n"
+                "[The daily signups chart](chart:daily-signups) shows the drop.\n\n## Evidence\nMore details.",
+                "Signups dropped after the pricing change. The daily signups chart shows the drop.",
+                "P2",
+            ),
+        ]
+    )
     @time_machine.travel("2026-01-15T12:01:00Z", tick=False)
-    def test_first_report_targets_activator_once_per_project(self) -> None:
-        first = self.report(first_visible_at=timezone.now() - timedelta(seconds=1))
+    def test_first_report_targets_activator_once_per_project(
+        self, _name: str, summary: str, expected_summary: str, priority: str
+    ) -> None:
+        first = self.report(first_visible_at=timezone.now() - timedelta(seconds=1), summary=summary)
+        if priority:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=first,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                content=json.dumps({"priority": priority, "explanation": "The invitation flow is blocked."}),
+            )
         self.report()
         other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
         register_first_report_notification(team=self.team, user=other_user)
@@ -98,7 +126,9 @@ class TestFirstReportNotification(BaseTest):
                 "project_id": self.team.id,
                 "report_id": str(first.id),
                 "report_title": first.title,
-                "report_url": f"https://app.example.com/project/{self.team.id}/inbox/reports/{first.id}",
+                "report_summary": expected_summary,
+                "report_priority": priority,
+                "report_url": f"https://app.example.com/project/{self.team.id}/inbox/reports/{first.id}?link_source=first_report_email",
                 "activation_id": str(self.notification().id),
             },
         )
@@ -169,6 +199,14 @@ class TestFirstReportNotification(BaseTest):
         initial_send = self.send.call_args
         assert self.notification().send_started_at is None
         assert self.notification().last_error
+        first.summary = "Updated after the first send attempt."
+        first.save(update_fields=["summary"])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=first,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P0", "explanation": "Impact increased after the first send attempt."}),
+        )
         self.report(first_visible_at=timezone.now() - timedelta(seconds=1))
         self.send.side_effect = None
 

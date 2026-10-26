@@ -4,6 +4,7 @@ import os
 import time
 import uuid
 import asyncio
+import hashlib
 import logging
 import traceback
 from collections.abc import Callable, Sequence
@@ -27,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
 from .acp_log import ParsedLog, parse_log
@@ -248,12 +250,17 @@ class _BaseEvalRun:
 
     def _experiment_metadata(self) -> RunMetadata:
         """The run's configuration, sent to the engine and stamped on every PostHog event."""
-        return {
+        metadata: RunMetadata = {
             "agent_model": self.ctx.agent_model,
             "trials": self.ctx.trials,
             "git_sha": self.ctx.git_sha,
             "git_dirty": self.ctx.git_dirty,
         }
+        if self.ctx.skills_sha256 is not None:
+            metadata["skills_sha256"] = self.ctx.skills_sha256
+        if self.ctx.skills_source_sha256 is not None:
+            metadata["skills_source_sha256"] = self.ctx.skills_source_sha256
+        return metadata
 
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
@@ -388,6 +395,7 @@ class _BaseEvalRun:
             result.summary,
             error_count=error_count,
             trial_stats=trial_stats(result.results, trials=self.ctx.trials),
+            case_results=result.results,
         )
 
         if os.getenv("EXPORT_EVAL_RESULTS"):
@@ -497,7 +505,12 @@ class _BaseEvalRun:
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
         planned_cases = len(eval_cases) * self.ctx.trials
-        await self.ctx.reporter.experiment_started(self.experiment_name, planned_cases, self.run_log_dir)
+        await self.ctx.reporter.experiment_started(
+            self.experiment_name,
+            planned_cases,
+            self.run_log_dir,
+            case_names=[str(case.input["name"]) for case in eval_cases],
+        )
 
         try:
             result = await self.engine.run_experiment(
@@ -672,6 +685,20 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
+                    if sandbox_context.interaction_origin == "posthog_ai":
+                        prompt = PromptService.build()
+                        sandbox_context = replace(
+                            sandbox_context,
+                            system_prompt={
+                                "type": prompt["type"],
+                                "preset": prompt["preset"],
+                                "append": prompt["append"],
+                            },
+                        )
+                        if hooks is not None:
+                            hooks.metadata["system_prompt_sha256"] = hashlib.sha256(
+                                orjson.dumps(sandbox_context.system_prompt, option=orjson.OPT_SORT_KEYS)
+                            ).hexdigest()
                     seed = (
                         await _run_setup_step(partial(original_case.setup, sandbox_context))
                         if original_case is not None and original_case.setup is not None

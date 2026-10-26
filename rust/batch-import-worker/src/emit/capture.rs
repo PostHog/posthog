@@ -25,9 +25,9 @@ pub struct CaptureTransaction<'a> {
     send_rate: u64,
     start: Instant,
     events: Mutex<Vec<Event>>,
-    // Capture's V1 endpoint rejects a whole batch if two events in one request share a UUID,
-    // and a source export can contain duplicate event UUIDs. Track UUIDs across the whole
-    // transaction so duplicates are dropped before they reach (and poison) a capture request.
+    // Capture's V1 endpoint keeps only the first event per UUID in one request, and a source
+    // export can repeat a UUID across requests too. Track UUIDs across the whole transaction so
+    // each UUID is sent to capture once.
     seen_uuids: Mutex<HashSet<Uuid>>,
 }
 
@@ -99,7 +99,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 
         let mut duplicates: u64 = 0;
         for captured in data {
-            // Drop repeat UUIDs so a source-level duplicate can't make capture reject the batch.
+            // Drop repeat UUIDs so each one reaches capture once, even across requests.
             if seen.contains(&captured.inner.uuid) {
                 duplicates += 1;
                 continue;

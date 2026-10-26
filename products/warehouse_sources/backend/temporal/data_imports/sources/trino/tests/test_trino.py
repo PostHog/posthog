@@ -513,6 +513,45 @@ def test_discover_trino_schemas_fetches_columns_in_bounded_batches() -> None:
     assert all(len(call.args[1]) <= 101 for call in column_calls)
 
 
+def test_discover_trino_schemas_retries_a_momentary_tenant_admission_delay() -> None:
+    # The managed-Trino control plane returns this exact 403 when it mints a tenant's compute-pool
+    # grant before the pool coordinator has caught up, right after a tenant is first provisioned.
+    cursor = MagicMock()
+    cursor.execute.side_effect = [
+        HttpError("error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"),
+        None,
+        None,
+    ]
+    cursor.fetchall.side_effect = [[("analytics", "events")], [("analytics", "events", "id", "bigint", "NO")]]
+
+    with patch(f"{_TRINO_MODULE}.interruptible_wait") as mock_wait:
+        discovered = discover_trino_schemas(cursor, _config())
+
+    assert discovered == [
+        DiscoveredTrinoTable(
+            catalog="hive",
+            schema="analytics",
+            name="events",
+            columns=(TrinoColumn(name="id", data_type="bigint", nullable=False),),
+        )
+    ]
+    assert cursor.execute.call_count == 3
+    mock_wait.assert_called_once()
+
+
+def test_discover_trino_schemas_gives_up_after_repeated_tenant_admission_delays() -> None:
+    cursor = MagicMock()
+    cursor.execute.side_effect = HttpError(
+        "error 403: b'This tenant is not admitted to the pool yet; the request was not dispatched'"
+    )
+
+    with patch(f"{_TRINO_MODULE}.interruptible_wait") as mock_wait, pytest.raises(HttpError):
+        discover_trino_schemas(cursor, _config())
+
+    assert cursor.execute.call_count == 4
+    assert mock_wait.call_count == 3
+
+
 _TRINO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino"
 
 
@@ -827,13 +866,26 @@ def test_build_pipeline_fails_permanently_when_the_table_is_gone() -> None:
     assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors())
 
 
-def test_worker_node_communication_failures_are_classified_as_retryable() -> None:
-    message = (
+@pytest.mark.parametrize(
+    "message",
+    [
         "Encountered too many errors talking to a worker node. The node may have crashed or be "
         "under too much load. This is probably a transient issue, so please retry your query in a "
-        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)"
-    )
-
+        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)",
+        str(
+            TrinoQueryError(
+                {
+                    "errorName": "OUT_OF_SPILL_SPACE",
+                    "errorType": "INSUFFICIENT_RESOURCES",
+                    "message": "No free or healthy space available for spill",
+                },
+                query_id="20260101_000000_00000_abcde",
+            )
+        ),
+    ],
+    ids=["worker_node", "out_of_spill_space"],
+)
+def test_remote_cluster_resource_failures_are_classified_as_retryable(message: str) -> None:
     assert error_message_matches(message, TrinoSource().get_retryable_errors())
 
 

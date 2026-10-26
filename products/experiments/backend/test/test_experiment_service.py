@@ -2814,6 +2814,9 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
         kwargs.setdefault("allow_unknown_events", True)
+        EventDefinition.objects.get_or_create(
+            team=self.team, project=self.project, name="$pageview", defaults={"last_seen_at": timezone.now()}
+        )
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
     def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:

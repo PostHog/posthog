@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from django.db import OperationalError, close_old_connections
 
 import structlog
-from requests import Response
+from requests import Response, Session
 from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
@@ -484,8 +484,21 @@ META_AUTH_ERROR_MESSAGE = (
     "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
 )
 
+# Code 190 / subcode 459: Meta has checkpointed the user behind the token. The token stays refused
+# until that user signs in to Facebook and clears the check, which reconnecting alone doesn't do.
+META_CHECKPOINT_ERROR_SUBCODE = 459
+
+META_CHECKPOINT_ERROR_MESSAGE = (
+    "Meta locked the Facebook account you connected until it passes a security check. Sign in at "
+    "facebook.com, follow the steps, then reconnect your Meta Ads account."
+)
+
 META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
+)
+
+META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE = (
+    "Meta Ads didn't respond while listing your ad accounts. Wait a minute, then try again."
 )
 
 META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync became invalid. Please run the sync again."
@@ -595,7 +608,12 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
-        raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+        message = (
+            META_CHECKPOINT_ERROR_MESSAGE
+            if _meta_error_subcode(response) == META_CHECKPOINT_ERROR_SUBCODE
+            else META_AUTH_ERROR_MESSAGE
+        )
+        raise Exception(f"{message} (Meta API response: {response.status_code} - {response.text})")
     if _is_rate_limit_error(response):
         raise Exception(
             f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})"
@@ -664,7 +682,20 @@ def _raise_for_meta_error(response: Response) -> None:
             raise MetaAdsAuthError(META_AUTH_ERROR_MESSAGE)
         if _is_rate_limit_error(response):
             raise MetaAdsRateLimitError(META_RATE_LIMIT_ERROR_MESSAGE)
+        if _is_transient_error(response):
+            raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE)
         _raise_meta_api_error(response)
+
+
+def _get_ad_account_page(session: Session, url: str, access_token: str, params: dict[str, typing.Any]) -> Response:
+    # The tracked session has already retried a blip by the time one of these escapes, and this
+    # listing runs in the web request path, so turn it into a message the picker can show.
+    try:
+        return session.get(
+            url, params={**params, "access_token": access_token}, timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
+        )
+    except NETWORK_TRANSIENT_ERRORS as e:
+        raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
 def list_ad_accounts(integration: Integration) -> list[dict]:
@@ -675,10 +706,11 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
     # be recorded in the logged/sampled request URLs.
     session = make_tracked_session(redact_values=(access_token,))
     accounts: list[dict] = []
-    response = session.get(
+    response = _get_ad_account_page(
+        session,
         f"https://graph.facebook.com/{MetaAdsIntegration.api_version}/me/adaccounts",
-        params={"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT, "access_token": access_token},
-        timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
+        access_token,
+        {"fields": AD_ACCOUNT_FIELDS, "limit": AD_ACCOUNT_PAGE_LIMIT},
     )
 
     for _ in range(MAX_AD_ACCOUNT_PAGES):
@@ -693,11 +725,7 @@ def list_ad_accounts(integration: Integration) -> list[dict]:
         if not next_url or not page:
             return accounts
 
-        response = session.get(
-            _strip_access_token(next_url),
-            params={"access_token": access_token},
-            timeout=AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
-        )
+        response = _get_ad_account_page(session, _strip_access_token(next_url), access_token, {})
 
     # The response fetched on the final loop iteration is never re-checked by the loop, so surface a real
     # auth/rate-limit failure there rather than masking it with the "too many pages" error below.

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LIST_ENDPOINTS,
     METRIC_SETS,
     PRIMARY_KEYS,
+    RELEASE_FILTER_OPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
     GooglePlayConsoleSource,
@@ -177,7 +178,7 @@ def test_metric_set_descriptions_document_their_primary_key_columns(name: str) -
     assert set(PRIMARY_KEYS[name]).issubset(columns)
 
 
-@pytest.mark.parametrize("name", sorted(LIST_ENDPOINTS))
+@pytest.mark.parametrize("name", sorted([*LIST_ENDPOINTS, RELEASE_FILTER_OPTIONS]))
 def test_list_endpoint_descriptions_document_their_primary_key_columns(name: str) -> None:
     columns = CANONICAL_DESCRIPTIONS[name]["columns"]
 

@@ -42,7 +42,9 @@ from products.signals.backend.scout_harness.limits import (
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.temporal import metrics
+from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
     # Type-only: importing the harness runner at module load would close the cycle
@@ -67,8 +69,8 @@ class RunSignalsScoutInput:
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
-    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
-    # where standing steering is a scout note instead.
+    # One-off steering typed alongside a manual trigger, or rendered from the triggering event by a
+    # workflow step. Never set on a scheduled dispatch, where standing steering is a scout note instead.
     run_note: str | None = None
     trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
@@ -162,12 +164,12 @@ async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) 
 
 def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
     """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
-    breaker, which the coordinator probes. A deleted project is never runnable."""
+    breaker, which the coordinator probes, and its skill still exists. A deleted project is never runnable."""
     try:
         configs = SignalScoutConfig.objects.for_team(team_id)
     except TeamScopeError:
         return False
-    return (
+    config_runnable = (
         configs.filter(skill_name=skill_name)
         .filter(
             Q(enabled=True)
@@ -177,6 +179,10 @@ def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
             )
         )
         .exists()
+    )
+    return (
+        config_runnable
+        and LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists()
     )
 
 
@@ -250,6 +256,19 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
+    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
+    # cannot prevent them from starting paid scout work.
+    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="report_check_execution_disabled",
+        )
+
     # Skip the run when the team is over its self-driving credits quota or its daily report limit,
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
     # drops them while either limit binds. The quota side reads `self_driving_quota_gate` rather
@@ -320,6 +339,23 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
             )
+    except SkillNotFoundError:
+        # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
+        metrics.increment_scout_run("skill_missing")
+        logger.info(
+            "signals_scout: skill is gone, skipping the run",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+        )
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="skill_missing",
+        )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
         # fail-safe and silent: report a failed run for this tick rather than raising. The
@@ -640,7 +676,12 @@ def start_check_signals_scout_run(
 
 
 def start_workflow_signals_scout_run(
-    client: Client, *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+    client: Client,
+    *,
+    team_id: int,
+    skill_name: str,
+    workflow_origin_key: str | None = None,
+    run_note: str | None = None,
 ) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
@@ -648,6 +689,8 @@ def start_workflow_signals_scout_run(
     human testing a scout shouldn't 409 the automation, or vice versa. The overlap that matters
     (one live run per `(team, skill)`) is still caught by the runner's single-flight and the
     callers' in-flight pre-check, both source-agnostic.
+
+    `run_note` is the note the step rendered from its triggering event, for this run alone.
     """
     return _start_off_schedule_run(
         client,
@@ -656,4 +699,5 @@ def start_workflow_signals_scout_run(
         skill_name=skill_name,
         source=TRIGGERED_BY_WORKFLOW,
         workflow_origin_key=workflow_origin_key,
+        run_note=run_note,
     )

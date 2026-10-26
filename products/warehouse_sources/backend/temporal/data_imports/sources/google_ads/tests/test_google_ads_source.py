@@ -1553,6 +1553,31 @@ class TestGetOAuthAccountsPermissionErrors:
                 GoogleAdsSource().get_oauth_accounts(1, 2)
 
 
+class TestGetOAuthAccountsQuotaExhausted:
+    def test_rate_limited_listing_is_actionable(self):
+        # A 429 RESOURCE_EXHAUSTED isn't retried automatically here, unlike the sync path's
+        # Temporal activity retries, so it must become the same actionable, catchable error the
+        # other listing failures raise rather than an unhandled 500.
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+        body = (
+            '{"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}}'
+        )
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=429, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match="rate-limited"):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
+
+
 class _DrainClock:
     """A monotonic clock the test drives itself, one second per window drained.
 

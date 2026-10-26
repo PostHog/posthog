@@ -502,4 +502,30 @@ describe('LemonInputSelect', () => {
 
         expect(onChange.mock.calls.map((call) => call[0])).toEqual(expectedSelections)
     })
+
+    it.each(['single', 'multiple'] as const)(
+        '%s-select mode: pressing Enter on a typed option key picks it when filtering is disabled',
+        async (mode) => {
+            const onChange = jest.fn()
+
+            const { container } = render(
+                <LemonInputSelect<string>
+                    mode={mode}
+                    options={[
+                        { key: 'anon-id', label: 'anon-id' },
+                        { key: 'user-id', label: 'user-id' },
+                    ]}
+                    value={[]}
+                    onChange={onChange}
+                    allowCustomValues
+                    disableFiltering
+                />
+            )
+
+            const input = await openDropdown(container)
+            await userEvent.type(input, 'user-id{Enter}')
+
+            expect(onChange).toHaveBeenLastCalledWith(['user-id'])
+        }
+    )
 })

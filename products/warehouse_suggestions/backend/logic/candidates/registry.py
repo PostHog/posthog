@@ -5,11 +5,13 @@ from .base import Candidate, CandidateContext, CandidateResult
 from .certify import CertifyCandidate
 from .deprecate import DeprecateCandidate
 from .materialize import MaterializeCandidate
+from .unmaterialize import UnmaterializeCandidate
 
 CANDIDATES: Mapping[WarehouseSuggestionKind, Candidate] = {
     WarehouseSuggestionKind.CERTIFY: CertifyCandidate(),
     WarehouseSuggestionKind.DEPRECATE: DeprecateCandidate(),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeCandidate(),
+    WarehouseSuggestionKind.UNMATERIALIZE: UnmaterializeCandidate(),
 }
 
 

@@ -23,6 +23,7 @@ jest.mock('../../../utils', () => ({
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -39,6 +40,7 @@ const nodeMock = {
         return [200, nodeId === 'gen-2' ? answeredGeneration : makeNodeDetail({ id: nodeId })]
     },
 }
+const evaluationsMock = { [EVALUATIONS_URL]: () => [200, { results: [] }] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -67,7 +69,13 @@ describe('TraceScene', () => {
 
     describe('the new view', () => {
         beforeEach(() => {
-            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })], ...nodeMock } })
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
+                    ...nodeMock,
+                    ...evaluationsMock,
+                },
+            })
         })
 
         it('opens on the default node without the legacy trace query', async () => {
@@ -94,7 +102,7 @@ describe('TraceScene', () => {
 
     describe('behind the flag gate', () => {
         beforeEach(() => {
-            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource()], ...nodeMock } })
+            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource()], ...nodeMock, ...evaluationsMock } })
         })
 
         async function renderTraceRoute(flagEnabled: boolean): Promise<ReturnType<typeof render>> {

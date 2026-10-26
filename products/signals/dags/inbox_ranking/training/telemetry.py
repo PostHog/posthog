@@ -19,7 +19,6 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
-from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
@@ -30,7 +29,6 @@ LOCAL_SUFFIX = "_local"
 LOCAL_DISTINCT_ID = f"{DISTINCT_ID}{LOCAL_SUFFIX}"
 LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
-EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
 MODEL_PROMOTED_EVENT = "inbox_ranking_model_promoted"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
@@ -39,6 +37,7 @@ UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
+EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -62,17 +61,16 @@ class TrainingEvent:
 
 
 @frozen
-class HeadExampleCounts:
-    rows: int
-    positives: int
-    # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
-    # drop in this share is the first sign the birth-day rule stopped keeping them.
-    birth_day_positives: int
-    # The earliest report-creation day the head kept, and whether the row budget dropped older days,
-    # so a chart shows when the budget starts to cut history.
-    example_window_start: datetime.date | None
-    example_cap_bound: bool
-    pairs_skipped_missing_label_columns: int
+class MirrorPublication:
+    """What one serving publish did in the mirror store."""
+
+    published: bool
+    # The mirror region's own project vectors day that the mirror manifest names, or None.
+    project_vectors_key: str | None = None
+    project_vectors_date: str | None = None
+    engagement_export_date: str | None = None
+    # Why the mirror keeps its previous manifest, or None when it published.
+    skip_reason: str | None = None
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -101,47 +99,6 @@ def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
         for head in metadata.get("skipped_heads", [])
     ]
     return [*trained, *skipped]
-
-
-def examples_events(
-    *,
-    partition_key: str,
-    run_id: str,
-    feature_set: str,
-    snapshots: int,
-    backfilled_rows: int,
-    excluded: ConsentExclusion,
-    per_head: Mapping[str, HeadExampleCounts],
-) -> list[TrainingEvent]:
-    """One event per head with its example and positive counts; the run-level counts repeat on each.
-
-    Examples are per feature set, not per model family: every family on a set trains on one
-    Parquet, so `feature_set` is the dimension that separates two of these series.
-    """
-    return [
-        TrainingEvent(
-            event=EXAMPLES_BUILT_EVENT,
-            properties={
-                "model_version": partition_key,
-                "feature_set": feature_set,
-                "run_id": run_id,
-                "snapshots": snapshots,
-                "backfilled_state_rows_excluded": backfilled_rows,
-                "excluded_no_training_consent_reports": excluded.reports,
-                "excluded_no_training_consent_teams": excluded.teams,
-                "head": head,
-                "rows": counts.rows,
-                "positives": counts.positives,
-                "birth_day_positives": counts.birth_day_positives,
-                "example_window_start": counts.example_window_start.isoformat()
-                if counts.example_window_start
-                else None,
-                "example_cap_bound": counts.example_cap_bound,
-                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
-            },
-        )
-        for head, counts in per_head.items()
-    ]
 
 
 def promotion_event(
@@ -183,6 +140,31 @@ def promotion_event(
     )
 
 
+def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
+    """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
+    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps."""
+    block = metadata.get("vs_baseline") or {}
+    context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
+    return [
+        TrainingEvent(
+            event=EXPERIMENT_COMPARED_EVENT,
+            properties={
+                **context,
+                "baseline_model_name": block.get("baseline"),
+                "seeds": len(block.get("seeds", [])),
+                "head": head,
+                **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{
+                    f"{read}_{key}": (grade.get(read) or {}).get(key)
+                    for read in ("within_team", "pooled")
+                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+                },
+            },
+        )
+        for head, grade in (block.get("heads") or {}).items()
+    ]
+
+
 def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
     return TrainingEvent(
         event=MODEL_PROMOTED_EVENT,
@@ -200,7 +182,7 @@ def serving_manifest_event(
     copied_keys: Sequence[str] = (),
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
-    mirror_published: bool | None = None,
+    mirror: MirrorPublication | None = None,
     recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
@@ -225,8 +207,15 @@ def serving_manifest_event(
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
             "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
         }
-    if mirror_published is not None:
-        properties["mirror_published"] = mirror_published
+    if mirror is not None:
+        properties |= {
+            "mirror_published": mirror.published,
+            "mirror_project_vectors_key": mirror.project_vectors_key,
+            "mirror_project_vectors_date": mirror.project_vectors_date,
+            "mirror_engagement_export_date": mirror.engagement_export_date,
+        }
+        if mirror.skip_reason is not None:
+            properties["mirror_skip_reason"] = mirror.skip_reason
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
 
 
