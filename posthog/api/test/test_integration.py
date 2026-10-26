@@ -7467,8 +7467,8 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
         Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(minutes=10))
         return sender
 
-    def _verify(self, sender: Integration, **extra: Any) -> None:
-        response = self.client.post(f"/api/environments/{self.team.id}/integrations/{sender.id}/email/verify/", **extra)
+    def _verify(self, sender: Integration) -> None:
+        response = self.client.post(f"/api/environments/{self.team.id}/integrations/{sender.id}/email/verify/")
         assert response.status_code == status.HTTP_200_OK, response.content
 
     @parameterized.expand(
@@ -7486,7 +7486,7 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
         mock_report.assert_called_once_with(
             self.user,
             "email domain verified",
-            {"outcome": outcome, "method": "manual", "seconds_since_created": 600},
+            {"outcome": outcome, "seconds_since_created": 600},
             team=self.team,
             request=ANY,
         )
@@ -7497,18 +7497,6 @@ class TestEmailVerifyReportsOutcome(APIBaseTest):
         self._verify(self._create_sender(verified=True))
 
         mock_report.assert_not_called()
-
-    def test_a_check_by_api_key_reports_the_agent_method(self, mock_verify, _mock_default, mock_report):
-        mock_verify.return_value = {"status": "pending", "dnsRecords": []}
-        key_value = "phx_email_verify_test_key"
-        PersonalAPIKey.objects.create(
-            label="Agent", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
-        )
-        self.client.logout()
-
-        self._verify(self._create_sender(), HTTP_AUTHORIZATION=f"Bearer {key_value}")
-
-        assert mock_report.call_args.args[2]["method"] == "agent"
 
 
 class TestApplePushIntegrationAPI(APIBaseTest):

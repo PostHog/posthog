@@ -48,7 +48,7 @@ from posthog.api.github_callback.types import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -2673,18 +2673,11 @@ class IntegrationViewSet(
             "email domain verified",
             {
                 "outcome": outcome,
-                "method": self._email_domain_setup_method(request),
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
             },
             team=self.team,
             request=request,
         )
-
-    @staticmethod
-    def _email_domain_setup_method(request: Request) -> str:
-        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
-            return "agent"
-        return "manual"
 
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
