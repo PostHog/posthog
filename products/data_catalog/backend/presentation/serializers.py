@@ -37,7 +37,7 @@ class MetricOwnerField(serializers.EmailField):
         email = super().run_validation(data)
         if email is None:
             return None
-        team = self.context["get_team"]()
+        team = self.context["view"].team
         owner = User.objects.filter(
             email__iexact=email, organization_membership__organization_id=team.organization_id
         ).first()
@@ -308,6 +308,17 @@ class MetricBulkNamesRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwnerRequest")
+class MetricBulkChangeOwnerRequestSerializer(MetricBulkNamesRequestSerializer):
+    """Input for giving many metrics one owner."""
+
+    owner = MetricOwnerField(
+        allow_null=True,
+        help_text="Email of the member of this organization who becomes the owner of every named metric, or null "
+        "to clear the owner. Changing the owner keeps each metric's approval.",
+    )
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricBulkSkip")
 class MetricBulkSkipSerializer(serializers.Serializer):
     """A metric the bulk action did not act on, and why."""
@@ -324,6 +335,16 @@ class MetricBulkApproveResponseSerializer(serializers.Serializer):
 
     approved = MetricSerializer(many=True, help_text="The metrics that are now approved, freshly serialized.")
     skipped = MetricBulkSkipSerializer(many=True, help_text="Requested metrics that were not approved, with reasons.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricBulkChangeOwner")
+class MetricBulkChangeOwnerResponseSerializer(serializers.Serializer):
+    """Outcome of a bulk owner change: what changed, and what was left alone."""
+
+    updated = MetricSerializer(many=True, help_text="The metrics that now have the new owner, freshly serialized.")
+    skipped = MetricBulkSkipSerializer(
+        many=True, help_text="Requested metrics whose owner did not change, with reasons."
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricBulkDelete")

@@ -16,6 +16,7 @@ import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './crea
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
+    dataCatalogMetricsBulkChangeOwnerCreate,
     dataCatalogMetricsBulkDeleteCreate,
     dataCatalogMetricsDestroy,
     dataCatalogMetricsList,
@@ -27,7 +28,7 @@ import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
 
 export type MetricStatusFilter = 'all' | 'proposed' | 'approved'
 
-export type BulkMetricAction = 'approve' | 'delete'
+export type BulkMetricAction = 'approve' | 'delete' | 'change_owner'
 
 const METRICS_PAGE_SIZE = 100
 
@@ -35,12 +36,14 @@ export interface MetricsFilters {
     search: string
     status: MetricStatusFilter
     createdBy: string | null
+    owner: string | null
 }
 
 export const DEFAULT_METRICS_FILTERS: MetricsFilters = {
     search: '',
     status: 'all',
     createdBy: null,
+    owner: null,
 }
 
 export interface MetricFromInsightRequest {
@@ -84,6 +87,7 @@ export interface metricsLogicValues {
     filters: MetricsFilters
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
+    ownerFilterOptions: string[]
     proposedCount: number
 }
 
@@ -98,6 +102,15 @@ export interface metricsLogicActions {
     ) => {
         names: string[]
         onSuccess: (() => void) | undefined
+    }
+    bulkChangeMetricOwner: (
+        names: string[],
+        owner: string | null,
+        onSuccess?: () => void
+    ) => {
+        names: string[]
+        onSuccess: (() => void) | undefined
+        owner: string | null
     }
     bulkDeleteMetrics: (
         names: string[],
@@ -171,6 +184,7 @@ export interface metricsLogicActions {
 export interface metricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         metrics: (allMetrics: DataCatalogMetricApi[], filters: MetricsFilters) => DataCatalogMetricApi[]
+        ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
     }
 }
@@ -197,6 +211,11 @@ export const metricsLogic = kea<metricsLogicType>([
         setActionInFlight: (name: string, inFlight: boolean) => ({ name, inFlight }),
         bulkApproveMetrics: (names: string[], onSuccess?: () => void) => ({ names, onSuccess }),
         bulkDeleteMetrics: (names: string[], onSuccess?: () => void) => ({ names, onSuccess }),
+        bulkChangeMetricOwner: (names: string[], owner: string | null, onSuccess?: () => void) => ({
+            names,
+            owner,
+            onSuccess,
+        }),
         setBulkActionInFlight: (bulkAction: BulkMetricAction | null) => ({ bulkAction }),
         openMetricFromInsightModal: true,
         closeMetricFromInsightModal: true,
@@ -274,6 +293,9 @@ export const metricsLogic = kea<metricsLogicType>([
                     // serializer type.
                     results = results.filter((metric) => metric.created_by?.uuid === filters.createdBy)
                 }
+                if (filters.owner) {
+                    results = results.filter((metric) => metric.owner === filters.owner)
+                }
                 if (filters.search) {
                     const fuse = createFuse<DataCatalogMetricApi>(results, {
                         keys: ['name', 'display_name', 'description'],
@@ -284,6 +306,11 @@ export const metricsLogic = kea<metricsLogicType>([
                 return results
             },
         ],
+        ownerFilterOptions: [
+            (s) => [s.allMetrics],
+            (allMetrics: DataCatalogMetricApi[]): string[] =>
+                [...new Set(allMetrics.flatMap((metric) => (metric.owner ? [metric.owner] : [])))].sort(),
+        ],
         proposedCount: [
             (s) => [s.allMetrics],
             (allMetrics: DataCatalogMetricApi[]) => allMetrics.filter((metric) => metric.status === 'proposed').length,
@@ -293,11 +320,14 @@ export const metricsLogic = kea<metricsLogicType>([
         setFilters: async ({ filters }, breakpoint) => {
             // The search box dispatches on every keystroke, so wait for typing to settle before reporting.
             await breakpoint(500)
-            const { status, createdBy, search } = values.filters
+            const { status, createdBy, owner, search } = values.filters
+            const describeMember = (identifier: string | null, mine: string | undefined): string =>
+                identifier ? (identifier === mine ? 'me' : 'other') : 'any'
             posthog.capture('data catalog metrics filtered', {
                 changed_filters: Object.keys(filters),
                 status,
-                created_by: createdBy ? (createdBy === values.user?.uuid ? 'me' : 'other') : 'any',
+                created_by: describeMember(createdBy, values.user?.uuid),
+                owner: describeMember(owner, values.user?.email),
                 has_search: search.length > 0,
                 result_count: values.metrics.length,
             })
@@ -429,6 +459,31 @@ export const metricsLogic = kea<metricsLogicType>([
                 onSuccess?.()
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not approve the selected metrics. Try again.')
+            } finally {
+                actions.setBulkActionInFlight(null)
+            }
+        },
+        bulkChangeMetricOwner: async ({ names, owner, onSuccess }) => {
+            if (values.bulkActionInFlight || names.some((name) => values.actionsInFlight[name])) {
+                return
+            }
+            actions.setBulkActionInFlight('change_owner')
+            try {
+                const response = await dataCatalogMetricsBulkChangeOwnerCreate(projectId(), { names, owner })
+                const updatedByName = new Map(response.updated.map((metric) => [metric.name, metric]))
+                actions.loadMetricsSuccess(values.allMetrics.map((metric) => updatedByName.get(metric.name) ?? metric))
+                if (response.updated.length) {
+                    lemonToast.success(`Changed the owner of ${metricCount(response.updated.length)}`)
+                }
+                if (response.skipped.length) {
+                    lemonToast.warning(skippedMessage(response.skipped))
+                    actions.loadMetrics()
+                }
+                onSuccess?.()
+            } catch (error) {
+                lemonToast.error(
+                    apiErrorDetail(error) || 'Could not change the owner of the selected metrics. Try again.'
+                )
             } finally {
                 actions.setBulkActionInFlight(null)
             }

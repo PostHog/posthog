@@ -343,6 +343,29 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
 
 /**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkChangeOwnerCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+        owner: zod
+            .email()
+            .nullable()
+            .describe(
+                "Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval."
+            ),
+    })
+    .describe('Input for giving many metrics one owner.')
+
+/**
  * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.
  */
 export const dataCatalogMetricsBulkApproveCreateBodyNamesItemMax = 128
