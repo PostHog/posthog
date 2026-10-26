@@ -621,6 +621,8 @@ The inbox ranking model predicts outcomes for each report. Each row of `inbox-re
 - A lift is the probability divided by the outcome's base rate. 1.0 is an average report, 2.7 is
   2.7x as likely. Compare lifts across outcomes. Raw probabilities do not compare, because each
   outcome has its own base rate.
+- `readable: false` means the training run could not measure the holdout AUC of that outcome.
+  Rank and filter on that outcome with caution.
 - `status` is `scored`, `stale` (the title or summary changed after scoring, so the predictions
   describe the old text), `unscored` (no score yet, which is not a low score), or `not_available`
   (the user cannot see the ranking model, so ordering and filtering by it return 400).
