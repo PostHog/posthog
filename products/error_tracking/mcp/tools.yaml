@@ -275,8 +275,8 @@ tools:
         title: Get error tracking settings
         description: >
             Get the error tracking ingestion settings for the current project. Returns `ingestion_enabled`, which is
-            false when ingestion drops every exception the project sends, and the project-wide and per-issue exception rate
-            limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each
+            false when ingestion drops every exception the project sends, and the project-wide and per-issue exception
+            rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each
             `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set.
             Read these before updating so you can preserve the fields you don't intend to change.
     error-tracking-settings-update:
