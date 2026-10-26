@@ -1190,29 +1190,32 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_many_files", "MCP_MAX_SKILL_FILES", 1, {}),
-            ("too_large", "MCP_MAX_SKILL_BYTES", 10, {}),
-            ("digest_missing", None, None, {"content_sha256": None, "content_size": None}),
+            ("too_many_files", "MCP_MAX_SKILL_FILES", "file_count", -1, {}, ["too_many_files"]),
+            ("files_at_limit", "MCP_MAX_SKILL_FILES", "file_count", 0, {}, []),
+            ("too_large", "MCP_MAX_SKILL_BYTES", "total_size", -1, {}, ["too_large"]),
+            ("bytes_at_limit", "MCP_MAX_SKILL_BYTES", "total_size", 0, {}, []),
+            ("digest_missing", None, None, 0, {"content_sha256": None, "content_size": None}, ["digest_missing"]),
             # Bypasses the serializer validation so the row looks like one that predates it.
-            ("spec_problems", None, None, {"path": "references\\guide.md"}),
+            ("spec_problems", None, None, 0, {"path": "references\\guide.md"}, ["spec_problems"]),
         ]
     )
-    def test_manifest_reports_why_a_skill_is_unservable(self, expected_reason, limit_name, limit, file_update):
+    def test_manifest_reports_whether_a_skill_is_servable(
+        self, _label, limit_name, measured_field, limit_delta, file_update, expected_reasons
+    ):
         skill = self.create_skill(name="limited")
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
         LLMSkillFile.objects.filter(skill=skill).update(**file_update)
-        limit_patch = (
-            patch(f"products.skills.backend.api.skill_manifest.{limit_name}", limit)
-            if limit_name
-            else contextlib.nullcontext()
-        )
+        limit_patch: contextlib.AbstractContextManager = contextlib.nullcontext()
+        if limit_name:
+            measured = self.client.get(self._url("name/limited/manifest")).json()[measured_field]
+            limit_patch = patch(f"products.skills.backend.api.skill_manifest.{limit_name}", measured + limit_delta)
 
         with limit_patch:
             response = self.client.get(self._url("name/limited/manifest"))
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert (data["servable"], data["unservable_reasons"]) == (False, [expected_reason])
+        assert (data["servable"], data["unservable_reasons"]) == (not expected_reasons, expected_reasons)
 
     def test_manifests_query_count_does_not_grow_with_the_page(self):
         def add_skills(names: list[str], file_count: int) -> None:
@@ -3142,7 +3145,9 @@ class TestScoutTrialSkillAPI(APIBaseTest):
                 f"/api/projects/{self.team.id}/llm_skills/resolve/name/{self.source.name}?{query}"
             )
             exported = self.client.get(self._url(f"/export?{query}"))
+            manifest = self.client.get(self._url(f"/manifest?{query}"))
             listed = self.client.get(f"/api/projects/{self.team.id}/llm_skills/")
+            listed_manifests = self.client.get(f"/api/projects/{self.team.id}/llm_skills/manifests/")
             other = self.client.get(
                 f"/api/environments/{self.team.id}/llm_skills/name/another-skill?launch_id={uuid.uuid4()}"
             )
@@ -3163,6 +3168,12 @@ class TestScoutTrialSkillAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         listed_skill = next(skill for skill in listed.json()["results"] if skill["name"] == self.source.name)
         assert listed_skill["version"] == 1
+        rendered_sha256 = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        listed_manifest = next(m for m in listed_manifests.json()["results"] if m["name"] == self.source.name)
+        for served in (manifest.json(), listed_manifest):
+            assert served["version"] == 1
+            skill_md = served["resources"][0]
+            assert (skill_md["path"], skill_md["sha256"]) == ("SKILL.md", rendered_sha256)
         assert other.status_code == status.HTTP_200_OK
         assert other.json()["body"] == "other instructions"
         self.source.refresh_from_db()
