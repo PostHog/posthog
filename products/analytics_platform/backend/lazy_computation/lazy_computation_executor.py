@@ -36,9 +36,8 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import events_read_workload, use_new_events_schema
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -957,13 +956,13 @@ def build_lazy_computation_insert_sql(
     time_range_end: datetime,
     expires_at: datetime,
     modifiers: HogQLQueryModifiers | None = None,
-) -> tuple[str, HogQLContext]:
+) -> tuple[str, dict]:
     """
     Build the INSERT ... SELECT SQL for populating lazy-computed results.
 
     Takes a SelectQuery AST with 3 expressions (time_window_start, breakdown_value, uniq_exact_state)
     and prepends team_id and appends job_id and expires_at, then adds a date range filter to the WHERE clause.
-    Returns the SQL and the context it was printed with, which holds the query values.
+    Returns the full SQL string ready to execute.
     """
     # Deep copy the query to avoid mutating the original
     query = copy.deepcopy(select_query)
@@ -1036,7 +1035,7 @@ def build_lazy_computation_insert_sql(
 )
 {select_sql}"""
 
-    return sql, context
+    return sql, context.values
 
 
 def _written_rows(insert_result: object) -> int:
@@ -1061,7 +1060,7 @@ def run_lazy_computation_insert(
     """
     ch_expires_at = _get_ch_expires_at(job, LazyComputationTable.PREAGGREGATION_RESULTS)
 
-    insert_sql, context = build_lazy_computation_insert_sql(
+    insert_sql, values = build_lazy_computation_insert_sql(
         team=team,
         job_id=str(job.id),
         select_query=query_info.query,
@@ -1081,9 +1080,8 @@ def run_lazy_computation_insert(
         return _written_rows(
             sync_execute(
                 insert_sql,
-                context.values,
+                values,
                 settings=_get_insert_settings(team.id),
-                workload=events_read_workload(Workload.DEFAULT, context),
             )
         )
 
@@ -1851,7 +1849,7 @@ def ensure_precomputed(
 
     def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
         print_start = time.monotonic()
-        insert_sql, context = _build_manual_insert_sql(
+        insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
             insert_query=insert_query,
@@ -1875,8 +1873,7 @@ def ensure_precomputed(
             rows_written = _written_rows(
                 sync_execute(
                     insert_sql,
-                    context.values,
-                    workload=events_read_workload(Workload.DEFAULT, context),
+                    values,
                     settings=_get_insert_settings(
                         t.id,
                         spill_to_disk=spill_to_disk,
@@ -1956,7 +1953,7 @@ def _build_manual_insert_sql(
     base_placeholders: dict[str, ast.Expr] | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     database: "Database | None" = None,
-) -> tuple[str, HogQLContext]:
+) -> tuple[str, dict]:
     """
     Build INSERT SQL for manual lazy computation.
 
@@ -2028,4 +2025,4 @@ def _build_manual_insert_sql(
     column_list = ", ".join(columns)
     sql = f"INSERT INTO {table} ({column_list})\n{select_sql}"
 
-    return sql, context
+    return sql, context.values

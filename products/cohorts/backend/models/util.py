@@ -44,7 +44,6 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.event.new_events_schema import events_read_workload
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -810,7 +809,6 @@ def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
     cohort_params: dict[str, Any]
-    workload = Workload.OFFLINE
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
     elif not cohort.properties.values:
@@ -827,7 +825,6 @@ def _recalculate_cohortpeople_for_team_hogql(
         # silently freeze the cohort's membership.
         cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team, bypass_warehouse_access_control=True)
         cohort_params = hogql_context.values
-        workload = events_read_workload(Workload.OFFLINE, hogql_context)
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
@@ -852,9 +849,6 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "optimize_on_insert": 0,
                 "max_bytes_ratio_before_external_group_by": 0.5,
                 "max_bytes_ratio_before_external_sort": 0.5,
-                # On the events cluster the target is a Distributed table, and the cohort size is read
-                # back as soon as the INSERT returns, so the rows must reach the shard first.
-                "insert_distributed_sync": 1,
             }
         )
 
@@ -867,7 +861,7 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "new_version": pending_version,
             },
             settings=settings,
-            workload=workload,
+            workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team.id,
         )
@@ -1221,10 +1215,6 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
-        # On the events cluster the target is a Distributed table, and the members are copied to Postgres as
-        # soon as the INSERT returns, so the rows must reach the shard first.
-        settings={"insert_distributed_sync": 1},
-        workload=events_read_workload(Workload.DEFAULT, context),
     )
 
 

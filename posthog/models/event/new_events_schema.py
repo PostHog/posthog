@@ -2,17 +2,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 
-from posthog.clickhouse.workload import MAIN_CLUSTER_WORKLOADS, Workload
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
-
-    from posthog.hogql.context import HogQLContext
 
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
@@ -72,17 +68,6 @@ def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: boo
     return modifiers
 
 
-def get_new_events_cluster_host() -> str | None:
-    """The events cluster's hostname from CLICKHOUSE_NATIVE_EVENTS_HOST, or None while queries stay on the main cluster.
-
-    The main cluster reaches events_json through a Distributed table. While it runs an older ClickHouse than the
-    events cluster, a query started on one of its nodes fails for common shapes, so every query that reads
-    events_json starts on the events cluster instead.
-    """
-    value = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_HOST")
-    return value if isinstance(value, str) and value else None
-
-
 def get_events_route() -> "HogQLQueryModifiers | None":
     """The events table of the query run in progress, or None outside a query run."""
     return _query_route.get()
@@ -98,37 +83,6 @@ def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
         yield
     finally:
         _query_route.reset(token)
-
-
-def events_read_workload(workload: Workload, context: "HogQLContext") -> Workload:
-    """The workload a printed query runs under.
-
-    The events cluster when the SQL read events_json and CLICKHOUSE_NATIVE_EVENTS_HOST names one, otherwise the
-    caller's choice.
-    """
-    if workload in MAIN_CLUSTER_WORKLOADS and context.reads_native_events_table and get_new_events_cluster_host():
-        return Workload.NEW_EVENTS_CLUSTER
-    return workload
-
-
-def new_events_cluster_http_url() -> str | None:
-    """The events cluster's HTTP URL when CLICKHOUSE_NATIVE_EVENTS_HOST names one, else None.
-
-    The Temporal jobs reach ClickHouse through an HTTP client that takes a URL instead of a workload, so this is
-    the main cluster's HTTP URL with the events cluster's host.
-    """
-    host = get_new_events_cluster_host()
-    if host is None:
-        return None
-    main = urlsplit(settings.CLICKHOUSE_HTTP_URL)
-    return urlunsplit(main._replace(netloc=f"{host}:{main.port}"))
-
-
-def events_read_http_url(context: "HogQLContext") -> str | None:
-    """`events_read_workload` for the HTTP clients: the events cluster URL when the printed SQL read events_json."""
-    if not context.reads_native_events_table:
-        return None
-    return new_events_cluster_http_url()
 
 
 # A staff person's browser sends this cookie to read events_json on every request, impersonated sessions included.

@@ -22,7 +22,6 @@ from posthog.schema import ActionsNode, DataWarehouseNode, DateRange, EventsNode
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
@@ -593,8 +592,8 @@ class TestEarliestTimestampRouting(BaseTest):
         cache.clear()
 
     @parameterized.expand([("series",), ("unfiltered",)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_native_route_reads_the_native_cluster_and_skips_the_legacy_cache(self, lookup: str) -> None:
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_route_reads_events_json_and_skips_the_legacy_cache(self, lookup: str) -> None:
         node = EventsNode(event="$pageview")
         legacy = datetime.datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC"))
         native = datetime.datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
@@ -608,18 +607,14 @@ class TestEarliestTimestampRouting(BaseTest):
                 return get_earliest_timestamp_from_series(self.team, [node])
             return get_earliest_timestamp_unfiltered(self.team)
 
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            patch(
-                "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
-            ) as execute,
-        ):
+        with patch(
+            "posthog.hogql.query.sync_execute", return_value=([(native,)], [("timestamp", "DateTime")])
+        ) as execute:
             with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=True)):
                 self.assertEqual(earliest(), native)
                 self.assertEqual(earliest(), native)
             self.assertEqual(earliest(), legacy)
         execute.assert_called_once()
-        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
         self.assertIn("events_json", execute.call_args.args[0])
 
     def test_route_keys_never_collide_with_legacy_event_keys(self) -> None:

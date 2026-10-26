@@ -20,7 +20,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import new_events_cluster_http_url, use_new_events_schema
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -426,11 +426,10 @@ async def _stage_query_results(
     if record_batch_model is not None:
         query_or_model: str | RecordBatchModel = record_batch_model
         query_parameters: dict[str, typing.Any] = {}
-        clickhouse_url: str | None = None
     else:
         if full_range[1] is None or inputs.data_interval_end is None:
             raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
-        staged = await _get_query(
+        query_or_model, query_parameters = await _get_query(
             model_name=model_name,
             backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
@@ -448,15 +447,11 @@ async def _stage_query_results(
             num_partitions=num_partitions,
             is_workflows=inputs.is_workflows,
         )
-        query_or_model = staged.query
-        query_parameters = staged.parameters
-        clickhouse_url = staged.clickhouse_url
 
     try:
         return await _write_batch_export_record_batches_to_internal_stage(
             query_or_model=query_or_model,
             full_range=full_range,
-            clickhouse_url=clickhouse_url,
             query_parameters=query_parameters,
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
@@ -530,14 +525,6 @@ async def compute_num_partitions(
     return max(min_partitions, min(n, max_partitions))
 
 
-@frozen
-class _StagedQuery:
-    query: str
-    parameters: dict[str, typing.Any]
-    # The events cluster URL when the query reads events_json there, else None for the stage's default.
-    clickhouse_url: str | None
-
-
 async def _get_query(
     model_name: str,
     backfill_details: BackfillDetails | None,
@@ -553,9 +540,8 @@ async def _get_query(
     num_partitions: int | None = None,
     is_workflows: bool = False,
     **parameters,
-) -> _StagedQuery:
+):
     logger = LOGGER.bind(model_name=model_name)
-    clickhouse_url: str | None = None
 
     if fields is None:
         if destination_default_fields is None:
@@ -649,8 +635,6 @@ async def _get_query(
         native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
             use_new_events_schema
         )(team_id)
-        if native_source:
-            clickhouse_url = await database_sync_to_async(new_events_cluster_http_url)()
 
         filters_str = ""
         if filters is not None and len(filters) > 0:
@@ -680,7 +664,7 @@ async def _get_query(
     parameters["log_comment"] = tags.to_json()
 
     parameters = {**parameters, **extra_query_parameters}
-    return _StagedQuery(query=query, parameters=parameters, clickhouse_url=clickhouse_url)
+    return query, parameters
 
 
 def get_base_s3_staging_folder(
@@ -743,7 +727,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
     run_id: str | None = None,
-    clickhouse_url: str | None = None,
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
@@ -751,6 +734,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
     determined.
     """
     logger = LOGGER.bind()
+
+    clickhouse_url = None
+    # 5 min batch exports should query a single node, which is known to have zero replication lag
+    if is_5_min_batch_export(full_range=full_range):
+        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
     # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
     # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
@@ -778,33 +766,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
             await wait_for_delta_past_data_interval_end(interval_end, delta)
 
-    # TODO - in future we might want to catch any ClickHouse memory usage errors and split the
-    # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
-    if interval_start is not None:
-        query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-    else:
-        query_parameters["interval_start"] = None
-    if interval_end is not None:
-        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-
-    if isinstance(query_or_model, RecordBatchModel):
-        query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
-            data_interval_start=interval_start,
-            data_interval_end=interval_end,
-            s3_folder=s3_staging_folder_url,
-            credentials=_get_s3_credentials(),
-            num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
-        )
-        query_settings = query_or_model.get_clickhouse_request_settings()
-        clickhouse_url = query_or_model.clickhouse_url
-    else:
-        query = query_or_model
-        query_settings = {}
-
-    # 5 min batch exports should query a single node, which is known to have zero replication lag
-    if clickhouse_url is None and is_5_min_batch_export(full_range=full_range):
-        clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
-
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
@@ -820,6 +781,28 @@ async def _write_batch_export_record_batches_to_internal_stage(
     ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
+
+        # TODO - in future we might want to catch any ClickHouse memory usage errors and split the
+        # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
+        if interval_start is not None:
+            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        else:
+            query_parameters["interval_start"] = None
+        if interval_end is not None:
+            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        if isinstance(query_or_model, RecordBatchModel):
+            query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
+                data_interval_start=interval_start,
+                data_interval_end=interval_end,
+                s3_folder=s3_staging_folder_url,
+                credentials=_get_s3_credentials(),
+                num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
+            )
+            query_settings = query_or_model.get_clickhouse_request_settings()
+        else:
+            query = query_or_model
+            query_settings = {}
 
         if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
             query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD

@@ -70,15 +70,10 @@ from posthog.hogql.warehouse_warnings import record_warnings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
-from posthog.clickhouse.workload import MAIN_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.models.event.new_events_schema import (
-    events_read_workload,
-    get_new_events_cluster_host,
-    use_new_events_schema,
-)
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -94,6 +89,7 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
 @frozen
@@ -251,10 +247,10 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        # The events cluster has none of the preaggregated tables, so a query that will run there keeps reading events.
-        if get_new_events_cluster_host() and use_new_events_schema(self.team.pk, self.query_modifiers):
-            return
-        if self.query_modifiers.usePreaggregatedTableTransforms:
+        # The preaggregated tables are built from the legacy events table, so a read of events_json skips them.
+        if self.query_modifiers.usePreaggregatedTableTransforms and not use_new_events_schema(
+            self.team.pk, self.query_modifiers
+        ):
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
                 assert self.hogql_context.team is not None
@@ -971,7 +967,6 @@ class HogQLQueryExecutor:
             table_workload = clickhouse_context.workload
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
-            workload = events_read_workload(workload, clickhouse_context)
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(

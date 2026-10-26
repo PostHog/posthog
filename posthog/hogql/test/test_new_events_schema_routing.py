@@ -10,15 +10,11 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.clickhouse.workload import Workload
 from posthog.models import Organization, Team, User
 from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_COOKIE,
-    events_read_http_url,
-    events_read_workload,
     events_route_scope,
     new_events_schema_for_request,
     use_new_events_schema,
@@ -30,11 +26,10 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
 SQL_ON_EVENTS: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events"}
-SQL_ON_NO_TABLE: dict[str, object] = {"kind": "HogQLQuery", "query": "SELECT 1 AS n"}
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-class TestEventsClusterRouting(SimpleTestCase):
+class TestEventsTableSwitch(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
         self.instance_settings: dict[str, object] = {}
@@ -47,37 +42,6 @@ class TestEventsClusterRouting(SimpleTestCase):
                 return_value=True,
             )
         )
-
-    @parameterized.expand(
-        [
-            ("events_json", "native.example.com", True, "https://native.example.com:8443/"),
-            ("legacy_table", "native.example.com", False, None),
-            ("no_host", "", True, None),
-        ]
-    )
-    def test_the_http_clients_get_the_events_cluster_url(
-        self, _name: str, host: str, reads_events_json: bool, expected: str | None
-    ) -> None:
-        self.instance_settings.update(CLICKHOUSE_NATIVE_EVENTS_HOST=host)
-        context = HogQLContext(team_id=self.team.pk, reads_native_events_table=reads_events_json)
-        with self.settings(CLICKHOUSE_HTTP_URL="https://main.example.com:8443/"):
-            self.assertEqual(events_read_http_url(context), expected)
-
-    @parameterized.expand(
-        [
-            ("events_json", "native.example.com", True, Workload.DEFAULT, Workload.NEW_EVENTS_CLUSTER),
-            ("offline_query", "native.example.com", True, Workload.OFFLINE, Workload.NEW_EVENTS_CLUSTER),
-            ("legacy_table", "native.example.com", False, Workload.DEFAULT, Workload.DEFAULT),
-            ("no_host", "", True, Workload.DEFAULT, Workload.DEFAULT),
-            ("logs_cluster", "native.example.com", True, Workload.LOGS, Workload.LOGS),
-        ]
-    )
-    def test_a_query_that_read_events_json_runs_on_the_events_cluster(
-        self, _name: str, host: str, reads_events_json: bool, workload: Workload, expected: Workload
-    ) -> None:
-        self.instance_settings.update(CLICKHOUSE_NATIVE_EVENTS_HOST=host)
-        context = HogQLContext(team_id=self.team.pk, reads_native_events_table=reads_events_json)
-        self.assertEqual(events_read_workload(workload, context), expected)
 
     def test_a_stored_project_modifier_does_not_switch_the_events_table(self) -> None:
         self.team.modifiers = {"useNewEventsSchema": True, "bounceRateDurationSeconds": 30}
@@ -98,10 +62,9 @@ class TestEventsClusterRouting(SimpleTestCase):
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
+class TestEventsTableSwitchThroughTheApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
         self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
 
     def _post_query(self, query: dict[str, object], modifiers: dict[str, bool]) -> MagicMock:
@@ -113,20 +76,6 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
             )
         self.assertEqual(response.status_code, 200, response.json())
         return execute
-
-    @parameterized.expand(
-        [
-            ("sql_on_events_json", SQL_ON_EVENTS, {"useNewEventsSchema": True}, True),
-            ("sql_on_legacy_events", SQL_ON_EVENTS, {}, False),
-            ("sql_reading_no_events", SQL_ON_NO_TABLE, {"useNewEventsSchema": True}, False),
-        ]
-    )
-    def test_a_query_that_reads_events_json_runs_on_the_events_cluster(
-        self, _name: str, query: dict[str, object], modifiers: dict[str, bool], events_json: bool
-    ) -> None:
-        execute = self._post_query(query, modifiers)
-        self.assertEqual("events_json" in execute.call_args.args[0], events_json)
-        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, events_json)
 
     @parameterized.expand(
         [
@@ -155,7 +104,6 @@ class TestEventsClusterRoutingThroughTheQueryApi(APIBaseTest):
 
         execute = self._post_query(SQL_ON_EVENTS, modifiers)
         self.assertEqual("events_json" in execute.call_args.args[0], events_json)
-        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, events_json)
 
     def test_the_cookie_reaches_a_streamed_dashboards_cache_lookup(self) -> None:
         self.user.is_staff = True

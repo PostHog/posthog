@@ -21,7 +21,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.clickhouse.workload import Workload
 from posthog.models.event.new_events_schema import new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -476,7 +475,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, context = build_lazy_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -496,7 +495,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query("event = 'test'")
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, context = build_lazy_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -519,7 +518,7 @@ class TestBuildComputationInsertSQL(BaseTest):
         select_query = self._make_select_query()
         expires_at = datetime(2024, 1, 8, tzinfo=UTC)
 
-        sql, context = build_lazy_computation_insert_sql(
+        sql, values = build_lazy_computation_insert_sql(
             team=self.team,
             job_id=job_id,
             select_query=select_query,
@@ -530,7 +529,7 @@ class TestBuildComputationInsertSQL(BaseTest):
 
         # Check that SQL structure is correct and job_id is in the parameterized values
         assert "job_id" in sql
-        assert job_id in context.values.values()
+        assert job_id in values.values()
 
     def test_does_not_mutate_original_query(self):
         job_id = "11111111-1111-1111-1111-111111111111"
@@ -1121,7 +1120,7 @@ class TestBuildManualInsertSQL(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        sql, context = _build_manual_insert_sql(
+        sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
@@ -1144,7 +1143,7 @@ class TestBuildManualInsertSQL(BaseTest):
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
-        sql, context = _build_manual_insert_sql(
+        sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
             insert_query=self.MANUAL_INSERT_QUERY,
@@ -1220,7 +1219,7 @@ class TestBuildManualInsertSQL(BaseTest):
             GROUP BY time_window_start
         """
 
-        sql, context = _build_manual_insert_sql(
+        sql, values = _build_manual_insert_sql(
             team=self.team,
             job=job,
             insert_query=query_with_custom,
@@ -1228,7 +1227,7 @@ class TestBuildManualInsertSQL(BaseTest):
             base_placeholders={"event_name": ast.Constant(value="$pageleave")},
         )
 
-        assert "$pageleave" in context.values.values()
+        assert "$pageleave" in values.values()
 
 
 class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
@@ -3934,49 +3933,8 @@ class TestCheckOnlyMode(BaseTest):
         assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"
 
 
-class TestInsertsFollowTheEventsRoute(BaseTest):
+class TestBuildsKeepTheirEventsTable(BaseTest):
     INSERT_QUERY = TestInsertSettingsAppliedToInserts.INSERT_QUERY
-
-    @parameterized.expand([("ast_insert",), ("manual_insert",)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_a_build_that_reads_events_json_runs_on_the_events_cluster(self, path: str) -> None:
-        job = PreaggregationJob.objects.create(
-            team=self.team,
-            query_hash="test_hash",
-            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-            status=PreaggregationJob.Status.PENDING,
-            expires_at=django_timezone.now() + timedelta(days=7),
-        )
-        query = parse_select(
-            self.INSERT_QUERY,
-            placeholders={
-                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
-                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ) as execute,
-        ):
-            if path == "ast_insert":
-                query_info = LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
-                run_lazy_computation_insert(self.team, job, query_info)
-            else:
-                ensure_precomputed(
-                    team=self.team,
-                    insert_query=self.INSERT_QUERY,
-                    time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
-                    time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
-                    ttl_seconds=7 * 24 * 60 * 60,
-                )
-        assert "events_json" in execute.call_args.args[0]
-        assert execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_a_switched_persons_build_gets_a_job_of_its_own(self) -> None:

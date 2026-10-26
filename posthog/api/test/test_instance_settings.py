@@ -111,27 +111,22 @@ class TestSecretSettingsCoverage(unittest.TestCase):
         self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
-class TestEventsClusterSettingsValidation(SimpleTestCase):
+class TestNewEventsSchemaTeamsValidation(SimpleTestCase):
     @parameterized.expand(
         [
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com", True),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "localhost", True),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", True),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "https://native.example.com", False),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com:8443", False),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com/path", False),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", True, False),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "", True),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2", True),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", " 2, 44 ,123 ", True),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "2;44", False),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "team 2", False),
-            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", [2], False),
+            ("", True),
+            ("2", True),
+            (" 2, 44 ,123 ", True),
+            ("2;44", False),
+            ("team 2", False),
+            ([2], False),
         ]
     )
-    def test_events_cluster_settings_accept_valid_values_only(self, key: str, value: object, valid: bool) -> None:
+    def test_project_list_accepts_comma_separated_ids_only(self, value: object, valid: bool) -> None:
         serializer = InstanceSettingsSerializer(
-            instance=InstanceSettingHelper(key=key), data={"value": value}, partial=True
+            instance=InstanceSettingHelper(key="CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS"),
+            data={"value": value},
+            partial=True,
         )
         self.assertEqual(serializer.is_valid(), valid, serializer.errors)
 
@@ -221,7 +216,7 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("AUTO_START_ASYNC_MIGRATIONS", False, True),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "", "2"),
         ]
     )
     def test_update_setting(self, key: str, before: object, after: object) -> None:
@@ -311,7 +306,7 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("AUTO_START_ASYNC_MIGRATIONS", False, True),
-            ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
+            ("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "", "2"),
         ]
     )
     def test_non_staff_user_cant_update(self, key: str, before: object, after: object) -> None:

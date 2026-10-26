@@ -17,7 +17,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import events_read_http_url, use_new_events_schema
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -82,8 +82,6 @@ class RecordBatchModel(abc.ABC):
     def __init__(self, team_id: int, batch_export_id: str | None = None):
         self.team_id = team_id
         self.batch_export_id = batch_export_id
-        # Set when the query is printed: the events cluster URL when the SQL reads events_json there, else None.
-        self.clickhouse_url: str | None = None
 
     async def get_hogql_context(self) -> HogQLContext:
         """Return a HogQLContext to generate a ClickHouse query."""
@@ -147,7 +145,6 @@ class RecordBatchModel(abc.ABC):
         printed = await database_sync_to_async(print_prepared_ast)(
             prepared_hogql_query, context=context, dialect="clickhouse", stack=[]
         )
-        self.clickhouse_url = await database_sync_to_async(events_read_http_url)(context)
         return printed, context.values
 
     async def as_query_with_parameters(

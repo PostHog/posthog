@@ -82,7 +82,6 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import events_read_http_url, events_read_workload
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -389,10 +388,6 @@ class _GeneratedSQL:
     parse_seconds: float
     resolve_seconds: float
     print_ast_seconds: float
-    # Where the SQL runs, read off the context the printer used: the executor prints on its own copy of the
-    # shared context, so the flag the printer sets never reaches the caller's.
-    workload: Workload
-    clickhouse_url: str | None
 
 
 def _printing_context(team: Team, user: User | None) -> HogQLContext:
@@ -456,8 +451,6 @@ def _generate_sql(
         # Copied because the shared dict is cleared for the next pass, and a caller holds this
         # pass's SQL and values together (the DESCRIBE between the passes reads them).
         values=dict(resolved.values),
-        workload=events_read_workload(Workload.OFFLINE, resolved),
-        clickhouse_url=events_read_http_url(resolved),
         seconds=seconds,
         parse_seconds=_hogql_leaf_seconds(recorded, "query"),
         resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
@@ -500,14 +493,12 @@ def _describe_columns(
 
 
 def _describe_columns_pooled(printed_sql: str, values: dict[str, object], team_id: int) -> list[tuple[str, str]]:
-    """`_describe_columns` for the CH-writes path — pooled native client on the offline pool.
-
-    A DESCRIBE never reaches the shards, so it stays there when the INSERT itself moves to the events cluster.
+    """`_describe_columns` for the CH-writes path — pooled native client, same routing as the INSERT.
 
     Bounded socket timeout for the same reason the INSERT is (a half-open connection must not
     pin the uninterruptible activity thread), though a DESCRIBE is metadata-only and fast.
     """
-    with _bounded_offline_client(team_id, Workload.OFFLINE) as client:
+    with _bounded_offline_client(team_id) as client:
         # nosemgrep: clickhouse-fstring-param-audit - printed_sql is HogQL-compiled by the guarded printer, not user input
         rows = sync_execute(
             f"DESCRIBE TABLE ({printed_sql})",
@@ -553,9 +544,6 @@ class _PrintedFrameSQL:
     print_seconds: float
     describe_seconds: float
     resolve_seconds: float
-    # Where the SQL runs: the events cluster when it read events_json for a routed project, else the offline pool.
-    workload: Workload
-    clickhouse_url: str | None
 
 
 def _print_clickhouse_sql(
@@ -590,8 +578,6 @@ def _print_clickhouse_sql(
             print_seconds=plain.seconds + (second.seconds if second else 0.0),
             describe_seconds=describe_seconds,
             resolve_seconds=plain.resolve_seconds + (second.resolve_seconds if second else 0.0),
-            workload=last.workload,
-            clickhouse_url=last.clickhouse_url,
         )
 
     if not any(function for _name, function in conversions):
@@ -659,14 +645,14 @@ def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, obje
     return f"INSERT INTO FUNCTION s3({', '.join(target)})\n{printed_sql}", params
 
 
-def _bounded_offline_client(team_id: int, workload: Workload) -> AbstractContextManager:
+def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     """A native client for the CH-writes path with a finite socket timeout.
 
     `sync_execute`'s default pooled client has an effectively infinite send/receive timeout
     in prod, which would let a half-open connection pin the (uninterruptible) activity
-    thread. Route through a dedicated pool that shares the workload's host + notebooks-user
+    thread. Route through a dedicated pool that shares the offline-host + notebooks-user
     routing but caps the socket timeout just above max_execution_time. `make_ch_pool` is
-    cached, so this is one extra pool per (workload, notebooks) combination, not per call.
+    cached, so this is one extra pool per (offline, notebooks) combination, not per call.
     sync_execute enters the client as its own context manager and disconnects it on exit,
     so connections aren't kept warm across calls. The pool's value here is the bounded
     timeout, not connection reuse. This costs one reconnect per materialization, which is
@@ -676,7 +662,7 @@ def _bounded_offline_client(team_id: int, workload: Workload) -> AbstractContext
     stays token-aware. Without `credential_provider` the pool binds with the static
     password and never picks up a rotated token.
     """
-    kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
+    kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
     creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
     if is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
@@ -724,12 +710,12 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
     }
     write_started_at = dt.datetime.now(dt.UTC)
     query_started = time.perf_counter()
-    with _bounded_offline_client(team.pk, printed.workload) as client:
+    with _bounded_offline_client(team.pk) as client:
         sync_execute(
             insert_sql,
             insert_values,
             settings=ch_settings,
-            workload=printed.workload,
+            workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.NOTEBOOKS,
             team_id=team.pk,
             sync_client=client,
@@ -938,24 +924,20 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     printed = written.printed
                     upload_seconds = None  # CH performs the upload; the relay split doesn't exist
                 else:
-
-                    def streaming_client(url: str) -> ClickHouseClient:
-                        return ClickHouseClient(
-                            url=url,
-                            user=creds.user if creds is not None else settings.CLICKHOUSE_USER,
-                            password=creds.password if creds is not None else settings.CLICKHOUSE_PASSWORD,
-                            database=settings.CLICKHOUSE_DATABASE,
-                            output_format_arrow_string_as_string="true",
-                            cancel_http_readonly_queries_on_client_close=1,
-                            max_result_bytes=_MAX_RESULT_BYTES,
-                            result_overflow_mode="throw",
-                        )
-
-                    # With the flag on this is the offline pool (batch exports' home), so a
-                    # whale materialization does not contend with interactive queries. It
-                    # falls back to the online URL where no offline cluster exists (EU,
-                    # self-hosted, dev/test), and stays online entirely without the flag.
-                    client = streaming_client(ch_url)
+                    client = ClickHouseClient(
+                        # With the flag on this is the offline pool (batch exports' home), so a
+                        # whale materialization does not contend with interactive queries. It
+                        # falls back to the online URL where no offline cluster exists (EU,
+                        # self-hosted, dev/test), and stays online entirely without the flag.
+                        url=ch_url,
+                        user=creds.user if creds is not None else settings.CLICKHOUSE_USER,
+                        password=creds.password if creds is not None else settings.CLICKHOUSE_PASSWORD,
+                        database=settings.CLICKHOUSE_DATABASE,
+                        output_format_arrow_string_as_string="true",
+                        cancel_http_readonly_queries_on_client_close=1,
+                        max_result_bytes=_MAX_RESULT_BYTES,
+                        result_overflow_mode="throw",
+                    )
                     printed = _print_clickhouse_sql(
                         lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
                         team,
@@ -963,8 +945,6 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         inputs.query,
                         output_format="ArrowStream",
                     )
-                    if printed.clickhouse_url is not None:
-                        client = streaming_client(printed.clickhouse_url)
                     query_started = time.perf_counter()
                     with client.post_query(
                         printed.sql,

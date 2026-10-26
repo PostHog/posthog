@@ -174,6 +174,7 @@ def _group_type_index_of_blob(column_name: str) -> int | None:
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+    _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
 
     def visit_cte(self, node: ast.CTE):
@@ -482,11 +483,11 @@ class ClickHousePrinter(BasePrinter):
             # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
             # the global settings, not the table's required settings, so a query printed without settings keeps its
             # shape, and it is scoped to reads of the native table because an older ClickHouse rejects the name.
-            if self.context.reads_native_events_table and merged.get("json_type_escape_dots_in_keys") is None:
+            if self._reads_native_events_table and merged.get("json_type_escape_dots_in_keys") is None:
                 # Re-inserted so it prints after the global settings rather than at the field's declared position.
                 merged.pop("json_type_escape_dots_in_keys", None)
                 merged["json_type_escape_dots_in_keys"] = True
-            if self.context.reads_native_events_table:
+            if self._reads_native_events_table:
                 # Property sub-objects and arrays must retain the slashes returned by legacy reads.
                 merged["output_format_json_escape_forward_slashes"] = False
             if self.context.emit_top_level_settings:
@@ -511,7 +512,7 @@ class ClickHousePrinter(BasePrinter):
     def _collect_table_top_level_settings(self, table: Table) -> None:
         super()._collect_table_top_level_settings(table)
         if isinstance(table, EVENTS_TABLE_TYPES) and self.context.uses_new_events_schema():
-            self.context.reads_native_events_table = True
+            self._reads_native_events_table = True
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if node.type is None:
