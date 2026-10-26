@@ -2808,9 +2808,7 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
-      /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-      useNewEventsCluster?: boolean | null;
-      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
       useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -29818,10 +29816,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -29908,6 +29906,34 @@ export namespace Schemas {
     }
 
     /**
+     * Outcome of a bulk owner change: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkChangeOwner {
+      /** The metrics that now have the new owner, freshly serialized. */
+      updated: DataCatalogMetric[];
+      /** Requested metrics whose owner did not change, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for giving many metrics one owner.
+     */
+    export interface DataCatalogMetricBulkChangeOwnerRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
+      /**
+         * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+         * @nullable
+         */
+      owner: string | null;
+    }
+
+    /**
      * Outcome of a bulk delete: which names are gone, and what was left alone.
      */
     export interface DataCatalogMetricBulkDelete {
@@ -29963,10 +29989,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -46456,26 +46482,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+    export type SemverOperatorEnum = typeof SemverOperatorEnum[keyof typeof SemverOperatorEnum];
 
 
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+    export const SemverOperatorEnum = {
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
       SemverGt: 'semver_gt',
       SemverGte: 'semver_gte',
       SemverLt: 'semver_lt',
       SemverLte: 'semver_lte',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
       SemverTilde: 'semver_tilde',
       SemverCaret: 'semver_caret',
       SemverWildcard: 'semver_wildcard',
@@ -46502,16 +46528,16 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Semantic version comparison operator.
        *
+       * * `semver_eq` - semver_eq
+       * * `semver_neq` - semver_neq
        * * `semver_gt` - semver_gt
        * * `semver_gte` - semver_gte
        * * `semver_lt` - semver_lt
        * * `semver_lte` - semver_lte
-       * * `semver_eq` - semver_eq
-       * * `semver_neq` - semver_neq
        * * `semver_tilde` - semver_tilde
        * * `semver_caret` - semver_caret
        * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      operator: SemverOperatorEnum;
       /** Semantic version string. */
       value: string;
     }
@@ -83936,7 +83962,10 @@ export namespace Schemas {
     }
 
     export interface PatchedAddPersonsToStaticCohortRequest {
-      /** List of person UUIDs to add to the cohort */
+      /**
+         * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+         * @maxItems 1000
+         */
       person_ids?: string[];
     }
 
@@ -85087,10 +85116,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner?: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -102801,6 +102830,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
 
@@ -102809,6 +102839,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
+      Ask: 'ask',
     } as const;
 
     /**
@@ -109224,7 +109255,8 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
       available: boolean;
@@ -109259,17 +109291,23 @@ export namespace Schemas {
     }
 
     export interface SignalReportTaskActionRunRequest {
-      /** The action to run. Use a value from the actions list.
+      /** The action to run. Use a value from the actions list, or `ask` to send your own `message`.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /**
          * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
          * @minimum 0
          */
       suggested_prompt_index?: number;
+      /**
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * @maxLength 2000
+         */
+      message?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
