@@ -134,6 +134,12 @@ class AutostartOutcome:
     reason: str = ""
 
 
+async def _clear_implementation_block(team_id: int, report_id: str) -> None:
+    await SignalReport.objects.filter(
+        team_id=team_id, id=report_id, implementation_blocked_reason__isnull=False
+    ).aupdate(implementation_blocked_reason=None, implementation_blocked_at=None)
+
+
 @frozen
 class ImplementationResume:
     task_id: str
@@ -904,7 +910,18 @@ def _create_implementation_task_if_absent(
         # now, so neither a research pass nor a rewrite already folded into it may buy another one.
         report.implemented_at_run_count = report.run_count
         report.implemented_at_revision_count = report.content_revision_count or 0
-        report.save(update_fields=["implemented_at_run_count", "implemented_at_revision_count"])
+        # GitHub recovery markers clear in the transaction that creates the task. A failure before
+        # the commit keeps the report eligible for the recovery sweep and connection events.
+        report.implementation_blocked_reason = None
+        report.implementation_blocked_at = None
+        report.save(
+            update_fields=[
+                "implemented_at_run_count",
+                "implemented_at_revision_count",
+                "implementation_blocked_reason",
+                "implementation_blocked_at",
+            ]
+        )
         exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
@@ -1499,6 +1516,8 @@ async def maybe_autostart_implementation_task(
     skip_code: str | None = None
     if task_exists and resume is None and not supersede.allowed:
         skip_reason = "implementation task already exists"
+        # A task exists, so no recovery is left to retry.
+        await _clear_implementation_block(team_id, report_id)
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         skip_reason = f"not immediately actionable: {actionability.actionability.value}"
         skip_code = (
@@ -1658,6 +1677,8 @@ async def maybe_autostart_implementation_task(
     if resume is not None:
         if not task_user.is_active or task_user.id != resume.user_id or repository != resume.repository:
             return AutostartOutcome(status="cancelled", reason="The implementation runner or repository has changed")
+        # The queued task already exists, so the start is durable.
+        await _clear_implementation_block(team_id, report_id)
         return AutostartOutcome(status="queued")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
@@ -1732,9 +1753,6 @@ async def maybe_autostart_implementation_task(
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return AutostartOutcome(status="cancelled", reason="Another start or report change won the race")
 
-    await SignalReport.objects.filter(team_id=team_id, id=report_id).aupdate(
-        implementation_blocked_reason=None, implementation_blocked_at=None
-    )
     return AutostartOutcome(status="started")
 
 

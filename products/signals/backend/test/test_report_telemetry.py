@@ -1,7 +1,10 @@
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -483,3 +486,37 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     # Stamped by the pass that just completed, so the next bucket is measured against what this run
     # actually covered rather than against how many times the workflow has started.
     assert refreshed.signals_researched == (researched or processed_signal_count)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(("blocked_days", "cleared"), [(8, True), (1, False)])
+async def test_fresh_research_clears_only_an_expired_implementation_block(
+    ateam: Team, blocked_days: int, cleared: bool
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=1,
+        run_count=1,
+        total_weight=1.0,
+        implementation_blocked_reason="not_connected",
+        implementation_blocked_at=timezone.now() - timedelta(days=blocked_days),
+    )
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="title",
+                summary="summary",
+                processed_signal_count=1,
+                source_products=["zendesk"],
+            )
+        )
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.READY
+    assert (refreshed.implementation_blocked_reason is None) is cleared
+    assert (refreshed.implementation_blocked_at is None) is cleared

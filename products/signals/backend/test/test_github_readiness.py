@@ -452,7 +452,7 @@ class TestGitHubReadiness(BaseTest):
         config.refresh_from_db()
         self.assertEqual(config.last_run_at, previous if restored else timezone.now())
 
-    def test_implementation_blocker_clears_when_access_recovers(self) -> None:
+    def test_implementation_blocker_stays_retryable_until_the_task_starts(self) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         with patch(
             f"{MODULE}.get_team_github_readiness",
@@ -468,7 +468,9 @@ class TestGitHubReadiness(BaseTest):
         ):
             check_implementation_github_readiness(self.team.id, str(report.id), recovery=True)
         report.refresh_from_db()
-        self.assertIsNone(report.implementation_blocked_reason)
+        # The task does not exist yet, so a failed start must stay visible to the periodic sweep.
+        self.assertEqual(report.implementation_blocked_reason, "temporarily_unavailable")
+        self.assertEqual(report.implementation_blocked_at, timezone.now())
 
     @parameterized.expand(
         [
@@ -494,16 +496,25 @@ class TestGitHubReadiness(BaseTest):
         self.assertEqual(result.status == GitHubReadinessStatus.READY, resumes)
         self.assertEqual(check.call_count, int(resumes))
 
-    def test_recovery_rechecks_implementation_without_researching_again(self) -> None:
+    # The daily report limit holds back research recovery only. A ready proposal creates no report.
+    @parameterized.expand([(False,), (True,)])
+    def test_recovery_rechecks_implementation_without_researching_again(self, daily_limited: bool) -> None:
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             implementation_blocked_reason="not_connected",
             implementation_blocked_at=timezone.now(),
         )
+        if daily_limited:
+            SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.CANDIDATE,
+                research_blocked_reason="not_connected",
+                research_blocked_at=timezone.now(),
+            )
         with (
             patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=False)),
-            patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=False)),
+            patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=daily_limited)),
             patch(
                 f"{TASKS}.get_team_github_readiness", return_value=GitHubReadiness(status=GitHubReadinessStatus.READY)
             ),

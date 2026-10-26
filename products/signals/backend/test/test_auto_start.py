@@ -916,6 +916,57 @@ def test_create_implementation_task_freezes_billing_exemption(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("creation_fails", [True, False])
+def test_github_recovery_markers_clear_only_with_the_implementation_task(organization, team, creation_fails):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    blocked_at = timezone.now() - timedelta(days=1)
+    report = SignalReport.objects.create(
+        team=team,
+        status=SignalReport.Status.READY,
+        title="t",
+        summary="s",
+        signal_count=0,
+        total_weight=0.0,
+        implementation_blocked_reason="temporarily_unavailable",
+        implementation_blocked_at=blocked_at,
+    )
+
+    def _fake_create_and_run_task(**kwargs):
+        if creation_fails:
+            raise RuntimeError("worker lost")
+        task = Task.objects.create(
+            team=team, title=kwargs["title"], created_by=user, origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task):
+        try:
+            _create_implementation_task_if_absent(
+                team_id=team.id,
+                report_id=str(report.id),
+                title="t",
+                description="d",
+                expected_content=ImplementationReportContent.from_report(report),
+                user_id=user.id,
+                repository="owner/repo",
+                base_branch=None,
+            )
+        except RuntimeError:
+            assert creation_fails
+
+    report.refresh_from_db()
+    if creation_fails:
+        assert report.implementation_blocked_reason == "temporarily_unavailable"
+        assert report.implementation_blocked_at == blocked_at
+    else:
+        assert report.implementation_blocked_reason is None
+        assert report.implementation_blocked_at is None
+
+
+@pytest.mark.django_db
 def test_create_implementation_task_threads_resolved_runtime(organization, team):
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")

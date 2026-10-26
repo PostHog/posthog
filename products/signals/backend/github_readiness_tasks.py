@@ -96,10 +96,19 @@ def resume_github_blocked_reports(
         if connection_restored:
             _keep_recovery_intent(reports, None)
         return
-    if not team.organization.is_ai_data_processing_approved or daily_report_limit_gate(team).limited:
+    if not team.organization.is_ai_data_processing_approved:
         if connection_restored:
             _keep_recovery_intent(reports, GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE)
         return
+    # The daily limit counts new reports, so it holds back research only. A ready proposal's
+    # implementation creates no report.
+    if daily_report_limit_gate(team).limited:
+        research = reports.exclude(status=SignalReport.Status.READY)
+        if connection_restored:
+            _keep_recovery_intent(research, GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE)
+        reports = reports.filter(status=SignalReport.Status.READY)
+        if not reports.exists():
+            return
     readiness = get_team_github_readiness(team_id, verify=True)
     if readiness.status != GitHubReadinessStatus.READY:
         if connection_restored:

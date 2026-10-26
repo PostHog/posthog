@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -141,13 +141,36 @@ def check_implementation_github_readiness(team_id: int, report_id: str, *, recov
                 )
             )
     readiness = get_team_github_readiness(team_id, verify=True)
-    SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).update(
-        implementation_blocked_reason=None if readiness.status == GitHubReadinessStatus.READY else readiness.status,
-        implementation_blocked_at=F("implementation_blocked_at")
-        if readiness.status == GitHubReadinessStatus.READY
-        else Coalesce("implementation_blocked_at", timezone.now()),
-    )
+    ready_reports = SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY)
+    if readiness.status == GitHubReadinessStatus.READY:
+        # The markers stay until the implementation task commits, so a start that fails after this
+        # check is still a recovery candidate. A reconnect-required reason becomes temporary
+        # because access is back, which lets the periodic sweep retry the start.
+        ready_reports.filter(implementation_blocked_reason__isnull=False).update(
+            implementation_blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+        )
+    else:
+        ready_reports.update(
+            implementation_blocked_reason=readiness.status,
+            implementation_blocked_at=Coalesce("implementation_blocked_at", timezone.now()),
+        )
     return readiness
+
+
+def clear_expired_implementation_block(report: SignalReport) -> list[str]:
+    """Clear an implementation block whose recovery window has ended, for a report whose fresh
+    research replaces the blocked proposal. Returns the fields to save.
+
+    An expired block refuses every later autostart, so without this the new proposal could never
+    start automatically.
+    """
+    if report.implementation_blocked_at is None or (
+        report.implementation_blocked_at > timezone.now() - GITHUB_RECOVERY_WINDOW
+    ):
+        return []
+    report.implementation_blocked_reason = None
+    report.implementation_blocked_at = None
+    return ["implementation_blocked_reason", "implementation_blocked_at"]
 
 
 @activity.defn
