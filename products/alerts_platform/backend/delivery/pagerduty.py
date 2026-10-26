@@ -97,6 +97,8 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
         "timestamp": rfc3339(transition.occurred_at),
         "custom_details": {
             **{detail.label: detail.value for detail in message.details},
+            **({"description": message.description} if message.description else {}),
+            **({"labels": message.labels} if message.labels else {}),
             "delivered_by": SOURCE,
             "configuration_id": message.configuration_id,
         },

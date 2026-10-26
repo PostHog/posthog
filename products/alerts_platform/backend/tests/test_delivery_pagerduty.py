@@ -75,13 +75,15 @@ class TestPagerDutyBody(SimpleTestCase):
         message = replace(
             _message(IncidentAction.TRIGGER),
             labels={"severity": label},
-            annotations={"runbook_url": "https://runbooks.example.com/api"},
+            annotations={"runbook_url": "https://runbooks.example.com/api", "description": "Payments fail."},
         )
 
         body = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.CRITICAL)
 
         assert body["payload"]["severity"] == expected
         assert body["links"] == [{"href": "https://runbooks.example.com/api", "text": "Runbook"}]
+        assert body["payload"]["custom_details"]["description"] == "Payments fail."
+        assert body["payload"]["custom_details"]["labels"] == {"severity": label}
 
     def test_a_resolve_addresses_the_incident_its_trigger_opened(self) -> None:
         def key(action: IncidentAction, **transition: Any) -> str:
