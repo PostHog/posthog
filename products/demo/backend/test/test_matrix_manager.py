@@ -15,7 +15,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
@@ -153,16 +154,20 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
 
         manager.run_on_team(self.team, self.user)
 
-        summary_query = """
-            SELECT countIf(properties.foo = 'bar'), count(), min(timestamp), max(timestamp), uniq(distinct_id), uniq(person_id)
-            FROM events
-        """
-        master_team = Team.objects.get(pk=MatrixManager.MASTER_TEAM_ID)
-        source = execute_hogql_query(summary_query, team=master_team).results
-        copied = execute_hogql_query(summary_query, team=self.team).results
         # At least one event for each cluster
-        assert copied[0][0] >= 3
-        assert copied == source
+        copied = execute_hogql_query("SELECT count() FROM events WHERE properties.foo = 'bar'", team=self.team)
+        assert copied.results[0][0] >= 3
+        # HogQL returns no rows for the master team (team 0), so the comparison with the source reads the lane's
+        # events table directly.
+        read_table = events_read_table(use_new_events_schema(self.team.pk))
+        target_summary, source_summary = sync_execute(
+            f"""
+            SELECT team_id = 0 AS is_source, count(), min(timestamp), max(timestamp), uniq(distinct_id), uniq(person_id)
+            FROM {read_table} WHERE team_id IN (0, %(team_id)s) GROUP BY is_source ORDER BY is_source
+            """,
+            {"team_id": self.team.pk},
+        )
+        assert target_summary[1:] == source_summary[1:]
 
 
 class TestWithExposureCopies(SimpleTestCase):
