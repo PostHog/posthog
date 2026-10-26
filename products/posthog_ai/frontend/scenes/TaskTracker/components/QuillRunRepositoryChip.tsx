@@ -13,7 +13,7 @@ export function QuillRunRepositoryChip({ repository, branch }: QuillRunRepositor
                 render={
                     <span
                         tabIndex={0}
-                        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border px-2 text-xs"
+                        className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-sm border border-border px-2 text-xs"
                         data-attr="task-run-repository-chip"
                     >
                         <IconGithub className="shrink-0" />

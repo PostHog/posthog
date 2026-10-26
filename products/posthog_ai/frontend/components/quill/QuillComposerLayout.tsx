@@ -68,7 +68,7 @@ export function QuillComposerLayout({
                     >
                         <div
                             ref={chipsContentRef}
-                            className="flex w-full flex-wrap gap-2 pt-2 pb-1.5 *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                            className="flex w-full flex-wrap items-center gap-2 pt-2 pb-1.5 [&_.LemonTag]:h-6 [&_.LemonTag]:gap-1 [&_.LemonTag]:rounded-sm [&_.LemonTag]:px-2 [&_.LemonTag]:text-xs *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
                         >
                             {chips}
                         </div>

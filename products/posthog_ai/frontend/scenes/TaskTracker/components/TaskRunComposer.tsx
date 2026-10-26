@@ -49,6 +49,7 @@ import { ContextUsageChip } from '../../../components/ContextUsageChip'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import { QuillContextUsage } from '../../../components/quill/QuillContextUsage'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { QuillRunRepositoryChip } from './QuillRunRepositoryChip'
 import { TaskComposerAddMenu } from './TaskComposerAddMenu'
@@ -307,8 +308,8 @@ export function TaskRunComposer({
                             </>
                         }
                         meta={
-                            <>
-                                <ContextUsageChip />
+                            <div className="flex items-center divide-x divide-border *:px-2 *:last:pr-1">
+                                <QuillContextUsage />
                                 {codexBillingEnabled && !isPiTask && composerAdapter === RuntimeAdapterEnumApi.Codex ? (
                                     <ComposerCodexBillingIndicator
                                         lockedCodexModelAccess={isTerminal ? null : logicProps.currentCodexModelAccess}
@@ -316,7 +317,7 @@ export function TaskRunComposer({
                                 ) : (
                                     <ComposerBillingIndicator ownPlan={false} />
                                 )}
-                            </>
+                            </div>
                         }
                     />
                 ) : (
