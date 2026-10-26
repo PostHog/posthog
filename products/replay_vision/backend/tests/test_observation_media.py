@@ -226,6 +226,21 @@ class TestObservationMedia(BaseTest):
         for asset in ExportedAsset.objects_including_ttl_deleted.filter(pk__in=unlinked):
             assert asset.expires_after is not None and asset.expires_after <= timezone.now()
 
+    def test_a_render_from_before_small_copies_keeps_a_backfilled_copy(self) -> None:
+        prepared = self._prepare()
+        self._finalize(prepared, rendered=prepared.frames, observation_id=self.observation.id)
+        linked = ReplayObservationMedia.objects.for_team(self.team.id).get(observation_id=self.observation.id)
+        assert linked.small_asset_id is not None
+
+        # An in-flight workflow prepared on the old code carries no small asset id.
+        old = prepared.model_copy(
+            update={"frames": [f.model_copy(update={"small_media_asset_id": None}) for f in prepared.frames]}
+        )
+        self._finalize(old, rendered=old.frames, observation_id=self.observation.id)
+
+        linked.refresh_from_db()
+        assert linked.small_asset_id == prepared.frames[0].small_media_asset_id
+
     def test_an_observation_without_chapters_renders_only_its_thumbnail(self) -> None:
         self.observation.scanner_result = {"model_output": {"scanner_type": "monitor", "verdict": "yes"}}
         self.observation.save()

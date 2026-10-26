@@ -40,6 +40,7 @@ _MEDIA_EXPIRY = timedelta(days=90)
 # The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
 _EDGE_MARGIN_S = 3.0
 _END_MARGIN_S = 1.0
+_SMALL_COPY_CONCURRENCY = 4
 
 
 def _footer_crop_px(context: dict[str, Any]) -> int:
@@ -278,9 +279,10 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                 defaults={
                     "team_id": team_id,
                     "asset_id": link.asset_id,
-                    "small_asset_id": link.small_asset_id,
                     "video_start_ms": link.video_start_ms,
                     "rec_start_ms": link.rec_start_ms,
+                    # Left alone without a copy, so a render from before small copies keeps one the backfill linked.
+                    **({"small_asset_id": link.small_asset_id} if link.small_asset_id is not None else {}),
                 },
             )
             for asset_id, location in link.asset_locations():
@@ -311,11 +313,12 @@ def _content_location(s3_uri: str) -> str:
         raise ApplicationError(str(error), non_retryable=True) from error
 
 
-async def _small_copy(small_asset_id: int | None, large_location: str) -> str | None:
+async def _small_copy(small_asset_id: int | None, large_location: str, limit: asyncio.Semaphore) -> str | None:
     if small_asset_id is None:
         return None
     try:
-        return await asyncio.to_thread(write_small_copy, large_location)
+        async with limit:
+            return await asyncio.to_thread(write_small_copy, large_location)
     except Exception as error:
         # The large frame still serves every view, so a failed copy must not fail the render.
         logger.warning("replay_vision.small_copy_failed", location=large_location, error=str(error))
@@ -332,8 +335,10 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
         for frame in inputs.frames
         if frame.object_id in extracted
     ]
+    # Bounded, so a summary with many chapters does not decode every frame at once inside the activity timeout.
+    limit = asyncio.Semaphore(_SMALL_COPY_CONCURRENCY)
     small_locations = await asyncio.gather(
-        *(_small_copy(frame.small_media_asset_id, location) for frame, location in rendered)
+        *(_small_copy(frame.small_media_asset_id, location, limit) for frame, location in rendered)
     )
     # Assets with no object to point at: the frames the video did not have, and the small copies that failed.
     missing = [

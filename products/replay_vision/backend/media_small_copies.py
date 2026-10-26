@@ -100,6 +100,16 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
     if small_location is None:
         return False
     with transaction.atomic():
+        # Locked first, so a losing run creates no row whose expiry would delete the shared object.
+        locked = (
+            ReplayObservationMedia.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .filter(pk=media.pk, small_asset__isnull=True)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if locked is None:
+            return False
         small = ExportedAsset.objects.create(
             team_id=large.team_id,
             export_format=ExportedAsset.ExportFormat.PNG,
@@ -108,12 +118,5 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
             expires_after=large.expires_after,
             is_system=True,
         )
-        linked = (
-            ReplayObservationMedia.objects.for_team(team_id, canonical=True)
-            .filter(pk=media.pk, small_asset__isnull=True)
-            .update(small_asset=small)
-        )
-        if not linked:
-            # A render linked a copy of its own since the read, so nothing points at this one.
-            ExportedAsset.objects.filter(pk=small.pk).update(expires_after=now())
-    return bool(linked)
+        ReplayObservationMedia.objects.for_team(team_id, canonical=True).filter(pk=media.pk).update(small_asset=small)
+    return True
