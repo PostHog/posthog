@@ -26,7 +26,6 @@ export const canvasCapabilitiesSchema = z.object({
         .max(2)
         .default([]),
       actions: z.array(z.string().min(1).max(64)).max(32).default([]),
-      tools: z.array(z.string().min(1).max(200)).max(32).default([]),
       agentRequests: z.boolean().default(false),
     })
     .default({
@@ -35,7 +34,6 @@ export const canvasCapabilitiesSchema = z.object({
       captureEvents: [],
       state: [],
       actions: [],
-      tools: [],
       agentRequests: false,
     }),
   network: z

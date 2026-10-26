@@ -7,10 +7,7 @@ import type {
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
 import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
-import {
-  invokeCanvasAction,
-  invokeCanvasTool,
-} from "@posthog/core/canvas/invokeCanvasAction";
+import { invokeCanvasAction } from "@posthog/core/canvas/invokeCanvasAction";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -291,39 +288,6 @@ export async function handleFreeformDataRequest(
         (action) => window.confirm(`${action.summary}\n\nContinue?`),
         (action) => client.invokeAction.mutate(action),
       );
-    }
-    case "toolRead":
-    case "toolCall": {
-      const input = payload as {
-        tool?: string;
-        arguments?: Record<string, unknown>;
-      };
-      if (!input?.tool || typeof input.tool !== "string") {
-        throw new Error("ph.tools requires a tool name");
-      }
-      // Reads and writes into PostHog as the viewer, never cached.
-      const client = hostClient().dashboards;
-      const { result } = await invokeCanvasTool(
-        {
-          id: requireDashboardId(),
-          tool: input.tool,
-          arguments: input.arguments ?? {},
-        },
-        method === "toolCall",
-        // The allowlist changes only with a deploy, so a board that reads many flags fetches it once.
-        () =>
-          queryClient.fetchQuery({
-            queryKey: [CANVAS_QUERY_KEY, "tools"],
-            queryFn: () => client.listTools.query(),
-            staleTime: Infinity,
-          }),
-        (tool, args) =>
-          window.confirm(
-            `${tool.summary}\n\n${tool.name}\n${JSON.stringify(args, null, 2)}\n\nContinue?`,
-          ),
-        (call) => client.invokeTool.mutate(call),
-      );
-      return result;
     }
     case "connectorCall": {
       const dashboardId = requireDashboardId();

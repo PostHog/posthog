@@ -17,9 +17,6 @@ import {
   canvasStateEntrySchema,
   canvasStateListInput,
   canvasStateSetInput,
-  canvasToolDefinitionSchema,
-  canvasToolInvokeInput,
-  canvasToolResultSchema,
   canvasVersionSchema,
   canvasViewSchema,
   createDashboardInput,
@@ -248,19 +245,6 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .invokeAction(input),
-    ),
-  listTools: publicProcedure
-    .output(z.array(canvasToolDefinitionSchema))
-    .query(({ ctx }) =>
-      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listTools(),
-    ),
-  invokeTool: publicProcedure
-    .input(canvasToolInvokeInput)
-    .output(canvasToolResultSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .invokeTool(input),
     ),
   callConnector: publicProcedure
     .input(canvasConnectorCallServiceInput)
