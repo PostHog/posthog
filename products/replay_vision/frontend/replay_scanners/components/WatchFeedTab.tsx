@@ -158,11 +158,10 @@ export function WatchFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         <div
-                            className={clsx(
-                                'flex flex-col gap-4 transition-opacity',
-                                feedReloading && 'pointer-events-none opacity-40'
-                            )}
+                            className={clsx('flex flex-col gap-4 transition-opacity', feedReloading && 'opacity-40')}
                             aria-busy={feedReloading}
+                            // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
+                            {...(feedReloading ? { inert: '' } : {})}
                         >
                             {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
                             rather than leaving the reader to infer it from three identical reason lines. */}
