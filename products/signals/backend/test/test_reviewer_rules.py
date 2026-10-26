@@ -4,7 +4,9 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -37,6 +39,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.reviewer_exclusions import (
     DuplicateExclusion,
+    StandingExclusions,
     create_exclusion,
     revise_exclusion,
     revoke_exclusion,
@@ -580,6 +583,7 @@ class TestStandingExclusions(BaseTest):
     def test_revoked_instruction_stops_suppressing_and_keeps_history(self) -> None:
         exclusion_id = self.exclude()
         revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository="org/app")
+        revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository=" Org/App ")
         revoke_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id)
         self.write(self.other)
         assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.other.user_uuid]
@@ -649,6 +653,13 @@ class TestStandingExclusions(BaseTest):
         assert [event for call in self.capture.call_args_list for event in call.kwargs["events"]] == [
             ("pin_conflict", [exclusion_id]) if area_known else ("unresolved", [])
         ]
+
+    def test_finding_paths_are_read_only_for_a_path_instruction_in_the_report_repository(self) -> None:
+        self.exclude(repository="org/other", path_prefix="src/billing")
+        self.exclude(repository="org/app")
+        with CaptureQueriesContext(connection) as queries:
+            StandingExclusions.load(team_id=self.team.id, report_id=str(self.report.id))
+        assert not [query for query in queries.captured_queries if "signal_finding" in query["sql"]]
 
     def test_create_rejects_a_blank_subject_and_returns_the_active_twin(self) -> None:
         with self.assertRaises(ValueError):

@@ -11,12 +11,13 @@ excluded person is neither assigned nor asked to review.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
 from typing import Literal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import JSONField, QuerySet
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast
 
 from posthog.dataclasses import frozen
 
@@ -137,12 +138,10 @@ class StandingExclusions:
         else:
             repository = repository.strip().lower() or None
         paths: tuple[str, ...] = ()
-        if any(exclusion.path_prefix for exclusion in exclusions):
-            paths = cls._read_paths(
-                artefacts.filter(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING)
-                .order_by("-created_at", "-id")
-                .values_list("content", flat=True)
-            )
+        # Finding paths decide only a path instruction for this report's repository, and the read runs
+        # under the report lock, so skip it for every other report.
+        if repository is not None and any(e.path_prefix and e.repository == repository for e in exclusions):
+            paths = cls._read_paths(artefacts.filter(type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING))
         return cls(exclusions=exclusions, repository=repository, paths=paths)
 
     @staticmethod
@@ -184,23 +183,21 @@ class StandingExclusions:
         return repository.strip().lower() if isinstance(repository, str) and repository.strip() else None
 
     @staticmethod
-    def _read_paths(newest_first: Iterable[str]) -> tuple[str, ...]:
+    def _read_paths(findings: QuerySet[SignalReportArtefact]) -> tuple[str, ...]:
         """The paths of each signal's current finding. Re-research supersedes a signal's older findings."""
+        content = Cast("content", JSONField())
+        current_paths = (
+            findings.filter(content__startswith="{")
+            .annotate(
+                _signal_id=KeyTextTransform("signal_id", content),
+                _paths=KeyTransform("relevant_code_paths", content),
+            )
+            .order_by("_signal_id", "-created_at", "-id")
+            .distinct("_signal_id")
+            .values_list("_signal_id", "_paths")
+        )
         paths: dict[str, None] = {}
-        seen_signals: set[str] = set()
-        for content in newest_first:
-            try:
-                data = json.loads(content)
-            except ValueError:
-                continue
-            if not isinstance(data, dict):
-                continue
-            signal_id = data.get("signal_id")
-            if isinstance(signal_id, str):
-                if signal_id in seen_signals:
-                    continue
-                seen_signals.add(signal_id)
-            found = data.get("relevant_code_paths")
+        for _signal_id, found in current_paths:
             for path in found if isinstance(found, list) else ():
                 if isinstance(path, str) and _normalized_path(path):
                     paths[_normalized_path(path)] = None
@@ -352,18 +349,26 @@ def revise_exclusion(
     repository: str | None = None,
     path_prefix: str | None = None,
 ) -> SignalReviewerExclusion:
+    """Apply the given changes as one new revision. A call that changes nothing records no revision."""
     with transaction.atomic():
         exclusion = (
             SignalReviewerExclusion.objects.for_team(team_id)
             .select_for_update()
             .get(id=exclusion_id, status=SignalReviewerExclusion.Status.ACTIVE)
         )
-        if instruction is not None:
-            exclusion.instruction = instruction
-        if repository is not None:
-            exclusion.repository = repository.strip().lower()
-        if path_prefix is not None:
-            exclusion.path_prefix = _normalized_path(path_prefix)
+        changes = {
+            field: value
+            for field, value in (
+                ("instruction", instruction),
+                ("repository", repository.strip().lower() if repository is not None else None),
+                ("path_prefix", _normalized_path(path_prefix) if path_prefix is not None else None),
+            )
+            if value is not None and value != getattr(exclusion, field)
+        }
+        if not changes:
+            return exclusion
+        for field, value in changes.items():
+            setattr(exclusion, field, value)
         twin = _active_twins(
             team_id,
             subject_user_uuid=exclusion.subject_user_uuid,
