@@ -306,6 +306,30 @@ def get_declared_field_names(fields: list[FieldType]) -> DeclaredFieldNames:
     return DeclaredFieldNames(hyphenated=hyphenated, switch_groups=switch_groups)
 
 
+def nest_flat_select_containers(job_inputs: dict[str, Any], fields: list[FieldType]) -> dict[str, Any]:
+    """Return a copy of job_inputs with the fields of a select branch moved into the select's container.
+
+    A source can move existing top-level fields under a new select, as the AWS sources did with
+    `aws_auth`. Configs saved before that change keep the fields at the top level, and config
+    parsing reads them as the select's default branch. The settings form and the update merge read
+    the container instead. Without this, the form shows those fields empty, and a save drops the
+    stored secrets because the merge only keeps secrets that are inside a stored container.
+    """
+    top_level_names = {field.name for field in fields}
+    nested = dict(job_inputs)
+    for field in fields:
+        if not isinstance(field, SourceFieldSelectConfig) or _stored_key(job_inputs, field.name) is not None:
+            continue
+        # A name that is also a top-level field belongs to that field, as it does in config parsing.
+        branch_names = {
+            option_field.name for option in field.options for option_field in option.fields or []
+        } - top_level_names
+        flat = {name: nested.pop(name) for name in sorted(branch_names) if name in nested}
+        if flat:
+            nested[field.name] = {"selection": field.defaultValue, **flat}
+    return nested
+
+
 def restore_declared_field_names(data: dict, hyphenated: set[str]) -> dict:
     """Return a copy of data re-keyed to the names the source config declares.
 
@@ -564,7 +588,7 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 # `authentication`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
 # one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
 # secret check below applies either way.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "registered_app")
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "authentication", "aws_auth", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would

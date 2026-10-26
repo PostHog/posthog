@@ -283,6 +283,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
+        job_inputs = helpers.nest_flat_select_containers(job_inputs, source.get_source_config.fields)
         stripped = helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         declared = helpers.get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = helpers.restore_declared_field_names(stripped, declared.hyphenated)
@@ -397,12 +398,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = instance.job_inputs or {}
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
+        existing_job_inputs = helpers.nest_flat_select_containers(
+            instance.job_inputs or {}, source.get_source_config.fields
+        )
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None

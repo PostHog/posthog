@@ -3297,6 +3297,50 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["personal_access_token"] == "ghp_secret"
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_keeps_keys_stored_before_the_auth_select(self, mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AwsConfig",
+            created_by=self.user,
+            prefix="aws",
+            job_inputs={
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "example-secret",
+                "aws_session_token": "example-session",
+                "region": "eu-west-1",
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        assert get_response.json()["job_inputs"] == {
+            "aws_auth": {"selection": "access_keys", "aws_access_key_id": "AKIAEXAMPLE"},
+            "region": "eu-west-1",
+        }
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_response.json()["job_inputs"]},
+        )
+        assert patch_response.status_code == 200
+
+        source.refresh_from_db()
+        assert source.job_inputs["aws_auth"] == {
+            "selection": "access_keys",
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-session",
+            "aws_integration_id": None,
+        }
+        mock_validate.assert_not_called()
+
     def test_update_with_malformed_auth_method_returns_400(self):
         source = self._create_external_data_source()
 

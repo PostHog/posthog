@@ -24,6 +24,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +67,10 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
         return ExternalDataSourceType.AWSCONFIG
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Config request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Config request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -92,7 +101,11 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_aws_config_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_config_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsConfigResumeConfig]:
         return ResumableSourceManager(inputs, AwsConfigResumeConfig)
@@ -105,6 +118,7 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
     ) -> SourceResponse:
         return aws_config_source(
             config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,
@@ -136,7 +150,7 @@ Grant these IAM permissions for the tables you want to sync:
 Enable an AWS Config recorder for resource inventory. The resources table contains current configurations and excludes deleted resources.
 The aggregated resources table reads every configuration aggregator in the selected region.
 The resource configuration history table reads the history of each current resource. A full refresh or a first incremental sync reads the last 90 days.
-Add a session token if you use temporary credentials. Replace temporary credentials when they expire.""",
+Connect with an IAM role, or with access keys. Add a session token if you use temporary credentials, and replace them when they expire.""",
             iconPath="/static/services/aws_config.png",
             docsUrl="https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html",
             releaseStatus=ReleaseStatus.BETA,
@@ -144,30 +158,7 @@ Add a session token if you use temporary credentials. Replace temporary credenti
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

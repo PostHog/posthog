@@ -448,6 +448,7 @@ def test_sample_payload_omits_streamed_response_body():
         "Cookie",
         "Set-Cookie",
         "Proxy-Authorization",
+        "X-Amz-Security-Token",
     ],
 )
 def test_scrub_headers_redacts_auth_headers(header_name: str):
