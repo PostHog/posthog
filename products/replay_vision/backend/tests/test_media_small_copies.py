@@ -116,6 +116,7 @@ class TestBackfillSmallCopies(BaseTest):
         assert servable.small_asset.content_location == small_location
         assert servable.small_asset.expires_after == servable.asset.expires_after
         assert servable.small_asset.export_format == ExportedAsset.ExportFormat.WEBP
+        assert (servable.small_asset.export_context or {})["media_size"] == "small"
 
     def test_a_copy_written_while_its_observation_is_deleted_is_removed(self) -> None:
         media = self._media(0)

@@ -1,7 +1,7 @@
-"""The small copy of an observation frame that list views load, scaled from the large PNG already stored.
+"""Backfill of the small copy list views load, for frames rendered as a PNG before the rasterizer made one.
 
-New renders and the backfill both make it from the stored frame: the backfill cannot cut a new one, because the
-analysis video expires long before the frame does.
+It encodes the copy from the stored PNG, because the analysis video the rasterizer cuts frames from expires
+long before the frame does.
 """
 
 import io
@@ -126,7 +126,7 @@ def _add_small_copy(team_id: int, media: ReplayObservationMedia) -> bool:
         small = ExportedAsset.objects.create(
             team_id=large.team_id,
             export_format=SMALL_COPY_FORMAT,
-            export_context=large.export_context,
+            export_context={**(large.export_context or {}), "media_size": ReplayObservationMedia.Size.SMALL.value},
             content_location=small_location,
             expires_after=large.expires_after,
             is_system=True,

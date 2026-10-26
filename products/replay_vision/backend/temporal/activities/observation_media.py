@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
@@ -17,7 +16,6 @@ from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.media_small_copies import SMALL_COPY_FORMAT, small_copy_location, write_small_copy
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -40,9 +38,8 @@ _MEDIA_EXPIRY = timedelta(days=90)
 # The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
 _EDGE_MARGIN_S = 3.0
 _END_MARGIN_S = 1.0
-_SMALL_COPY_CONCURRENCY = 4
-# Leaves room inside the finalize activity's 30s timeout for the link that follows.
-_SMALL_COPY_BUDGET_S = 15.0
+# Twice the widest list cell, so the small copy stays sharp on a high-density screen.
+_SMALL_WIDTH_PX = 480
 
 
 def _footer_crop_px(context: dict[str, Any]) -> int:
@@ -175,19 +172,25 @@ async def _media_asset(
     if kind != ReplayObservationMedia.Kind.THUMBNAIL:
         export_context["media_position"] = position
         lookup["export_context__media_position"] = position
-    # The format tells a slot's two copies apart, so the large asset's lookup is unchanged.
-    export_format = SMALL_COPY_FORMAT if size == ReplayObservationMedia.Size.SMALL else ExportedAsset.ExportFormat.PNG
-    media_asset = (
-        await ExportedAsset.objects.filter(
-            team_id=inputs.team_id, export_format=export_format, is_system=True, **lookup
-        )
-        .order_by("id")
-        .afirst()
+    candidates = ExportedAsset.objects.filter(
+        team_id=inputs.team_id,
+        # A large asset from before WebP is a PNG, and a re-render reuses it rather than leave it unlinked.
+        export_format__in=[ExportedAsset.ExportFormat.PNG, ExportedAsset.ExportFormat.WEBP],
+        is_system=True,
+        **lookup,
     )
+    # Large assets predate the size key, so only the small copy carries one.
+    if size == ReplayObservationMedia.Size.SMALL:
+        export_context["media_size"] = size.value
+        candidates = candidates.filter(export_context__media_size=size.value)
+    else:
+        candidates = candidates.exclude(export_context__has_key="media_size")
+    media_asset = await candidates.order_by("id").afirst()
     if media_asset is None:
         media_asset = await ExportedAsset.objects.acreate(
             team_id=inputs.team_id,
-            export_format=export_format,
+            # Set again from the rendered object's extension on link, since a worker before WebP writes a PNG.
+            export_format=ExportedAsset.ExportFormat.WEBP,
             export_context=export_context,
             # Explicit because the PNG default is six months.
             expires_after=now() + _MEDIA_EXPIRY,
@@ -242,6 +245,8 @@ async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> 
             frames=extract_frames,
             footer_crop_px=_footer_crop_px(source.context),
             width=THUMBNAIL_WIDTH_PX,
+            small_width=_SMALL_WIDTH_PX,
+            image_format="webp",
             s3_bucket=settings.OBJECT_STORAGE_BUCKET,
             s3_key_prefix=_media_key_prefix(inputs.team_id, inputs.observation_id),
         ),
@@ -287,11 +292,16 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                 },
             )
             for asset_id, location in link.asset_locations():
-                ExportedAsset.objects.filter(pk=asset_id, team_id=team_id).update(content_location=location)
+                ExportedAsset.objects.filter(pk=asset_id, team_id=team_id).update(
+                    content_location=location, export_format=_format_of(location)
+                )
             if link.small_asset_id is not None:
                 # A re-render reuses the large asset with its expiry, so the copy takes that one rather than outlive it.
                 ExportedAsset.objects.filter(pk=link.small_asset_id, team_id=team_id).update(
-                    expires_after=ExportedAsset.objects.filter(pk=link.asset_id).values("expires_after")[:1]
+                    # Unfiltered, so a large frame past its expiry still hands over its date rather than a NULL.
+                    expires_after=ExportedAsset.objects_including_ttl_deleted.filter(pk=link.asset_id).values(
+                        "expires_after"
+                    )[:1]
                 )
 
 
@@ -312,6 +322,10 @@ async def _link_or_expire(team_id: int, observation_id: UUID, links: list[_Media
     return True
 
 
+def _format_of(location: str) -> ExportedAsset.ExportFormat:
+    return ExportedAsset.ExportFormat.PNG if location.endswith(".png") else ExportedAsset.ExportFormat.WEBP
+
+
 def _content_location(s3_uri: str) -> str:
     try:
         return content_location_from_s3_uri(s3_uri)
@@ -319,59 +333,24 @@ def _content_location(s3_uri: str) -> str:
         raise ApplicationError(str(error), non_retryable=True) from error
 
 
-async def _small_copy(large_location: str, limit: asyncio.Semaphore) -> str | None:
-    async with limit:
-        return await asyncio.to_thread(write_small_copy, large_location)
-
-
-async def _small_copies(rendered: list[tuple[PreparedFrame, str]]) -> list[str | None]:
-    """Each rendered frame's small copy location, or None for a frame without one or a copy that failed or ran late."""
-    limit = asyncio.Semaphore(_SMALL_COPY_CONCURRENCY)
-    tasks = {
-        index: asyncio.ensure_future(_small_copy(location, limit))
-        for index, (frame, location) in enumerate(rendered)
-        if frame.small_media_asset_id is not None
-    }
-    if tasks:
-        # A budget inside the activity timeout, so slow storage costs the copies and never the large frames.
-        await asyncio.wait(tasks.values(), timeout=_SMALL_COPY_BUDGET_S)
-    locations: list[str | None] = [None] * len(rendered)
-    for index, task in tasks.items():
-        if not task.done():
-            task.cancel()
-            logger.warning("replay_vision.small_copy_timed_out", location=rendered[index][1])
-        elif task.exception() is not None:
-            logger.warning("replay_vision.small_copy_failed", location=rendered[index][1], error=str(task.exception()))
-        else:
-            locations[index] = task.result()
-    return locations
-
-
 @activity.defn
 @track_activity()
 async def finalize_observation_media_activity(inputs: FinalizeObservationMediaInputs) -> None:
     """Link every frame the video had to its slot, and expire the assets of the frames it did not have."""
     extracted = {frame.id: frame for frame in inputs.result.frames}
-    rendered = [
-        (frame, _content_location(extracted[frame.object_id].s3_uri))
-        for frame in inputs.frames
-        if frame.object_id in extracted
-    ]
-    small_locations = await _small_copies(rendered)
-    # Assets with no object to point at: the frames the video did not have.
-    missing = [
-        asset_id
-        for frame in inputs.frames
-        if frame.object_id not in extracted
-        for asset_id in (frame.media_asset_id, frame.small_media_asset_id)
-        if asset_id is not None
-    ]
-    # Small copies that failed or ran late, with the key a late write would land at, so the sweep removes it.
-    failed_small: dict[int, str | None] = {}
     links: list[_MediaLink] = []
-    for (frame, location), small_location in zip(rendered, small_locations):
-        if frame.small_media_asset_id is not None and small_location is None:
-            failed_small[frame.small_media_asset_id] = small_copy_location(location)
+    # Assets with no object to point at: the frames the video did not have, and the small copies not made.
+    missing: list[int] = []
+    for frame in inputs.frames:
+        result = extracted.get(frame.object_id)
+        if result is None:
+            missing.extend(
+                asset_id for asset_id in (frame.media_asset_id, frame.small_media_asset_id) if asset_id is not None
+            )
+            continue
+        small = frame.small_media_asset_id is not None and result.small_s3_uri is not None
+        if frame.small_media_asset_id is not None and not small:
+            missing.append(frame.small_media_asset_id)
         links.append(
             _MediaLink(
                 kind=ReplayObservationMedia.Kind(frame.kind),
@@ -379,25 +358,23 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
                 asset_id=frame.media_asset_id,
                 video_start_ms=frame.video_start_ms,
                 rec_start_ms=frame.rec_start_ms,
-                content_location=location,
-                small_asset_id=frame.small_media_asset_id if small_location else None,
-                small_content_location=small_location,
+                content_location=_content_location(result.s3_uri),
+                small_asset_id=frame.small_media_asset_id if small else None,
+                small_content_location=_content_location(result.small_s3_uri)
+                if small and result.small_s3_uri
+                else None,
             )
         )
     linked = bool(links) and await _link_or_expire(inputs.team_id, inputs.observation_id, links)
     # Expired only after the link, so a retry after a failed link can still write these assets.
     if missing:
         await ExportedAsset.objects.filter(pk__in=missing, team_id=inputs.team_id).aupdate(expires_after=now())
-    for asset_id, small_location in failed_small.items():
-        await ExportedAsset.objects.filter(pk=asset_id, team_id=inputs.team_id).aupdate(
-            content_location=small_location, expires_after=now()
-        )
     if linked:
         logger.info(
             "replay_vision.media_ready",
             observation_id=str(inputs.observation_id),
             frames=len(links),
             small_frames=sum(link.small_asset_id is not None for link in links),
-            missing=len(missing) + len(failed_small),
+            missing=len(missing),
             file_size_bytes=sum(frame.file_size_bytes for frame in inputs.result.frames),
         )
