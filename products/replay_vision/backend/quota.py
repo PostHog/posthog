@@ -261,7 +261,11 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
         .annotate(total_credits=Coalesce(Sum("credits"), 0), total_observations=Count("id"))
         .values_list("scanner_id", "total_credits", "total_observations")
     )
-    return {scanner_id: ScannerSpend(credits, observations) for scanner_id, credits, observations in rows}
+    return {
+        scanner_id: ScannerSpend(credits, observations)
+        for scanner_id, credits, observations in rows
+        if scanner_id is not None  # `scanner_id__in` already excludes nulls; this narrows the type
+    }
 
 
 @dataclass(frozen=True)
