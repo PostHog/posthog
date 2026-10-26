@@ -29058,6 +29058,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = typeof TileGroupDisplayEnum[keyof typeof TileGroupDisplayEnum];
+
+
+    export const TileGroupDisplayEnum = {
+      Sections: 'sections',
+      Tabs: 'tabs',
+    } as const;
+
+    /**
      * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
      */
     export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
@@ -29082,6 +29094,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
       groups?: DashboardCustomizationGroups;
       /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
@@ -29171,6 +29188,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /**
          * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
          * @nullable
@@ -40972,6 +40994,240 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    export interface EmailDomainConnectProvider {
+      /** Domain Connect endpoint of the provider. */
+      endpoint: string;
+      /** Display name of the provider. */
+      name: string;
+    }
+
+    export interface EmailDomainDnsHost {
+      /** Name of the company that hosts the domain's DNS, such as Cloudflare. */
+      name: string;
+      /** Link to the DNS settings page at that host. */
+      dns_settings_url: string;
+    }
+
+    export interface EmailDomainConnectCheck {
+      /** Whether the domain's DNS provider supports automatic setup through Domain Connect. */
+      supported: boolean;
+      /**
+         * Domain Connect provider that hosts the domain. Null when not supported.
+         * @nullable
+         */
+      provider_name: string | null;
+      /** Providers the user can pick manually when automatic detection fails. Empty when supported. */
+      available_providers: EmailDomainConnectProvider[];
+      /** The detected DNS host of the root domain, from its nameservers. Null when unknown. */
+      dns_host: EmailDomainDnsHost | null;
+      /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found or when include_email_setup is off. */
+      existing_email_tools: string[];
+    }
+
+    /**
+     * * `verification` - Domain ownership
+     * * `dkim` - DKIM signing
+     * * `spf` - SPF
+     * * `mail_from_mx` - MAIL FROM MX
+     * * `mail_from_spf` - MAIL FROM SPF
+     * * `dmarc` - DMARC
+     */
+    export type EmailDomainSetupRecordKindEnum = typeof EmailDomainSetupRecordKindEnum[keyof typeof EmailDomainSetupRecordKindEnum];
+
+
+    export const EmailDomainSetupRecordKindEnum = {
+      Verification: 'verification',
+      Dkim: 'dkim',
+      Spf: 'spf',
+      MailFromMx: 'mail_from_mx',
+      MailFromSpf: 'mail_from_spf',
+      Dmarc: 'dmarc',
+    } as const;
+
+    /**
+     * * `pending` - Not found yet
+     * * `found` - Found in DNS
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupRecordStatusEnum = typeof EmailDomainSetupRecordStatusEnum[keyof typeof EmailDomainSetupRecordStatusEnum];
+
+
+    export const EmailDomainSetupRecordStatusEnum = {
+      Pending: 'pending',
+      Found: 'found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `TXT` - TXT
+     * * `CNAME` - CNAME
+     * * `MX` - MX
+     */
+    export type EmailDomainSetupRecordTypeEnum = typeof EmailDomainSetupRecordTypeEnum[keyof typeof EmailDomainSetupRecordTypeEnum];
+
+
+    export const EmailDomainSetupRecordTypeEnum = {
+      Txt: 'TXT',
+      Cname: 'CNAME',
+      Mx: 'MX',
+    } as const;
+
+    /**
+     * * `not_started` - Not started
+     * * `pending` - Waiting for DNS records
+     * * `records_found` - Records found, waiting for verification
+     * * `verified` - Verified
+     * * `temporary_failure` - Temporary failure
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStatusEnum = typeof EmailDomainSetupStatusEnum[keyof typeof EmailDomainSetupStatusEnum];
+
+
+    export const EmailDomainSetupStatusEnum = {
+      NotStarted: 'not_started',
+      Pending: 'pending',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+      TemporaryFailure: 'temporary_failure',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `domain_added` - Domain added
+     * * `records_found` - DNS records found
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupStepKeyEnum = typeof EmailDomainSetupStepKeyEnum[keyof typeof EmailDomainSetupStepKeyEnum];
+
+
+    export const EmailDomainSetupStepKeyEnum = {
+      DomainAdded: 'domain_added',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `done` - Done
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStepStateEnum = typeof EmailDomainSetupStepStateEnum[keyof typeof EmailDomainSetupStepStateEnum];
+
+
+    export const EmailDomainSetupStepStateEnum = {
+      Done: 'done',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainStatusStep {
+      /** The setup step: domain_added (SES knows the domain), records_found (every DNS record is published), verified (SES verified the domain and the sender can send).
+       *
+       * * `domain_added` - Domain added
+       * * `records_found` - DNS records found
+       * * `verified` - Verified */
+      key: EmailDomainSetupStepKeyEnum;
+      /** Progress of this step.
+       *
+       * * `done` - Done
+       * * `pending` - Pending
+       * * `failed` - Failed */
+      state: EmailDomainSetupStepStateEnum;
+    }
+
+    export interface EmailDomainStatusRecord {
+      /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+       *
+       * * `verification` - Domain ownership
+       * * `dkim` - DKIM signing
+       * * `spf` - SPF
+       * * `mail_from_mx` - MAIL FROM MX
+       * * `mail_from_spf` - MAIL FROM SPF
+       * * `dmarc` - DMARC */
+      kind: EmailDomainSetupRecordKindEnum;
+      /** Full DNS name to create the record at, including the domain. */
+      hostname: string;
+      /** DNS record type.
+       *
+       * * `TXT` - TXT
+       * * `CNAME` - CNAME
+       * * `MX` - MX */
+      type: EmailDomainSetupRecordTypeEnum;
+      /** Value to publish. For an SPF record, add the include to an existing SPF record instead of creating a second one. For DMARC, any existing v=DMARC1 record counts. */
+      value: string;
+      /**
+         * MX priority. Null for other record types.
+         * @nullable
+         */
+      priority: number | null;
+      /** pending: not found in DNS yet. found: published in DNS, SES has not confirmed it yet. verified: SES confirmed the record, or for DMARC a v=DMARC1 record exists.
+       *
+       * * `pending` - Not found yet
+       * * `found` - Found in DNS
+       * * `verified` - Verified */
+      status: EmailDomainSetupRecordStatusEnum;
+    }
+
+    export interface EmailDomainStatus {
+      /** Overall setup status. records_found means every record is published and SES has not confirmed yet. temporary_failure means SES could not see the records, usually because DNS changes have not spread yet. failed means SES gave up after 72 hours; start verification again.
+       *
+       * * `not_started` - Not started
+       * * `pending` - Waiting for DNS records
+       * * `records_found` - Records found, waiting for verification
+       * * `verified` - Verified
+       * * `temporary_failure` - Temporary failure
+       * * `failed` - Failed */
+      status: EmailDomainSetupStatusEnum;
+      /** Whether the sender can send email. Set by email/verify once SES verifies the domain. */
+      verified: boolean;
+      /** When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set. */
+      checked_at: string;
+      /** The three setup steps, in order. */
+      steps: EmailDomainStatusStep[];
+      /** DNS records to publish at the domain's DNS host, with the status of each. Empty when status is not_started. */
+      records: EmailDomainStatusRecord[];
+    }
+
+    /**
+     * * `success` - Success
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type EmailDomainVerificationStatusEnum = typeof EmailDomainVerificationStatusEnum[keyof typeof EmailDomainVerificationStatusEnum];
+
+
+    export const EmailDomainVerificationStatusEnum = {
+      Success: 'success',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainVerificationRecord {
+      /** What the record does: verification, dkim, mail_from or dmarc. */
+      type: string;
+      /** DNS record type: TXT, CNAME or MX. */
+      recordType: string;
+      /** DNS name to create the record at. */
+      recordHostname: string;
+      /** Value to publish. */
+      recordValue: string;
+      /** success once SES or DNS confirms the record, else pending. */
+      status: string;
+      /** MX priority. Only set on MX records. */
+      priority?: number;
+    }
+
+    export interface EmailDomainVerification {
+      /** success when SES verified the domain and its senders are now marked verified.
+       *
+       * * `success` - Success
+       * * `pending` - Pending
+       * * `failed` - Failed */
+      status: EmailDomainVerificationStatusEnum;
+      /** DNS records the domain needs. */
+      dnsRecords: EmailDomainVerificationRecord[];
     }
 
     /**
@@ -88492,6 +88748,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+       *
+       * * `sections` - sections
+       * * `tabs` - tabs */
+      group_display?: TileGroupDisplayEnum;
       /**
          * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
          * @nullable
@@ -134657,6 +134918,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsEmailStatusRetrieveParams = {
+    /**
+     * Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.
+     */
+    refresh?: boolean;
+    };
+
     export type IntegrationsGithubAssigneesRetrieveParams = {
     /**
      * Repository name, or owner/name, whose assignable users to list.
@@ -134787,6 +135055,18 @@ export namespace Schemas {
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
      */
     user_id?: string;
+    };
+
+    export type IntegrationsDomainConnectCheckRetrieveParams = {
+    /**
+     * Domain to check, such as mail.example.com. Its root domain is checked.
+     * @minLength 1
+     */
+    domain: string;
+    /**
+     * Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.
+     */
+    include_email_setup?: boolean;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };

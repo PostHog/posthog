@@ -2744,6 +2744,7 @@ describe('CDP API', () => {
                     Promise.resolve({
                         invocation,
                         finished: true,
+                        emailSendResult: { status: 'accepted' },
                         logs: [],
                         metrics: [
                             {
@@ -2767,7 +2768,23 @@ describe('CDP API', () => {
             emailSpy.mockRestore()
         })
 
-        it('sends the email inline via EmailService instead of routing to the email queue', async () => {
+        it.each([
+            { status: 'accepted' },
+            { status: 'skipped', reason: 'The recipient has no reachable mail servers.' },
+        ])('returns the inline email outcome %j without routing to the email queue', async (emailSendResult) => {
+            emailSpy.mockImplementation((invocation: any) =>
+                Promise.resolve({
+                    invocation,
+                    finished: true,
+                    emailSendResult,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            )
             const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
                 globals,
                 configuration: {},
@@ -2776,6 +2793,7 @@ describe('CDP API', () => {
 
             expect(res.status).toBe(200)
             expect(res.body.status).toBe('success')
+            expect(res.body.emailSendResult).toEqual(emailSendResult)
             expect(res.body.errors).toEqual([])
             // EmailService was called inline — proving the test endpoint forced inline delivery
             // even though the team would normally be routed to the email queue.
