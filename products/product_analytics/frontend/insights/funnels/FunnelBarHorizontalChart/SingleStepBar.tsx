@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { type ErrorInfo, useMemo } from 'react'
 
 import {
@@ -8,6 +9,9 @@ import {
     type TooltipContext,
 } from '@posthog/quill-charts'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { FunnelAlertThresholdLines } from '../shared/FunnelAlertThresholdLines'
 import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
     type FunnelBarHorizontalSegmentMeta,
@@ -55,6 +59,7 @@ export function SingleStepBar({
     onError,
     heightClassName = 'h-8',
 }: SingleStepBarProps): JSX.Element {
+    const { insight, insightProps } = useValues(insightLogic)
     const onPointClick = useMemo(
         () =>
             interactive
@@ -78,7 +83,15 @@ export function SingleStepBar({
                 tooltip={renderTooltip}
                 onPointClick={onPointClick}
                 onError={onError}
-            />
+            >
+                {insight.id && (
+                    <FunnelAlertThresholdLines
+                        insightId={insight.id}
+                        insightProps={insightProps}
+                        axisOrientation="horizontal"
+                    />
+                )}
+            </BarChart>
         </div>
     )
 }

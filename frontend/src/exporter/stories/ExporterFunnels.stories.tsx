@@ -69,3 +69,50 @@ export const FunnelTimeToConvertInsight: Story = {
         insight: __funnelTimeToConvert as any,
     },
 }
+
+const conversionAlert = {
+    id: 'sample-funnel-alert',
+    name: 'Conversion',
+    condition: { type: 'absolute_value' },
+    threshold: { configuration: { type: 'absolute', bounds: { lower: 55 } } },
+    config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start' },
+}
+
+export const FunnelConversionAlert: Story = {
+    args: {
+        insight: {
+            ...__funnelTopToBottom,
+            name: 'Conversion limit',
+            description: 'Sample data',
+            alerts: [conversionAlert],
+        } as any,
+    },
+}
+
+export const FunnelVerticalConversionAlert: Story = {
+    args: {
+        ...FunnelConversionAlert.args,
+        insight: {
+            ...FunnelConversionAlert.args?.insight,
+            query: {
+                ...__funnelTopToBottom.query,
+                source: {
+                    ...__funnelTopToBottom.query.source,
+                    funnelsFilter: { ...__funnelTopToBottom.query.source.funnelsFilter, layout: 'vertical' },
+                },
+            },
+        } as any,
+    },
+}
+
+export const FunnelTrendConversionAlert: Story = {
+    args: {
+        ...FunnelConversionAlert.args,
+        insight: {
+            ...__funnelHistoricalTrends,
+            name: 'Conversion limit',
+            description: 'Sample data',
+            alerts: [conversionAlert],
+        } as any,
+    },
+}

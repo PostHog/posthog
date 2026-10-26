@@ -257,8 +257,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         })
     )
     const alertThresholdLines = useMemo(
-        () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
-        [insight?.id, alerts]
+        () =>
+            insight?.id
+                ? alertsToThresholdGoalLines(alerts, {
+                      columns,
+                      rows:
+                          response && 'results' in response && Array.isArray(response.results) ? response.results : [],
+                  })
+                : [],
+        [insight?.id, alerts, columns, response]
     )
     const paneGoalLines = useMemo(() => [...alertThresholdLines, ...goalLines], [alertThresholdLines, goalLines])
     const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
