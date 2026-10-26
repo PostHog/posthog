@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("exports", "0015_exportedasset_session_index"),
-        ("replay_vision", "0127_replayobservationfeedimpression"),
+        ("replay_vision", "0128_replayobservation_rlo_scanner_ranked_idx"),
     ]
 
     operations = [

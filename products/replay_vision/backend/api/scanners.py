@@ -1,8 +1,10 @@
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     CharField,
@@ -188,9 +190,13 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
-from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, rank_watch_feed_candidates
 from products.replay_vision.backend.watch_feed_impressions import feed_impression_counts, record_feed_impressions
-from products.replay_vision.backend.watch_rank import rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank import (
+    rank_watch_feed_by_embedding,
+    select_embedding_filler,
+    select_embedding_picks,
+)
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
@@ -1645,6 +1651,8 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 # each id__in list bounded while the walk stops as soon as the page is covered.
 WATCH_FEED_BYPASS_CHUNK = 200
 WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
+# Long enough to cover a reader scrolling one load; a new load gets a new `as_of` and a fresh ranking.
+WATCH_FEED_PICKS_CACHE_TTL_S = 15 * 60
 
 
 def select_watch_feed_candidates(
@@ -1921,6 +1929,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         help_text=(
             "Other sessions from the same scanner in the window that describe nearly the same thing, for "
             "`embedding_pick`. The feed shows one session per group."
+        ),
+    )
+    affected_people = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding "
+            "that reached more people ranks higher."
         ),
     )
 
@@ -2735,10 +2751,42 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
-        candidate_rows = select_watch_feed_candidates(
-            walkable, allowed_ids, viewed, self.user_access_control, self.team_id
-        )
-        if ranker != "embedding":
+        if ranker == "embedding":
+            # Every page of one load ranks the same window as of the same `as_of`, so later pages reuse the first's picks.
+            picks_key = (
+                "replay_vision:watch_picks:"
+                + hashlib.sha256(
+                    json.dumps(
+                        [
+                            self.team_id,
+                            viewer_id,
+                            as_of.isoformat(),
+                            str(date_from),
+                            str(window_end),
+                            sorted(map(str, allowed_ids)),
+                            params.get("search"),
+                            params.get("scanner_type"),
+                        ]
+                    ).encode()
+                ).hexdigest()
+            )
+            candidate_rows = cache.get(picks_key)
+            if candidate_rows is None:
+                # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
+                candidate_rows = select_embedding_picks(
+                    walkable, allowed_ids, viewed, self.user_access_control, self.team_id, WATCH_FEED_CANDIDATE_CAP
+                )
+                # Picks in one duplicate group collapse into one card, so the floor counts groups.
+                pick_roots = {row["watch_group_root"] for row in candidate_rows}
+                if len(pick_roots) < WATCH_FEED_MIN_ITEMS:
+                    candidate_rows += select_embedding_filler(
+                        walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
+                    )
+                cache.set(picks_key, candidate_rows, WATCH_FEED_PICKS_CACHE_TTL_S)
+        else:
+            candidate_rows = select_watch_feed_candidates(
+                walkable, allowed_ids, viewed, self.user_access_control, self.team_id
+            )
             attach_scanner_results(self.team_id, candidate_rows)
         page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
@@ -2794,9 +2842,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         rows = {
             row.id: row
             for row in hydrate_for_serialization(
-                # team_id is redundant with the already-scoped candidate query these ids came from,
-                # but keeps the re-fetch fail-closed on its own.
-                ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                # Re-checks experiment access on the page's rows, because a later page can be served from picks
+                # cached before the viewer lost access. team_id keeps the re-fetch fail-closed on its own.
+                accessible_observations(
+                    self.user_access_control,
+                    self.team_id,
+                    ReplayObservation.objects.filter(team_id=self.team_id, id__in=list(reasons_by_id)),
+                ),
                 viewer_id=request.user.id,
             )
         }

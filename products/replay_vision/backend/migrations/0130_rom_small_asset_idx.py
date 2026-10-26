@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("replay_vision", "0128_replayobservationmedia_small_asset"),
+        ("replay_vision", "0129_replayobservationmedia_small_asset"),
     ]
 
     operations = [

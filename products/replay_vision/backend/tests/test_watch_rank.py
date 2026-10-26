@@ -93,6 +93,17 @@ class TestDuplicateRoot(SimpleTestCase):
 
 
 class TestRankWatchFeedByEmbedding(SimpleTestCase):
+    def test_a_finding_that_reached_more_people_outranks_a_stronger_one_off(self) -> None:
+        rows = [_row(f"a-{index}", 0.01 * index, minutes_ago=index + 1) for index in range(10)]
+        rows += [_row("one-off", 0.9), _row("widespread", 0.5)]
+        # Window percentiles and group reach, as the whole-window pick query supplies them.
+        for row in rows:
+            row["watch_percentile"] = {"one-off": 0.99, "widespread": 0.85}.get(str(row["id"]))
+            row["watch_group_people"] = 6 if row["id"] == "widespread" else 1
+        ranked = rank_watch_feed_by_embedding(rows)
+        assert [entry.observation_id for entry in ranked][:2] == ["widespread", "one-off"]
+        assert ranked[0].reason["affected_people"] == 6
+
     def test_picks_the_scanner_top_issues_once_per_duplicate_group(self) -> None:
         rows = [
             # scanner-a has enough ranked rows for a percentile; its top two are one duplicate group.
@@ -112,7 +123,12 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
         ranked = rank_watch_feed_by_embedding(rows)
 
         assert ranked[0].observation_id == "dup-copy"
-        assert ranked[0].reason == {"kind": "embedding_pick", "watch_category": "failure", "similar_count": 3}
+        assert ranked[0].reason == {
+            "kind": "embedding_pick",
+            "watch_category": "failure",
+            "similar_count": 3,
+            "affected_people": 1,
+        }
         picks = [entry.observation_id for entry in ranked if entry.reason["kind"] == "embedding_pick"]
         assert picks == ["dup-copy"]
         # Collapsed copies, even those below the cutoff, must not come back as filler.

@@ -175,6 +175,13 @@ class ReplayObservation(UUIDModel):
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
             ),
+            # Serves the embedding feed's whole-window pick query, which reads only these columns of ranked rows.
+            models.Index(
+                fields=["scanner", "created_at"],
+                include=["id", "team", "completed_at", "watch_rank", "distinct_id", "session_id"],
+                name="rlo_scanner_ranked_idx",
+                condition=models.Q(status="succeeded", watch_rank__isnull=False),
+            ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(
                 fields=["backfill"],
