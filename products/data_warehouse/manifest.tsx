@@ -178,7 +178,7 @@ export const manifest: ProductManifest = {
             searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
             searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-            alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
+            alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',

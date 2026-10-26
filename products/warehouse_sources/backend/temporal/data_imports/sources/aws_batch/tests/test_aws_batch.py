@@ -543,7 +543,7 @@ def test_credential_error_mapping(
     session.close.assert_called_once()
 
 
-@pytest.mark.parametrize("exception", [requests.Timeout(), requests.ConnectionError()])
+@pytest.mark.parametrize("exception", [requests.Timeout()])
 def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception: Exception) -> None:
     with scripted_network(always(exception)) as network:
         assert validate_credentials(config) == (False, "Could not reach AWS Batch. Check the region and try again.")

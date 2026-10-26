@@ -11,10 +11,13 @@ from .workflows import (
     AutoresearchPropertyCleanupWorkflow,
     AutoresearchValidationWorkflow,
     activity_fail_cleanup_run,
+    activity_fail_lost_inference_runs,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_mark_daily_sweep,
     activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 )
 
@@ -27,10 +30,13 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     activity_fail_cleanup_run,
+    activity_fail_lost_inference_runs,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_mark_daily_sweep,
     activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 ]
 

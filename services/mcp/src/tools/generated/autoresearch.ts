@@ -50,6 +50,18 @@ const autoresearchCreate = (): ToolBase<
         if (params.iteration_budget !== undefined) {
             body['iteration_budget'] = params.iteration_budget
         }
+        if (params.iterations_per_run !== undefined) {
+            body['iterations_per_run'] = params.iterations_per_run
+        }
+        if (params.research_interval_days !== undefined) {
+            body['research_interval_days'] = params.research_interval_days
+        }
+        if (params.agent_model !== undefined) {
+            body['agent_model'] = params.agent_model
+        }
+        if (params.agent_reasoning_effort !== undefined) {
+            body['agent_reasoning_effort'] = params.agent_reasoning_effort
+        }
         if (params.success_auc !== undefined) {
             body['success_auc'] = params.success_auc
         }
@@ -102,8 +114,12 @@ const autoresearchList = (): ToolBase<
                     'target_event',
                     'horizon_days',
                     'status',
-                    'iteration_budget',
-                    'iteration_budget_remaining',
+                    'iterations_per_run',
+                    'research_interval_days',
+                    'effective_agent_model',
+                    'effective_agent_reasoning_effort',
+                    'training_phase',
+                    'next_research_at',
                     'last_scored_at',
                     'created_at',
                     'updated_at',
@@ -286,6 +302,18 @@ const autoresearchPartialUpdate = (): ToolBase<
         }
         if (params.iteration_budget !== undefined) {
             body['iteration_budget'] = params.iteration_budget
+        }
+        if (params.iterations_per_run !== undefined) {
+            body['iterations_per_run'] = params.iterations_per_run
+        }
+        if (params.research_interval_days !== undefined) {
+            body['research_interval_days'] = params.research_interval_days
+        }
+        if (params.agent_model !== undefined) {
+            body['agent_model'] = params.agent_model
+        }
+        if (params.agent_reasoning_effort !== undefined) {
+            body['agent_reasoning_effort'] = params.agent_reasoning_effort
         }
         if (params.success_auc !== undefined) {
             body['success_auc'] = params.success_auc
@@ -698,6 +726,9 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
         if (params.reader_summary !== undefined) {
             body['reader_summary'] = params.reader_summary
         }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
+        }
         if (params.next_steps !== undefined) {
             body['next_steps'] = params.next_steps
         }
@@ -824,6 +855,9 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
         if (params.summary !== undefined) {
             body['summary'] = params.summary
         }
+        if (params.headline !== undefined) {
+            body['headline'] = params.headline
+        }
         if (params.agent_confidence !== undefined) {
             body['agent_confidence'] = params.agent_confidence
         }
@@ -880,6 +914,9 @@ const autoresearchTrainingRunsList = (): ToolBase<
                     'id',
                     'pipeline',
                     'status',
+                    'kickoff_reason',
+                    'agent_model',
+                    'agent_reasoning_effort',
                     'iteration_budget',
                     'iteration_count',
                     'best_holdout_score',

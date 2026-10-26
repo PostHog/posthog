@@ -253,8 +253,7 @@ async fn process_request_inner(
 
                 tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
-                let property_overrides =
-                    properties::prepare_overrides(&context, &request, team.id)?;
+                let property_overrides = properties::prepare_overrides(&context, &request)?;
 
                 // Evaluate flags (this will return empty if is_flags_disabled is true)
                 let response = {
@@ -274,6 +273,7 @@ async fn process_request_inner(
                         property_overrides.groups,
                         property_overrides.hash_key,
                         context.request_id,
+                        context.request_entered_at,
                         request.is_flags_disabled(),
                         request.flag_keys.clone(),
                         Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),

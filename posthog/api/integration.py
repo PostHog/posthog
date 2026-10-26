@@ -109,6 +109,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -230,7 +231,8 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
 
     See: https://docs.stripe.com/stripe-apps/install-links-oauth
     """
-    if not install_signature or not settings.STRIPE_SIGNING_SECRET:
+    signing_secret = stripe_signing_secret()
+    if not install_signature or not signing_secret:
         return False
 
     import stripe  # noqa: PLC0415
@@ -241,7 +243,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     )
     try:
         # 300s tolerance matches the Stripe provisioning check at ee/partners/stripe/api/provisioning/signature.py.
-        stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
+        stripe.WebhookSignature.verify_header(payload, install_signature, signing_secret, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
         return False

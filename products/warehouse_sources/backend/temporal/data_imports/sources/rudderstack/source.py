@@ -228,7 +228,7 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
             "github.com/rudderlabs/rudder-integration-singular-swift",
             "github.com/rudderlabs/rudder-integration-sprig-ios",
         ),
-        competes_with=(ProductKey.PIPELINE_DESTINATIONS,),
+        alternative_to=(ProductKey.PIPELINE_DESTINATIONS,),
     )
 
     lists_tables_without_credentials = True
@@ -249,7 +249,7 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
             docsUrl="https://posthog.com/docs/cdp/sources/rudderstack",
             iconPath="/static/services/rudderstack.png",
             keywords=["cdp", "customer data platform", "event streaming"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

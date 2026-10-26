@@ -15,11 +15,9 @@ function createMockContext(overrides: {
     context: Context
     cache: Map<string, unknown>
     getCachedOrFetchOrg: ReturnType<typeof vi.fn>
-    setSessionActiveContext: ReturnType<typeof vi.fn>
 } {
     const cache = new Map<string, unknown>()
     const getCachedOrFetchOrg = overrides.getCachedOrFetchOrg ?? vi.fn().mockResolvedValue(undefined)
-    const setSessionActiveContext = vi.fn().mockResolvedValue(undefined)
     const context = {
         api: {
             publicBaseUrl: 'https://us.posthog.com',
@@ -49,9 +47,8 @@ function createMockContext(overrides: {
         sessionManager: {},
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
-        setSessionActiveContext,
     } as unknown as Context
-    return { context, cache, getCachedOrFetchOrg, setSessionActiveContext }
+    return { context, cache, getCachedOrFetchOrg }
 }
 
 describe('switch-project', () => {
@@ -79,22 +76,31 @@ describe('switch-project', () => {
         expect(cache.get('projectId')).toBeUndefined()
     })
 
-    it('switches within the active organization without touching org state', async () => {
+    it.each([
+        ['projectId', { projectId: 42 }],
+        ['project_id', { project_id: 42 }],
+        ['new_project_id', { new_project_id: 42 }],
+        ['projectId over aliases', { projectId: 42, project_id: 77, new_project_id: 99 }],
+        ['project_id over new_project_id', { project_id: 42, new_project_id: 77 }],
+    ])('switches via %s within the active organization without touching org state', async (_label, input) => {
         const projectGet = vi.fn().mockResolvedValue({
             success: true,
             data: { id: 42, name: 'My project', organization: ACTIVE_ORG },
         })
-        const { context, cache, getCachedOrFetchOrg, setSessionActiveContext } = createMockContext({ projectGet })
+        const { context, cache, getCachedOrFetchOrg } = createMockContext({ projectGet })
 
-        const result = await tool.handler(context, { projectId: 42 })
+        const result = await tool.handler(context, tool.schema.parse(input))
 
         expect(result.content[0]!.text).toContain('Switched to project 42')
         expect(result.content[0]!.text).not.toContain('also switched the active organization')
         expect(cache.get('projectId')).toBe('42')
         expect(getCachedOrFetchOrg).not.toHaveBeenCalled()
-        // Recording the switch on the session is what stops a pinned connection's
-        // resent pin from reverting it on the next request.
-        expect(setSessionActiveContext).toHaveBeenCalledWith({ projectId: '42', orgId: ACTIVE_ORG })
+    })
+
+    it.each(['projectId', 'project_id', 'new_project_id'])('rejects invalid identifiers supplied via %s', (key) => {
+        for (const value of [undefined, null, true, '42', 0, -1, 1.5]) {
+            expect(tool.schema.safeParse({ [key]: value }).success).toBe(false)
+        }
     })
 
     it('never exposes the project API token in the switch response', async () => {

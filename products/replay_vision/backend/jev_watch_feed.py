@@ -51,12 +51,12 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, _trim_filler
+from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, finish_feed
 
 logger = structlog.get_logger(__name__)
 
 WATCH_FEED_RANKER_FLAG = "vision-watch-feed-ranker"
-RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
+RankerMode = Literal["weighted-score", "jev-shadow", "jev", "embedding"]
 # The JevK5 build PostHog hosts on the AI gateway, which is the only backend the ml_inference
 # facade reaches. The vendor (typesafe.ai) is not approved for customer data, and observation prose
 # is customer data, so never point this at a vendor model id.
@@ -88,12 +88,6 @@ JEV_SEEN_PENALTY = 0.3
 # bar empties the tier. Recalibrate from the judged event's watchability quantiles and top_scored
 # sample, and bump the cache version below with any change here.
 JEV_WATCHABLE_MIN = 0.3
-# One incident can put many near-identical watchable sessions on one scanner, and a pure probability
-# sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
-# tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
-# floor so a short feed is not over-constrained; the overflow trails the tier instead of leaving it.
-JEV_MAX_SCANNER_SHARE = 0.4
-_SCANNER_SPREAD_FLOOR = 3
 # Observations per Jev request: the request carries the chunk as shared state and one question per
 # observation, so a judgment is relative to its chunk, not to the whole window at once. Half the
 # facade's per-request question cap: a request's prompt grows with its state, and a full 32-entry
@@ -243,6 +237,11 @@ _CALLS = Counter(
     "Jev watch rank chunk requests by outcome.",
     ["outcome"],
 )
+_REQUESTS = Counter(
+    "replay_vision_jev_watch_rank_requests_total",
+    "Ranking requests by kind and HTTP status; non-HTTP failures use unknown",
+    ["kind", "status"],
+)
 _LATENCY = Histogram(
     "replay_vision_jev_watch_rank_latency_seconds",
     "Jev watch rank chunk request wall-clock latency.",
@@ -263,9 +262,8 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
 
     Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
     them. A region without the decision service has no sweep to fill the cache, so its teams take
-    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
-    if not decision_api.decisions_available_here():
-        return None
+    no part in the Jev arms rather than land on an empty `jev` feed. The embedding arm needs no
+    decision service. Any flag failure also reads as None."""
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
         # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
@@ -275,11 +273,17 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
         group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    return value if isinstance(value, str) else None
+    if not isinstance(value, str):
+        return None
+    if value in ("jev", "jev-shadow") and not decision_api.decisions_available_here():
+        return None
+    return value
 
 
 def ranker_mode(variant: str | None) -> RankerMode:
-    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    """The ranker a flag variant selects. Any variant but the Jev and embedding arms is the default arm."""
+    if variant == "embedding":
+        return "embedding"
     if variant == "jev-shadow":
         return "jev-shadow"
     if variant == "jev":
@@ -327,6 +331,7 @@ class WindowJudgment:
     stopped_early: bool
     input_tokens: int
     estimated_cost_usd: float
+    estimated_prompt_tokens: int = 0
 
 
 def _is_rate_limited(error: Exception) -> bool:
@@ -492,6 +497,7 @@ def judge_scanner_window(
     rate_limited = False
     input_tokens = 0
     estimated_cost = 0.0
+    estimated_prompt_tokens = 0
 
     def charge(result: Any) -> None:
         nonlocal input_tokens, estimated_cost
@@ -536,11 +542,14 @@ def judge_scanner_window(
         if out_of_time():
             break
         chunks_started += 1
+        estimated_prompt_tokens += state_tokens + len(chunk) * _WINDOW_QUESTION_TOKENS
         started = perf_counter()
         try:
             chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk, chunk_context)
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("judgment", status).inc()
             error_type = type(error).__name__
             _CALLS.labels(error_type).inc()
             failed_chunks += 1
@@ -567,6 +576,7 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("ok").inc()
+        _REQUESTS.labels("judgment", "200").inc()
         probabilities.update(chunk_probabilities)
         model = result.model
         charge(result)
@@ -581,6 +591,7 @@ def judge_scanner_window(
             # The judgments above still land; only the reasons are left off, as on a failed pick.
             break
         started = perf_counter()
+        estimated_prompt_tokens += state_tokens + len(watchable_ids) * _REASON_QUESTION_TOKENS
         try:
             chunk_reasons, reason_result = _pick_watch_reasons(team_id, trace_id, chunk, chunk_context, watchable_ids)
         except Exception as error:
@@ -588,6 +599,8 @@ def judge_scanner_window(
             # not retried: the rows are judged, and the feed shows them without a reason.
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(f"reason_{type(error).__name__}").inc()
+            status = str(error.status_code) if isinstance(error, DecisionGatewayError) else "unknown"
+            _REQUESTS.labels("reason", status).inc()
             failed_reason_chunks += 1
             logger.warning(
                 "Jev watch reason chunk failed",
@@ -601,6 +614,7 @@ def judge_scanner_window(
             continue
         _LATENCY.observe(perf_counter() - started)
         _CALLS.labels("reason_ok").inc()
+        _REQUESTS.labels("reason", "200").inc()
         reasons.update(chunk_reasons)
         charge(reason_result)
     return WindowJudgment(
@@ -617,6 +631,7 @@ def judge_scanner_window(
         stopped_early=stopped_early,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
+        estimated_prompt_tokens=estimated_prompt_tokens,
     )
 
 
@@ -802,26 +817,6 @@ def _scan_notability_reason(row: dict[str, Any]) -> str | None:
     return reason if isinstance(reason, str) and reason.strip() else None
 
 
-def _spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
-    """Hold each scanner to JEV_MAX_SCANNER_SHARE of the evidence tier as it is placed.
-
-    Checked per place rather than over the whole list because the view slices the head: a feed of 5
-    obeys the same share as a feed of 50. Overflow trails the tier in probability order — reordering
-    for breadth is the job here, shortening the feed is not.
-    """
-    placed: list[WatchFeedEntry] = []
-    deferred: list[WatchFeedEntry] = []
-    counts: dict[Any, int] = {}
-    for scanner_id, entry in ordered:
-        allowed = max(_SCANNER_SPREAD_FLOOR, math.ceil(JEV_MAX_SCANNER_SHARE * (len(placed) + 1)))
-        if counts.get(scanner_id, 0) >= allowed:
-            deferred.append(entry)
-        else:
-            counts[scanner_id] = counts.get(scanner_id, 0) + 1
-            placed.append(entry)
-    return placed + deferred
-
-
 def rank_watch_feed_by_jev(
     rows: list[dict[str, Any]], probabilities: dict[str, float], reasons: dict[str, str] | None = None
 ) -> list[WatchFeedEntry]:
@@ -838,7 +833,7 @@ def rank_watch_feed_by_jev(
     of them.
     """
     watchable: list[tuple[float, Any, Any, WatchFeedEntry]] = []
-    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
+    filler_rows: list[dict[str, Any]] = []
     for row in rows:
         probability = probabilities.get(str(row["id"]))
         viewed = bool(row.get("feed_viewed"))
@@ -855,11 +850,5 @@ def rank_watch_feed_by_jev(
                 (probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], row.get("scanner_id"), entry)
             )
         else:
-            entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
-            filler.append((not viewed, row["created_at"], entry))
-    watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return _trim_filler(
-        _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable])
-        + [entry for *_, entry in filler]
-    )
+            filler_rows.append(row)
+    return finish_feed(watchable, filler_rows)

@@ -19,6 +19,10 @@ class TeamScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
         return qs.none()
 
 
+class ProjectScopedPrimaryKeyRelatedField(TeamScopedPrimaryKeyRelatedField):
+    scope_field = "team__project_id"
+
+
 class OrgScopedPrimaryKeyRelatedField(serializers.PrimaryKeyRelatedField):
     """Auto-filters queryset by organization from context. Fails safe to .none()."""
 

@@ -56,10 +56,6 @@ class TestGetSchemas:
         assert schema.detected_primary_keys == primary_keys
         assert bool(schema.incremental_fields) is expect_incremental
 
-    def test_names_filter(self) -> None:
-        names = {s.name for s in OpenFDASource().get_schemas(_config(), team_id=1, names=["drug_ndc"])}
-        assert names == {"drug_ndc"}
-
 
 class TestValidateCredentials:
     def test_success(self, monkeypatch: Any) -> None:

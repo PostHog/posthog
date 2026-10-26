@@ -432,3 +432,13 @@ class TestGetRows:
         assert row["coverage_hours_reserved_hours"] == 18.0
         assert row["coverage_hours_coverage_hours_percentage"] == 75.0
         assert row["coverage_cost_on_demand_cost"] == 1.5
+
+        # AWS rejects the "Unit" metric for every reservation-coverage service except EC2, which
+        # is the only one with instance-size-flexible (normalized unit) reservations.
+        metrics = [call[0][3]["Metrics"] for call in send.call_args_list]
+        assert metrics == [
+            ["Hour", "Unit", "Cost"],
+            ["Hour", "Cost"],
+            ["Hour", "Cost"],
+            ["Hour", "Cost"],
+        ]

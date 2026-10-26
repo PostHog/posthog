@@ -158,7 +158,7 @@ class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
             "bugsnag-em",
         ),
         swiftpm=("github.com/bugsnag/bugsnag-cocoa", "github.com/bugsnag/bugsnag-cocoa-performance"),
-        competes_with=(ProductKey.ERROR_TRACKING,),
+        alternative_to=(ProductKey.ERROR_TRACKING,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -176,7 +176,7 @@ class BugsnagSource(ResumableSource[BugsnagSourceConfig, BugsnagResumeConfig]):
             name=ExternalDataSourceType.BUGSNAG,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bugsnag",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your BugSnag personal auth token to pull your BugSnag error-monitoring data into the PostHog Data warehouse.
 
 You can generate a personal auth token in the **My Account** section of your [BugSnag account settings](https://app.bugsnag.com/settings/my-account/). The token inherits your account's access, so it can read every organization and project you can see.""",

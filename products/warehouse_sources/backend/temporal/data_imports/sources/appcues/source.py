@@ -52,7 +52,7 @@ class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
         maven=("com.appcues:appcues", "com.appcues:segment-appcues"),
         pub=("appcues_flutter",),
         swiftpm=("github.com/appcues/appcues-ios-sdk", "github.com/appcues/segment-appcues-ios"),
-        competes_with=(ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+        alternative_to=(ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
     )
 
     lists_tables_without_credentials = True
@@ -136,7 +136,7 @@ class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
             "This source syncs experience settings, segments, and tags. Event data and user profiles are not included.",
             docsUrl="https://posthog.com/docs/cdp/sources/appcues",
             iconPath="/static/services/appcues.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

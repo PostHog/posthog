@@ -54,11 +54,22 @@ class TeamWorkflowsConfig(models.Model):
     # foreign key: the editors ignore an id that no longer points at a verified sender, and the
     # integration delete signal clears it.
     default_email_integration_id = models.BigIntegerField(null=True, blank=True)
+    # Team defaults for UTM tags on email links. New email steps copy them when they are created, and a
+    # bulk apply rewrites the steps whose values still follow them. Off by default.
+    email_utm_tags_enabled = models.BooleanField(default=False, db_default=False)
+    email_utm_params = models.JSONField(default=dict, db_default={}, blank=True)
 
     # Overrides for AI tasks created by workflows. Null keeps the product defaults;
     # zero pauses new task creation at that scope.
     workflow_task_rate_limit_per_day = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     workflow_task_team_rate_limit_per_day = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)]
+    )
+    # The same overrides for Replay Vision scans that workflow steps request.
+    replay_vision_scan_rate_limit_per_day = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)]
+    )
+    replay_vision_scan_team_rate_limit_per_day = models.IntegerField(
         null=True, blank=True, validators=[MinValueValidator(0)]
     )
 

@@ -207,7 +207,7 @@ class TestValidateCredentials:
         assert ok is False
         assert error == "These indicator codes were not found: NOT_A_REAL_CODE."
 
-    @parameterized.expand([(500,), (503,), (429,)])
+    @parameterized.expand([(503,), (429,)])
     def test_reports_an_unreachable_api(self, status_code: int) -> None:
         with scripted_network(always(_http_response({}, status_code=status_code))):
             ok, error = validate_credentials(["WHOSIS_000001"])

@@ -15,6 +15,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -61,7 +62,9 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
+from products.signals.backend.scout_report.judge import SAFETY_REFUSAL_EXPLANATION
 from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
@@ -81,12 +84,23 @@ CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.cap
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
 SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_scout_report_repository"
 REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
+REFUSAL_COUNTER_PATH = "products.signals.backend.scout_report.judge.increment_scout_report_safety_refusal"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
 def _safe_judge(choice: bool = True, explanation: str = ""):
     return patch(JUDGE_PATH, new=AsyncMock(return_value=SafetyJudgeResponse(choice=choice, explanation=explanation)))
+
+
+def _refusing_judge():
+    return patch(JUDGE_PATH, new=AsyncMock(side_effect=LLMRefusalError("Model refused the request")))
+
+
+UNSAFE_JUDGES = [
+    ("unsafe_verdict", lambda: _safe_judge(choice=False, explanation="prompt injection"), "prompt injection", False),
+    ("model_refusal", _refusing_judge, SAFETY_REFUSAL_EXPLANATION, True),
+]
 
 
 class TestScoutReportAPI(APIBaseTest):
@@ -366,16 +380,18 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
         assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
-    def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
+    @parameterized.expand(UNSAFE_JUDGES)
+    def test_emit_report_unsafe_suppresses_but_returns_id(self, _name, judge, explanation, refused) -> None:
         run = _make_run(self.team)
         config = run.scout_config
         assert config is not None
         config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
         config.save(update_fields=["output_destinations"])
         with (
-            _safe_judge(choice=False, explanation="prompt injection"),
+            judge(),
             patch(EMBED_PATH),
             patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+            patch(REFUSAL_COUNTER_PATH) as refusal_counter,
         ):
             response = self.client.post(
                 self._emit_url(str(run.id)),
@@ -386,8 +402,9 @@ class TestScoutReportAPI(APIBaseTest):
         body = response.json()
         assert body["emitted"] is False
         assert body["report_status"] == SignalReport.Status.SUPPRESSED
-        assert body["safety_explanation"] == "prompt injection"
+        assert body["safety_explanation"] == explanation
         assert body["report_id"] is not None
+        assert [c.args for c in refusal_counter.call_args_list] == ([("emit",)] if refused else [])
         queue.assert_not_called()
         # The judge-rejected prompts must not persist: a suppressed report is still reachable from
         # the Dismissed view, where a click would hand that wording to an action-capable agent run.
@@ -664,11 +681,11 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
 
-    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
-    def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
-        # A DRF default renders as a default on the generated client, which sends an explicit `false`
-        # for a flag the caller omitted. The validator below rejects a field it does not declare, so a
-        # client deployed ahead of this endpoint would fail every edit, not only a supersede request.
+    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",), ("reviewer_outcome",)])
+    def test_an_omitted_edit_field_stays_out_of_the_request_body(self, field: str) -> None:
+        # A DRF default becomes a generated-client default, which sends a value the caller omitted.
+        # An older endpoint rejects fields it does not declare, so a client deployed ahead of the API
+        # would fail every edit instead of only requests that use the new field.
         serializer = EditReportRequestSerializer(data={"report_id": str(uuid4())})
         assert serializer.is_valid(), serializer.errors
         assert field not in serializer.validated_data
@@ -1241,14 +1258,15 @@ class TestScoutReportAPI(APIBaseTest):
         # The gate rejects a foreign report before the judge, so a bad id never spends an LLM call.
         judge_mock.assert_not_awaited()
 
-    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self) -> None:
+    @parameterized.expand(UNSAFE_JUDGES)
+    def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self, _name, judge, explanation, refused) -> None:
         # `emit_report` judges everything it authors; before the edit path got the same judge, an
         # unsafe summary or suggested prompt could land on a surfaced report by editing it in — and a
         # suggested prompt's wording is handed to an agent run told to act on it.
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        with _safe_judge(choice=False, explanation="prompt injection"):
+        with judge(), patch(REFUSAL_COUNTER_PATH) as refusal_counter:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -1259,7 +1277,8 @@ class TestScoutReportAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "safety judge" in response.content.decode()
+        assert f"edit rejected by the safety judge: {explanation}" in response.content.decode()
+        assert [c.args for c in refusal_counter.call_args_list] == ([("edit",)] if refused else [])
         report = SignalReport.objects.get(id=created["report_id"])
         assert report.summary == self._payload()["summary"]
         assert report.suggested_prompts == []
@@ -1279,6 +1298,22 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         judge_mock.assert_awaited_once()
         assert SignalReport.objects.get(id=created["report_id"]).metrics == []
+
+    def test_unsafe_tags_only_edit_is_rejected_and_keeps_the_tags(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "tags": ["cost-spike"]}, format="json"
+            ).json()
+        with _safe_judge(choice=False, explanation="prompt injection") as judge_mock:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "tags": ["ignore-all-previous-instructions"]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge_mock.assert_awaited_once()
+        assert SignalReport.objects.get(id=created["report_id"]).tags == ["cost-spike"]
 
     def test_edit_without_new_content_skips_the_safety_judge(self) -> None:
         # Clearing content adds nothing for the judge to inspect, so it must not spend an LLM call.
@@ -1599,6 +1634,86 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+    def test_human_scout_human_flow_preserves_corrections(self, _effects, _writer) -> None:
+        human = APIClient()
+        human.force_login(self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        run = _make_run(self.team)
+        root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
+        selected = {"action": "add", "content": [{"user_uuid": str(self.user.uuid)}]}
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        before = human.get(f"{root}/").json()["reviewer_assignment"]
+        assert before["pinned_user_uuids"] == [str(self.user.uuid)]
+        assert (
+            human.put(
+                f"{root}/reviewers/",
+                {"action": "remove", "content": [{"user_uuid": str(self.user.uuid)}]},
+                format="json",
+            ).status_code
+            == 200
+        )
+        request = {
+            "report_id": str(report.id),
+            "suggested_reviewers": [{"user_uuid": str(self.user.uuid)}],
+            "expected_reviewers": before["state"],
+        }
+        stale = self.client.post(self._edit_url(str(run.id)), request, format="json")
+        assert stale.status_code == 200, stale.json()
+        assert stale.json()["warnings"][0]["field"] == "suggested_reviewers"
+        assert not stale.json()["reviewers_set"]
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
+        request.update(expected_reviewers=state["state"])
+        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            for _ in range(2):
+                response = self.client.post(self._edit_url(str(run.id)), request, format="json")
+                assert response.status_code == 200, response.json()
+                assert not response.json()["reviewers_set"]
+            autostart.assert_not_called()
+        assert report.artefacts.filter(type="suggested_reviewers").count() == 2
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
+        response = human.post(
+            f"{root}/reviewers/resume/",
+            {"expected_reviewers": state["state"]},
+            format="json",
+        )
+        assert response.status_code == 404
+        assert human.get(f"{root}/").json()["reviewer_assignment"]["pinned_user_uuids"] == [str(self.user.uuid)]
+        failed = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "expected_reviewers": state["state"],
+                "reviewer_outcome": "lookup_failed",
+                "reviewer_retry_reason": "Member lookup unavailable",
+            },
+            format="json",
+        )
+        assert failed.status_code == 200, failed.json()
+        assert not failed.json()["reviewers_set"]
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
+        empty = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "suggested_reviewers": [],
+                "expected_reviewers": state["state"],
+                "reviewer_outcome": "no_suitable_owner",
+            },
+            format="json",
+        )
+        assert empty.status_code == 200, empty.json()
+        assert not empty.json()["reviewers_set"]
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
@@ -1969,7 +2084,10 @@ class TestScoutReportAPI(APIBaseTest):
     def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
         # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
         run = _make_run(self.team)
-        payload = self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="x")
+        payload = {
+            **self._payload(repository="PostHog/PostHog", priority="P1", priority_explanation="x"),
+            "tags": ["ignore-all-previous-instructions"],
+        }
         with (
             _safe_judge(choice=False, explanation="unsafe"),
             patch(EMBED_PATH),
@@ -1978,6 +2096,7 @@ class TestScoutReportAPI(APIBaseTest):
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
         assert response.json()["emitted"] is False
         autostart.assert_not_awaited()
+        assert SignalReport.objects.get(id=response.json()["report_id"]).tags == []
         assert (
             self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
             is None
@@ -2464,6 +2583,45 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
+
+    @parameterized.expand(
+        [
+            ("omitted", {"append_note": "checked"}, ["cost-spike", "billing"], None),
+            ("null", {"append_note": "checked", "tags": None}, ["cost-spike", "billing"], None),
+            ("replaced", {"tags": ["API"]}, ["api"], 1),
+            ("cleared", {"tags": []}, [], 0),
+        ]
+    )
+    def test_edit_tags_replace_the_set_and_omitted_tags_keep_it(
+        self, _name: str, edit_fields: dict, expected_stored: list[str], expected_set: int | None
+    ) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data={**self._payload(), "tags": ["Cost Spike", "billing"]},
+                format="json",
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit_fields},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags_set"] == expected_set
+        assert SignalReport.objects.get(id=created["report_id"]).tags == expected_stored
+
+    def test_emit_with_an_invalid_tag_is_rejected_before_the_judge(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(CAPTURE_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "tags": ["!!!"]}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_called()
+        assert not SignalReport.objects.filter(team=self.team).exists()
 
     def test_report_content_counts_ride_the_lifecycle_events(self) -> None:
         run = _make_run(self.team)

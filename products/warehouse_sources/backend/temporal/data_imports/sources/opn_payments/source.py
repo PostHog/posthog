@@ -123,7 +123,7 @@ class OpnPaymentsSource(ResumableSource[OpnPaymentsSourceConfig, OpnPaymentsResu
             name=ExternalDataSourceType.OPNPAYMENTS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Opn Payments (formerly Omise)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your Opn Payments (Omise) secret key to sync charges, customers, transfers, "
             "and more into the PostHog Data warehouse. Find your secret key in the Opn Payments "
             "dashboard under **Keys**.",

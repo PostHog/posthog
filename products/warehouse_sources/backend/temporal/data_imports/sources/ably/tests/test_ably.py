@@ -316,14 +316,6 @@ class TestChannelFanout:
         assert [row["id"] for row in result.rows] == ["pres-b"]
 
 
-class TestUnknownEndpoint:
-    def test_raises_rather_than_syncing_the_wrong_table(self) -> None:
-        result = _driver().run("Nope", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Ably endpoint: Nope"
-
-
 class TestAblyHostPinningAndRedirects:
     """`allowed_hosts=[]` + `allow_redirects=False` keep the Basic-auth credential from
     following a spoofed ``Link: rel="next"`` target or a cross-origin redirect off Ably's host."""

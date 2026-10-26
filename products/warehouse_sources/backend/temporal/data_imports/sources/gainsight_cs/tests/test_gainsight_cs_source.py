@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -27,6 +29,27 @@ class TestGainsightCsSourceCredentials:
 
         assert result == (True, None)
         assert [request.path for request in network.requests_log] == ["/v1/meta/services/objects/health__gc/describe"]
+
+    @parameterized.expand(
+        [
+            (
+                "cta_configuration",
+                {"result": True, "data": {"CTA_STATUS": [{"gsid": "s1", "name": "New"}]}},
+                "/v2/cockpit/admin/picklist/lite",
+            ),
+            (
+                "cta_task",
+                {"result": True, "data": [{"objectName": "call_to_action", "fields": [{"fieldName": "Gsid"}]}]},
+                "/v1/meta/services/objects/call_to_action/describe",
+            ),
+        ]
+    )
+    def test_probes_the_cockpit_route_a_cockpit_table_reads(self, schema_name: str, body: dict, path: str) -> None:
+        with scripted_network([ScriptedResponse(json=body)]) as network:
+            result = GainsightCsSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+
+        assert result == (True, None)
+        assert [request.path for request in network.requests_log] == [path]
 
     def test_probes_company_when_no_schema_is_named(self) -> None:
         fields = {"result": True, "data": [{"objectName": "company", "fields": [{"fieldName": "Gsid"}]}]}

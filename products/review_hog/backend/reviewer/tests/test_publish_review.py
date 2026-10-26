@@ -30,6 +30,11 @@ _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
 _ADD_REACTION = "products.review_hog.backend.reviewer.tools.publish_review.add_pr_reaction"
 _REMOVE_REACTIONS = "products.review_hog.backend.reviewer.tools.publish_review.remove_own_pr_reactions"
+_CLEAN = "**PostHog Review · Standard · reviewed `sha`**: no findings."
+_LARGE_NOTE = (
+    "**PostHog Review · Standard · reviewed `sha`**: no findings. This pull request is large, so the"
+    " review ran in 3 parts with less depth than usual."
+)
 
 # The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
 # exercise the publish gate, not the default (consider), which publishes everything.
@@ -457,19 +462,53 @@ class TestPublishReviewGate:
 
     @parameterized.expand(
         [
-            ("deep", "full", None, None, [], None),
-            ("deep_large", "full", 3, None, [], None),
-            ("standard_reacts", "flash", None, None, [("o/r", 1, "+1")], None),
+            ("deep", "full", None, None, False, [], None, None),
+            ("deep_large", "full", 3, None, False, [], None, None),
+            ("deep_requested", "full", None, None, True, [], None, None),
+            ("standard_reacts", "flash", None, None, False, [("o/r", 1, "+1")], None, None),
             # An earlier turn published findings, so a clean turn must not bring the 👍 back.
-            ("standard_after_published_findings_does_not_react", "flash", None, "old", [], None),
+            ("standard_after_published_findings_does_not_react", "flash", None, "old", False, [], None, None),
             (
                 "standard_large_reacts_and_posts_the_note",
                 "flash",
                 3,
                 None,
+                False,
                 [("o/r", 1, "+1")],
-                "**PostHog Review · Standard · reviewed `sha`**: no findings. This pull request is large, so the"
-                " review ran in 3 parts with less depth than usual.",
+                f"{_LARGE_NOTE}\n\n<!-- reviewhog:large-pr-note:rep:sha -->",
+                # The skip check matches a note from any earlier head, so re-reviews do not repeat it.
+                "<!-- reviewhog:large-pr-note:rep:",
+            ),
+            (
+                "standard_requested_replies",
+                "flash",
+                None,
+                None,
+                True,
+                [("o/r", 1, "+1")],
+                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
+            ),
+            (
+                "standard_requested_after_published_findings_replies",
+                "flash",
+                None,
+                "old",
+                True,
+                [],
+                f"{_CLEAN}\n\n<!-- reviewhog:clean-reply:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
+            ),
+            # The reply carries the note's marker too, so a later automatic turn does not repeat the note.
+            (
+                "standard_large_requested_replies_with_the_note",
+                "flash",
+                3,
+                None,
+                True,
+                [("o/r", 1, "+1")],
+                f"{_LARGE_NOTE}\n\n<!-- reviewhog:clean-reply:rep:sha --><!-- reviewhog:large-pr-note:rep:sha -->",
+                "<!-- reviewhog:clean-reply:rep:sha -->",
             ),
         ]
     )
@@ -482,20 +521,72 @@ class TestPublishReviewGate:
         review_mode: str,
         capped_lens_parts: int | None,
         published_head_sha: str | None,
+        answers_request: bool,
         expected_reactions: list[tuple[str, int, str]],
-        expected_note: str | None,
+        expected_body: str | None,
+        expected_marker: str | None,
         mock_report_cls: MagicMock,
         mock_load: MagicMock,
         mock_post: MagicMock,
     ) -> None:
         # Below the should_fix threshold: a run whose only valid finding is `consider` has
         # nothing publishable, so it posts no findings (guards the off-diff fix against over-surfacing).
-        # A clean Standard turn has no status comment, so its 👍 and its large pull request note
-        # are the only signs that it ran.
+        # A clean Standard turn has no status comment, so its 👍, its large pull request note and its
+        # reply to a request are the only signs that it ran.
         self._wire_report(mock_report_cls, published_head_sha)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
         outcome = publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=2,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            published_priorities=_SHOULD_FIX_PUBLISHED,
+            review_mode=review_mode,
+            capped_lens_parts=capped_lens_parts,
+            # A clean turn posts no findings, so the note below must leave this out.
+            findings_footer="Draft notice.",
+            answers_request=answers_request,
+        )
+
+        assert outcome.posted is False
+        assert [c.args for c in self.add_reaction.call_args_list] == expected_reactions
+        if expected_body is None:
+            mock_post.assert_not_called()
+            return
+        mock_post.assert_called_once()
+        body, comments = mock_post.call_args.args[3:5]
+        assert body == expected_body
+        assert comments == []
+        assert mock_post.call_args.kwargs["marker"] == expected_marker
+
+    @parameterized.expand(
+        [
+            ("first_review", None, True),
+            ("later_review", "old", False),
+        ]
+    )
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_only_the_first_review_with_findings_carries_the_first_review_note(
+        self,
+        _name: str,
+        published_head_sha: str | None,
+        expects_note: bool,
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
+    ) -> None:
+        self._wire_report(mock_report_cls, published_head_sha)
+        mock_load.return_value = [(_finding(), _verdict())]
+
+        publish_review(
             owner="o",
             repo="r",
             pr_number=1,
@@ -506,23 +597,14 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             published_priorities=_SHOULD_FIX_PUBLISHED,
-            review_mode=review_mode,
-            capped_lens_parts=capped_lens_parts,
-            # A clean turn posts no findings, so the note below must leave this out.
-            findings_footer="Draft notice.",
+            review_mode="flash",
+            footer="Footer.",
+            first_review_note="First review note.",
         )
 
-        assert outcome.posted is False
-        assert [c.args for c in self.add_reaction.call_args_list] == expected_reactions
-        if expected_note is None:
-            mock_post.assert_not_called()
-            return
-        mock_post.assert_called_once()
-        body, comments = mock_post.call_args.args[3:5]
-        assert body == f"{expected_note}\n\n<!-- reviewhog:large-pr-note:rep:sha -->"
-        assert comments == []
-        # The skip check matches a note from any earlier head, so re-reviews do not repeat it.
-        assert mock_post.call_args.kwargs["marker"] == "<!-- reviewhog:large-pr-note:rep:"
+        marker = mock_post.call_args.kwargs["marker"]
+        closing = "Footer.\n\nFirst review note.\n\n" if expects_note else "Footer.\n\n"
+        assert mock_post.call_args.args[3].endswith(f"{closing}{marker}")
 
     @parameterized.expand(
         [
@@ -560,11 +642,12 @@ class TestPublishReviewGate:
             published_priorities=_SHOULD_FIX_PUBLISHED,
             review_mode="flash",
             budget_note="Budget note.",
+            round_note="Round note.",
         )
 
         assert outcome.posted is expected_posted
         if expected_posted:
-            assert "Budget note." in mock_post.call_args.args[3]
+            assert "Budget note.\n\nRound note.\n\n" in mock_post.call_args.args[3]
         else:
             mock_post.assert_not_called()
 

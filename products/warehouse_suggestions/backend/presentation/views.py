@@ -1,7 +1,6 @@
 """DRF views for warehouse_suggestions."""
 
 from collections.abc import Callable
-from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -15,7 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
@@ -29,14 +28,16 @@ from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
     AcceptFailedError,
+    AcceptOptionRefusedError,
+    AcceptOptions,
     CatalogEditAccessRequiredError,
-    RefreshIntervalRefusedError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
+    SuggestionOutdatedError,
     SuggestionPage,
     SuggestionSubjectGoneError,
 )
@@ -194,15 +195,14 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
-    def accept(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        interval_seconds = request.validated_data.get("refresh_interval_seconds")
+    def accept(self, request: TypedRequest[AcceptOptions], pk: str, **kwargs: Any) -> Response:
         return self._respond(
             lambda: api.accept_suggestion(
                 self.team,
                 self.user_access_control,
                 UUID(pk),
                 user=cast(User, request.user),
-                refresh_interval=timedelta(seconds=interval_seconds) if interval_seconds else None,
+                options=request.validated_data,
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
             )
@@ -236,7 +236,9 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(ALREADY_CERTIFIED[error.subject_kind])
         except SuggestionSubjectGoneError as error:
             raise ValidationError({"subject_id": SUBJECT_GONE[error.subject_kind]})
-        except RefreshIntervalRefusedError as error:
-            raise ValidationError({"refresh_interval_seconds": str(error)})
+        except AcceptOptionRefusedError as error:
+            raise ValidationError({error.field: str(error)})
+        except SuggestionOutdatedError as error:
+            raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))

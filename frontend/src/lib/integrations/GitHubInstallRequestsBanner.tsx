@@ -20,12 +20,14 @@ export function GitHubInstallRequestsBanner({
     onFinishConnecting,
     finishConnectingUrl,
     variant = 'default',
+    connecting = false,
 }: {
     /** Runs the surface's own connect flow once an owner has approved the install. */
     onFinishConnecting?: () => void
     /** Alternative to `onFinishConnecting` for surfaces whose connect is a plain link. */
     finishConnectingUrl?: string
     variant?: 'default' | 'onboarding'
+    connecting?: boolean
 }): JSX.Element | null {
     const { pendingInstallRequests, approvedInstallRequests, installUrl, dismissingRequestIds } =
         useValues(githubInstallRequestsLogic)
@@ -57,6 +59,7 @@ export function GitHubInstallRequestsBanner({
                                 to={finishConnectingUrl}
                                 disableClientSideRouting={!!finishConnectingUrl}
                                 onClick={onFinishConnecting}
+                                loading={connecting}
                             >
                                 Finish connecting
                             </LemonButton>

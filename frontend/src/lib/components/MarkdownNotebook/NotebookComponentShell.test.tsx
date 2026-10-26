@@ -484,6 +484,45 @@ describe('NotebookComponentShell', () => {
         expect(menuItems[1].closest('a')?.getAttribute('target')).toBe('_blank')
     })
 
+    it('copies the block from the overflow menu', async () => {
+        const registry = createMarkdownNotebookRegistry([
+            { tagName: 'Probe', label: 'Insight', category: 'Test', ViewComponent: () => <div>Results</div> },
+        ])
+        const node: NotebookComponentBlockNode = {
+            id: 'probe-node',
+            type: 'component',
+            tagName: 'Probe',
+            props: { title: 'Weekly activity' },
+        }
+        const copyNode = jest.fn()
+
+        render(
+            <NotebookComponentShell
+                node={node}
+                mode="view"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                copyNode={copyNode}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        await userEvent.click(screen.getByLabelText('More actions'))
+        await userEvent.click(screen.getByText('Copy'))
+
+        expect(copyNode).toHaveBeenCalledWith(node)
+    })
+
     it('renders a published fixed title and status without offering title editing', () => {
         const toggleStatus = jest.fn()
 

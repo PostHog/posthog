@@ -44,6 +44,12 @@ describe('messageTemplateTestSendLogic', () => {
                             config: { verified: true },
                         },
                         { id: 6, kind: 'slack', display_name: 'Slack' },
+                        {
+                            id: 7,
+                            kind: 'email',
+                            display_name: 'Security <security@example.com>',
+                            config: { verified: true },
+                        },
                     ],
                 },
             },
@@ -82,11 +88,16 @@ describe('messageTemplateTestSendLogic', () => {
     it('defaults the sender to the first verified email integration, excluding unverified and non-email kinds', async () => {
         await expectLogic(logic).toMatchValues({
             senderIntegrationId: 5,
-            emailIntegrations: [expect.objectContaining({ id: 5 })],
+            emailIntegrations: [expect.objectContaining({ id: 5 }), expect.objectContaining({ id: 7 })],
         })
     })
 
     it('sends a one-step synthetic workflow carrying the typed recipient and template content, stripping any cc/bcc', async () => {
+        templateLogic.actions.setTemplateValue('content.email.from', {
+            integrationId: 7,
+            name: 'Security team',
+            email: 'alerts@example.com',
+        })
         templateLogic.actions.setTemplateValue('content.email.cc', 'observer@example.com')
         templateLogic.actions.setTemplateValue('content.email.bcc', 'archive@example.com')
         logic.actions.setRecipientEmail('recipient@example.com')
@@ -103,7 +114,8 @@ describe('messageTemplateTestSendLogic', () => {
         expect(emailAction.config.inputs.email.value).toMatchObject({
             subject: 'Welcome',
             to: { email: 'recipient@example.com', name: '' },
-            from: { integrationId: 5 },
+            // The test defaults to the template's own sender and keeps its custom name and address.
+            from: { integrationId: 7, name: 'Security team', email: 'alerts@example.com' },
             cc: '',
             bcc: '',
         })

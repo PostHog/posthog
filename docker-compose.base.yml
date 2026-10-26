@@ -159,7 +159,8 @@ services:
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
         healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            # TCP, because the entrypoint runs init scripts on a socket-only temporary server.
+            test: ['CMD-SHELL', 'pg_isready -U posthog -h 127.0.0.1']
             interval: 5s
             timeout: 30s
             retries: 30
@@ -193,7 +194,7 @@ services:
             retries: 10
 
     clickhouse:
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:26.9.13.15}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -229,6 +230,13 @@ services:
             - --set redpanda.empty_seed_starts_cluster=false
             - --seeds kafka:33145
             - --set redpanda.auto_create_topics_enabled=true
+        # Redpanda refuses new partitions past its file descriptor limit divided by
+        # `topic_fds_per_partition` (5). At a 1024 soft limit that is about 200 partitions, fewer
+        # than one cohort-stream-processor integration test creates.
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
         volumes:
             - redpanda-data:/var/lib/redpanda/data
         environment:
@@ -420,6 +428,10 @@ services:
             # `ai` mode produces to the AI lane as its main topic (no $ai_* divert needed),
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
+            # Local Kafka keeps its default 1MB message limit, so cap AI events below it
+            # to return `ai_event_too_big` instead of failing at the producer.
+            AI_MAX_EVENT_BYTES: '900000'
+            KAFKA_PRODUCER_MESSAGE_MAX_BYTES: '1000000'
             RUST_LOG: 'info,rdkafka=warn'
 
     capture-logs:
@@ -576,7 +588,6 @@ services:
             ETCD_PREFIX: '/personhog/'
             POD_NAME: 'personhog-leader'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_PERSON_STATE_TOPIC: 'personhog_updates'
             FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             # Must name the same table the identity service and the writer
             # target (their defaults), or leader misses read the wrong table.
@@ -594,7 +605,8 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'personhog_updates'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
             KAFKA_CONSUMER_GROUP: 'personhog-writer'
             FLUSH_INTERVAL_MS: '5000'
             FLUSH_BUFFER_SIZE: '1000'

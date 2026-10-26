@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -10,21 +12,28 @@ from temporalio.exceptions import ApplicationError
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.integration import Integration
-from posthog.temporal.ai.slack_app.types import (
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
+from products.slack_app.backend.temporal.types import (
     SlackAppUnfurlChartsPostInput,
     SlackAppUnfurlChartsWorkflowInputs,
     SlackUnfurlChartAsset,
     SlackUnfurlChartRequest,
 )
 
-from products.access_control.backend.models.access_control import AccessControl
-from products.product_analytics.backend.facade.models import Insight
-from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
-
 _URL = "https://us.posthog.com/project/1/insights/abc123"
 _SHORT_URL = "https://us.posthog.com/i/abc123"
 _TITLE = {"type": "section", "text": {"type": "mrkdwn", "text": "📈  *<https://us.posthog.com|Weekly active users>*"}}
 _BUTTONS = {"type": "actions", "elements": []}
+_ADHOC_URL = "https://us.posthog.com/project/1/insights/new#q=a"
+_ADHOC_TITLE = {"type": "section", "text": {"type": "mrkdwn", "text": "📈  *<https://us.posthog.com|Unsaved insight>*"}}
+_ADHOC_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}
+
+
+def _adhoc_chart(url: str = _ADHOC_URL, query: dict | None = None) -> SlackUnfurlChartRequest:
+    return SlackUnfurlChartRequest(url=url, query=query or _ADHOC_QUERY, title="Unsaved insight")
 
 
 def _slack_error(code: str, status_code: int) -> SlackApiError:
@@ -82,14 +91,17 @@ class TestLinkUnfurlCharts(BaseTest):
         )
         return User.objects.create_and_join(self.organization, "no-project-access@example.com", "password")
 
-    def _post(self, inputs: SlackAppUnfurlChartsWorkflowInputs) -> None:
+    def _post(
+        self, inputs: SlackAppUnfurlChartsWorkflowInputs, rendered: list[SlackUnfurlChartRequest] | None = None
+    ) -> None:
+        rendered = inputs.charts if rendered is None else rendered
         post_unfurl_charts(
             SlackAppUnfurlChartsPostInput(
                 request=inputs,
-                rendered=[SlackUnfurlChartAsset(insight_id=self.insight.id, asset_id=1)],
+                rendered=[SlackUnfurlChartAsset(render_key=chart.render_key, asset_id=1) for chart in rendered],
                 elapsed_ms=1,
             ),
-            image_urls_by_insight={self.insight.id: "https://example.com/chart.png"},
+            image_urls_by_key={chart.render_key: "https://example.com/chart.png" for chart in rendered},
         )
 
     def _sharer(self, kind: str) -> User:
@@ -103,14 +115,20 @@ class TestLinkUnfurlCharts(BaseTest):
     @parameterized.expand(
         [("member", True), ("project_access_revoked", False), ("deactivated", False)],
     )
-    def test_targets_render_each_insight_once_and_only_for_an_active_member(
+    def test_targets_render_each_chart_once_and_only_for_an_active_member(
         self, sharer: str, expect_render: bool
     ) -> None:
         user = self._sharer(sharer)
+        inputs = self._inputs(urls=(_URL, _SHORT_URL), user=user)
+        reordered = {"source": {"series": [], "kind": "TrendsQuery"}, "kind": "InsightVizNode"}
+        inputs = dataclasses.replace(
+            inputs, charts=[*inputs.charts, _adhoc_chart(), _adhoc_chart(url=_ADHOC_URL + "b", query=reordered)]
+        )
 
-        targets = unfurl_chart_targets(self._inputs(urls=(_URL, _SHORT_URL), user=user))
+        targets = unfurl_chart_targets(inputs)
 
-        assert targets.insight_ids == ([self.insight.id] if expect_render else [])
+        expected = [f"insight:{self.insight.id}", _adhoc_chart().render_key] if expect_render else []
+        assert [chart.render_key for chart in targets.charts] == expected
 
     @parameterized.expand(
         [
@@ -144,6 +162,27 @@ class TestLinkUnfurlCharts(BaseTest):
         assert blocks[1]["type"] == "image"
         assert blocks[1]["alt_text"] == "Weekly active users"
         assert blocks[1]["image_url"].startswith("http")
+
+    @parameterized.expand([("adhoc_rendered", True), ("adhoc_render_failed", False)])
+    @patch("products.slack_app.backend.logic.link_unfurl_charts.SlackIntegration")
+    def test_post_sends_the_adhoc_card_only_with_its_chart(
+        self, _name: str, adhoc_rendered: bool, mock_slack: MagicMock
+    ) -> None:
+        saved = self._inputs()
+        inputs = dataclasses.replace(
+            saved,
+            unfurls={**saved.unfurls, _ADHOC_URL: {"blocks": [_ADHOC_TITLE, _BUTTONS]}},
+            charts=[*saved.charts, _adhoc_chart()],
+        )
+
+        self._post(inputs, rendered=inputs.charts if adhoc_rendered else saved.charts)
+
+        unfurls = mock_slack.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
+        assert unfurls[_URL]["blocks"][1]["type"] == "image"
+        if adhoc_rendered:
+            assert [block["type"] for block in unfurls[_ADHOC_URL]["blocks"]] == ["section", "image", "actions"]
+        else:
+            assert _ADHOC_URL not in unfurls
 
     @parameterized.expand(
         [

@@ -25,6 +25,10 @@
             "description": "Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
             "type": "string"
         },
+        "display": {
+            "description": "Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.",
+            "type": "string"
+        },
         "exclude_bi": {
             "description": "Exclude Business intelligence worksheets from the insight list.",
             "type": "boolean"

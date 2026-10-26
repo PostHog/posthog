@@ -119,7 +119,7 @@ class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
             "github.com/statsig-io/swift-on-device-evaluations-sdk",
             "github.com/statsig-io/ios-sdk",
         ),
-        competes_with=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
+        alternative_to=(ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS),
     )
 
     lists_tables_without_credentials = True
@@ -141,7 +141,7 @@ class StatsigSource(ResumableSource[StatsigSourceConfig, StatsigResumeConfig]):
             "The key needs read access to the tables you select. The users table contains project members.",
             docsUrl="https://posthog.com/docs/cdp/sources/statsig",
             iconPath="/static/services/statsig.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

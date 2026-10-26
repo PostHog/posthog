@@ -1112,7 +1112,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _get_task_processing_context(self, input: ExecuteSandboxInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
             get_task_processing_context,
-            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr, launches_agent=True),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1457,6 +1457,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                stream_generation=self.context.stream_generation,
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,

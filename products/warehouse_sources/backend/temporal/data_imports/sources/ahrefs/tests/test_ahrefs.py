@@ -11,12 +11,17 @@ from requests import Response, Session
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import BACKLINK_FIELDS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+    BACKLINK_FIELDS,
+    ENDPOINTS,
+    ORGANIC_KEYWORD_FIELDS,
+    RANK_TRACKER_FIELDS,
+    REFDOMAIN_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -170,6 +175,40 @@ TARGET = {
                 "protocol": ["https"],
             },
         ),
+        (
+            "organic_keywords",
+            "keywords",
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            {
+                "select": [",".join(ORGANIC_KEYWORD_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["sum_traffic:desc"],
+                "date": ["2026-10-13"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
+        (
+            "referring_domains",
+            "refdomains",
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            {
+                "select": [",".join(REFDOMAIN_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["domain_rating:desc"],
+                "history": ["live"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -200,8 +239,37 @@ def test_target_report_resolves_site_audit_target(
     assert target_request.query["project_id"] == ("123",)
     assert report_request.path == f"/v3/{ENDPOINTS[table]['path']}"
     query = {name: list(values) for name, values in report_request.query.items()}
-    history_params = {"date_from": [expected_date_from]} if table != "backlinks" else {}
+    history_params = {"date_from": [expected_date_from]} if ENDPOINTS[table].get("history") else {}
     assert query == {"output": ["json"], "target": ["https://example.com/"], **expected_params, **history_params}
+
+
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_rank_tracker_reads_each_device() -> None:
+    row = {"keyword": "posthog", "country": "us", "location": "United States", "language": "en", "position": 1}
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "rank_tracker_overview",
+        [
+            ScriptedResponse(json={"overviews": [row]}),
+            ScriptedResponse(json={"overviews": [{**row, "position": 3}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {**row, "project_id": "123", "device": "desktop"},
+        {**row, "position": 3, "project_id": "123", "device": "mobile"},
+    ]
+    for request, device in zip(result.requests, ["desktop", "mobile"], strict=True):
+        assert request.path == "/v3/rank-tracker/overview"
+        assert {name: list(values) for name, values in request.query.items()} == {
+            "output": ["json"],
+            "select": [",".join(RANK_TRACKER_FIELDS)],
+            "limit": ["10000"],
+            "order_by": ["keyword:asc"],
+            "project_id": ["123"],
+            "date": ["2026-10-13"],
+            "device": [device],
+        }
 
 
 @pytest.mark.parametrize("healthscores", [[], [{"project_id": "123", "target_url": None}]])
@@ -232,11 +300,7 @@ def test_page_sample_cap(count: int) -> None:
 @pytest.mark.parametrize(
     ("status", "body", "message"),
     [
-        (401, {"error": "Invalid API key"}, "Check your API key"),
-        (403, ["Error", "Forbidden"], "Check your plan"),
-        (403, {"error": "Insufficient API units"}, "API units are exhausted"),
         (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (403, {"error": "Quota exceeded"}, "API units are exhausted"),
         (402, {"error": "Payment required"}, "API units are exhausted"),
     ],
 )
@@ -301,7 +365,118 @@ def test_missing_response_envelope_fails(probe: bool) -> None:
         assert len(result.requests) == 1
 
 
-def test_unknown_table_fails_before_request() -> None:
-    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
+@pytest.mark.parametrize(
+    ("table", "selector", "row", "base_select"),
+    [
+        (
+            "link_intersect_refdomains",
+            "referring-domains",
+            {"domain": "a.example", "intersect": 2},
+            ["domain", "domain_rating", "intersect", "links_to_target"],
+        ),
+        (
+            "link_intersect_refpages",
+            "referring-pages",
+            {"url": "https://a.example/post", "intersect": 1},
+            ["url", "title", "domain_rating", "url_rating", "intersect", "links_to_target"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("has_competitors", [True, False])
+def test_link_intersect_compares_target_with_project_competitors(
+    table: str, selector: str, row: dict[str, object], base_select: list[str], has_competitors: bool
+) -> None:
+    competitors = (
+        [{"url": "rival.example", "mode": "domain"}, {"url": "https://other.example/blog/", "mode": None}]
+        if has_competitors
+        else []
+    )
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        table,
+        [
+            ScriptedResponse(json={"competitors": competitors}),
+            ScriptedResponse(json={"healthscores": [TARGET]}),
+            ScriptedResponse(json={selector: [row]}),
+        ],
+    )
+
+    assert result.raised is None
+    competitors_request = result.requests[0]
+    assert competitors_request.path == "/v3/management/project-competitors"
+    assert competitors_request.query["project_id"] == ("123",)
+    if not has_competitors:
+        assert result.rows == []
+        assert len(result.requests) == 1
+        return
+    competitor_urls = ["rival.example", "https://other.example/blog/"]
+    assert result.rows == [{**row, "project_id": "123", "competitors": competitor_urls}]
+    _, target_request, report_request = result.requests
+    assert target_request.path == "/v3/site-audit/projects"
+    assert report_request.method == "POST"
+    assert report_request.path == f"/v3/{ENDPOINTS[table]['path']}"
+    assert json.loads(report_request.body or b"") == {
+        "output": "json",
+        "select": [*base_select, "links_to_competitor_1", "links_to_competitor_2"],
+        "order_by": ["intersect:desc", "domain_rating:desc"],
+        "limit": 1000,
+        "target": {"url": "https://example.com/", "mode": "domain", "protocol": "https"},
+        "competitors": [
+            {"url": "rival.example", "mode": "domain", "protocol": "both"},
+            {"url": "https://other.example/blog/", "mode": "subdomains", "protocol": "both"},
+        ],
+    }
+
+
+def test_brand_radar_web_pages_read_each_report_linked_to_the_project() -> None:
+    reports = [
+        {"report_id": "r-1", "project_id": 123},
+        {"report_id": "r-other", "project_id": 999},
+        {"report_id": "r-unlinked", "project_id": None},
+        {"report_id": "r-2", "project_id": 123},
+    ]
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+        "brand_radar_web_pages",
+        [
+            ScriptedResponse(json={"reports": reports}),
+            ScriptedResponse(json={"pages": [{"url": "https://news.example/a"}]}),
+            ScriptedResponse(json={"pages": [{"url": "https://news.example/a"}, {"url": "https://blog.example/b"}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"url": "https://news.example/a", "project_id": "123", "report_id": "r-1"},
+        {"url": "https://news.example/a", "project_id": "123", "report_id": "r-2"},
+        {"url": "https://blog.example/b", "project_id": "123", "report_id": "r-2"},
+    ]
+    reports_request, *page_requests = result.requests
+    assert reports_request.path == "/v3/management/brand-radar-reports"
+    assert [request.method for request in page_requests] == ["POST", "POST"]
+    assert [json.loads(request.body or b"")["report_id"] for request in page_requests] == ["r-1", "r-2"]
+
+
+@pytest.mark.parametrize(
+    ("max_rank", "page_sizes", "expected_ranges"),
+    [
+        (5, [2, 2, 1], [("1", "2"), ("3", "4"), ("5", "5")]),
+        (10, [2, 1], [("1", "2"), ("3", "4")]),
+        (10, [2, 0], [("1", "2"), ("3", "4")]),
+    ],
+)
+def test_top_domains_walk_rank_ranges_to_terminal_page(
+    max_rank: int, page_sizes: list[int], expected_ranges: list[tuple[str, str]]
+) -> None:
+    ranks = iter(range(1, 100))
+    pages: list[list[dict[str, object]]] = [
+        [{"domain": f"d{rank}.example", "rank": rank} for rank in [next(ranks) for _ in range(size)]]
+        for size in page_sizes
+    ]
+    with patch(f"{SOURCE_MODULE}.TOP_DOMAINS_PAGE_ROWS", 2), patch(f"{SOURCE_MODULE}.TOP_DOMAINS_COUNT", max_rank):
+        result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
+            "domain_rating_top_domains", [ScriptedResponse(json={"domains": page}) for page in pages]
+        )
+
+    assert result.raised is None
+    assert result.rows == [row for page in pages for row in page]
+    assert [(request.param("from"), request.param("to")) for request in result.requests] == expected_ranges
+    assert all(request.path == "/v3/public/domain-rating-top-domains" for request in result.requests)

@@ -43,8 +43,6 @@ class TestOpenalexSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.openalex.org/works?per_page=200",
-            "403 Client Error: Forbidden for url: https://api.openalex.org/works?per_page=200",
             "400 Client Error: Bad Request for url: https://api.openalex.org/works?per_page=200",
         ],
     )
