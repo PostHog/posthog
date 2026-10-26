@@ -13,5 +13,4 @@ class ReplayVisionConfig(AppConfig):
             activity_logging,
             experiment_launch,
             media_expiry,
-            search_suggestion_cleanup,
         )
