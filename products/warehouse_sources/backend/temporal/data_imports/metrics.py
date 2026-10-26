@@ -174,12 +174,21 @@ def get_import_not_preempted_metric(source_type: str | None, reason: str) -> Met
     )
 
 
-def get_import_finished_during_shutdown_metric(source_type: str | None, rode_out: bool) -> MetricCounter:
+def get_import_finished_during_shutdown_metric(
+    source_type: str | None, rode_out: bool, *, within_grace: bool
+) -> MetricCounter:
     # The imports a hand-off would have restarted. `rode_out` is True when the gate kept the import
-    # on the worker past the shutdown at least once.
+    # on the worker past the shutdown at least once. `within_grace` is True when the import finished
+    # before the shutdown monitor reported the shutdown, so no hand-off check saw it.
     return (
         activity.metric_meter()
-        .with_additional_attributes({"source_type": source_type or "unknown", "rode_out": str(rode_out).lower()})
+        .with_additional_attributes(
+            {
+                "source_type": source_type or "unknown",
+                "rode_out": str(rode_out).lower(),
+                "within_grace": str(within_grace).lower(),
+            }
+        )
         .create_counter(
             "warehouse_import_finished_during_shutdown_total",
             "Imports that finished on a worker that was shutting down instead of handing off.",
