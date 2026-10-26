@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
-from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
@@ -1421,7 +1420,8 @@ class SocialAuthExceptionMiddleware:
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
-            return self._redirect_with_detail(request, self._get_error_detail(exception))
+            error_detail = self._get_error_detail(exception)
+            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=error_detail))
 
         # The social auth pipeline validates invites with DRF exceptions. The callback is a plain
         # Django view, so without this branch they render the 500 page.
@@ -1429,24 +1429,18 @@ class SocialAuthExceptionMiddleware:
             code, message = self._first_error(exception)
             if code in self._INVITE_ERROR_CODES:
                 return redirect(sso_failure_redirect_url(request, self._INVITE_ERROR_CODES[code]))
-            return self._redirect_with_detail(request, message)
+            return redirect(sso_failure_redirect_url(request, "social_login_failure", error_detail=message))
 
         return None
 
-    def _redirect_with_detail(self, request: HttpRequest, error_detail: str) -> HttpResponse:
-        url = sso_failure_redirect_url(request, "social_login_failure")
-        separator = "&" if "?" in url else "?"
-        return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
-
     def _first_error(self, exception: ValidationError) -> tuple[str | None, str]:
+        # DRF nests detail as dict -> list -> ErrorDetail. Take the first leaf.
         detail: object = exception.detail
-        if isinstance(detail, dict):
-            detail = next(iter(detail.values()), None)
-        if isinstance(detail, list):
-            detail = detail[0] if detail else None
+        while isinstance(detail, dict | list):
+            detail = next(iter(detail.values() if isinstance(detail, dict) else detail), None)
         if isinstance(detail, ErrorDetail):
             return detail.code, str(detail)
-        return None, str(detail or "An unexpected error occurred during authentication.")
+        return None, "An unexpected error occurred during authentication."
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
