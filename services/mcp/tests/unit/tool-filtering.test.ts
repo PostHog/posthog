@@ -1114,6 +1114,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'activity-summary',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
+            'mcp-analytics-intent-topics',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
