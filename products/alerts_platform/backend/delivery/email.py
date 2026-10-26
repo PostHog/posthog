@@ -52,6 +52,7 @@ class EmailTransport:
                 subject=subject_for(message),
                 template_context={
                     "headline": message.headline,
+                    "description": message.description,
                     "details": [{"label": detail.label, "value": detail.value} for detail in message.details],
                     "context": list(message.context),
                     "links": [{"label": link.label, "url": link.url} for link in message.links],

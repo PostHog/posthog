@@ -60,6 +60,9 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
 
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
+    if message.description:
+        # A label value from query results can fill a template in it, so it is escaped like a detail.
+        blocks.append(section_block(clip_text(escape_slack_mrkdwn(message.description), MAX_SECTION_CHARS)))
     if message.details:
         blocks.append(section_block(_body(message.details)))
     elements: list[str] = []

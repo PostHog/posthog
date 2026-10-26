@@ -40,14 +40,18 @@ def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
 
 
 def _annotations(message: AlertMessage) -> dict[str, str]:
-    annotations = {"summary": message.headline}
+    platform = {"posthog_summary": message.platform_headline or message.headline}
     if message.details:
-        annotations["description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
+        platform["posthog_description"] = "\n".join(f"{detail.label}: {detail.value}" for detail in message.details)
+    annotations = {"summary": platform["posthog_summary"]}
+    if "posthog_description" in platform:
+        annotations["description"] = platform["posthog_description"]
     if message.transition.value is not None:
         annotations["value"] = f"{message.transition.value:g}"
     if message.transition.error_message:
         annotations["error"] = message.transition.error_message
-    return annotations
+    # No rule can set the reserved prefix, so the platform's own text always survives the merge.
+    return {**annotations, **message.annotations, **platform}
 
 
 def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
@@ -61,8 +65,8 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
         "posthog_configuration_id": configuration_id,
         "posthog_source_kind": message.source.value,
     }
-    # The platform's own labels come last, so a source label with the same name cannot replace them.
-    labels = {**transition.labels, **group_labels, "posthog_event_kind": transition.kind.value}
+    # The platform's own labels come last, so a source or rule label with the same name cannot replace them.
+    labels = {**message.labels, **group_labels, "posthog_event_kind": transition.kind.value}
     annotations = _annotations(message)
     return {
         "version": "4",

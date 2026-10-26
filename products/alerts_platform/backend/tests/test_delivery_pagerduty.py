@@ -65,6 +65,24 @@ class TestPagerDutyBody(SimpleTestCase):
             },
         }
 
+    @parameterized.expand(
+        [
+            ("label_wins_over_the_destination", "info", "info"),
+            ("value_pagerduty_does_not_know", "sev1", "critical"),
+        ]
+    )
+    def test_a_rule_severity_and_runbook_reach_the_incident(self, _name: str, label: str, expected: str) -> None:
+        message = replace(
+            _message(IncidentAction.TRIGGER),
+            labels={"severity": label},
+            annotations={"runbook_url": "https://runbooks.example.com/api"},
+        )
+
+        body = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.CRITICAL)
+
+        assert body["payload"]["severity"] == expected
+        assert body["links"] == [{"href": "https://runbooks.example.com/api", "text": "Runbook"}]
+
     def test_a_resolve_addresses_the_incident_its_trigger_opened(self) -> None:
         def key(action: IncidentAction, **transition: Any) -> str:
             body = pagerduty_body(

@@ -52,7 +52,11 @@ def alert_message(
     context: tuple[str, ...] = (),
     data_link: MessageLink | None = None,
     image: MessageImage | None = None,
+    labels: dict[str, str] | None = None,
+    annotations: dict[str, str] | None = None,
+    platform_headline: str | None = None,
 ) -> AlertMessage:
+    transition = transition or announced_transition()
     return AlertMessage(
         headline=headline,
         symbol=symbol,
@@ -61,11 +65,14 @@ def alert_message(
         alert_name=alert_name,
         source=SourceKind.LOGS,
         alert_url=ALERT_URL,
-        transition=transition or announced_transition(),
+        transition=transition,
         context=context,
         data_link=data_link,
         image=image,
         incident_action=incident_action,
+        labels=transition.labels if labels is None else labels,
+        annotations=annotations or {},
+        platform_headline=platform_headline,
     )
 
 
