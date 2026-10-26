@@ -1,10 +1,16 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { parseTagsFilter } from 'lib/utils/url'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { APPLICATION_OBSERVABILITY_PATH, applicationObservabilityLogic } from './applicationObservabilityLogic'
+import {
+    APPLICATION_OBSERVABILITY_PATH,
+    applicationObservabilityLogic,
+    drillDownParams,
+} from './applicationObservabilityLogic'
 import type { ServicesHealthResponseApi } from './generated/api.schemas'
 
 const row = (service_name: string, status: 'good' | 'warning' | 'serious' | 'critical'): any => ({
@@ -112,5 +118,10 @@ describe('applicationObservabilityLogic', () => {
         router.actions.push(APPLICATION_OBSERVABILITY_PATH, { range: 'toString' })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.timeRange).toBe('-1h')
+    })
+
+    it('keeps a service name with a comma as one service in drill-down links', () => {
+        const params = new URLSearchParams(drillDownParams('checkout,v2', '-1h'))
+        expect(parseTagsFilter(params.get('serviceNames'))).toEqual(['checkout,v2'])
     })
 })
