@@ -201,8 +201,9 @@ class FlashLens:
     source: str
 
 
+PERFORMANCE_LENS = "performance-reliability"
 FLASH_LENSES: dict[str, FlashLens] = {
-    "performance-reliability": FlashLens(
+    PERFORMANCE_LENS: FlashLens(
         pass_number=2001,
         prompt_file="lens_performance_reliability.md",
         source="flash-lens-performance-reliability",

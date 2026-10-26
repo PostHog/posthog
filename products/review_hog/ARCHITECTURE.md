@@ -301,6 +301,11 @@ sessions, all on `SINGLE_AGENT_FLASH_ARM` (`gpt-6.1-sol` @ medium) and all retur
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+  The `reviewhog-performance-lens-follow-up-split` flag, keyed per PR like the coordinator flag, puts a PR in the
+  treatment arm of a cost experiment: its automatic follow-ups (automatic trigger, run 2 or later) run without the
+  performance lens. First reviews, turns a person asks for, coordinated PRs, and the other lens do not change. The fetch
+  records the arm on `ReviewMeta.skip_performance_lens_on_follow_ups`, and every completed event carries it as
+  `flash_skip_performance_lens_on_follow_ups`, so whole PR lifecycles compare by arm. Without the flag every PR is in the control arm.
 
 The fetch activity records the number of lens parts on `ReviewMeta.lens_chunk_count`; each lens activity rebuilds its
 part from the PR snapshot. The task prompt (`prompt.jinja`) carries the title, description, numbered diff, earlier

@@ -76,7 +76,11 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_design,
     validation_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on, standard_coordinator_on
+from products.review_hog.backend.reviewer.feature_flags import (
+    flash_pipeline_kill_switch_on,
+    skips_performance_lens_on_follow_ups,
+    standard_coordinator_on,
+)
 from products.review_hog.backend.reviewer.finding_budget import FindingBudget, ReviewRound, budget_arm
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
@@ -313,6 +317,8 @@ class ReviewMeta:
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
     coordinator: bool = False
+    # Recorded here so a replay takes the same branch. Older histories decode as the control arm.
+    skip_performance_lens_on_follow_ups: bool = False
     # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
     # An automatic turn on a PR with the skip-agent-review label. Older histories decode as no skip.
@@ -612,6 +618,8 @@ class TrackReviewCompletedInput:
     # Single-agent turns only.
     flash_turn: FlashTurnStats | None = None
     flash_sessions: FlashSessionStats | None = None
+    # The PR's arm in the performance lens split, on every turn, so whole PR lifecycles can be compared.
+    skip_performance_lens_on_follow_ups: bool = False
 
 
 @frozen
@@ -910,6 +918,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
             status=ReviewReport.Status.IDLE if fetched.pr_metadata.state == "open" else ReviewReport.Status.CLOSED
         )
+    coordinator = single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number)
+    separate_sessions = single_agent and not coordinator
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
@@ -932,7 +942,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
-        coordinator=single_agent and pr_number is not None and standard_coordinator_on(input.repository, pr_number),
+        coordinator=coordinator,
+        # The split only applies to separate sessions, so a coordinated PR stays in the control arm.
+        skip_performance_lens_on_follow_ups=separate_sessions
+        and pr_number is not None
+        and skips_performance_lens_on_follow_ups(input.repository, pr_number),
         automatic_reviewed_head_sha=report.automatic_reviewed_head_sha,
         skip_agent_review=skip_agent_review,
     )
@@ -2507,6 +2521,7 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "reviewhog_version": input.marker.version if input.marker is not None else None,
             "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
             **_flash_event_properties(input.flash_turn, input.flash_sessions),
+            "flash_skip_performance_lens_on_follow_ups": input.skip_performance_lens_on_follow_ups,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

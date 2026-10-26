@@ -161,6 +161,8 @@ async def _run_full_review_pr_workflow(
     fail_main_session: bool = False,
     coordinator: bool = False,
     coordinator_lens_failures: int = 0,
+    run_index: int = 1,
+    skip_performance_lens_on_follow_ups: bool = False,
     automatic_reviewed_head_sha: str | None = None,
     skip_agent_review: bool = False,
     gate_skips: bool = False,
@@ -230,7 +232,7 @@ async def _run_full_review_pr_workflow(
             head_sha="sha1",
             branch="feat",
             repository="o/r",
-            run_index=1,
+            run_index=run_index,
             snapshotted=not already_published,
             already_published=already_published,
             new_comment_count=0,
@@ -244,6 +246,7 @@ async def _run_full_review_pr_workflow(
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
             coordinator=coordinator,
+            skip_performance_lens_on_follow_ups=skip_performance_lens_on_follow_ups,
             automatic_reviewed_head_sha=automatic_reviewed_head_sha,
             skip_agent_review=skip_agent_review,
         )
@@ -450,6 +453,7 @@ async def _run_full_review_pr_workflow(
     track_failed_calls: list[tuple[int, str | None]] = []
     track_completed_calls: list[tuple[int, str | None]] = []
     track_flash_calls: list[tuple[FlashTurnStats | None, FlashSessionStats | None]] = []
+    track_split_calls: list[bool] = []
     track_started_calls: list[tuple[int, str | None]] = []
 
     @activity.defn(name="track_review_failed_activity")
@@ -463,6 +467,7 @@ async def _run_full_review_pr_workflow(
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
         track_flash_calls.append((input.flash_turn, input.flash_sessions))
+        track_split_calls.append(input.skip_performance_lens_on_follow_ups)
         _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
@@ -578,6 +583,7 @@ async def _run_full_review_pr_workflow(
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
         "track_flash": track_flash_calls,
+        "track_split": track_split_calls,
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
@@ -899,6 +905,39 @@ async def test_review_pr_workflow_coordinator_replaces_the_separate_sessions_of_
         [(_, sessions)] = recorded["track_flash"]
         assert sessions is not None
         assert (sessions.lens_failures, sessions.coordinator) == (1, True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trigger_source,run_index,in_treatment,expect_performance_lens",
+    [
+        ("automatic", 2, True, False),
+        ("automatic", 1, True, True),
+        ("manual", 2, True, True),
+        ("automatic", 2, False, True),
+    ],
+)
+async def test_review_pr_workflow_drops_the_performance_lens_only_on_automatic_follow_ups_of_the_treatment_arm(
+    trigger_source: str, run_index: int, in_treatment: bool, expect_performance_lens: bool
+) -> None:
+    # The arms must differ only in that lens on automatic follow-ups, or the split measures something else.
+    # Every turn must carry the PR's arm, so whole PR lifecycles can be compared.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        review_design="single_agent",
+        lens_chunk_count=1,
+        trigger_source=trigger_source,
+        run_index=run_index,
+        review_authored_prs=True,
+        automatic_reviewed_head_sha="sha0",
+        skip_performance_lens_on_follow_ups=in_treatment,
+    )
+
+    lenses = {lens for lens, _ in recorded["lens"]}
+    assert ("performance-reliability" in lenses) is expect_performance_lens
+    assert "contracts-security" in lenses
+    assert recorded["track_split"] == [in_treatment]
 
 
 @pytest.mark.asyncio
