@@ -1,14 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
 
+import { ResultMenu as ResultMenuComponent } from 'lib/components/ResultMenu/ResultMenu'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { urls } from 'scenes/urls'
 
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { biDrilldownLogic } from './biDrilldownLogic'
-import { BIDrilldownMenu } from './BIDrilldownMenu'
+import { getBIDrillQueries, getBIDrillSelection } from './biDrilldown'
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
 
 const meta: Meta = {
@@ -32,18 +31,26 @@ function ResultMenu({ previous = false, longLabel = false }: { previous?: boolea
         ],
     }
     const query: BIVisualizationNode = { ...buildBIQuery(config)!.node, kind: NodeKind.BIVisualizationNode, config }
-    const logicProps = { key: 'result-menu-story', query, dashboardMenu: true }
-    const { inspect, setInteraction } = useActions(biDrilldownLogic(logicProps))
-    useOnMountEffect(() => {
-        setInteraction({ x: 260, y: 240, clickCount: 1 })
-        inspect({
-            status: longLabel ? 'Awaiting confirmation from the payment provider' : 'paid',
-            ...(previous ? { bi_comparison: 'Previous period' } : {}),
-        })
+    const selection = getBIDrillSelection(config, {
+        status: longLabel ? 'Awaiting confirmation from the payment provider' : 'paid',
+        ...(previous ? { bi_comparison: 'Previous period' } : {}),
     })
+    const queryUrl = urls.sqlEditor({ query: getBIDrillQueries(query, selection)!.rows })
     return (
         <div style={{ width: 520, height: 460 }}>
-            <BIDrilldownMenu logicProps={logicProps} />
+            <ResultMenuComponent
+                selectedResult={selection.labels.map(({ name, value }) => `${name}: ${value}`).join(' · ')}
+                caption={previous ? 'Comparison period' : 'Current period'}
+                interaction={{ x: 260, y: 240 }}
+                // Keep the visual preview open while the snapshot runner resizes the viewport.
+                close={() => {}}
+                actions={['View underlying rows', 'Open in SQL editor'].map((name) => ({
+                    name,
+                    className: '',
+                    to: queryUrl,
+                    onClick: () => {},
+                }))}
+            />
         </div>
     )
 }

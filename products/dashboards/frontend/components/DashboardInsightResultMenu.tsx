@@ -1,18 +1,24 @@
-import { ReactNode, useRef, useState } from 'react'
-
-import { IconCode, IconRewindPlay } from '@posthog/icons'
+import { useValues } from 'kea'
+import { ReactNode, useId, useRef, useState } from 'react'
 
 import { capturePersonsModalForClick, CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
 import { ResultMenu } from 'lib/components/ResultMenu/ResultMenu'
-import { IconTableChart } from 'lib/lemon-ui/icons'
 import { objectsEqual } from 'lib/utils/objects'
 import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPersonsRecordingFilters'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataVisualizationNode, isDataTableNode, isHogQLQuery } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isBIVisualizationNode,
+    isDataVisualizationNode,
+    isDataTableNode,
+    isHogQLQuery,
+} from '~/queries/utils'
 import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
+
+import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
 
 export function DashboardInsightResultMenu({
     insight,
@@ -37,6 +43,11 @@ export function DashboardInsightResultMenu({
             (isDataTableNode(query) && isHogQLQuery(query.source)))
             ? query
             : undefined
+    const recordingQuery = actors?.query
+    const canViewRecordings =
+        !!recordingQuery &&
+        (('includeRecordings' in recordingQuery && recordingQuery.includeRecordings) ||
+            !!actors?.additionalSelect?.matched_recordings)
     const rowsQuery: DataTableNode | undefined =
         actors?.rowsQuery ??
         (actors?.query
@@ -45,7 +56,13 @@ export function DashboardInsightResultMenu({
                   source: {
                       kind: NodeKind.ActorsQuery,
                       source: actors.query,
-                      select: ['actor', ...Object.values(actors.additionalSelect || {})],
+                      select: [
+                          ...new Set([
+                              'actor',
+                              ...Object.values(actors.additionalSelect || {}),
+                              ...(canViewRecordings ? ['matched_recordings'] : []),
+                          ]),
+                      ],
                       orderBy: actors.orderBy,
                   },
                   full: true,
@@ -58,11 +75,20 @@ export function DashboardInsightResultMenu({
                 query: isDataTableNode(sqlQuery) ? sqlQuery : { ...sqlQuery, display: ChartDisplayType.ActionsTable },
             })
           : undefined
-    const recordingQuery = actors?.query
-    const canViewRecordings =
-        !!recordingQuery &&
-        (('includeRecordings' in recordingQuery && recordingQuery.includeRecordings) ||
-            !!actors?.additionalSelect?.matched_recordings)
+    const { selectedResult: resolvedResult, resultLoading } = useValues(
+        dashboardInsightResultMenuLogic({
+            key: useId(),
+            query: position && rowsQuery && isActorsQuery(rowsQuery.source) ? rowsQuery.source : null,
+        })
+    )
+    const sqlUrl = resolvedResult?.sql
+        ? urls.sqlEditor({ query: resolvedResult.sql })
+        : sqlQuery
+          ? urls.sqlEditor({ query: sqlQuery })
+          : undefined
+    const resultUnavailableReason = resultLoading
+        ? 'Loading the selected result…'
+        : 'Could not load the selected result. Select the data point again to retry.'
     const selectedResult = actors?.title
         ? typeof actors.title === 'function'
             ? actors.title('Results')
@@ -139,7 +165,6 @@ export function DashboardInsightResultMenu({
                     actions={[
                         {
                             name: sqlQuery ? 'View underlying rows' : 'View people',
-                            icon: <IconTableChart />,
                             className: 'ResultMenu__rows',
                             to: rowsUrl,
                             inPlace: !!actors,
@@ -157,29 +182,34 @@ export function DashboardInsightResultMenu({
                         },
                         {
                             name: 'Open in SQL editor',
-                            icon: <IconCode />,
                             className: 'ResultMenu__sql',
-                            to: rowsQuery || sqlQuery ? urls.sqlEditor({ query: rowsQuery ?? sqlQuery }) : undefined,
-                            disabledReason:
-                                rowsQuery || sqlQuery ? undefined : 'Select a data point to edit its underlying query.',
+                            to: sqlUrl,
+                            disabledReason: sqlUrl
+                                ? undefined
+                                : actors
+                                  ? resultUnavailableReason
+                                  : 'Select a data point to edit its underlying query.',
                             onClick: close,
                         },
                         ...(canViewRecordings && recordingQuery
                             ? [
                                   {
                                       name: 'View recordings',
-                                      icon: <IconRewindPlay />,
                                       className: 'ResultMenu__recordings',
-                                      to: urls.replay(
-                                          ReplayTabs.Home,
-                                          getPersonsRecordingFilters(
-                                              {
-                                                  kind: NodeKind.ActorsQuery,
-                                                  source: recordingQuery,
-                                              },
-                                              []
-                                          )
-                                      ),
+                                      to: resolvedResult?.sessionIds.length
+                                          ? urls.replay(
+                                                ReplayTabs.Home,
+                                                getPersonsRecordingFilters(
+                                                    { kind: NodeKind.ActorsQuery, source: recordingQuery },
+                                                    resolvedResult.sessionIds
+                                                )
+                                            )
+                                          : undefined,
+                                      disabledReason: resolvedResult?.sessionIds.length
+                                          ? undefined
+                                          : resolvedResult
+                                            ? 'No recordings found for this result.'
+                                            : resultUnavailableReason,
                                       onClick: close,
                                   },
                               ]

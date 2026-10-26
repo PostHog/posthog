@@ -3,7 +3,7 @@ import './ResultMenu.scss'
 import { KeyboardEvent, MouseEvent, ReactNode, RefObject, useCallback, useEffect, useRef } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -18,7 +18,6 @@ import {
 
 export interface ResultMenuAction {
     name: string
-    icon: JSX.Element
     className: string
     disabledReason?: string
     onClick: () => void
@@ -99,6 +98,86 @@ export function ResultMenu({
         buttons[next]?.focus({ preventScroll: true })
     }
 
+    const selection = (
+        <div className="ResultMenu__selection" title={typeof selectedResult === 'string' ? selectedResult : undefined}>
+            <span className="text-xs text-secondary truncate">{caption}</span>
+            <strong className="truncate">{selectedResult}</strong>
+        </div>
+    )
+    const label = typeof selectedResult === 'string' ? `Explore ${selectedResult}` : 'Explore this result'
+    const onActionClick = (action: ResultMenuAction, event: MouseEvent): void => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return
+        }
+        if (action.inPlace) {
+            event.preventDefault()
+        }
+        action.onClick()
+    }
+
+    if (todayRailNav) {
+        return (
+            <DropdownMenu
+                open
+                modal={false}
+                onOpenChange={(open, details) => {
+                    if (!open) {
+                        if (
+                            details.event.target instanceof Node &&
+                            triggerRef?.current?.contains(details.event.target)
+                        ) {
+                            details.cancel()
+                        } else {
+                            close()
+                        }
+                    }
+                }}
+            >
+                <DropdownMenuContent
+                    className="ResultMenu--quill w-[300px]"
+                    data-attr="bi-result-menu"
+                    aria-label={label}
+                    alignOffset={8}
+                    sideOffset={8}
+                    anchor={{
+                        getBoundingClientRect: () =>
+                            new DOMRect(
+                                interaction?.x ?? window.innerWidth / 2,
+                                interaction?.y ?? window.innerHeight / 2,
+                                0,
+                                0
+                            ),
+                    }}
+                >
+                    {selection}
+                    {actions.map((action) => (
+                        <DropdownMenuItem
+                            key={action.name}
+                            className={action.className}
+                            disabledReason={action.disabledReason}
+                            closeOnClick={false}
+                            onClick={(event) => onActionClick(action, event)}
+                            {...(action.to && !action.disabledReason
+                                ? {
+                                      render: (
+                                          <Button
+                                              variant="default"
+                                              size="row"
+                                              left
+                                              render={<LinkPrimitive to={action.to} />}
+                                          />
+                                      ),
+                                  }
+                                : {})}
+                        >
+                            {action.name}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    }
+
     return (
         <Popover
             visible
@@ -113,104 +192,26 @@ export function ResultMenu({
                 top: Math.max(8, Math.min((interaction?.y ?? window.innerHeight / 2) + 8, window.innerHeight - 248)),
             }}
             overlay={
-                <div data-attr="bi-result-menu" data-quill={todayRailNav ? '' : undefined}>
-                    <div
-                        className="ResultMenu__selection"
-                        title={typeof selectedResult === 'string' ? selectedResult : undefined}
-                    >
-                        <span className="text-xs text-secondary truncate">
-                            <span>{caption}</span>
-                        </span>
-                        <strong className="truncate">{selectedResult}</strong>
-                    </div>
+                <div data-attr="bi-result-menu">
+                    {selection}
                     <div
                         className="ResultMenu__items"
                         role="menu"
-                        aria-label={
-                            typeof selectedResult === 'string' ? `Explore ${selectedResult}` : 'Explore this result'
-                        }
+                        aria-label={label}
                         onKeyDown={onKeyDown}
                         ref={focusMenu}
                     >
-                        {todayRailNav ? (
-                            actions.map(({ name, icon, className, onClick, disabledReason, to, inPlace }) => {
-                                const content = (
-                                    <span className="ResultMenu__action-label">
-                                        {icon}
-                                        <span>{name}</span>
-                                    </span>
-                                )
-                                const sharedProps = {
-                                    className,
-                                    onClick: (event: MouseEvent): void => {
-                                        if (
-                                            event.button !== 0 ||
-                                            event.metaKey ||
-                                            event.ctrlKey ||
-                                            event.shiftKey ||
-                                            event.altKey
-                                        ) {
-                                            return
-                                        }
-                                        if (inPlace) {
-                                            event.preventDefault()
-                                        }
-                                        onClick()
-                                    },
-                                    disabledReason,
-                                    role: 'menuitem',
-                                    'aria-label': name,
+                        <LemonMenuOverlay
+                            items={actions.map((action): LemonMenuItem => {
+                                const item = {
+                                    label: action.name,
+                                    className: action.className,
+                                    disabledReason: action.disabledReason,
+                                    onClick: (event: MouseEvent): void => onActionClick(action, event),
                                 }
-                                return (
-                                    <Button
-                                        key={name}
-                                        {...sharedProps}
-                                        variant="default"
-                                        left
-                                        render={to && !disabledReason ? <LinkPrimitive to={to} /> : undefined}
-                                    >
-                                        {content}
-                                    </Button>
-                                )
-                            })
-                        ) : (
-                            <LemonMenuOverlay
-                                items={actions.map(
-                                    ({
-                                        name,
-                                        icon,
-                                        className,
-                                        onClick,
-                                        disabledReason,
-                                        to,
-                                        inPlace,
-                                    }): LemonMenuItem => {
-                                        const item = {
-                                            label: name,
-                                            icon,
-                                            className,
-                                            disabledReason,
-                                            onClick: (event: MouseEvent): void => {
-                                                if (
-                                                    event.button !== 0 ||
-                                                    event.metaKey ||
-                                                    event.ctrlKey ||
-                                                    event.shiftKey ||
-                                                    event.altKey
-                                                ) {
-                                                    return
-                                                }
-                                                if (inPlace) {
-                                                    event.preventDefault()
-                                                }
-                                                onClick()
-                                            },
-                                        }
-                                        return to && !disabledReason ? { ...item, to } : item
-                                    }
-                                )}
-                            />
-                        )}
+                                return action.to && !action.disabledReason ? { ...item, to: action.to } : item
+                            })}
+                        />
                     </div>
                 </div>
             }

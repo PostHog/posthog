@@ -34,17 +34,7 @@
     }
 }
 
-.ResultMenu__action-label {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font-size: 13px;
-    line-height: 20px;
-    white-space: normal;
-
-    > svg {
-        flex-shrink: 0;
-        width: 16px;
-        height: 16px;
-    }
+.ResultMenu--quill .ResultMenu__selection {
+    padding-inline: 8px;
+    margin-bottom: 4px;
 }

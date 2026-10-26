@@ -632,7 +632,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return sessionIds
             },
         ],
-        recordingFilters: [(s) => [s.actorsQuery, s.sessionIdsFromLoadedActors], getPersonsRecordingFilters],
+        recordingFilters: [
+            (s) => [s.actorsQuery, s.sessionIdsFromLoadedActors],
+            (actorsQuery: ActorsQuery | null, sessionIds: string[]): Partial<RecordingUniversalFilters> =>
+                getPersonsRecordingFilters(actorsQuery, sessionIds),
+        ],
     }),
 
     afterMount(({ actions, props }) => {

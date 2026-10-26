@@ -84,7 +84,6 @@ import {
     NodeKind,
     PredicateQuickfix,
 } from '~/queries/schema/schema-general'
-import { isActorsQuery, isDataTableNode, isInsightActorsQuery } from '~/queries/utils'
 import {
     AccessControlResourceType,
     ChartDisplayType,
@@ -4344,38 +4343,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         typeof searchParams.open_query === 'object'
                             ? toDataVisualizationNode(searchParams.open_query)
                             : undefined
-                    const requestedQuery = searchParams.open_query
-                    if (
-                        isDataTableNode(requestedQuery) &&
-                        isActorsQuery(requestedQuery.source) &&
-                        isInsightActorsQuery(requestedQuery.source.source)
-                    ) {
-                        // Resolve the same actor rows as the insight drilldown to get its generated SQL.
-                        // SQL-authored URL nodes still only prefill the editor below; they never auto-run.
-                        actions.setInsightLoading(true)
-                        const isCurrentRequest = (): boolean =>
-                            !cache.disposables.isDisposed &&
-                            equal(router.values.searchParams.open_query, requestedQuery)
-                        try {
-                            const response = await performQuery(requestedQuery.source)
-                            if (!isCurrentRequest()) {
-                                return
-                            }
-                            if (!response.hogql) {
-                                throw new Error('The selected result did not return SQL.')
-                            }
-                            actions.setInsightLoading(false)
-                            actions.createTab(response.hogql)
-                        } catch {
-                            if (isCurrentRequest()) {
-                                lemonToast.error('Could not open the SQL for this result. Please try again.')
-                            }
-                        } finally {
-                            if (isCurrentRequest()) {
-                                actions.setInsightLoading(false)
-                            }
-                        }
-                    } else if (openQueryNode) {
+                    if (openQueryNode) {
                         actions.createTab(
                             openQueryNode.source.query || '',
                             undefined,

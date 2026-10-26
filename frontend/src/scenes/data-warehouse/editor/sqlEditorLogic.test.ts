@@ -1635,46 +1635,27 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_query URL parameter', () => {
-        it('opens the generated SQL of the selected actor rows without running that SQL', async () => {
-            const rows: DataTableNode = {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.ActorsQuery,
-                    source: {
-                        kind: NodeKind.InsightActorsQuery,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        it.each([NodeKind.InsightActorsQuery, NodeKind.FunnelsActorsQuery])(
+            'does not execute a URL-supplied %s',
+            async (kind) => {
+                const performQuery = jest.spyOn(queryRunner, 'performQuery')
+                try {
+                    logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                    logic.mount()
+                    router.actions.push(urls.sqlEditor(), {
+                        open_query: {
+                            kind: NodeKind.DataTableNode,
+                            source: { kind: NodeKind.ActorsQuery, source: { kind }, select: ['sleep(10)'] },
                         },
-                        day: '2026-01-02',
-                        breakdown: ['US'],
-                        series: 0,
-                    },
-                    select: ['actor'],
-                },
-            }
-            const performQuery = jest.spyOn(queryRunner, 'performQuery').mockResolvedValue({
-                hogql: "SELECT id FROM persons WHERE properties.country = 'US'",
-                results: [],
-            })
-            try {
-                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
-                logic.mount()
-                router.actions.push(urls.sqlEditor({ query: rows }))
-                await expectLogic(logic)
-                    .toDispatchActions([
-                        logic.actionCreators.setQueryInput("SELECT id FROM persons WHERE properties.country = 'US'"),
-                    ])
-                    .toNotHaveDispatchedActions(['runQuery'])
-                    .toMatchValues({
-                        queryInput: "SELECT id FROM persons WHERE properties.country = 'US'",
-                        insightLoading: false,
                     })
-                expect(performQuery).toHaveBeenCalledWith(rows.source)
-            } finally {
-                performQuery.mockRestore()
+                    await expectLogic(logic).toDispatchActions(['createTab']).toNotHaveDispatchedActions(['runQuery'])
+                    expect(performQuery.mock.calls.some(([query]) => query.kind === NodeKind.ActorsQuery)).toBe(false)
+                    expect(logic.values.insightLoading).toBe(false)
+                } finally {
+                    performQuery.mockRestore()
+                }
             }
-        })
+        )
 
         const STACKED_BAR_NODE: DataVisualizationNode = {
             kind: NodeKind.DataVisualizationNode,

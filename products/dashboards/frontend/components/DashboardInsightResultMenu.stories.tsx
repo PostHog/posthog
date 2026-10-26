@@ -6,6 +6,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
+import { mswDecorator } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightModel, InsightShortId } from '~/types'
 
@@ -66,6 +67,16 @@ function Example(): JSX.Element {
 const meta: Meta = {
     title: 'Products/Dashboards/Insight result menu',
     parameters: { mockDate: '2026-01-08', layout: 'padded' },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/ActorsQuery/': {
+                    hogql: "SELECT id FROM persons WHERE properties.$browser = 'Chrome'",
+                    results: [[{ id: 'example-person' }, [{ session_id: 'example-session' }]]],
+                },
+            },
+        }),
+    ],
     render: () => <Example />,
 }
 export default meta

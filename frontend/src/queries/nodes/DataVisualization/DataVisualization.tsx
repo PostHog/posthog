@@ -369,7 +369,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             query.kind === NodeKind.BIVisualizationNode && pieDimension
                 ? createBIMemberFormatter(query.config, pieDimension.field)
                 : undefined
-        if (memberFormatter) {
+        if (query.kind === NodeKind.BIVisualizationNode) {
             if (pieData.yData.every((series) => 'breakdownValue' in series)) {
                 pieYData = pieData.yData.map((series) => {
                     const key = JSON.stringify([series.breakdownValue, series.name])
@@ -382,7 +382,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     ...pieXData,
                     data: pieXData.data.map((value) => {
                         const key = JSON.stringify(value ?? null)
-                        aliasLabels.set(key, memberFormatter(value))
+                        aliasLabels.set(key, memberFormatter ? memberFormatter(value) : String(value ?? '[No value]'))
                         records.set(key, { [pieData.xData!.column.name]: value })
                         return key
                     }),

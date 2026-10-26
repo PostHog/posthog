@@ -1,10 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { RefObject } from 'react'
 
-import { IconCode } from '@posthog/icons'
-
 import { ResultMenu, ResultMenuAction } from 'lib/components/ResultMenu/ResultMenu'
-import { IconTableChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { BIDrilldownProps, biDrilldownLogic } from './biDrilldownLogic'
@@ -26,7 +23,6 @@ export function BIDrilldownMenu({
     const actions: ResultMenuAction[] = [
         {
             name: 'View underlying rows',
-            icon: <IconTableChart />,
             className: 'ResultMenu__rows',
             disabledReason: !queries ? 'Check the worksheet’s data source and fields before trying again.' : undefined,
             onClick: viewRows,
@@ -35,7 +31,6 @@ export function BIDrilldownMenu({
         },
         {
             name: 'Open in SQL editor',
-            icon: <IconCode />,
             className: 'ResultMenu__sql',
             disabledReason: !queries ? 'Check the worksheet’s data source and fields before trying again.' : undefined,
             onClick: openSqlEditor,
