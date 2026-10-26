@@ -149,6 +149,38 @@ class TestWindowedCalls:
         assert result.requests[0].param("fromDateTime") == _format_datetime(resume_start)
 
 
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gong.io/v2/workspaces"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.gong.io/v2/calls"),
+            # The account's Call Library feature isn't enabled, so every retry replays the same
+            # unfiltered request against /v2/library/folders and fails identically.
+            (
+                "library_folders_disabled",
+                "400 Client Error: Bad Request for url: https://api.gong.io/v2/library/folders",
+            ),
+            # A later page's cursor lands in the query string, but the match is still a prefix hit.
+            (
+                "library_folders_disabled_later_page",
+                "400 Client Error: Bad Request for url: https://api.gong.io/v2/library/folders?cursor=abc",
+            ),
+        ]
+    )
+    def test_matches_known_permanent_failures(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in GongSource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            # A 400 on a different endpoint must still surface rather than be swallowed.
+            ("bad_request_elsewhere", "400 Client Error: Bad Request for url: https://api.gong.io/v2/calls"),
+            ("read_timeout", "ReadTimeout: HTTPSConnectionPool(host='api.gong.io', port=443): Read timed out."),
+        ]
+    )
+    def test_does_not_match_unrelated_or_transient_failures(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in GongSource().get_non_retryable_errors())
+
+
 class TestGongSource:
     @parameterized.expand(
         [
