@@ -392,6 +392,7 @@ rules:
                               |SignalReportArtefact
                               |SignalReportCheck
                               |SignalReportMonitoringAttempt
+                              |SignalReportMonitoringResult
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -870,6 +871,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -1218,6 +1220,7 @@ rules:
                         |SignalReportArtefact
                         |SignalReportCheck
                         |SignalReportMonitoringAttempt
+                        |SignalReportMonitoringResult
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig

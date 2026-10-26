@@ -36,7 +36,7 @@ from typing import Any, Literal, TypeGuard, get_args
 from posthog.hogql.property import parse_semver
 
 from posthog.dataclasses import frozen
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.facade.config import FlagReturnType, RuleType, detect_config_format
@@ -78,15 +78,6 @@ PROPERTY_OPERATORS: frozenset[str] = frozenset(
         "gte",
         "lt",
         "lte",
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
         "is_set",
         "is_not_set",
         "is_date_exact",
@@ -97,6 +88,7 @@ PROPERTY_OPERATORS: frozenset[str] = frozenset(
         "flag_evaluates_to",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
+    | set(SEMVER_OPERATORS)
 )
 # Operator/value shapes mirror the v1 cross-field tier (filters_validation.py) so a property
 # the v1 evaluator would reject is rejected here too. That module is the v1 tier (it imports
@@ -107,7 +99,6 @@ _STRING_VALUE_OPERATORS = frozenset({"regex", "not_regex", "icontains", "not_ico
 )
 _NUMERIC_COMPARISON_OPERATORS = frozenset({"gt", "gte", "lt", "lte"})
 _LIST_VALUE_OPERATORS = frozenset({"icontains_multi", "not_icontains_multi"})
-_SEMVER_OPERATORS = frozenset({op for op in PROPERTY_OPERATORS if op.startswith("semver_")})
 _NON_PERSON_OPERATORS = frozenset({"in", "not_in", "flag_evaluates_to"})
 
 _ROOT_FIELDS = frozenset({"version", "return_type", "default_value", "rules", "aggregation_group_type_index"})
@@ -573,7 +564,7 @@ def _property_value_error(operator: str, value: Any) -> str | None:
         return "Must be a number or a string."
     if operator in _LIST_VALUE_OPERATORS and not isinstance(value, list):
         return "Must be an array."
-    if operator in _SEMVER_OPERATORS and not (
+    if operator in SEMVER_OPERATORS and not (
         isinstance(value, str) and _is_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
     ):
         return "Must be a semver string."

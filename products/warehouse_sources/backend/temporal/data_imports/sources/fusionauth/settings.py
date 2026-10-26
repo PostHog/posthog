@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -37,6 +40,18 @@ class FusionAuthEndpointConfig:
     order_by: str = "insertInstant ASC"
     # Dotted paths removed from every row before it is written, for secrets the API returns.
     exclude_fields: tuple[str, ...] = ()
+    # "GET" endpoints are unpaginated lookups that return the whole collection in one response.
+    method: Literal["POST", "GET"] = "POST"
+    # GET only: also request the deactivated rows with `<param>=true`, deduplicated on `id`.
+    inactive_param: Optional[str] = None
+    # Elasticsearch-style searches (users, entities) take a `queryString` and `sortFields`
+    # instead of the database searches' `orderBy`.
+    query_string_search: bool = False
+    # Emit one row per element of this list field of each parent row, instead of the row itself.
+    explode_field: Optional[str] = None
+    # Per-user child endpoints: one GET per user returned by the user search.
+    fanout: Optional[DependentEndpointConfig] = None
+    default_incremental_field: Optional[str] = None
 
 
 # Search endpoints only: FusionAuth also has non-search read APIs (e.g. GET /api/user/{id})
@@ -56,6 +71,7 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
         # Standard search window caps around 10k results (search_after/nextResults token
         # pagination for deeper scans is not implemented here).
         maximum_offset=9_900,
+        query_string_search=True,
     ),
     "AuditLogs": FusionAuthEndpointConfig(
         name="AuditLogs",
@@ -130,6 +146,105 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
         incremental_fields=[],
         partition_key="insertInstant",
         order_by="id ASC",
+    ),
+    "Consents": FusionAuthEndpointConfig(
+        name="Consents",
+        path="/api/consent/search",
+        data_selector="consents",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
+    ),
+    "Entities": FusionAuthEndpointConfig(
+        name="Entities",
+        path="/api/entity/search",
+        data_selector="entities",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        maximum_offset=9_900,
+        query_string_search=True,
+        exclude_fields=("clientSecret",),
+    ),
+    "EntityGrants": FusionAuthEndpointConfig(
+        name="EntityGrants",
+        path="/api/entity/grant/search",
+        data_selector="grants",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        # Grant search only orders by `insertInstant` or `name`.
+        order_by="insertInstant ASC",
+        exclude_fields=("entity.clientSecret",),
+    ),
+    # Registrations have no list API (only GET /api/user/registration/{userId}/{applicationId}), but
+    # every user search result embeds the user's registrations, so they are read from there.
+    "UserRegistrations": FusionAuthEndpointConfig(
+        name="UserRegistrations",
+        path="/api/user/search",
+        data_selector="users",
+        # A user has at most one registration per application.
+        primary_keys=["userId", "applicationId"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        maximum_offset=9_900,
+        query_string_search=True,
+        explode_field="registrations",
+        exclude_fields=("tokens", "authenticationToken"),
+    ),
+    "UserConsents": FusionAuthEndpointConfig(
+        name="UserConsents",
+        path="/api/user/consent?userId={user_id}",
+        data_selector="userConsents",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        fanout=DependentEndpointConfig(
+            parent_name="Users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=[],
+            # A user deleted between the user search and this request.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "UserActionLogs": FusionAuthEndpointConfig(
+        name="UserActionLogs",
+        path="/api/user/action?userId={user_id}",
+        data_selector="actions",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        fanout=DependentEndpointConfig(
+            parent_name="Users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "UserActions": FusionAuthEndpointConfig(
+        name="UserActions",
+        path="/api/user-action",
+        data_selector="userActions",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        # Deactivated actions are listed separately, and past action logs can still reference them.
+        inactive_param="inactive",
+    ),
+    "UserActionReasons": FusionAuthEndpointConfig(
+        name="UserActionReasons",
+        path="/api/user-action-reason",
+        data_selector="userActionReasons",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
     ),
 }
 

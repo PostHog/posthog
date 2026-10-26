@@ -927,6 +927,122 @@ describe('cohortEditLogic', () => {
                 definitions.unmount()
             }
         )
+
+        it.each([
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.StartsWith,
+                value: 'Chr',
+                label: 'starts with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.NotStartsWith,
+                value: 'Chr',
+                label: 'does not start with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.EndsWith,
+                value: 'ome',
+                label: 'ends with',
+            },
+            {
+                key: '$browser',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.NotEndsWith,
+                value: 'ome',
+                label: 'does not end with',
+            },
+            {
+                key: '$app_version',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.SemverGte,
+                value: '1.2.3',
+                label: 'greater than or equal (semver)',
+            },
+            {
+                key: 'birth_date',
+                propertyType: PropertyType.DateTime,
+                operator: PropertyOperator.IsSet,
+                value: null,
+                label: 'is set',
+            },
+            {
+                key: 'birth_date',
+                propertyType: PropertyType.DateTime,
+                operator: PropertyOperator.IsNotSet,
+                value: null,
+                label: 'is not set',
+            },
+        ])(
+            'prefills a recent person filter with $operator during cohort creation',
+            async ({ key, propertyType, operator, value, label }) => {
+                const definitions = propertyDefinitionsModel.build()
+                definitions.mount()
+                definitions.actions.updatePropertyDefinitions({
+                    [`person/${key}`]: {
+                        id: key,
+                        name: key,
+                        property_type: propertyType,
+                    },
+                })
+                const recentFilters = recentTaxonomicFiltersLogic.build()
+                recentFilters.mount()
+                recentFilters.actions.clearRecentFilters()
+                recordPersonRecent(recentFilters, key, operator, value)
+                logic = cohortEditLogic({ id: 'new' })
+                logic.mount()
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    filters: {
+                        properties: {
+                            ...NEW_COHORT.filters.properties,
+                            values: [
+                                {
+                                    ...NEW_CRITERIA_GROUP,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Person,
+                                            value: BehavioralEventType.HaveProperty,
+                                            event_type: TaxonomicFilterGroupType.PersonProperties,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+
+                render(<CohortEdit id="new" />)
+                await userEvent.click(await screen.findByText('Choose person property'))
+                await userEvent.click(await screen.findByTestId('prop-filter-suggested_filters-1'))
+
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(
+                        expect.objectContaining({
+                            key,
+                            operator,
+                            value_property: value ?? undefined,
+                        })
+                    )
+                    expect(document.querySelector('[data-attr="cohort-selector-field-operator"]')).toHaveTextContent(
+                        label
+                    )
+                    if (value) {
+                        expect(screen.getByText(value)).toBeInTheDocument()
+                    }
+                })
+                recentFilters.unmount()
+                definitions.unmount()
+            }
+        )
     })
 
     describe('locked type and populate-from controls on existing cohorts', () => {

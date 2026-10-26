@@ -96,6 +96,8 @@ class AdmittedInsightCheck:
     configuration_id: str
     real_time: bool = False
     uses_llm_detector: bool = False
+    # The platform owns the alert, so this check is the one that notifies.
+    owned_by_platform: bool = False
 
 
 @frozen
@@ -105,6 +107,7 @@ class InsightCheckInputs:
     held_until: float
     # The worker this check was routed to. Only the AI queue's worker holds the model credentials.
     uses_llm_detector: bool = False
+    owned_by_platform: bool = False
 
 
 @activity.defn
@@ -165,6 +168,7 @@ def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> lis
                 configuration_id=configuration_id,
                 real_time=alert is not None and alert.calculation_interval == AlertCalculationInterval.REAL_TIME,
                 uses_llm_detector=alert is not None and is_llm_detector_config(alert.detector_config),
+                owned_by_platform=alert is not None and alert.platform_owned,
             )
         )
     return checks
@@ -216,19 +220,21 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Sour
 async def evaluate_platform_insight_llm_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
     """An AI detector check. It runs on the AI queue, because only that worker holds the model
     credentials, on the pool production's AI checks use, so the worker never runs more checks than
-    the judge has model-call slots. `PLATFORM_LLM_CHECKS` caps how many of its threads this takes."""
+    the judge has model-call slots. `PLATFORM_LLM_CHECKS` caps how many of its threads a parallel
+    check takes. A check of an alert the platform owns is production's own, so it skips that cap,
+    as production's checks do."""
     from posthog.sync import database_sync_to_async  # noqa: PLC0415
 
     from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR  # noqa: PLC0415
     from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS  # noqa: PLC0415
 
     info = activity.info()
+    evaluate = database_sync_to_async(_evaluate_check, thread_sensitive=False, executor=LLM_EVALUATE_EXECUTOR)
+    final_attempt = info.attempt >= LLM_CHECK_RETRY_POLICY.maximum_attempts
+    if inputs.owned_by_platform:
+        return await evaluate(inputs, info, final_attempt=final_attempt)
     await PLATFORM_LLM_CHECKS.acquire()
-    thread = asyncio.ensure_future(
-        database_sync_to_async(_evaluate_check, thread_sensitive=False, executor=LLM_EVALUATE_EXECUTOR)(
-            inputs, info, final_attempt=info.attempt >= LLM_CHECK_RETRY_POLICY.maximum_attempts
-        )
-    )
+    thread = asyncio.ensure_future(evaluate(inputs, info, final_attempt=final_attempt))
     thread.add_done_callback(_release_platform_llm_check)
     # Shielded, so a cancelled attempt leaves the thread holding its place in the cap until it ends.
     return await asyncio.shield(thread)
@@ -323,7 +329,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         self, inputs: SourceEvaluationInputs, admitted: AdmittedInsightCheck, expires_at: float
     ) -> SourceBatchEvaluation | None:
         check_inputs = InsightCheckInputs(
-            evaluation=inputs, configuration_id=admitted.configuration_id, held_until=expires_at
+            evaluation=inputs,
+            configuration_id=admitted.configuration_id,
+            held_until=expires_at,
+            owned_by_platform=admitted.owned_by_platform,
         )
         if admitted.uses_llm_detector and workflow.patched(_PATCH_AI_DETECTOR_QUEUE):
             return await workflow.execute_activity(
