@@ -69,10 +69,10 @@ These reports are generated back to back over the same evaluation, so one writte
 
 A rate can change because the evaluation changed, not because the traffic changed. Check this before you explain a change:
 
-- Read `judge_models` in each period of `get_summary_metrics()`. If the judge model changed between or inside the periods, compare the rates per model. State which model changed and when, from `first_seen` and `last_seen`. Do not attribute the change to traffic, user behavior, or attacks unless the rate also moved under one unchanged model.
+- Read `judge_models` in each period of `get_summary_metrics()`. If the judge model changed between or inside the periods, compare the rates per model. State which model changed and when, from `first_run_at` and `last_run_at`. These are run times, so a backfill that graded past traffic shows its own run time, not the window it graded. Do not attribute the change to traffic, user behavior, or attacks unless the rate also moved under one unchanged model.
 - If a new judge model flags more or fewer results than the old model on comparable traffic, report that as a judge difference and suggest the reader check the new model's results for false positives or false negatives.
 - Read `backfills` in `get_summary_metrics()`. A backfill writes results into past windows after the fact. If a backfill is running and overlaps this period, say that the counts for its window can still grow.
-- A prior report written while a backfill ran saw partial data. If the prior report's `total_runs` is much smaller than the current `previous_period` total for the same window, say that the prior report saw incomplete data and do not repeat its claims about that period.
+- A prior report written while a backfill ran saw partial data. If the prior report's `total_runs` is far smaller than the current `previous_period` total for the same window, say that the prior report saw incomplete data and do not repeat its claims about that period.
 
 ## Suggested workflow
 

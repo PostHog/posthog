@@ -348,19 +348,18 @@ class TestSummaryMetrics(SimpleTestCase):
 
         current_models = result["current_period"]["judge_models"]
         self.assertEqual([model["model"] for model in current_models], ["judge-a", "judge-b"])
-        self.assertEqual(current_models[1]["first_seen"], "2026-04-08 14:30:00")
+        self.assertEqual(current_models[1]["first_run_at"], "2026-04-08 14:30:00")
         self.assertEqual(current_models[0]["result_rates"]["fail"], 1.0)
         self.assertEqual(current_models[1]["result_rates"]["fail"], 4.0)
         self.assertEqual([model["model"] for model in result["previous_period"]["judge_models"]], ["judge-a"])
         self.assertEqual(result["backfills"], [backfill])
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
-    def test_distribution_merges_judge_models_into_one_bucket(self, mock_execute_hogql):
+    def test_distribution_reports_runs_per_judge_model_without_unmodeled_results(self, mock_execute_hogql):
         mock_execute_hogql.return_value = [
-            ["2026-04-08 14:00:00", "", 0, 0, 5, 5],
-            ["2026-04-08 14:00:00", "judge-a", 9, 1, 0, 10],
-            ["2026-04-08 14:00:00", "judge-b", 6, 4, 0, 10],
-            ["2026-04-08 15:00:00", "judge-b", 7, 3, 0, 10],
+            ["2026-04-08 14:00:00", {"": 5, "judge-a": 10, "judge-b": 10}, 15, 5, 5, 25],
+            ["2026-04-08 15:00:00", {"judge-b": 10}, 7, 3, 0, 10],
+            ["2026-04-08 16:00:00", {"": 4}, 0, 0, 4, 4],
         ]
         state = {
             "team_id": 1,
@@ -372,11 +371,12 @@ class TestSummaryMetrics(SimpleTestCase):
 
         result = json.loads(_get_result_distribution_over_time_fn(state=state))
 
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 3)
         self.assertEqual(result[0]["total_runs"], 25)
         self.assertEqual(result[0]["result_counts"], {"pass": 15, "fail": 5, "na": 5})
         self.assertEqual(result[0]["judge_model_runs"], {"judge-a": 10, "judge-b": 10})
         self.assertEqual(result[1]["judge_model_runs"], {"judge-b": 10})
+        self.assertNotIn("judge_model_runs", result[2])
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
