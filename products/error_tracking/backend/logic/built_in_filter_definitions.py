@@ -4,6 +4,9 @@ A team that turns a filter on gets one `ErrorTrackingSuppressionRule` row with t
 and a hash of the filters it was built from.
 The refresh workflow rewrites every row whose hash differs from the current definition,
 so a change here, including a change to the bot list it reads, reaches every team without a manual step.
+The error tracking Temporal worker redeploys only when a file in its path filter changes,
+so the errorTracking filter in .github/workflows/container-images-cd.yml must list every file
+outside this product that the definitions read.
 
 Every pattern here comes from PostHog's own data or from public facts:
 React's error decoder pages, bundler and browser error text, and browser release history.
