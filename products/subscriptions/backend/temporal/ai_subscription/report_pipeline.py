@@ -139,8 +139,16 @@ def _no_rows_notice(*, include_manage_link: bool = True) -> str:
     return notice + "\n\n"
 
 
-async def _no_rows_report(rendered: Sequence[str], *, include_manage_link: bool) -> str:
-    return _no_rows_notice(include_manage_link=include_manage_link) + "\n\n".join(rendered)
+async def _no_rows_report(execution: "PlanExecution", *, include_manage_link: bool) -> str:
+    total_steps = len(execution.rendered)
+    if execution.failed_count == total_steps:
+        return _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link)
+    if execution.failed_count:
+        notice = "> ⚠️ This report has no results to summarize. Some queries failed to run. The other queries returned no data."
+        if include_manage_link:
+            notice += " Use the Manage subscription link to review the generated queries and their errors."
+        return notice + "\n\n"
+    return _no_rows_notice(include_manage_link=include_manage_link)
 
 
 def _validate_step_chart(
@@ -292,11 +300,11 @@ async def generate_ai_report(
                     requested=len(charts),
                     selected=len(selected),
                 )
-            no_step_has_rows = execution.no_rows_count > 0 and (
+            no_step_has_rows = bool(spec.plan.steps) and (
                 execution.no_rows_count + failed_count == len(spec.plan.steps)
             )
             synthesis_task = asyncio.ensure_future(
-                _no_rows_report(execution.rendered, include_manage_link=include_manage_link)
+                _no_rows_report(execution, include_manage_link=include_manage_link)
                 if no_step_has_rows
                 else _synthesize(spec, execution.rendered, team, user, trace_correlation_id, execution.source_urls)
             )
@@ -344,11 +352,6 @@ async def generate_ai_report(
             )
         if dropped and rendered_charts:
             report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
-        if total_steps and failed_count == total_steps:
-            # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
-            # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
-            # instead of a confident-looking but empty report.
-            report = _all_queries_failed_notice(total_steps, include_manage_link=include_manage_link) + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
             freshly_planned=freshly_planned,

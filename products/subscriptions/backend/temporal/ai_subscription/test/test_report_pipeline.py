@@ -291,9 +291,8 @@ async def test_degraded_report_still_synthesizes(
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    # Every query failed, so the delivered report leads with the deterministic failure notice
-    # prepended to the synthesis output, not a bare confident-looking report.
-    assert result.markdown == _all_queries_failed_notice(1) + "# Weekly report"
+    assert result.markdown == _all_queries_failed_notice(1)
+    mock_chat.assert_not_called()
     # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
     assert result.diagnostics == (
         QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
@@ -489,9 +488,9 @@ async def test_synthesis_prompt_carries_the_failure_marker(
 ) -> None:
     # The marker is injected into the synthesis prompt from the same constant the placeholder renders, so
     # the prompt's "this is an error, not 'no data'" instruction can't drift from what _run_steps emits.
-    mock_bep.return_value = _spec(steps=1)
+    mock_bep.return_value = _spec(steps=2)
     mock_run.return_value = PlanExecution(
-        rendered=["### s0\n\nfailed"],
+        rendered=["### s0\n\nfailed", "### s1\n\nresults"],
         failed_count=1,
         diagnostics=[
             QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")
@@ -550,7 +549,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
             _NO_ROWS_RUN,
             True,
             "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
-            "summarize. Use the Manage subscription link to review the generated queries.\n\n" + _NO_ROWS_STEP,
+            "summarize. Use the Manage subscription link to review the generated queries.\n\n",
             False,
             id="every_step_empty",
         ),
@@ -566,8 +565,7 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
                 no_rows_count=1,
             ),
             False,
-            "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
-            "summarize.\n\n" + _NO_ROWS_STEP + "\n\n" + _FAILED_STEP,
+            "> ⚠️ This report has no results to summarize. Some queries failed to run. The other queries returned no data.\n\n",
             False,
             id="empty_and_failed_without_manage_link",
         ),
