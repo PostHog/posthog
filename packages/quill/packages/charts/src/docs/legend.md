@@ -3,6 +3,7 @@
 Every multi-series chart (`LineChart`, `BarChart`, `TimeSeriesLineChart`, `TimeSeriesBarChart`, `TimeSeriesComboChart`, `SlopeChart`, `PieChart`, `ProportionBar`) takes `config.legend: ChartLegendConfig`.
 Hidden by default; `show: true` renders the built-in legend.
 `ProportionBar` is the exception: its legend shows by default, below the bar, because the bar has no axis to read a size from.
+`FlameGraph` takes the same config for its color legend, which also shows by default, below the graph. It honors `show`, `position`, `align` and `gap`, and its rows are not clickable, because they list colors rather than series.
 The fields are documented on `ChartLegendConfig` in `core/types.ts`.
 
 ## Click model
