@@ -4912,9 +4912,9 @@ Today (7): `CollectionItems`, `Collections`, `Deployments`, `Locales`, `Pages`, 
 
 Diffed against: <https://registry.npmjs.org/framer-api/-/framer-api-5.1.0.tgz>
 
-- [ ] `Localization groups (Server API RPC listLocalizationGroups())` — measure translation readiness and locale coverage for pages and CMS items (medium)
-- [ ] `Changed page paths (Server API RPC getChangedPaths())` — track pages added, removed, or modified between project versions (medium)
-- [ ] `Change contributors (Server API RPC getChangeContributors())` — attribute content changes between project versions to their authors (medium)
+- [x] `Localization groups (Server API RPC listLocalizationGroups())` — measure translation readiness and locale coverage for pages and CMS items (medium) → `LocalizationGroups` (full refresh; streamed through the `listLocalizationGroupsNext` cursor on 5.1.0, `getLocalizationGroups` on 0.1.29)
+- [x] `Changed page paths (Server API RPC getChangedPaths())` — track pages added, removed, or modified between project versions (medium) → `UnpublishedPageChanges` (full refresh; built on `getUnpublishedPageChanges()`, because framer-api 5.1.0 deprecates `getChangedPaths()` in its favour, and both compare the current draft with the last publish, not two chosen versions)
+- [ ] `Change contributors (Server API RPC getChangeContributors())` — attribute content changes between project versions to their authors (medium); skipped: the RPC is alpha, takes version numbers that no other RPC exposes, and returns bare strings with no documented meaning
 
 Note: Read the official framer-api 5.1.0 declarations, the shared API reference, and the Server API reference. These collection reads use RPC methods, not REST paths. Collections already include field definitions, and Project already includes publishing information. Excluded canvas editing, plugin state, code files, and publishing writes; version comparisons need explicit version windows.
 
