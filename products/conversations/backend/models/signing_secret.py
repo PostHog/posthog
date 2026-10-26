@@ -44,7 +44,8 @@ class SigningSecret(UUIDModel):
     rotated_independently = models.BooleanField(default=False)
     # The secret that `secret` replaced, kept verifying for PREVIOUS_SECRET_GRACE after
     # previous_secret_rotated_at so in-flight hashes survive a rotation. Expiry is judged
-    # at read time; the value is never cleared, only superseded by the next rotation.
+    # at read time; the next rotation supersedes the value, and the revocation paths
+    # (expire_previous, the rotation and backup-deletion receivers) clear it.
     previous_secret = EncryptedTextField(null=True)
     previous_secret_rotated_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
