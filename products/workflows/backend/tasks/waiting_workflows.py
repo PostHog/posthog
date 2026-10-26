@@ -1,5 +1,3 @@
-from collections.abc import Sequence
-
 from django.db import DatabaseError
 
 from celery import shared_task
@@ -39,18 +37,16 @@ def enable_waiting_workflows_task(self, team_id: int, sender_ids: list[int]) -> 
     # Deferred because the writes module imports this tasks package.
     from products.workflows.backend.services.hog_flow_writes import enable_waiting  # noqa: PLC0415
 
-    went_live: list[StatusChange] = []
     try:
         for change in enable_waiting(team_id=team_id, sender_ids=frozenset(sender_ids)):
-            went_live.append(change)
+            # A retry skips the workflows that are live already, so each one's events go out before the next
+            # workflow can fail.
+            _send_events(team_id, change)
     except (DatabaseError, RedisError):
         if self.request.retries < ENABLE_WAITING_MAX_RETRIES:
             raise
         logger.exception("workflows.enable_waiting.failed", team_id=team_id, sender_ids=sender_ids)
         enable_waiting_failed_total.inc()
-    finally:
-        # A retry skips the workflows that are live already, so their events go out now or never.
-        _send_events(team_id, went_live)
 
 
 # Runs after the verification committed, so a broker failure must not fail the request that verified the domain.
@@ -62,8 +58,8 @@ def queue_enable_waiting_workflows(*, team_id: int, sender_ids: list[int]) -> No
         enable_waiting_failed_total.inc()
 
 
-def _send_events(team_id: int, changes: Sequence[StatusChange]) -> None:
-    events = [event for change in changes for event in change.events]
+def _send_events(team_id: int, change: StatusChange) -> None:
+    events = change.events
     if not events:
         return
     team = Team.objects.get(pk=team_id)
