@@ -31,9 +31,19 @@ from posthog.temporal.common.client import async_connect
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.activity_summary import read as activity_summary_read
 from products.signals.backend.activity_summary.read import (
-    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
+)
+from products.signals.backend.anomaly_scores import search as anomaly_search
+from products.signals.backend.anomaly_scores.search import (
+    AnomalyDashboardNotFound as AnomalyDashboardNotFound,
+    AnomalyGroupBy as AnomalyGroupBy,
+    AnomalyHistoryFilters as AnomalyHistoryFilters,
+    AnomalyInsightHistory as AnomalyInsightHistory,
+    AnomalyInterval as AnomalyInterval,
+    AnomalySearchFilters as AnomalySearchFilters,
+    AnomalySearchResult as AnomalySearchResult,
 )
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
@@ -219,6 +229,18 @@ def list_activity_summary_versions(
 ) -> list[ActivitySummaryVersionView] | None:
     """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
     return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
+
+
+def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, now: datetime) -> AnomalySearchResult:
+    """The anomaly rate of each scored insight series the user can read, most anomalous first."""
+    return anomaly_search.search(team, user, filters, now)
+
+
+def get_anomaly_insight_history(
+    *, team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime
+) -> AnomalyInsightHistory | None:
+    """Every scored series of one insight with its buckets, or None when the user cannot read the insight."""
+    return anomaly_search.insight_history(team, user, filters, now)
 
 
 @frozen
@@ -880,26 +902,30 @@ async def emit_signal(
     # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
     # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
     # subtracted: started - signal_data_source_filtered - emitted = failures.
-    try:
-        posthoganalytics.capture(
-            event="signal_emission_started",
-            distinct_id=str(team.uuid),
-            properties={
-                **_telemetry_props_from_extra(extra),
-                "source_product": source_product,
-                "source_type": source_type,
-                "source_id": source_id,
-            },
-            groups=groups(organization, team),
-        )
-    except Exception:
-        # Swallow the exception, to avoid breaking the flow over failed analytics event
-        logger.exception(
-            "Failed to capture signal_emission_started event",
-            source_product=source_product,
-            source_type=source_type,
-            source_id=source_id,
-        )
+    def capture_emission_event(event: str, properties: dict[str, Any] | None = None) -> None:
+        try:
+            posthoganalytics.capture(
+                event=event,
+                distinct_id=str(team.uuid),
+                properties={
+                    **_telemetry_props_from_extra(extra),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                    "source_id": source_id,
+                    **(properties or {}),
+                },
+                groups=groups(organization, team),
+            )
+        except Exception:
+            # Swallow the exception, to avoid breaking the flow over failed analytics event
+            logger.exception(
+                f"Failed to capture {event} event",
+                source_product=source_product,
+                source_type=source_type,
+                source_id=source_id,
+            )
+
+    capture_emission_event("signal_emission_started")
 
     signal_id = signal_id or signal_id_for(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
@@ -975,30 +1001,14 @@ async def emit_signal(
     except temporalio.exceptions.WorkflowAlreadyStartedError:
         if emitter_idempotency_key is None:
             raise
+        # A repeated idempotency key is a deliberate dedupe, so label it rather than leave it to
+        # read as a dispatch failure in started - filtered - emitted.
+        capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
         return
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.
-    try:
-        posthoganalytics.capture(
-            event="signal_emitted",
-            distinct_id=str(team.uuid),
-            properties={
-                **_telemetry_props_from_extra(extra),
-                "source_product": source_product,
-                "source_type": source_type,
-                "source_id": source_id,
-            },
-            groups=groups(organization, team),
-        )
-    except Exception:
-        # Swallow the exception, to avoid breaking the flow over failed analytics event
-        logger.exception(
-            "Failed to capture signal_emitted event",
-            source_product=source_product,
-            source_type=source_type,
-            source_id=source_id,
-        )
+    capture_emission_event("signal_emitted")
 
 
 def forward_report_discussion_note(

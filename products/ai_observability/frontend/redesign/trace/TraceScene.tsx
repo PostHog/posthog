@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
+import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
 import { NodeDetailTab, TraceMode } from './types'
@@ -14,6 +15,7 @@ type ReadyValues = Pick<
     | 'selectedNodeId'
     | 'detailData'
     | 'detailTab'
+    | 'datasetItemSource'
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
@@ -48,6 +50,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
               }
             : null,
         thread: values.thread,
@@ -70,6 +73,7 @@ export function TraceScene(): JSX.Element {
         selectedNodeId,
         detailData,
         detailTab,
+        datasetItemSource,
         canViewInThread,
         thread,
         timeline,
@@ -87,6 +91,7 @@ export function TraceScene(): JSX.Element {
                       selectedNodeId,
                       detailData,
                       detailTab,
+                      datasetItemSource,
                       canViewInThread,
                       thread,
                       timeline,

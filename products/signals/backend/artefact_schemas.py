@@ -306,6 +306,34 @@ class ReviewerState(BaseModel):
     corrections_id: UUID | None = None
 
 
+class PROwnerIdentityProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["github_user_integration", "github_oauth"]
+    user_uuid: UUID
+    github_user_id: int
+    verified_at: datetime
+    expires_at: datetime
+
+
+class PROwnerIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    login: str = Field(pattern=r"^[a-z0-9](?:-?[a-z0-9]){0,38}$")
+    proof: PROwnerIdentityProof | None = None
+
+
+class PROwnerAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repository: str
+    pr_number: int = Field(gt=0)
+    owners: tuple[PROwnerIdentity, ...]
+    origin: Literal["report", "claim", "legacy"]
+    assigned_at: datetime
+    replaced_logins: tuple[str, ...] = ()
+
+
 class ReviewerCorrections(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -1234,6 +1262,7 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
+    | PROwnerAssignment
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1268,6 +1297,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "reviewer_corrections": ReviewerCorrections,
+    "pr_owner_assignment": PROwnerAssignment,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1323,6 +1353,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "reviewer_corrections",
+        "pr_owner_assignment",
         "task_run",
         "video_segment",
         "title_change",

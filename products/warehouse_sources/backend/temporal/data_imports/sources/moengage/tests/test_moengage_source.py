@@ -65,3 +65,14 @@ class TestMoEngageValidateCredentials:
         assert request.path == "/v5/campaigns/search"
         assert request.headers["moe-appkey"] == "ws-1"
         assert request.json() == {"limit": 1, "page": 1}
+
+
+class TestMoEngageGetSchemas:
+    @pytest.mark.parametrize(("data_center", "offers_flows"), [("01", True), ("101", False)])
+    def test_flows_table_is_offered_only_where_the_flows_api_is_served(
+        self, data_center: str, offers_flows: bool
+    ) -> None:
+        names = {schema.name for schema in MoEngageSource().get_schemas(_config(data_center), team_id=1)}
+
+        assert ("flows" in names) is offers_flows
+        assert {"segments", "subscription_categories"} <= names

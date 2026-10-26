@@ -94,6 +94,7 @@ Match what the user asked for:
 ### 5. Stop when done
 
 `hogli devbox:stop` keeps the disk and stops billing.
+It also pauses the box's `devbox:sync` mirror, and `devbox:start` resumes it.
 Stops, starts, and `devbox:update` keep `/home`.
 `hogli devbox:destroy` deletes it, so don't keep anything irreplaceable only on a box.
 

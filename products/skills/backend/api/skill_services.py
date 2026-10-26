@@ -383,8 +383,11 @@ def get_skill_by_name_from_db(
     version_id: str | None = None,
     *,
     include_archived: bool = False,
+    defer_body: bool = False,
 ) -> LLMSkill | None:
     queryset = get_active_skill_queryset(team).filter(name=skill_name)
+    if defer_body:
+        queryset = queryset.defer("body")
 
     if version_id is not None:
         # `include_archived` honours a pin to one immutable version row even after
@@ -395,6 +398,8 @@ def get_skill_by_name_from_db(
             if include_archived
             else queryset.filter(id=version_id)
         )
+        if defer_body:
+            rows = rows.defer("body")
         if version is not None:
             rows = rows.filter(version=version)
         return rows.order_by("created_at", "id").first()

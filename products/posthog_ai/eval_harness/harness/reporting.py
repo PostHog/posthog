@@ -530,7 +530,6 @@ class ProgressReporter:
             lines.append(f"  PostHog: {posthog_url}")
         if (offline_status := self._posthog_offline_statuses.get(experiment_name)) and offline_status != "uploaded":
             lines.append(f"  PostHog offline: {offline_status}")
-        lines.append(f"  {summary.engine_name.title()}: {summary.experiment_url or '(local run, not uploaded)'}")
         log_dir = self._log_dirs.get(experiment_name)
         if log_dir:
             lines.append(f"  Agent logs: {log_dir}")
