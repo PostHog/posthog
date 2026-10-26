@@ -26,6 +26,13 @@ def _normalize_zscore(z_score: float, min_z: float, max_z: float) -> float:
     return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
 
 
+def _warm_up_row(mean: float, std: float, value: float, after_flat: bool) -> tuple[float | None, dict[str, Any]]:
+    """The first move away from a flat window scores 1.0 once, as the onset. Other warm-up buckets get no score."""
+    if std == 0 and value != mean and after_flat:
+        return 1.0, {"mean": mean, "std": 0.0, "value": value, "raw_zscore": None, "onset": True}
+    return None, {}
+
+
 @register_detector(DetectorType.ZSCORE)
 class ZScoreDetector(BaseDetector):
     """
@@ -41,7 +48,21 @@ class ZScoreDetector(BaseDetector):
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
         window: int - Rolling window size (default: 30)
+        warm_up_flat_windows: bool - Give no score while the window moves less than one level change does,
+            and flag only the first move away from a flat window (default: False)
     """
+
+    def _warm_up(self, window_data: np.ndarray) -> bool:
+        # A window of mostly equal values has a spread near zero, so every later move would score near 1.0.
+        if not self.config.get("warm_up_flat_windows"):
+            return False
+        # Smoothing spreads one level change over `smooth_n` buckets.
+        changes = max(self.preprocessing_config.get("smooth_n") or 1, 1)
+        return int(np.count_nonzero(window_data != np.median(window_data))) <= changes
+
+    def context_buckets(self) -> int:
+        # The onset check reads the bucket before the first scored bucket.
+        return super().context_buckets() + (1 if self.config.get("warm_up_flat_windows") else 0)
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
@@ -72,6 +93,16 @@ class ZScoreDetector(BaseDetector):
         std = np.std(window_data)
 
         current_value = values[-1]
+
+        if self._warm_up(window_data):
+            score, metadata = _warm_up_row(float(mean), float(std), float(current_value), bool(values[-2] == mean))
+            return DetectionResult(
+                is_anomaly=score is not None,
+                score=score,
+                triggered_indices=[original_length - 1] if score is not None else [],
+                all_scores=[score],
+                metadata=metadata,
+            )
 
         if std == 0:
             is_anomaly = abs(current_value - mean) > 0
@@ -162,10 +193,34 @@ class ZScoreDetector(BaseDetector):
         mean = np.mean(window_data)
         std = np.std(window_data)
         params: dict[str, Any] = {"mean": float(mean), "std": float(std)}
+        if self._warm_up(window_data):
+            params["warm_up"] = True
         if std != 0:
             window_zscores = np.abs((window_data - mean) / std)
             params.update(min_z=float(window_zscores.min()), max_z=float(window_zscores.max()))
         return self._artifact(params)
+
+    def score(self, artifact: DetectorArtifact, data: np.ndarray) -> DetectionResult:
+        if not artifact.params.get("warm_up"):
+            return super().score(artifact, data)
+        self._check_artifact(artifact)
+        context = self.context_buckets()
+        if len(data) <= context:
+            return DetectionResult(is_anomaly=False)
+        rows = self.preprocess(np.asarray(data, dtype=float))
+        values = rows if rows.ndim == 1 else rows[:, 0]
+        mean = artifact.params["mean"]
+        # Differencing makes the first row synthetic.
+        first = 1 if self.preprocessing_config.get("diffs_n") else 0
+        scores: list[float | None] = []
+        metadata: list[dict[str, Any]] = []
+        for i in range(context, len(values)):
+            # A score step reads only a few buckets, so one equal neighbor of a steady series must not mark a new onset.
+            after_flat = i > first and bool(np.all(values[first:i] == mean))
+            score, row_metadata = _warm_up_row(mean, artifact.params["std"], float(values[i]), after_flat)
+            scores.append(score)
+            metadata.append(row_metadata)
+        return self._scored_result(scores, metadata)
 
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray

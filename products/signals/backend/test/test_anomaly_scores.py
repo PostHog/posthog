@@ -45,6 +45,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     query_cost,
     score_insight,
     score_series,
+    score_with_artifact,
     trends_query_for,
 )
 from products.signals.backend.anomaly_scores.state import needs_training
@@ -174,6 +175,27 @@ class TestScoreSeries(SimpleTestCase):
         assert score(-fetched) == score(0)
         assert None not in score(-fetched)
 
+    @parameterized.expand([("per_bucket_fit",), ("one_stored_fit_per_score_step",)])
+    def test_a_series_that_starts_from_zero_flags_only_its_onset(self, path: str) -> None:
+        values = [0.0] * 60 + [float(value) for value in np.random.default_rng(6).poisson(40, size=30)]
+        buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 90)
+
+        if path == "per_bucket_fit":
+            points = score_series(
+                values, buckets, scoring=DAY_SCORING, interval=IntervalType.DAY, now=buckets[-1] + timedelta(days=1)
+            )
+        else:
+            detector = get_detector(DAY_SCORING.detector)
+            # A train step before the launch fits on zeros only, and daily score steps reuse that fit.
+            artifact = detector.fit(np.array(values[60 - (history_buckets(DAY_SCORING) - 1) : 60]))
+            points = [
+                point for i in range(60, 90) for point in score_with_artifact(detector, artifact, values, buckets, [i])
+            ]
+
+        flagged = [point for point in points if point.flag]
+        assert [point.bucket_start for point in flagged] == [buckets[60]]
+        assert flagged[0].details["onset"] is True
+
     def test_warm_up_points_have_no_score_and_no_flag(self) -> None:
         buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 10)
 
@@ -286,8 +308,8 @@ class TestScoreInsight(SimpleTestCase):
         if waves == 1:
             assert limits[0] == 150
 
-    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets.
-    @parameterized.expand([("no_smoothing", None, "-6d"), ("smoothing", 7, "-12d")])
+    # The context of the day detector is 3 preprocessing buckets and 1 onset bucket, then one guard bucket and the 2 new buckets.
+    @parameterized.expand([("no_smoothing", None, "-7d"), ("smoothing", 7, "-13d")])
     def test_a_score_step_fetches_only_the_context_and_new_buckets(
         self, _name: str, smoothing: int | None, date_from: str
     ) -> None:

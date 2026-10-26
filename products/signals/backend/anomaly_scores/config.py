@@ -58,7 +58,14 @@ class ScoringLimits:
 def _zscore(window: int) -> dict[str, Any]:
     # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
     # and on sparse series raw values score almost every non-zero bucket near 1.0.
-    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+    # warm_up_flat_windows keeps a series that starts from zero from flagging every bucket after its first value.
+    return {
+        "type": "zscore",
+        "threshold": 0.95,
+        "window": window,
+        "preprocessing": {"diffs_n": 1, "smooth_n": 3},
+        "warm_up_flat_windows": True,
+    }
 
 
 DEFAULT_PROFILE = ScoringProfile(
