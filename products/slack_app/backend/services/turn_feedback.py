@@ -23,6 +23,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -33,7 +34,17 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
-from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.feature_tips.state import get_state, record_feature_used
+from products.slack_app.backend.logic.interview_recruitment import (
+    book_button,
+    capture_invite_shown,
+    invite_section,
+    is_invite_due,
+    linked_posthog_user,
+    new_invitation_id,
+    reserve_invite,
+    resolve_campaign,
+)
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 
@@ -312,7 +323,7 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
 
 
-def _render_reason_modal(private_metadata: str) -> dict[str, Any]:
+def _render_reason_modal(private_metadata: str, extra_blocks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
         "type": "modal",
         "callback_id": TURN_FEEDBACK_MODAL_CALLBACK_ID,
@@ -332,7 +343,8 @@ def _render_reason_modal(private_metadata: str) -> dict[str, Any]:
                     "max_length": FEEDBACK_TEXT_MAX_LENGTH,
                     "placeholder": {"type": "plain_text", "text": "What did you expect instead?"},
                 },
-            }
+            },
+            *(extra_blocks or []),
         ],
     }
 
@@ -351,11 +363,60 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
         }
     )
     try:
-        SlackIntegration(target.integration).client.views_open(
+        response = SlackIntegration(target.integration).client.views_open(
             trigger_id=trigger_id, view=_render_reason_modal(private_metadata)
         )
     except Exception:
         logger.warning("slack_app_turn_feedback_modal_open_failed", run_id=target.run_id, exc_info=True)
+        return
+    view_id = (response.get("view") or {}).get("id")
+    if isinstance(view_id, str) and view_id:
+        _add_interview_invite(target, private_metadata, view_id)
+
+
+def _add_interview_invite(target: _FeedbackTarget, private_metadata: str, view_id: str) -> None:
+    """Add an interview invitation under the reason field. Best-effort: the modal works without it.
+
+    The modal opens first, because its trigger expires seconds after the click and the flag check
+    is a network call. Slack keeps the text a reader already typed, because the input block keeps its ids.
+    """
+    integration = target.integration
+    workspace_id = integration.integration_id or ""
+    try:
+        if not is_invite_due(get_state(workspace_id, target.slack_user_id), timezone.now()):
+            return
+        posthog_user = linked_posthog_user(integration, target.slack_user_id)
+        campaign = resolve_campaign(integration, target.slack_user_id, posthog_user)
+        if campaign is None or not reserve_invite(workspace_id, target.slack_user_id):
+            return
+        invitation_id = new_invitation_id()
+        button = book_button(
+            integration.id,
+            campaign,
+            "bad_rating_modal",
+            invitation_id,
+            run_id=target.run_id,
+            trace_id=target.trace_id,
+        )
+        SlackIntegration(integration).client.views_update(
+            view_id=view_id,
+            view=_render_reason_modal(
+                private_metadata, [{"type": "divider"}, invite_section(campaign.message, button)]
+            ),
+        )
+    except Exception:
+        logger.warning("slack_app_interview_invite_modal_failed", run_id=target.run_id, exc_info=True)
+        return
+    capture_invite_shown(
+        integration,
+        slack_user_id=target.slack_user_id,
+        posthog_user=posthog_user,
+        campaign=campaign,
+        surface="bad_rating_modal",
+        invitation_id=invitation_id,
+        task_run_id=target.run_id,
+        ai_trace_id=target.trace_id,
+    )
 
 
 def handle_turn_feedback_click(payload: dict) -> HttpResponse:

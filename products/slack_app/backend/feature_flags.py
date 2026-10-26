@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import structlog
 import posthoganalytics
+from posthoganalytics.types import FeatureFlagResult
 
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
@@ -52,6 +53,7 @@ SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
+SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -202,6 +204,28 @@ def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
     )
+
+
+def get_slack_app_interview_recruitment_flag(integration: Integration, distinct_id: str) -> FeatureFlagResult | None:
+    """The interview campaign this person is in, as the flag's variant and payload.
+
+    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
+    PostHog user is linked. A rule on email or a cohort only matches a linked reader.
+    ``None`` means the flag is off for this person or the check failed.
+    """
+    try:
+        result = posthoganalytics.get_feature_flag_result(
+            SLACK_APP_INTERVIEW_RECRUITMENT_FLAG,
+            distinct_id,
+            groups={"organization": str(integration.team.organization_id)},
+            person_properties=_region_properties(),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("slack_app_interview_recruitment_feature_flag_check_failed", integration_id=integration.id)
+        return None
+    return result if result is not None and result.enabled else None
 
 
 def is_slack_app_assistant_enabled(integration: Integration) -> bool:
