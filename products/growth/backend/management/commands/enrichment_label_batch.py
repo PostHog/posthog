@@ -24,7 +24,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import get_instance_region
 
@@ -198,7 +198,7 @@ class Command(BaseCommand):
         # tenacity in labels.py already owns retries (stop_after_attempt(3)); the SDK's own
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
-        client = get_llm_client(product="growth").with_options(max_retries=0)
+        client = build_openai_client(product="growth", ai_product="growth").with_options(max_retries=0)
         pacer = FirecrawlPacer()
 
         counts: dict[str, int] = {

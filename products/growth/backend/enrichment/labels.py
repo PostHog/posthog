@@ -1,8 +1,8 @@
 """Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `get_llm_client(product="growth")` and pass it in — this module just turns
-an archived Harmonic payload plus a prompt config into a stamped verdict.
+client via `build_openai_client(product="growth", ai_product="growth")` and pass it in —
+this module just turns an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
 import re
