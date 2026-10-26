@@ -565,6 +565,14 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     )
 
 
+def runs_on_playwright(file_path: str) -> bool:
+    """Whether `hogli test <file_path>` hands the path to Playwright, resolved from the current directory."""
+    try:
+        return detect_test_type(_resolve_to_repo_relative(file_path)).test_type == "playwright"
+    except click.UsageError:
+        return False
+
+
 def detect_test_type(file_path: str) -> TestRunConfig:
     """Detect the test type from a file or directory path and return run configuration.
 

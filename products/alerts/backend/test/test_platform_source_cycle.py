@@ -25,6 +25,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_a
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
@@ -38,6 +39,8 @@ from products.alerts.backend.platform_source_cycle import (
     CHART_RENDER_INFLIGHT_KEY,
     INFLIGHT_KEY,
     MAX_BREACH_CHARS,
+    MAX_DETECTOR_POINTS,
+    MAX_RATIONALE_CHARS,
     ChartRenderPoolFull,
     evaluate_insight_check,
     plan_insight_batch,
@@ -240,6 +243,60 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
 
         assert render.call_count == 2
+
+    @parameterized.expand(
+        [
+            (
+                "quiet_ai_check",
+                {"type": "llm"},
+                AlertEvaluationResult(
+                    value=50.0,
+                    breaches=[],
+                    interval="day",
+                    triggered_metadata={"detector_type": "llm", "rationale": "x" * 5000, "kind": "none"},
+                ),
+                {
+                    "interval": "day",
+                    "triggered_metadata": {
+                        "detector_type": "llm",
+                        "rationale": "x" * (MAX_RATIONALE_CHARS - 1) + "…",
+                        "kind": "none",
+                    },
+                },
+            ),
+            (
+                "firing_statistical_check",
+                {"type": "zscore"},
+                AlertEvaluationResult(
+                    value=150.0,
+                    breaches=["Anomaly detected"],
+                    anomaly_scores=[0.1] * 30,
+                    triggered_points=[89],
+                    triggered_dates=["2026-09-15"],
+                    interval="day",
+                    triggered_metadata={"detector_type": "zscore", "series_index": 0},
+                ),
+                {
+                    "breaches": ["Anomaly detected"],
+                    "anomaly_scores": [0.1] * MAX_DETECTOR_POINTS,
+                    "triggered_points": [89],
+                    "triggered_dates": ["2026-09-15"],
+                    "interval": "day",
+                    "triggered_metadata": {"detector_type": "zscore", "series_index": 0},
+                },
+            ),
+        ]
+    )
+    def test_every_detector_check_records_what_production_keeps_on_its_check(
+        self, _name: str, detector_config: dict[str, Any], result: AlertEvaluationResult, expected: dict[str, Any]
+    ) -> None:
+        alert = self._alert(detector_config=detector_config)
+        configuration = self._copy(alert)
+
+        outcome, _ = self._evaluate(configuration, result=result, uses_llm_detector=detector_config["type"] == "llm")
+
+        assert outcome is not None
+        assert {key: outcome.groups[0].source_detail.get(key) for key in expected} == expected
 
     @parameterized.expand(
         [
@@ -525,6 +582,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             LLM_DETECTOR_UNAVAILABLE_MESSAGE,
             False,
         )
+        # History shows this reason by its code, as it does for the alert's own checks.
+        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
