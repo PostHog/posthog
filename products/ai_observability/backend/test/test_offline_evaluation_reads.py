@@ -25,7 +25,11 @@ from products.ai_observability.backend.models.offline_evaluations import (
 )
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
-from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineStatusCounts
+from products.ai_observability.backend.offline_evaluation_read_types import (
+    OfflineHistoryBreakdown,
+    OfflineReadQuery,
+    OfflineStatusCounts,
+)
 from products.ai_observability.backend.offline_evaluation_service import (
     OfflineEvaluationNotFound,
     OfflineEvaluationValidationError,
@@ -360,7 +364,9 @@ class TestOfflineEvaluationReads(TestCase):
         self._result(override, self.categorical, ["b"])
 
         for version in (self.numeric, self.boolean, self.categorical):
-            page = self.service.scorer_history(version.definition_id, OfflineReadQuery(breakdown="model_version"))
+            page = self.service.scorer_history(
+                version.definition_id, OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL)
+            )
             self.assertEqual(page.count, 2)
             groups = {point.breakdown_value: point.summary for point in page.results}
             self.assertEqual(groups["model-a"].observed_item_count, 1)
@@ -384,12 +390,47 @@ class TestOfflineEvaluationReads(TestCase):
         self.assertEqual(self.service.get_item(experiment.id, inherited.id).model_version, "model-a")
         self.assertEqual(self.service.get_item(experiment.id, override.id).model_version, "model-b")
 
+    @parameterized.expand([(None,), (OfflineHistoryBreakdown.MODEL,), (OfflineHistoryBreakdown.SUITE,)])
+    def test_model_filter_matches_item_models_across_experiments(
+        self, breakdown: OfflineHistoryBreakdown | None
+    ) -> None:
+        experiments = []
+        for index, model in enumerate(("model-a", "model-b")):
+            experiment = self._experiment(started_at=self.now - timedelta(hours=index))
+            experiment.model_version = model
+            experiment.save(update_fields=["model_version"])
+            experiments.append(experiment)
+            matching_model = None if model == "model-a" else "model-a"
+            other_model = "model-b" if model == "model-a" else None
+            self._result(self._item(experiment, model_version=matching_model), self.numeric, float(index + 1))
+            self._item(experiment, model_version=matching_model)
+            self._result(self._item(experiment, model_version=other_model), self.numeric, 100.0)
+            self._item(experiment, model_version=other_model)
+
+        query = OfflineReadQuery(model_version="model-a", breakdown=breakdown, limit=1)
+        for index, experiment in enumerate(experiments):
+            page = self.service.scorer_history(self.numeric.definition_id, query)
+            self.assertEqual(page.count, 2)
+            self.assertEqual(len(page.results), 1)
+            point = page.results[0]
+            self.assertEqual(point.experiment.id, experiment.id)
+            self.assertEqual(point.breakdown_value, "model-a" if breakdown == OfflineHistoryBreakdown.MODEL else None)
+            self.assertEqual(point.summary.mean, float(index + 1))
+            self.assertEqual(point.summary.status_counts.ok, 1)
+            self.assertEqual(point.summary.observed_item_count, 2)
+            self.assertEqual(point.summary.missing_result_count, 1)
+            self.assertEqual(page.next_cursor is None, index == 1)
+            query = replace(query, cursor=page.next_cursor)
+
+        listed = self.service.list_experiments(OfflineReadQuery(model_version="model-a"))
+        self.assertEqual([experiment.id for experiment in listed.results], [experiments[0].id])
+
     def test_model_breakdown_paginates_missing_and_named_models_without_duplicates(self) -> None:
         experiment = self._experiment()
         models = [None, "model-a", "model-b", "Not specified", "模" * 255, "😀" * 255, "😁" * 255]
         for model in models:
             self._result(self._item(experiment, model_version=model), self.numeric, 1.0)
-        query = OfflineReadQuery(breakdown="model_version", limit=1)
+        query = OfflineReadQuery(breakdown=OfflineHistoryBreakdown.MODEL, limit=1)
         values = []
         while True:
             page = self.service.scorer_history(self.numeric.definition_id, query)
@@ -404,20 +445,23 @@ class TestOfflineEvaluationReads(TestCase):
             self.assertTrue(serializer.is_valid(), serializer.errors)
             with self.assertRaises(OfflineEvaluationValidationError):
                 self.service.scorer_history(
-                    self.numeric.definition_id, replace(query, cursor=page.next_cursor, breakdown="suite_key")
+                    self.numeric.definition_id,
+                    replace(query, cursor=page.next_cursor, breakdown=OfflineHistoryBreakdown.SUITE),
                 )
             query = replace(query, cursor=page.next_cursor)
         self.assertCountEqual(values, models)
 
     @parameterized.expand(
         [
-            ("prompt_version", "prompt-a"),
-            ("application_version", "build-a"),
-            ("suite_key", "suite-a"),
-            ("run_source", "ci"),
+            (OfflineHistoryBreakdown.PROMPT, "prompt-a"),
+            (OfflineHistoryBreakdown.APPLICATION, "build-a"),
+            (OfflineHistoryBreakdown.SUITE, "suite-a"),
+            (OfflineHistoryBreakdown.SOURCE, "ci"),
         ]
     )
-    def test_experiment_breakdowns_keep_all_items_in_one_group(self, breakdown: str, value: str) -> None:
+    def test_experiment_breakdowns_keep_all_items_in_one_group(
+        self, breakdown: OfflineHistoryBreakdown, value: str
+    ) -> None:
         experiment = self._experiment()
         setattr(experiment, breakdown, value)
         experiment.save(update_fields=[breakdown])

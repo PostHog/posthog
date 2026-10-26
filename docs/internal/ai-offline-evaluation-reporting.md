@@ -625,9 +625,10 @@ Saving a new configuration checks the version observed when editing started. A c
 The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
 The **Offline evals history** button in the editor opens a scorer's experiment timeline.
 With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
-The filters use compact controls. Selected and comparison period timestamps display in the viewer's local timezone; hover a timestamp for full timezone details.
+The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
+The scorer history `model_version` filter uses this resolved item model, with or without a breakdown. Scores and coverage include only matching items, even when the experiment's default model differs. Experiment list filters continue to match the experiment's model.
 The other breakdowns use experiment fields. Item reads expose the resolved model.
 Each point summarizes one experiment, scorer version, and breakdown value, with coverage and missing-result counts for that group.
 Unspecified values appear as **Not specified**. Different scorer versions, categories, and comparison periods remain separate.

@@ -17,7 +17,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
-import { OFFLINE_HISTORY_BREAKDOWN_LABELS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
+import { OFFLINE_HISTORY_BREAKDOWN_OPTIONS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
@@ -284,12 +284,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                 onChange={(breakdown) => setFilters({ breakdown })}
                                                 options={[
                                                     { value: '', label: 'None' },
-                                                    ...Object.entries(OFFLINE_HISTORY_BREAKDOWN_LABELS).map(
-                                                        ([value, label]) => ({
-                                                            value: value as OfflineHistoryBreakdown,
-                                                            label,
-                                                        })
-                                                    ),
+                                                    ...OFFLINE_HISTORY_BREAKDOWN_OPTIONS,
                                                 ]}
                                                 data-attr="offline-history-breakdown"
                                             />
@@ -354,6 +349,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                             {period.range?.dateFrom ? (
                                                 <TZLabel
                                                     time={period.range.dateFrom}
+                                                    displayTimezone={timezone}
                                                     formatDate="MMM D, YYYY"
                                                     formatTime="HH:mm"
                                                     timestampStyle="absolute"
@@ -365,12 +361,13 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                             {period.range?.dateTo && (
                                                 <TZLabel
                                                     time={period.range.dateTo}
+                                                    displayTimezone={timezone}
                                                     formatDate="MMM D, YYYY"
                                                     formatTime="HH:mm"
                                                     timestampStyle="absolute"
                                                 />
                                             )}
-                                            <span>(local time)</span>
+                                            <span>{`(${timezone})`}</span>
                                         </div>
                                         {period.error ? (
                                             <LemonBanner

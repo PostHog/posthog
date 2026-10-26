@@ -4,6 +4,7 @@ from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
+from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
@@ -213,7 +214,8 @@ class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
 
 
 class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
-    breakdown = serializers.ChoiceField(
+    breakdown = EnumField(
+        enum_class=OfflineHistoryBreakdown,
         choices=OfflineHistoryBreakdown.choices,
         required=False,
         help_text="Split history by this property. Model uses each item's model, falling back to the experiment's model.",

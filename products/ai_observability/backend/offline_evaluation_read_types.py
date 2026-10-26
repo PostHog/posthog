@@ -25,7 +25,7 @@ class OfflineHistoryBreakdown(models.TextChoices):
 
 @frozen
 class OfflineReadQuery:
-    breakdown: str | None = None
+    breakdown: OfflineHistoryBreakdown | None = None
     limit: int = 50
     cursor: str | None = None
     date_from: datetime | None = None
@@ -49,8 +49,6 @@ class OfflineReadQuery:
     tag_match: Literal["any", "all"] = "any"
 
     def __post_init__(self) -> None:
-        if self.breakdown is not None and self.breakdown not in OfflineHistoryBreakdown.values:
-            raise OfflineEvaluationValidationError("breakdown", "Select a supported history breakdown.")
         if self.created_by is not None and self.created_by_is_null:
             raise OfflineEvaluationValidationError("created_by", "Choose an author or no author, not both.")
         if not 1 <= self.limit <= 100:

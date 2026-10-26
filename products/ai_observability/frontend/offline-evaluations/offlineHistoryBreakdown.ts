@@ -1,4 +1,8 @@
-import type { AiObservabilityOfflineScorersHistoryListParams, OfflineHistoryPointApi } from '../generated/api.schemas'
+import {
+    AiObservabilityOfflineScorersHistoryListBreakdown,
+    type AiObservabilityOfflineScorersHistoryListParams,
+    type OfflineHistoryPointApi,
+} from '../generated/api.schemas'
 import { offlineRunSourceLabel } from './offlineOverviewState'
 
 export type OfflineHistoryBreakdown = NonNullable<AiObservabilityOfflineScorersHistoryListParams['breakdown']>
@@ -10,6 +14,10 @@ export const OFFLINE_HISTORY_BREAKDOWN_LABELS: Record<OfflineHistoryBreakdown, s
     suite_key: 'Suite',
     run_source: 'Run source',
 }
+
+export const OFFLINE_HISTORY_BREAKDOWN_OPTIONS = Object.values(AiObservabilityOfflineScorersHistoryListBreakdown).map(
+    (value) => ({ value, label: OFFLINE_HISTORY_BREAKDOWN_LABELS[value] })
+)
 
 export function offlineBreakdownValueLabel(
     value: string | null | undefined,

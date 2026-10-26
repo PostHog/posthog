@@ -119,10 +119,13 @@ class TestOfflineExperimentReads(APIBaseTest):
         self.experiment.save(update_fields=["model_version"])
         self.item.model_version = "model-b"
         self.item.save(update_fields=["model_version"])
-        response = self.client.get(self._history(), {"breakdown": "model_version"})
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-b"})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
         self.assertEqual(response.data["results"][0]["breakdown_value"], "model-b")
         self.assertEqual(response.data["results"][0]["summary"]["pass_rate"], 1.0)
+        response = self.client.get(self._history(), {"breakdown": "model_version", "model_version": "model-a"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["count"], 0)
 
     def test_author_filter_applies_to_experiments_and_history(self) -> None:
         self.user.hedgehog_config = {

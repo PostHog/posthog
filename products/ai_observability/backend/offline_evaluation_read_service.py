@@ -50,9 +50,16 @@ from products.ai_observability.backend.read_pagination import CursorPage, cursor
 from products.ai_observability.backend.resource_tags import ResourceTags
 
 if TYPE_CHECKING:
+    from typing import Annotated, TypedDict
+
     from django.db.models import QuerySet
 
+    from django_stubs_ext import Annotations
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    class _ItemAnnotations(TypedDict):
+        resolved_model_version: str | None
 
 
 @frozen
@@ -109,8 +116,14 @@ class OfflineEvaluationReadService:
     def _experiments(self) -> QuerySet[OfflineExperiment]:
         return OfflineExperiment.objects.for_team(self.team_id).select_related("created_by")
 
-    def _items(self) -> QuerySet[OfflineExperimentItem]:
-        return OfflineExperimentItem.objects.for_team(self.team_id).select_related("experiment")
+    @staticmethod
+    def _model_expression(*, item_prefix: str = "") -> Coalesce:
+        return Coalesce(F(f"{item_prefix}model_version"), F(f"{item_prefix}experiment__model_version"))
+
+    def _items(self) -> QuerySet[Annotated[OfflineExperimentItem, Annotations[_ItemAnnotations]]]:
+        return OfflineExperimentItem.objects.for_team(self.team_id).annotate(
+            resolved_model_version=self._model_expression()
+        )
 
     def _definitions(self) -> QuerySet[ScoreDefinition]:
         definitions = ScoreDefinition.objects.filter(team_id=self.team_id)
@@ -139,7 +152,9 @@ class OfflineEvaluationReadService:
             if versions.count() != len(query.scorer_version_ids):
                 raise OfflineEvaluationNotFound
 
-    def _results(self, query: OfflineReadQuery | None = None) -> QuerySet[OfflineEvaluationResult]:
+    def _results(
+        self, query: OfflineReadQuery | None = None, *, model_version: str | None = None
+    ) -> QuerySet[OfflineEvaluationResult]:
         results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(
             scorer_definition__in=self._definitions()
         )
@@ -148,6 +163,10 @@ class OfflineEvaluationReadService:
                 results = results.filter(scorer_definition_id=query.scorer_definition_id)
             if query.scorer_version_ids:
                 results = results.filter(scorer_version_id__in=query.scorer_version_ids)
+        if model_version is not None:
+            return results.alias(resolved_model_version=self._model_expression(item_prefix="item__")).filter(
+                resolved_model_version=model_version
+            )
         return results
 
     def _require_experiment(self, experiment_id: UUID) -> OfflineExperiment:
@@ -156,7 +175,9 @@ class OfflineEvaluationReadService:
             raise OfflineEvaluationNotFound
         return experiment
 
-    def _require_item(self, experiment_id: UUID, item_id: UUID) -> OfflineExperimentItem:
+    def _require_item(
+        self, experiment_id: UUID, item_id: UUID
+    ) -> Annotated[OfflineExperimentItem, Annotations[_ItemAnnotations]]:
         item = self._items().filter(experiment_id=experiment_id, id=item_id).first()
         if item is None:
             raise OfflineEvaluationNotFound
@@ -188,12 +209,13 @@ class OfflineEvaluationReadService:
             "dataset_identifier",
             "dataset_revision_identifier",
             "application_version",
-            "model_version",
             "prompt_version",
         ):
             value = getattr(query, field)
             if value is not None:
                 experiments = experiments.filter(**{field: value})
+        if query.model_version is not None and not history:
+            experiments = experiments.filter(model_version=query.model_version)
         if query.scorer_definition_id is not None or query.scorer_version_ids:
             experiments = experiments.filter(Exists(self._results(query).filter(item__experiment_id=OuterRef("id"))))
         return experiments
@@ -404,12 +426,14 @@ class OfflineEvaluationReadService:
         )
 
     def _item_read(
-        self, item: OfflineExperimentItem, results: list[OfflineResultRead] | None = None
+        self,
+        item: Annotated[OfflineExperimentItem, Annotations[_ItemAnnotations]],
+        results: list[OfflineResultRead] | None = None,
     ) -> OfflineItemRead:
         return OfflineItemRead(
             id=item.id,
             experiment_id=item.experiment_id,
-            model_version=item.model_version if item.model_version is not None else item.experiment.model_version,
+            model_version=item.resolved_model_version,
             case_key=item.case_key,
             trial=item.trial,
             dataset_item_identifier=item.dataset_item_identifier,
@@ -567,28 +591,21 @@ class OfflineEvaluationReadService:
                 )
         return None
 
-    @staticmethod
-    def _breakdown_expression(breakdown: str | None, *, item_prefix: str) -> Coalesce | Value:
+    @classmethod
+    def _breakdown_expression(cls, breakdown: OfflineHistoryBreakdown | None, *, item_prefix: str) -> Coalesce | Value:
         if breakdown is None:
             return Value("")
-        fields: dict[str, list[F]] = {
-            OfflineHistoryBreakdown.MODEL: [
-                F(f"{item_prefix}model_version"),
-                F(f"{item_prefix}experiment__model_version"),
-            ],
-            OfflineHistoryBreakdown.PROMPT: [F(f"{item_prefix}experiment__prompt_version")],
-            OfflineHistoryBreakdown.APPLICATION: [F(f"{item_prefix}experiment__application_version")],
-            OfflineHistoryBreakdown.SUITE: [F(f"{item_prefix}experiment__suite_key")],
-            OfflineHistoryBreakdown.SOURCE: [F(f"{item_prefix}experiment__run_source")],
-        }
-        return Coalesce(*fields[breakdown], Value(""))
+        if breakdown == OfflineHistoryBreakdown.MODEL:
+            return Coalesce(cls._model_expression(item_prefix=item_prefix), Value(""))
+        return Coalesce(F(f"{item_prefix}experiment__{breakdown.value}"), Value(""))
 
     def _aggregates(
         self,
         identities: list[_SummaryIdentity],
         *,
         versions: dict[UUID, ScoreDefinitionVersion],
-        breakdown: str | None = None,
+        breakdown: OfflineHistoryBreakdown | None = None,
+        model_version: str | None = None,
     ) -> dict[_SummaryIdentity, _Aggregate]:
         selected = Q(pk__in=[])
         for identity in identities:
@@ -605,7 +622,7 @@ class OfflineEvaluationReadService:
                 configured_versions.add(version_id)
                 passing |= Q(scorer_version_id=version_id) & condition
         results = (
-            self._results()
+            self._results(model_version=model_version)
             .annotate(breakdown_value=self._breakdown_expression(breakdown, item_prefix="item__"))
             .filter(selected)
             .order_by()
@@ -631,6 +648,8 @@ class OfflineEvaluationReadService:
             .order_by()
             .values("experiment_id", "id", "case_key", "trial", "breakdown_value")
         )
+        if model_version is not None:
+            item_query = item_query.filter(resolved_model_version=model_version)
         item_sql, item_params = item_query.query.sql_with_params()
         # The text conversion preserves float precision before numeric accumulation prevents overflow.
         aggregate_sql = f"""
@@ -707,7 +726,11 @@ class OfflineEvaluationReadService:
             }
 
     def _summaries(
-        self, identities: list[_SummaryIdentity], *, breakdown: str | None = None
+        self,
+        identities: list[_SummaryIdentity],
+        *,
+        breakdown: OfflineHistoryBreakdown | None = None,
+        model_version: str | None = None,
     ) -> dict[_SummaryIdentity, OfflineScorerSummary]:
         if not identities:
             return {}
@@ -717,7 +740,7 @@ class OfflineEvaluationReadService:
             .filter(id__in=[identity.version_id for identity in identities])
             .select_related("definition")
         }
-        aggregates = self._aggregates(identities, versions=versions, breakdown=breakdown)
+        aggregates = self._aggregates(identities, versions=versions, breakdown=breakdown, model_version=model_version)
         summaries = {}
         for identity in identities:
             version = versions.get(identity.version_id)
@@ -805,7 +828,7 @@ class OfflineEvaluationReadService:
         query = replace(query, scorer_definition_id=definition_id)
         self._validate_scorer_selection(query)
         scope = f"history:{definition_id}"
-        results = self._results(query).filter(
+        results = self._results(query, model_version=query.model_version).filter(
             scorer_definition_id=definition_id, item__experiment__in=self._filter_experiments(query, history=True)
         )
         results = results.annotate(breakdown_value=self._breakdown_expression(query.breakdown, item_prefix="item__"))
@@ -858,7 +881,7 @@ class OfflineEvaluationReadService:
             )
             for row in page.results
         ]
-        summary_by_id = self._summaries(identities, breakdown=query.breakdown)
+        summary_by_id = self._summaries(identities, breakdown=query.breakdown, model_version=query.model_version)
         experiments = {
             experiment.id: experiment
             for experiment in self._experiment_reads(
