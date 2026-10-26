@@ -67,7 +67,7 @@ function breakdownCounts(response: TrendsQueryResponse): Map<string, BreakdownCo
     for (const entry of response.results ?? []) {
         const raw = Array.isArray(entry.breakdown_value) ? entry.breakdown_value[0] : entry.breakdown_value
         const key = String(raw ?? BREAKDOWN_NULL)
-        const current = byValue.get(key) ?? { days: entry.days ?? [] }
+        const current: BreakdownCounts = byValue.get(key) ?? { days: entry.days ?? [] }
         current[entry.action?.order === 1 ? 'graded' : 'result'] = entry.data ?? []
         byValue.set(key, current)
     }
