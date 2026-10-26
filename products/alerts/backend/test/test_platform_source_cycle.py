@@ -347,6 +347,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("hourly_quiet_hours", AlertCalculationInterval.HOURLY, 60, None, ("16:00", "17:00"), None),
             ("daily_quiet_hours", AlertCalculationInterval.DAILY, 60 * 24, "day", ("00:30", "02:00"), None),
             ("hourly_start_time", AlertCalculationInterval.HOURLY, 60, None, None, "09:20"),
+            # Real time steps from the previous due time, seconds and all, rather than from a grid.
+            ("real_time", AlertCalculationInterval.REAL_TIME, 2, None, None, None, timedelta(seconds=90)),
+            ("real_time_quiet_hours", AlertCalculationInterval.REAL_TIME, 2, None, ("15:31", "16:30"), None),
+            ("real_time_start_time", AlertCalculationInterval.REAL_TIME, 2, None, None, "09:20", timedelta(seconds=90)),
         ]
     )
     def test_a_copy_is_next_due_when_the_production_alert_is(
@@ -357,13 +361,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         unit: str | None,
         quiet: tuple[str, str] | None,
         start_time: str | None,
+        overdue: timedelta = timedelta(minutes=1),
     ) -> None:
         # A half-hour timezone, where the local hour starts at :30 UTC.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         restriction = {"blocked_windows": [{"start": quiet[0], "end": quiet[1]}]} if quiet else None
         alert = self._alert(
-            calculation_interval=interval, schedule_restriction=restriction, schedule_start_time=start_time
+            calculation_interval=interval,
+            schedule_restriction=restriction,
+            schedule_start_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
         configuration = self._copy(
             alert,
@@ -371,6 +379,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             recurrence_unit=unit,
             schedule_restriction=restriction,
             anchor_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
 
         with time_machine.travel(CUTOFF, tick=False):
