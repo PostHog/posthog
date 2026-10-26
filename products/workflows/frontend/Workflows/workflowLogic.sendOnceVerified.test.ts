@@ -741,6 +741,26 @@ describe('workflowLogic send once verified', () => {
             expect(patchBodies.at(-1)).not.toHaveProperty('status')
         })
 
+        it('does not save over an edit made elsewhere when the auto-save meets the go-live', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        patchBodies.push((await request.json()) as Record<string, any>)
+                        return [409, { detail: 'stale_update', code: 'stale_update' }]
+                    },
+                },
+            })
+            await mountWaiting()
+            storedWorkflow = { ...wentLive, name: 'Renamed elsewhere', updated_at: '2026-05-03T08:45:00Z' }
+
+            logic.actions.setWorkflowValue('name', 'Renamed while waiting')
+            await jest.advanceTimersByTimeAsync(3_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(patchBodies).toHaveLength(1)
+            expect(logic.values.workflow.name).toEqual('Renamed elsewhere')
+        })
+
         it('stages a content edit queued while the auto-save takes the go-live', async () => {
             await mountWaiting()
             let releaseFetch!: () => void
