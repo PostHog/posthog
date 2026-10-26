@@ -582,9 +582,9 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 "says they are done, ask them for that id. If they cannot give it, call integrations-list with "
                 f"kind='{kind}' and take the entry with the latest created_at (the list is oldest first), then "
                 "confirm its display_name with the user. Then call external-data-destinations-create with "
-                f"type='{destination_type}', a name, that integration id, and the target config (database, schema, "
-                "dataset, bucket or prefix). Creating the destination tests the connection, so a wrong target fails "
-                "at that step."
+                f"type='{destination_type}', a name, that integration id, and the target config that tool lists "
+                f"for {destination_type}. Creating the destination tests the connection, so a wrong target fails at "
+                "that step."
             ),
         }
         return Response(DestinationConnectLinkSerializer(data).data)
