@@ -63,9 +63,12 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
+from products.signals.backend.constants import (
+    FIRST_REPORT_SCOUT,
+    SIGNALS_EMBEDDING_MODELS,
+    first_report_idempotency_key,
+)
 from products.signals.backend.enums import ReportLinkWritePath
-from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
