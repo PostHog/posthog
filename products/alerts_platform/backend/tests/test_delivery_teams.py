@@ -91,7 +91,11 @@ class TestTeamsCard(SimpleTestCase):
     def test_a_query_error_cannot_push_the_card_past_what_teams_accepts(self) -> None:
         message = alert_message(
             headline="x" * 4000,
-            annotations={"description": "\x01" * 40_000},
+            annotations={
+                "description": "\x01" * 40_000,
+                **{f"link_{index}_url": f"https://example.com/{index}/" + "q" * 1950 for index in range(4)},
+            },
+            data_link=MessageLink(label="View logs", url="https://app.example.com/logs?" + "q" * 4000),
             details=(
                 MessageDetail(label="Error", value="\x01" * 50_000),
                 MessageDetail(label="Query", value="\x01" * 50_000),

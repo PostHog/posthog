@@ -57,14 +57,21 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
     headline = _clip(escape_markdown(message.title), HEADLINE_BUDGET_BYTES)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
     context = escape_markdown(" | ".join(message.context))
-    description = _clip(escape_markdown(message.description or ""), DESCRIPTION_BUDGET_BYTES)
+    # The rule's links give way first, so the data link and the alert link always show.
+    fixed_links = message.links[len(message.rule_links) :]
+    links = (*message.rule_links[: MAX_ACTIONS - len(fixed_links)], *fixed_links)
+    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in links]
+    # Each link URL can be up to 2,000 characters, so the actions take their size out of the text
+    # budget first. The description gets at most half of what is left, so the details keep room.
+    remaining = TEXT_BUDGET_BYTES - len(json.dumps(actions).encode()) - _wire_size(headline) - _wire_size(context)
+    description_budget = min(DESCRIPTION_BUDGET_BYTES, remaining // 2)
+    description = _clip(escape_markdown(message.description or ""), description_budget)
     if description:
         body.append({"type": "TextBlock", "text": description, "wrap": True})
     if message.details:
         # An error message can carry a whole query, so it is a detail that overflows. Each detail
         # gets an equal share, so clipping the error cannot drop the failure count after it.
-        fixed = _wire_size(headline) + _wire_size(context) + _wire_size(description)
-        share = (TEXT_BUDGET_BYTES - fixed) // len(message.details)
+        share = (remaining - _wire_size(description)) // len(message.details)
         body.append(
             {
                 "type": "FactSet",
@@ -76,10 +83,6 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
         )
     if context:
         body.append({"type": "TextBlock", "text": context, "isSubtle": True, "size": "Small", "wrap": True})
-    # The rule's links give way first, so the data link and the alert link always show.
-    fixed = message.links[len(message.rule_links) :]
-    links = (*message.rule_links[: MAX_ACTIONS - len(fixed)], *fixed)
-    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in links]
     return {
         "type": "message",
         "attachments": [
