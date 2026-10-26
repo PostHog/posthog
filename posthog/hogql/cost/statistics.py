@@ -9,6 +9,8 @@ estimator decides what to do without it, so a missing statistic never fails a qu
 ``FixedStatisticsProvider`` returns whatever a test hands it.
 """
 
+import math
+import time
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from datetime import date, timedelta
@@ -65,6 +67,11 @@ LOOKUP_RETRY_SECONDS = 5 * 60
 _NOTHING = "none"
 # The lookups run inside a user's request, so a slow offline cluster must not hold it for long.
 LOOKUP_MAX_EXECUTION_SECONDS = 5
+# The lookups a planning pass misses in the cache run one after another. Each is bounded by the limit above,
+# and this bounds their sum, so a slow cluster delays a request by this long at most, however many statistics
+# the query needs. A lookup that would get less than the minimum is not started, because it would time out.
+LOOKUP_BUDGET_SECONDS = 5
+LOOKUP_MIN_SECONDS = 0.5
 # Event names beyond the most common ones are folded into one remainder, so a team that sends many distinct
 # names does not put a huge map through the cache on every query.
 EVENT_VOLUME_MAX_EVENTS = 5_000
@@ -143,25 +150,21 @@ def _lookup_http_pool_mgr() -> Any:
     )
 
 
-def _lookup_client(team_id: int) -> AbstractContextManager[Any]:
+def _lookup_client(team_id: int, timeout: float = LOOKUP_MAX_EXECUTION_SECONDS) -> AbstractContextManager[Any]:
     """A client whose socket waits are bounded, so a node that accepts a lookup and stops answering holds the
     request for seconds, not forever. ``max_execution_time`` bounds the server only; the shared pools wait on
     the socket without limit. Built the way ``get_pool`` builds the shared one, so a file-backed user keeps
     its rotating token."""
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
-        return get_http_client(
-            send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, pool_mgr=_lookup_http_pool_mgr(), **kwargs
-        )
+        return get_http_client(send_receive_timeout=timeout, pool_mgr=_lookup_http_pool_mgr(), **kwargs)
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, readonly=True)
     creds = connection_creds(Workload.OFFLINE, ClickHouseUser.DEFAULT)
     if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
-        pool = make_ch_pool(
-            credential_provider=creds.read_password, send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs
-        )
+        pool = make_ch_pool(credential_provider=creds.read_password, send_receive_timeout=timeout, **kwargs)
     else:
-        pool = make_ch_pool(send_receive_timeout=LOOKUP_MAX_EXECUTION_SECONDS, **kwargs)
+        pool = make_ch_pool(send_receive_timeout=timeout, **kwargs)
     return pool.get_client()
 
 
@@ -178,6 +181,15 @@ class ClickHouseStatisticsProvider:
         self._property_ndv: dict[tuple[int, str], int | None] = {}
         self._table_rows: dict[tuple[int, str], int | None] = {}
         self._daily_rows: dict[tuple[int, str], float | None] = {}
+        self._budget_ends: float | None = None
+
+    def _lookup_seconds(self) -> float | None:
+        """How long the next ClickHouse lookup may take, or None when this pass has spent its budget."""
+        now = time.monotonic()
+        if self._budget_ends is None:
+            self._budget_ends = now + LOOKUP_BUDGET_SECONDS
+        seconds = min(self._budget_ends - now, LOOKUP_MAX_EXECUTION_SECONDS)
+        return seconds if seconds >= LOOKUP_MIN_SECONDS else None
 
     def event_volume(self, team_id: int) -> EventVolume | None:
         if team_id not in self._event_volume:
@@ -210,6 +222,10 @@ class ClickHouseStatisticsProvider:
             return None
         if cached is not None:
             return int(cached)
+        # A lookup the budget cannot start is not cached as missing: it was never asked.
+        timeout = self._lookup_seconds()
+        if timeout is None:
+            return None
         try:
             with tags_context(
                 product=Product.INTERNAL,
@@ -224,10 +240,10 @@ class ClickHouseStatisticsProvider:
                     f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE team_id = %(team_id)s",
                     {"team_id": team_id},
                     workload=Workload.OFFLINE,
-                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    settings={"max_execution_time": math.ceil(timeout)},
                     team_id=team_id,
                     readonly=True,
-                    sync_client=_lookup_client(team_id),
+                    sync_client=_lookup_client(team_id, timeout),
                 )
         except Exception:
             logger.warning("hogql_cost_table_rows_unavailable", team_id=team_id, table=table, exc_info=True)
@@ -254,6 +270,9 @@ class ClickHouseStatisticsProvider:
             return None
         if cached is not None:
             return float(cached)
+        timeout = self._lookup_seconds()
+        if timeout is None:
+            return None
         today = self._today or date.today()
         since = today - timedelta(days=DAILY_ROWS_WINDOW_DAYS)
         try:
@@ -271,10 +290,10 @@ class ClickHouseStatisticsProvider:
                     f"WHERE team_id = %(team_id)s AND {time_column} >= %(since)s AND {time_column} < %(today)s",
                     {"team_id": team_id, "since": since, "today": today},
                     workload=Workload.OFFLINE,
-                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    settings={"max_execution_time": math.ceil(timeout)},
                     team_id=team_id,
                     readonly=True,
-                    sync_client=_lookup_client(team_id),
+                    sync_client=_lookup_client(team_id, timeout),
                 )
         except Exception:
             logger.warning("hogql_cost_daily_rows_unavailable", team_id=team_id, table=table, exc_info=True)
@@ -296,7 +315,10 @@ class ClickHouseStatisticsProvider:
                 days=int(cached["days"]),
                 other=int(cached.get("other", 0)),
             )
-        volume = self._query_event_volume(team_id)
+        timeout = self._lookup_seconds()
+        if timeout is None:
+            return None
+        volume = self._query_event_volume(team_id, timeout)
         if volume is None:
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
         else:
@@ -307,7 +329,7 @@ class ClickHouseStatisticsProvider:
             )
         return volume
 
-    def _query_event_volume(self, team_id: int) -> EventVolume | None:
+    def _query_event_volume(self, team_id: int, timeout: float) -> EventVolume | None:
         """Two aggregations, both done by ClickHouse: the days and total, then the most common event names.
 
         The rollup is keyed by lib and person mode too, so both re-sum across them. Only the top names come
@@ -335,13 +357,17 @@ class ClickHouseStatisticsProvider:
                     """,
                     params,
                     workload=Workload.OFFLINE,
-                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    settings={"max_execution_time": math.ceil(timeout)},
                     team_id=team_id,
                     readonly=True,
-                    sync_client=_lookup_client(team_id),
+                    sync_client=_lookup_client(team_id, timeout),
                 )
                 if not totals or not totals[0][2]:
                     return None
+                second_timeout = self._lookup_seconds()
+                if second_timeout is None:
+                    return None
+                timeout = second_timeout
                 # nosemgrep: clickhouse-fstring-param-audit - the f-string only interpolates a module constant table name; team_id, the dates and the limit are bound as parameters
                 rows = sync_execute(
                     f"""
@@ -354,10 +380,10 @@ class ClickHouseStatisticsProvider:
                     """,
                     params,
                     workload=Workload.OFFLINE,
-                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    settings={"max_execution_time": math.ceil(timeout)},
                     team_id=team_id,
                     readonly=True,
-                    sync_client=_lookup_client(team_id),
+                    sync_client=_lookup_client(team_id, timeout),
                 )
         except Exception:
             # Statistics are advisory. Log and let the estimator run without them.
@@ -379,7 +405,10 @@ class ClickHouseStatisticsProvider:
             return None
         if cached is not None:
             return int(cached) or None
-        distinct_values = self._query_property_ndv(team_id, property_name)
+        timeout = self._lookup_seconds()
+        if timeout is None:
+            return None
+        distinct_values = self._query_property_ndv(team_id, property_name, timeout)
         if distinct_values is None:
             cache.set(cache_key, _NOTHING, timeout=LOOKUP_RETRY_SECONDS)
         else:
@@ -387,7 +416,7 @@ class ClickHouseStatisticsProvider:
             cache.set(cache_key, distinct_values, timeout=PROPERTY_NDV_CACHE_SECONDS)
         return distinct_values or None
 
-    def _query_property_ndv(self, team_id: int, property_name: str) -> int | None:
+    def _query_property_ndv(self, team_id: int, property_name: str, timeout: float) -> int | None:
         """Count the values the property-values aggregator recorded for one event property.
 
         Only the number of distinct values is read. ``property_count`` is not a frequency, because the
@@ -413,10 +442,10 @@ class ClickHouseStatisticsProvider:
                     """,
                     {"team_id": team_id, "property_name": property_name},
                     workload=Workload.OFFLINE,
-                    settings={"max_execution_time": LOOKUP_MAX_EXECUTION_SECONDS},
+                    settings={"max_execution_time": math.ceil(timeout)},
                     team_id=team_id,
                     readonly=True,
-                    sync_client=_lookup_client(team_id),
+                    sync_client=_lookup_client(team_id, timeout),
                 )
         except Exception:
             logger.warning("hogql_cost_property_ndv_unavailable", team_id=team_id, exc_info=True)

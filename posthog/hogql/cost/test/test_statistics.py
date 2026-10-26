@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin
@@ -227,6 +228,32 @@ class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
 
         assert execute.call_count == 1
         assert counted.call_count == 1
+
+    def test_lookups_in_one_pass_share_one_time_budget(self):
+        for table in ("person", "groups"):
+            cache.delete(f"hogql_cost:table_rows:{self.team_id}:{table}")
+        cache.delete(f"hogql_cost:daily_rows:{self.team_id}:raw_sessions_v3")
+        clock = [1000.0]
+        timeouts: list[int] = []
+
+        def slow_count(sql: str, params: dict, **kwargs: Any) -> list[tuple[int]]:
+            timeouts.append(kwargs["settings"]["max_execution_time"])
+            clock[0] += 4
+            return [(7,)]
+
+        with (
+            patch("posthog.hogql.cost.statistics.time.monotonic", side_effect=lambda: clock[0]),
+            patch("posthog.hogql.cost.statistics._lookup_client"),
+            patch("posthog.hogql.cost.statistics.sync_execute", side_effect=slow_count),
+        ):
+            provider = ClickHouseStatisticsProvider(today=TODAY)
+            assert provider.table_rows(self.team_id, "person") == 7
+            assert provider.table_rows(self.team_id, "groups") == 7
+            assert provider.daily_rows(self.team_id, "raw_sessions_v3") is None
+            # The skipped lookup was never asked, so the next request asks it.
+            assert ClickHouseStatisticsProvider(today=TODAY).daily_rows(self.team_id, "raw_sessions_v3") == 1.0
+
+        assert timeouts == [LOOKUP_MAX_EXECUTION_SECONDS, 1, LOOKUP_MAX_EXECUTION_SECONDS]
 
     def test_table_rows_refuses_a_table_it_does_not_count(self):
         with patch("posthog.hogql.cost.statistics.sync_execute", wraps=sync_execute) as execute:
