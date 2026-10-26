@@ -8,6 +8,7 @@ use capture_logs::config::Config;
 use capture_logs::endpoints::aws_firehose;
 use capture_logs::endpoints::datadog;
 use capture_logs::endpoints::prometheus;
+use capture_logs::internal_logs::InternalLogsSigner;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
@@ -127,6 +128,10 @@ async fn main() {
         config.max_request_body_size_bytes,
         config.firehose_max_request_body_size_bytes,
         config.max_backfill_days,
+        InternalLogsSigner::new(
+            &config.internal_logs_caller_keys,
+            &config.internal_logs_signing_keys,
+        ),
     )
     .await
     {

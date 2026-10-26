@@ -1,4 +1,5 @@
 use crate::avro_schema::AVRO_SCHEMA;
+use crate::internal_logs::{InternalBatch, SIGNATURE_KAFKA_HEADER};
 use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
 use crate::metric_record::KafkaMetricRow;
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
@@ -402,6 +403,7 @@ impl KafkaSink {
         timestamps_overridden: u64,
         min_timestamp_micros: Option<i64>,
         backfill_days: Option<u32>,
+        internal: Option<&InternalBatch>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -414,6 +416,7 @@ impl KafkaSink {
         }
 
         let payload: Vec<u8> = writer.into_inner()?;
+        let internal_signature = internal.map(|batch| batch.sign(&payload));
 
         let future = match producer.send_result(FutureRecord {
             topic,
@@ -452,6 +455,12 @@ impl KafkaSink {
                     headers = headers.insert(Header {
                         key: "backfill_days",
                         value: Some(&days.to_string()),
+                    });
+                }
+                if let Some(signature) = &internal_signature {
+                    headers = headers.insert(Header {
+                        key: SIGNATURE_KAFKA_HEADER,
+                        value: Some(signature),
                     });
                 }
                 headers
@@ -494,6 +503,7 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
         backfill_days: Option<u32>,
+        internal: Option<&InternalBatch>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -523,6 +533,7 @@ impl KafkaSink {
             timestamps_overridden,
             min_kafka_log_row_timestamp_micros(&rows),
             backfill_days,
+            internal,
         )
         .await?;
 
@@ -555,6 +566,7 @@ impl KafkaSink {
             timestamps_overridden,
             None,
             None,
+            None,
         )
         .await?;
 
@@ -585,6 +597,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
             None,
             None,
         )

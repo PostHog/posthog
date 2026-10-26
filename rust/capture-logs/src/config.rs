@@ -36,6 +36,14 @@ pub struct Config {
 
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
+
+    // Comma-separated, newest first. Internal callers send one in `x-posthog-internal-key`.
+    #[envconfig(from = "INTERNAL_LOGS_CALLER_KEYS", default = "")]
+    pub internal_logs_caller_keys: String,
+
+    // Same value as the logs consumer's `LOGS_INTERNAL_INGESTION_SIGNING_KEYS`.
+    #[envconfig(from = "INTERNAL_LOGS_SIGNING_KEYS", default = "")]
+    pub internal_logs_signing_keys: String,
 }
 
 impl Config {

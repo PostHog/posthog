@@ -1,4 +1,5 @@
 use crate::authorizer::{Authorizer, Signal};
+use crate::internal_logs::InternalLogsSigner;
 use crate::log_record::{default_max_past, KafkaLogRow};
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
@@ -308,6 +309,7 @@ pub struct Service {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
     pub(crate) max_backfill_days: u32,
+    pub(crate) internal_logs: InternalLogsSigner,
 }
 
 #[derive(Deserialize)]
@@ -328,6 +330,7 @@ impl Service {
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
         max_backfill_days: u32,
+        internal_logs: InternalLogsSigner,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
@@ -335,6 +338,7 @@ impl Service {
             max_request_body_size_bytes,
             firehose_max_request_body_size_bytes,
             max_backfill_days,
+            internal_logs,
         })
     }
 }
@@ -515,6 +519,7 @@ pub async fn export_logs_http(
             body.len() as u64,
             timestamps_overridden,
             backfill_params.backfill_days,
+            service.internal_logs.claim(&headers).as_ref(),
         )
         .await
     {

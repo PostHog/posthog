@@ -3,6 +3,7 @@ pub mod authorizer;
 pub mod avro_schema;
 pub mod config;
 pub mod endpoints;
+pub mod internal_logs;
 pub mod kafka;
 pub mod log_record;
 pub mod metric_record;
