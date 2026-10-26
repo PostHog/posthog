@@ -4,7 +4,12 @@ import type { App } from '@modelcontextprotocol/ext-apps'
 import { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import type { AgentOperation } from '../../tools/posthogAgent/operations'
+import {
+    type AgentOperation,
+    agentViewCancelArguments,
+    agentViewReplyArguments,
+    agentViewStatusArguments,
+} from '../../tools/posthogAgent/operations'
 import { AgentOperationView, isTerminal } from '../components/AgentOperationView'
 import { AppWrapper } from '../components/AppWrapper'
 import { useToolPolling } from '../hooks/useToolPolling'
@@ -62,12 +67,7 @@ function PostHogAgentRunContent({ data, app }: { data: AgentOperation; app: App 
         app,
         initialData: data,
         toolName: 'posthog-agent-status',
-        getArguments: (op) => ({
-            operation_id: op.id,
-            project_id: op.project.id,
-            cursor: op.cursor,
-            wait_seconds: 0,
-        }),
+        getArguments: agentViewStatusArguments,
         isDone: isTerminal,
         getIntervalSeconds: (op) => op.retry_after_seconds,
     })
@@ -82,21 +82,15 @@ function PostHogAgentRunContent({ data, app }: { data: AgentOperation; app: App 
             onOpenLink={(url) => (app ? void app.openLink({ url }) : window.open(url, '_blank', 'noopener,noreferrer'))}
             canControl={!!app}
             pollError={error}
-            onCancel={() =>
-                void cancel.run('cancel', 'posthog-agent-cancel', {
-                    operation_id: current.id,
-                    project_id: current.project.id,
-                })
-            }
+            onCancel={() => void cancel.run('cancel', 'posthog-agent-cancel', agentViewCancelArguments(current))}
             cancelling={cancel.pending !== null}
             cancelError={cancel.error}
             onReply={(message) =>
-                void reply.run(message, 'posthog-agent-reply', {
-                    operation_id: current.id,
-                    project_id: current.project.id,
+                void reply.run(
                     message,
-                    client_request_id: crypto.randomUUID(),
-                })
+                    'posthog-agent-reply',
+                    agentViewReplyArguments(current, message, crypto.randomUUID())
+                )
             }
             pendingReply={reply.pending}
             replyError={reply.error}
