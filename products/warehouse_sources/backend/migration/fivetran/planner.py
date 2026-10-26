@@ -5,6 +5,8 @@ the user sees. Nothing is dropped silently.
 """
 
 import re
+import dataclasses
+from collections import Counter
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
@@ -97,14 +99,47 @@ def plan_items(
     snapshot: VendorSnapshot,
     catalog: CatalogLookup,
     capabilities: Callable[[ExternalDataSourceType], SourceCapabilities],
+    *,
+    flag_enabled: Callable[[str], bool],
 ) -> tuple[PlannedItem, ...]:
+    """`flag_enabled` tells whether the team has a feature flag, for sources that only some teams can create."""
     destinations = {destination.id: destination for destination in snapshot.destinations}
-    return tuple(
+    items = [
         _plan_connection(
-            snapshot.provider, connection, destinations.get(connection.destination_id or ""), catalog, capabilities
+            snapshot.provider,
+            connection,
+            destinations.get(connection.destination_id or ""),
+            catalog,
+            capabilities,
+            flag_enabled,
         )
         for connection in snapshot.connections
-    )
+    ]
+    return _with_unique_prefixes(items)
+
+
+def _with_unique_prefixes(items: list[PlannedItem]) -> tuple[PlannedItem, ...]:
+    # Fivetran names are unique only within a destination, but a PostHog prefix must be unique per source type.
+    seen: Counter[tuple[ExternalDataSourceType, str]] = Counter()
+    unique: list[PlannedItem] = []
+    for item in items:
+        proposal = item.proposal
+        if proposal is not None:
+            seen[(proposal.source_type, proposal.prefix)] += 1
+            count = seen[(proposal.source_type, proposal.prefix)]
+            if count > 1:
+                prefix = f"{proposal.prefix}_{count}"
+                item = dataclasses.replace(
+                    item,
+                    verdict=Verdict.CAVEATS,
+                    caveats=(
+                        *item.caveats,
+                        f"Another connection already uses the prefix `{proposal.prefix}`, so this one uses `{prefix}`.",
+                    ),
+                    proposal=dataclasses.replace(proposal, prefix=prefix),
+                )
+        unique.append(item)
+    return tuple(unique)
 
 
 def _plan_connection(
@@ -113,6 +148,7 @@ def _plan_connection(
     destination: VendorDestination | None,
     catalog: CatalogLookup,
     capabilities: Callable[[ExternalDataSourceType], SourceCapabilities],
+    flag_enabled: Callable[[str], bool],
 ) -> PlannedItem:
     def unsupported(reason: str) -> PlannedItem:
         return PlannedItem(
@@ -130,6 +166,8 @@ def _plan_connection(
     caps = capabilities(match.source_type)
     if caps.unreleased:
         return unsupported(f"The PostHog {match.source_type} source is not released yet.")
+    if not all(flag_enabled(flag) for flag in caps.feature_flags):
+        return unsupported(f"The PostHog {match.source_type} source is not available to this project yet.")
 
     caveats: list[str] = list(match.notes)
     if caps.release_status == ReleaseStatus.ALPHA:
@@ -225,7 +263,25 @@ def _plan_tables(
         )
     if not schemas:
         caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
-    return tuple(schemas)
+    return _without_shared_alternative_names(schemas, caveats)
+
+
+def _without_shared_alternative_names(schemas: list[ProposedSchema], caveats: list[str]) -> tuple[ProposedSchema, ...]:
+    # Two tables with one bare name (`public.users`, `analytics.users`) cannot both claim the bare table at apply.
+    counts = Counter(name for schema in schemas for name in schema.alternative_names)
+    shared = {name for name, count in counts.items() if count > 1}
+    for name in sorted(shared):
+        caveats.append(
+            f"More than one Fivetran schema has a table called `{name}`, so PostHog matches them only by schema and name."
+        )
+    return tuple(
+        dataclasses.replace(
+            schema, alternative_names=tuple(name for name in schema.alternative_names if name not in shared)
+        )
+        if shared.intersection(schema.alternative_names)
+        else schema
+        for schema in schemas
+    )
 
 
 def _posthog_table_names(
@@ -242,7 +298,10 @@ def _posthog_table_names(
 def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats: list[str]) -> tuple[str, ...]:
     disabled = tuple(column.name for column in table.columns if not column.enabled)
     if disabled and not caps.supports_column_selection:
-        caveats.append(f"`{table.name}` skips some columns in Fivetran. PostHog syncs every column of this table.")
+        caveats.append(
+            f"`{table.name}` skips some columns in Fivetran. PostHog syncs every column of this table at first. "
+            "You can turn columns off after the first sync."
+        )
         return ()
     return disabled
 
@@ -264,6 +323,7 @@ def _plan_row_filters(
         if (
             operator is None
             or not clause.values
+            or (operator != "IN" and len(clause.values) > 1)
             or (allowed_columns is not None and clause.column not in allowed_columns)
         ):
             caveats.append(dropped)
@@ -272,7 +332,7 @@ def _plan_row_filters(
             ProposedRowFilter(
                 column=clause.column,
                 operator=operator,
-                values=clause.values if operator == "IN" else clause.values[:1],
+                values=clause.values,
             )
         )
     return tuple(filters)
@@ -360,5 +420,6 @@ def _plan_destination(
 def _prefix_for(connection_name: str) -> str:
     prefix = re.sub(r"[^a-z0-9_]+", "_", connection_name.lower()).strip("_")
     if prefix and prefix[0].isdigit():
-        prefix = f"_{prefix}"
+        # Prefix validation strips underscores before it checks the first character, so `_3pl` fails too.
+        prefix = f"source_{prefix}"
     return prefix
