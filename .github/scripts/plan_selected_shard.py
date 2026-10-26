@@ -1,14 +1,8 @@
-"""Print the selected test files that one Django shard collects.
+"""Print the selected test files that the pytest-split item plan places on one shard.
 
-pytest-split's file granularity skips a file before import only when pytest walks
-a directory to find it. A file named on the command line is always imported, so a
-shard given every selected file imports all of them and then deselects most items.
-This script gives each shard only the files that the item plan places on it.
-
-The script also writes the plan durations to --plan-out. Each shard must pass that
-file to pytest as --split-plan-path. Without it, pytest-split scopes the durations
-to the shard's own command-line files, so the shards build different plans and a
-file shared by two shards is not split the same way on both.
+pytest imports every file named on its command line, so a shard given every selected
+file imports all of them. Each shard must pass --plan-out to pytest as --split-plan-path,
+or pytest-split plans from the shard's own files and the shards disagree on shared files.
 """
 
 import sys
@@ -26,14 +20,7 @@ def plan_durations(durations: dict[str, float], files: list[str]) -> dict[str, f
 
 def files_for_group(durations: dict[str, float], files: list[str], splits: int, group: int) -> list[str]:
     plan = item_plan(durations, splits)
-    group_idx = group - 1
-
-    def collects(path: str) -> bool:
-        if path in plan.file_shards:
-            return group_idx in plan.file_shards[path]
-        return stable_group(path, splits) == group_idx
-
-    return [path for path in files if collects(path)]
+    return [path for path in files if group - 1 in plan.file_shards.get(path, [stable_group(path, splits)])]
 
 
 def main() -> None:

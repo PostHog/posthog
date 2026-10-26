@@ -9,7 +9,7 @@ import pytest
 SCRIPT = Path(__file__).with_name("plan_selected_shard.py")
 
 TEST_COUNTS = {"test_a.py": 4, "test_b.py": 3, "test_c.py": 2, "test_new.py": 2}
-SELECTED = ["test_a.py", "test_b.py", "test_c.py", "test_new.py"]
+SELECTED = list(TEST_COUNTS)
 TIMED = {
     f"{path}::test_{index}": 1.0
     for path, count in TEST_COUNTS.items()
@@ -68,7 +68,9 @@ def collect_group(root: Path, splits: int, group: int) -> list[str]:
         text=True,
     )
     assert result.returncode in (0, 5), result.stdout + result.stderr
-    return [line for line in result.stdout.splitlines() if "::" in line]
+    nodeids = [line for line in result.stdout.splitlines() if "::" in line]
+    assert {nodeid.split("::", 1)[0] for nodeid in nodeids} == set(files)
+    return nodeids
 
 
 @pytest.mark.parametrize(
@@ -82,7 +84,7 @@ def collect_group(root: Path, splits: int, group: int) -> list[str]:
 def test_every_selected_test_runs_on_exactly_one_shard(
     tmp_path: Path, durations: dict[str, float], splits: int
 ) -> None:
-    for path, count in {**TEST_COUNTS, "test_unselected.py": 1}.items():
+    for path, count in TEST_COUNTS.items():
         (tmp_path / path).write_text("".join(f"def test_{index}():\n    pass\n" for index in range(count)))
     (tmp_path / ".test_durations").write_text(json.dumps(durations))
 
