@@ -16484,22 +16484,6 @@
             "readOnlyHint": true
         }
     },
-    "vision-scanners-suggest-tags": {
-        "description": "Suggest tags for a classifier scanner, grounded in the org's product data and, when `scanner_id` is given, in that scanner's own observations (its freeform tags and reasoning). Pass the classifier `prompt` and the `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may be empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means the suggestions could not be generated; try again later.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Suggest classifier tags",
-        "title": "Suggest classifier tags",
-        "required_scopes": ["replay_scanner:read", "session_recording:read"],
-        "api_operations": ["POST /api/projects/{project_id}/vision/scanners/suggest_tags/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "requires_ai_consent": true
-    },
     "vision-scanners-update": {
         "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate` or `sampling_mode`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a pricier `model`, re-check projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
         "category": "Replay vision",
