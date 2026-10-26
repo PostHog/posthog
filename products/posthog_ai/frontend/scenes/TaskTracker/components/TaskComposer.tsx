@@ -263,20 +263,22 @@ export function TaskComposer({
                                     chips={
                                         <>
                                             {showRepositoryChip && (
-                                                <RepositorySelector
-                                                    value={newTaskData.repositoryConfig}
-                                                    autoOpen={repositoryRequested}
-                                                    onChange={(config) => {
-                                                        if (
-                                                            !config.repository &&
-                                                            config.integrationId ===
-                                                                newTaskData.repositoryConfig.integrationId
-                                                        ) {
-                                                            setRepositoryRequested(false)
-                                                        }
-                                                        setNewTaskData({ repositoryConfig: config })
-                                                    }}
-                                                />
+                                                <span className="inline-flex origin-left transition-[opacity,scale] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-95 starting:opacity-0 motion-reduce:transition-none">
+                                                    <RepositorySelector
+                                                        value={newTaskData.repositoryConfig}
+                                                        autoOpen={repositoryRequested}
+                                                        onChange={(config) => {
+                                                            if (
+                                                                !config.repository &&
+                                                                config.integrationId ===
+                                                                    newTaskData.repositoryConfig.integrationId
+                                                            ) {
+                                                                setRepositoryRequested(false)
+                                                            }
+                                                            setNewTaskData({ repositoryConfig: config })
+                                                        }}
+                                                    />
+                                                </span>
                                             )}
                                             <AttachedContextChips />
                                             <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
@@ -329,9 +331,10 @@ export function TaskComposer({
                         </Composer.Root>
                     </div>
                     {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
-                    {skin === 'quill' && !composerOverride?.hideSuggestions && !draft.value.trim() && (
+                    {skin === 'quill' && !composerOverride?.hideSuggestions && (
                         <QuillSuggestionCards
                             prompts={QUILL_STARTER_PROMPTS}
+                            visible={!draft.value.trim()}
                             onSelect={(prompt) => {
                                 applyPrefill(prompt.prompt, prompt.mode)
                                 textAreaRef.current?.focus()
