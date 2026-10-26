@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
+import { topBreakdownSeries } from './evaluationDetailResultsLogic'
 import { bucketDateRange, hasIsolatedPoints, passFailCounts } from './evaluationOverviewDisplay'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import {
@@ -150,9 +151,21 @@ describe('evaluationsOverviewLogic', () => {
 
     test.each([
         ['a day in a time zone ahead of UTC', '2026-10-20T00:00:00+02:00', 'day', '2026-10-20', '2026-10-20'],
-        ['an hour', '2026-10-20T14:00:00+02:00', 'hour', '2026-10-20T12:00:00Z', '2026-10-20T12:59:59Z'],
+        ['an hour', '2026-10-20T14:00:00+02:00', 'hour', '2026-10-20T12:00:00Z', '2026-10-20T13:00:00Z'],
     ] as const)('narrows the runs to %s', (_, bucket, interval, dateFrom, dateTo) => {
         expect(bucketDateRange(bucket, interval)).toEqual({ dateFrom, dateTo })
+    })
+
+    it('keeps the values with the most graded runs and weighs the rest into one Other result', () => {
+        const series = [
+            { key: 'a', label: 'a', values: [50, NaN], graded: [10, 0] },
+            { key: 'b', label: 'b', values: [80, 100], graded: [1, 3] },
+            { key: 'c', label: 'c', values: [20, NaN], graded: [3, 0] },
+        ]
+        expect(topBreakdownSeries(series, 1)).toEqual([
+            series[0],
+            { key: '$$_posthog_breakdown_other_$$', label: 'Other', values: [35, 100], graded: [4, 3] },
+        ])
     })
 
     it('splits pass rate volume into exact passed and failed counts, with empty buckets as zero', () => {

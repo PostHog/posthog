@@ -262,14 +262,15 @@ export function hourTick(label: string): string | null {
 
 /**
  * The date range that covers one bucket. A day's bucket starts at local midnight, so its first ten characters are that
- * day in the project's time zone. An hour is exact instants, which the date filters read as given.
+ * day in the project's time zone. An hour is exact instants, which the date filters read as given. Its end is the next
+ * hour's start, because the filters exclude the end.
  */
 export function bucketDateRange(bucket: string, interval: BucketInterval): { dateFrom: string; dateTo: string } {
     if (interval === 'hour') {
         const start = dayjs(bucket).utc()
         return {
             dateFrom: start.format('YYYY-MM-DDTHH:mm:ss[Z]'),
-            dateTo: start.add(1, 'hour').subtract(1, 'second').format('YYYY-MM-DDTHH:mm:ss[Z]'),
+            dateTo: start.add(1, 'hour').format('YYYY-MM-DDTHH:mm:ss[Z]'),
         }
     }
     return { dateFrom: bucket.slice(0, 10), dateTo: bucket.slice(0, 10) }

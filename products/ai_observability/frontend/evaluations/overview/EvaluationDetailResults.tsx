@@ -12,9 +12,20 @@ import { EvaluationResultCards } from './EvaluationResultCards'
 
 export function EvaluationDetailResults({ evaluationId }: { evaluationId: string }): JSX.Element | null {
     const logic = evaluationDetailResultsLogic({ evaluationId })
-    const { results, resultsLoading, details, request, failure, breakdownProperty, breakdownSeries, trendsQuery } =
-        useValues(logic)
-    const { loadResults, loadDetails, selectBucket, runOnPastData } = useActions(logic)
+    const {
+        results,
+        resultsLoading,
+        details,
+        detailsLoading,
+        request,
+        failure,
+        breakdownProperty,
+        breakdownSeries,
+        breakdownSeriesLoading,
+        breakdownFailure,
+        trendsQuery,
+    } = useValues(logic)
+    const { loadResults, loadDetails, loadBreakdown, selectBucket, runOnPastData } = useActions(logic)
     const { timezone } = useValues(teamLogic)
 
     if (request.notice) {
@@ -49,26 +60,46 @@ export function EvaluationDetailResults({ evaluationId }: { evaluationId: string
             buckets={buckets}
             interval={interval}
             timezone={timezone}
-            details={details}
+            // A retry shows the skeleton, so the error's Try again can't be clicked again while it runs.
+            details={detailsLoading ? null : details}
             onRetryDetails={() => loadDetails()}
             onSelectBucket={selectBucket}
             showFailingExamples={false}
             chartAction={trendsQuery ? <EvaluationBreakdownPicker evaluationId={evaluationId} /> : null}
             breakdown={breakdownProperty ? breakdownSeries : null}
             chartFooter={
-                hasIsolatedPoints(row) && (
+                breakdownFailure ? (
                     <div className="flex flex-wrap items-center gap-x-2 text-xs text-secondary">
-                        <span>{`This evaluation has ${interval}s with no results, so some points have no line.`}</span>
+                        <span>
+                            {breakdownFailure === 'rate_limited'
+                                ? RATE_LIMITED_MESSAGE
+                                : "Couldn't split the results by this property."}
+                        </span>
                         <LemonButton
                             size="xsmall"
                             type="tertiary"
-                            icon={<IconClockRewind />}
-                            onClick={runOnPastData}
-                            data-attr="llma-evaluation-results-backfill-hint"
+                            onClick={() => loadBreakdown()}
+                            loading={breakdownSeriesLoading}
+                            data-attr="llma-evaluation-results-breakdown-retry"
                         >
-                            Run on past data
+                            Try again
                         </LemonButton>
                     </div>
+                ) : (
+                    hasIsolatedPoints(row) && (
+                        <div className="flex flex-wrap items-center gap-x-2 text-xs text-secondary">
+                            <span>{`This evaluation has ${interval}s with no results, so some points have no line.`}</span>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconClockRewind />}
+                                onClick={runOnPastData}
+                                data-attr="llma-evaluation-results-backfill-hint"
+                            >
+                                Run on past data
+                            </LemonButton>
+                        </div>
+                    )
                 )
             }
         />
