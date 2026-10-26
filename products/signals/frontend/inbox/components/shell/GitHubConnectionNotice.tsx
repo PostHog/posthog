@@ -18,11 +18,6 @@ export function GitHubConnectionNotice({ className }: GitHubConnectionNoticeProp
         return null
     }
 
-    const title = {
-        not_connected: 'Connect GitHub to continue self-driving',
-        reconnect_required: 'Reconnect GitHub to continue self-driving',
-        no_repositories: 'Allow repository access to continue self-driving',
-    }[githubConnectionIssue]
     const actionLabel = {
         not_connected: 'Connect GitHub',
         reconnect_required: 'Reconnect GitHub',
@@ -40,7 +35,7 @@ export function GitHubConnectionNotice({ className }: GitHubConnectionNoticeProp
                 'data-attr': 'self-driving-github-notice-connect',
             }}
         >
-            <h4 className="m-0 text-sm font-semibold">{title}</h4>
+            <h4 className="m-0 text-sm font-semibold">Self-driving is paused</h4>
             <p className="mt-1 mb-0">
                 Self-driving needs access to a GitHub repository to run scouts, research reports, and create pull
                 requests.
