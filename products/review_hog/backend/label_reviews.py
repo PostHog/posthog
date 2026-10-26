@@ -1,6 +1,5 @@
-"""The label trigger: a review label on a pull request starts a review. The `posthog-review-deep` label
-starts a Deep review. The `posthog-review-standard` label starts a Standard review, or a Deep one once the
-pull request has a published Deep review.
+"""The label trigger: the `posthog-review` label on a pull request starts a Standard review, or a Deep one
+once the pull request has a published Deep review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -9,8 +8,6 @@ review again, and the workflow removes the label when the run ends.
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
 - The review runs in the owning project.
-- The Deep label runs a Deep review only when the labeler's GitHub login maps to an active member of
-  the owning project. Anyone else who can label the pull request gets the Standard label's review.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 """
@@ -23,17 +20,14 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.permissions import posthog_feature_flag_enabled
-from posthog.user_permissions import UserPermissions
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import DEEP_REVIEW_LABEL, REVIEW_LABELS, STANDARD_REVIEW_LABEL
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL
 from products.review_hog.backend.review_request_rules import trigger_review_mode
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
@@ -51,9 +45,8 @@ _otel = OtelInstrumentFactory("review_hog")
 STAMPHOG_BOT_LOGIN = "stamphog[bot]"
 
 BOT_LABEL_COMMENT = (
-    f"PostHog Review starts a review only when a person adds the `{STANDARD_REVIEW_LABEL}` or "
-    f"`{DEEP_REVIEW_LABEL}` label. A bot added it here, so the label was removed. Add the label yourself to "
-    "start a review."
+    f"PostHog Review starts a review only when a person adds the `{REVIEW_LABEL}` label. A bot added it here, "
+    "so the label was removed. Add the label yourself to start a review."
 )
 
 # The rollout flag of `@posthog` pull request comments (products/commands). Read here by key,
@@ -71,41 +64,19 @@ def comment_commands_enabled(team_id: int) -> bool:
     )
 
 
-def is_project_member(*, team_id: int, user_id: int) -> bool:
-    """Whether the user may access the project, as the `@posthog` comment path checks it."""
-    team = Team.objects.select_related("organization", "parent_team").get(id=team_id)
-    user = User.objects.get(id=user_id)
-    organization = team.organization
-    # The product APIs refuse these organizations and members, so a Deep review must not reach them either.
-    if (
-        organization.is_pending_deletion
-        or not organization.is_active
-        or OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
-    ):
-        return False
-    permissions = UserPermissions(user)
-    if permissions.team(team).effective_membership_level is None:
-        return False
-    # A child environment without its own access rows defaults open while the parent project
-    # denies the user, so the parent decides too.
-    parent = team.parent_team
-    return parent is None or permissions.team(parent).effective_membership_level is not None
-
-
 def label_commands_hint(review_mode: str) -> str:
     """The note a label-started review ends with: which review the label ran, and the commands for more."""
     if review_mode == REVIEW_MODE_FLASH:
         return (
-            f"This Standard review started from the `{STANDARD_REVIEW_LABEL}` label. Add the `{DEEP_REVIEW_LABEL}` "
-            "label or comment `@posthog review --deep` for a Deep review, or comment `@posthog help` to see all "
-            "commands."
+            f"This Standard review started from the `{REVIEW_LABEL}` label. Comment `@posthog review --deep` "
+            "for a Deep review, or `@posthog help` to see all commands."
         )
-    return "This Deep review started from a review label. Comment `@posthog help` to see all commands."
+    return f"This Deep review started from the `{REVIEW_LABEL}` label. Comment `@posthog help` to see all commands."
 
 
 def draft_review_notice(comment_commands_on: bool) -> str:
     """The note an automatic review of a draft ends with: the push gate skips the draft's later pushes."""
-    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{STANDARD_REVIEW_LABEL}` label"
+    trigger = "Comment `@posthog review`" if comment_commands_on else f"Add the `{REVIEW_LABEL}` label"
     return (
         "This is the only automatic review while this pull request is a draft. "
         f"{trigger} to review new changes sooner. "
@@ -147,7 +118,6 @@ class LabelReview:
     head_branch: str
     labeler_login: str
     labeled_by_bot: bool
-    deep: bool = False
 
     @property
     def ref(self) -> RepositoryRef:
@@ -158,14 +128,6 @@ class LabelReview:
     @property
     def labeler_allowed(self) -> bool:
         return not self.labeled_by_bot or self.labeler_login.lower() == STAMPHOG_BOT_LOGIN
-
-    def _deep_allowed(self, team_id: int) -> bool:
-        # Deep costs several times a Standard review, and the project pays for it, so only a member
-        # of that project may pick it.
-        if not self.deep:
-            return False
-        labeler_user_id = PullRequestOwnerResolver.active_author_id(team_id, self.labeler_login)
-        return labeler_user_id is not None and is_project_member(team_id=team_id, user_id=labeler_user_id)
 
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
@@ -184,19 +146,17 @@ class LabelReview:
     def _refuse_bot_label(self, integration: Integration) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
-        # The task does not carry the label name, so a queued task works on old and new workers alike.
-        for label in sorted(REVIEW_LABELS):
-            try:
-                github_api_request(
-                    "DELETE",
-                    f"/repos/{self.repository}/issues/{self.pr_number}/labels/{label}",
-                    token=token,
-                    installation_id=self.installation_id,
-                    endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-                )
-            except GitHubAPIError as error:
-                if error.status != 404:
-                    raise
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEW_LABEL}",
+                token=token,
+                installation_id=self.installation_id,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
         # A POST can succeed on GitHub and still fail here, so a retry checks for the earlier comment.
         if self._bot_label_comment_posted(token):
             return
@@ -258,11 +218,7 @@ class LabelReview:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
-        review_mode = (
-            REVIEW_MODE_FULL
-            if self._deep_allowed(team_id)
-            else trigger_review_mode(team_id, self.repository, self.pr_number)
-        )
+        review_mode = trigger_review_mode(team_id, self.repository, self.pr_number)
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,

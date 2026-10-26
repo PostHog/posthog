@@ -44,7 +44,7 @@ from products.review_hog.backend.label_reviews import comment_commands_enabled, 
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import REVIEW_LABELS, has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL, has_skip_agent_review_label
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -2133,27 +2133,24 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
 
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
-    # The run does not know which label started it, and a label added during the run joins it, so the
-    # run removes every review label.
-    for label in sorted(REVIEW_LABELS):
-        try:
-            github_api_request(
-                "DELETE",
-                f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{label}",
-                token=token,
-                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-                installation_id=installation_id,
-            )
-        except GitHubAPIError as error:
-            if error.status != 404:
-                raise
+    try:
+        github_api_request(
+            "DELETE",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{REVIEW_LABEL}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            installation_id=installation_id,
+        )
+    except GitHubAPIError as error:
+        if error.status != 404:
+            raise
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
-    """Remove the review labels that started a label-triggered review, if they are still present."""
+    """Remove the review label that started a label-triggered review, if it is still present."""
     await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 

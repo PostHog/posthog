@@ -309,14 +309,7 @@ class TestPublishIdempotency(BaseTest):
     @parameterized.expand(
         [
             ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
-            (
-                "automatic_draft_without_commands",
-                "automatic",
-                True,
-                False,
-                "Add the `posthog-review-standard` label to",
-                False,
-            ),
+            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to", False),
             ("automatic_ready", "automatic", False, True, None, False),
             # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
             ("label_draft", "label", True, True, None, True),
