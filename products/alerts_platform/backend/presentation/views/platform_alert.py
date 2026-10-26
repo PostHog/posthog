@@ -219,6 +219,20 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         read_only=True,
         help_text="Runtime state for each result group of this configuration.",
     )
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text='Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
+        "Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. "
+        "Values cannot use templates.",
+    )
+    annotations = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text='Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use '
+        "{{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation "
+        "whose name ends in _url must start with https://.",
+    )
 
 
 class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
@@ -272,6 +286,18 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         max_value=MAX_STORED_INTEGER,
         help_text="Minimum minutes between notifications for the same alert.",
     )
+    labels = serializers.DictField(
+        child=serializers.CharField(),
+        help_text='Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
+        "Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. "
+        "Values cannot use templates.",
+    )
+    annotations = serializers.DictField(
+        child=serializers.CharField(),
+        help_text='Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use '
+        "{{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation "
+        "whose name ends in _url must start with https://.",
+    )
 
 
 def _typed_edit_serializer(
@@ -313,6 +339,8 @@ CREATE_DEFAULTS: dict[str, tuple[Any, str]] = {
     "evaluation_periods": (1, "Defaults to 1."),
     "datapoints_to_alarm": (1, "Defaults to 1."),
     "cooldown_minutes": (0, "Defaults to 0."),
+    "labels": (dict, "Defaults to no labels."),
+    "annotations": (dict, "Defaults to no annotations."),
 }
 
 

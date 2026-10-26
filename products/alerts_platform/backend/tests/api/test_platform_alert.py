@@ -361,6 +361,14 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
+            ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
+            ("templated_label", {"labels": {"team": "{{ $labels.service_name }}"}}, "labels"),
+            (
+                "annotation_on_an_unknown_label",
+                {"annotations": {"summary": "{{ $labels.service_name }} errors"}},
+                "annotations",
+            ),
+            ("link_without_https", {"annotations": {"runbook_url": "javascript:alert(1)"}}, "annotations"),
         ]
     )
     def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
@@ -373,6 +381,30 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert response.json()["attr"] == field
         configuration.refresh_from_db()
         assert (configuration.source_config["condition"], configuration.grouping["mode"]) == (CONDITION, "single")
+        assert (configuration.labels, configuration.annotations) == ({}, {})
+
+    def test_labels_and_annotations_are_stored_and_read_back(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        labels = {"team": "checkout", "severity": "critical"}
+        annotations = {
+            "summary": "Checkout errors for {{ $labels.service_name }} at {{ $value }}",
+            "runbook_url": "https://runbooks.example.com/{{ $labels.team }}",
+        }
+
+        response = self.client.patch(
+            self._edit_url(configuration),
+            {
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+                "labels": labels,
+                "annotations": annotations,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        read = self.client.get(self._edit_url(configuration)).json()
+        assert (read["labels"], read["annotations"]) == (labels, annotations)
 
     @parameterized.expand(
         [

@@ -19,6 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.signals import model_activity_signal
 
+from products.alerts_platform.backend.facade import rule_metadata
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
@@ -52,6 +53,8 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
         evaluation_periods=configuration.evaluation_periods,
         datapoints_to_alarm=configuration.datapoints_to_alarm,
         cooldown_minutes=configuration.cooldown_minutes,
+        labels=configuration.labels,
+        annotations=configuration.annotations,
     )
 
 
@@ -75,6 +78,14 @@ def _validated(
         schedule_restriction = validate_and_normalize_schedule_restriction(edit.schedule_restriction)
     except ValueError as error:
         raise InvalidPlatformAlertEdit("schedule_restriction", str(error)) from error
+    try:
+        rule_metadata.validate_labels(edit.labels)
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("labels", str(error)) from error
+    try:
+        rule_metadata.validate_annotations(edit.annotations, {*edit.grouping.keys, *edit.labels})
+    except rule_metadata.InvalidRuleMetadata as error:
+        raise InvalidPlatformAlertEdit("annotations", str(error)) from error
     source_config = edit.source_config
     # Settings the edit leaves alone may predate the schema, and must not block an unrelated change.
     if current is None or source_config != current.source_config:

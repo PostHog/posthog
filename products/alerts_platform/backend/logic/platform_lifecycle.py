@@ -785,6 +785,8 @@ def write_edit(
         "evaluation_periods",
         "datapoints_to_alarm",
         "cooldown_minutes",
+        "labels",
+        "annotations",
         "updated_at",
     ]
     reenabled = edit.enabled and not configuration.enabled
@@ -805,6 +807,8 @@ def write_edit(
     configuration.evaluation_periods = edit.evaluation_periods
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm
     configuration.cooldown_minutes = edit.cooldown_minutes
+    configuration.labels = edit.labels
+    configuration.annotations = edit.annotations
     configuration.save(update_fields=update_fields)
 
 
