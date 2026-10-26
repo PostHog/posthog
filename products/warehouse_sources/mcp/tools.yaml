@@ -622,7 +622,7 @@ tools:
         title: Get a Fivetran migration
         description: >
             Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran
-            account; poll again in a few seconds. 'ready' means the items are planned. 'failed' means the read failed:
+            account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read failed:
             tell the user what 'latest_error' says.
     warehouse-migration-items-list:
         operation: warehouse_migrations_items_list
@@ -631,9 +631,14 @@ tools:
         title: List the connections in a Fivetran migration
         description: >
             One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to
-            the user, and the planned PostHog source in 'proposal'. To move an item, get
+            the user, and the planned PostHog source type in 'proposal'. To move an item, get
             'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as
-            'migration_item_id', then call 'external-data-sources-apply-migration-item' with the stored credential.
+            'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.
+        response:
+            exclude:
+                # The planned tables and settings stay on the server; apply reads them there.
+                - '*.proposal.schemas'
+                - '*.proposal.prefill'
     warehouse-migration-item-skip:
         operation: warehouse_migrations_items_skip_create
         enabled: true
@@ -654,9 +659,9 @@ tools:
             idempotent: false
         title: Read a Fivetran account again
         description: >
-            Read the Fivetran account again after the user changed it. Applied and skipped connections keep their
-            state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.
-    external-data-sources-apply-migration-item:
+            Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections
+            keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.
+    warehouse-migration-item-apply:
         operation: external_data_sources_apply_migration_item_create
         enabled: true
         feature_flag: warehouse-migration-import

@@ -13,8 +13,6 @@ import { Breadcrumb } from '~/types'
 import { warehouseMigrationsCreate } from 'products/warehouse_sources/frontend/generated/api'
 import type { WarehouseMigrationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { resolveConnectErrorMessage } from '../NewSourceScene/sourceWizardLogic'
-
 export interface MigrationKeyForm {
     api_key: string
     api_secret: string
@@ -85,6 +83,17 @@ export type migrationConnectSceneLogicType = MakeLogicType<
     migrationConnectSceneLogicActions
 >
 
+function keyErrorMessage(e: any): string {
+    // A 4xx carries the reason, for example that Fivetran rejected the key.
+    if (e?.status >= 400 && e?.status < 500 && e?.detail) {
+        return e.detail
+    }
+    if (!e?.status) {
+        return "PostHog couldn't reach the server. An ad blocker or browser extension may be blocking the request. Pause it or switch networks, then try again."
+    }
+    return "PostHog couldn't save the key. Try again in a minute."
+}
+
 export const migrationConnectSceneLogic = kea<migrationConnectSceneLogicType>([
     path(['products', 'dataWarehouse', 'migrationConnectSceneLogic']),
     actions({
@@ -135,7 +144,7 @@ export const migrationConnectSceneLogic = kea<migrationConnectSceneLogicType>([
                     if (e?.status >= 500) {
                         posthog.captureException(e)
                     }
-                    lemonToast.error(resolveConnectErrorMessage(e))
+                    lemonToast.error(keyErrorMessage(e))
                 }
             },
         },

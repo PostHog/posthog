@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "provider": {
-            "description": "The ETL vendor to import from.",
+            "description": "The ETL vendor to import from.\n\n* `fivetran` - Fivetran",
             "enum": ["fivetran"],
             "type": "string"
         }

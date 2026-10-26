@@ -84,6 +84,12 @@ describe('sourceConnectSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
+                '/api/projects/:team_id/warehouse_migrations/:id/items/': [
+                    {
+                        id: 'item-1',
+                        proposal: { prefill: { host: 'db.example.com', ssh_tunnel: { host: 'bastion.example.com' } } },
+                    },
+                ],
             },
             post: {
                 '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
@@ -133,6 +139,22 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.storedCredential?.credential_id).toEqual(
             'ba07775f-8eaf-4d09-aa6f-50e37f17f243'
         )
+    })
+
+    it('prefills a migration item once, without overwriting what the user typed', async () => {
+        const url = '/data-warehouse/connect?kind=Postgres&migration_id=migration-1&migration_item_id=item-1'
+        await expectLogic(sourceConnectSceneLogic, () => router.actions.push(url)).toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.migrationPrefillLoading).toBe(false)
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({
+            host: 'db.example.com',
+            ssh_tunnel: { host: 'bastion.example.com' },
+        })
+
+        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'host'], 'typed.example.com')
+        await expectLogic(sourceConnectSceneLogic, () =>
+            sourceConnectSceneLogic.actions.loadMigrationPrefill('migration-1', 'item-1')
+        ).toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.credentialsForm.payload.host).toEqual('typed.example.com')
     })
 
     it('shows the rejection message when the credentials fail validation', async () => {

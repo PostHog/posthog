@@ -3902,16 +3902,13 @@ export const WarehouseMigrationsListParams = () => zod.object({
         ),
 })
 
-export const WarehouseMigrationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
+export const warehouseMigrationsRetrievePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+
 export const WarehouseMigrationsRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    id: zod.string().regex(warehouseMigrationsRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -3922,8 +3919,10 @@ export const WarehouseMigrationsRetrieveParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
+export const warehouseMigrationsItemsListPathIdRegExp = new RegExp('^[0-9a-f-]+$')
+
 export const WarehouseMigrationsItemsListParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    id: zod.string().regex(warehouseMigrationsItemsListPathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -3934,8 +3933,10 @@ export const WarehouseMigrationsItemsListParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
+export const warehouseMigrationsItemsSkipCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+
 export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    id: zod.string().regex(warehouseMigrationsItemsSkipCreatePathIdRegExp),
     item_id: zod.string().describe('Item ID.'),
     project_id: zod
         .string()
@@ -3947,8 +3948,10 @@ export const WarehouseMigrationsItemsSkipCreateParams = () => zod.object({
 /**
  * Import a team's Fivetran setup and plan the PostHog sources that replace it.
  */
+export const warehouseMigrationsRefreshCreatePathIdRegExp = new RegExp('^[0-9a-f-]+$')
+
 export const WarehouseMigrationsRefreshCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this warehouse migration.'),
+    id: zod.string().regex(warehouseMigrationsRefreshCreatePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -3968,5 +3971,5 @@ export const WarehouseMigrationsConnectLinkRetrieveParams = () => zod.object({
 })
 
 export const WarehouseMigrationsConnectLinkRetrieveQueryParams = () => zod.object({
-    provider: zod.enum(['fivetran']).describe('The ETL vendor to import from.'),
+    provider: zod.enum(['fivetran']).describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

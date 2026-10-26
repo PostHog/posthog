@@ -17,21 +17,24 @@ surprised halfway through.
 
 ## Tools
 
-| Tool                                         | Purpose                                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `warehouse-migration-connect-link`           | Link where the user enters a read-only Fivetran API key in PostHog                               |
-| `warehouse-migrations-list`                  | Find the migration the user just started, newest first                                           |
-| `warehouse-migration-get`                    | Status of the read, and counts per verdict                                                       |
-| `warehouse-migration-items-list`             | One item per Fivetran connection: verdict, caveats, and the planned source                       |
-| `data-warehouse-source-connect-link`         | Link where the user enters the secret for one item; pass `migration_item_id` to prefill the rest |
-| `data-warehouse-stored-credentials-list`     | Find the credential the user just stored                                                         |
-| `external-data-sources-apply-migration-item` | Create the planned source from an item and a stored credential                                   |
-| `warehouse-migration-item-skip`              | Mark an item the user does not want to move                                                      |
-| `warehouse-migration-refresh`                | Read the Fivetran account again after the user changes it                                        |
+| Tool                                     | Purpose                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `warehouse-migration-connect-link`       | Link where the user enters a read-only Fivetran API key in PostHog                               |
+| `warehouse-migrations-list`              | Find the migration the user just started, newest first                                           |
+| `warehouse-migration-get`                | Status of the read, and counts per verdict                                                       |
+| `warehouse-migration-items-list`         | One item per Fivetran connection: verdict, caveats, and the planned source type                  |
+| `data-warehouse-source-connect-link`     | Link where the user enters the secret for one item; pass `migration_item_id` to prefill the rest |
+| `data-warehouse-stored-credentials-list` | Find the credential the user just stored                                                         |
+| `warehouse-migration-item-apply`         | Create the planned source from an item and a stored credential                                   |
+| `warehouse-migration-item-skip`          | Mark an item the user does not want to move                                                      |
+| `warehouse-migration-refresh`            | Read the Fivetran account again after the user changes it                                        |
 
 Never ask the user to paste a Fivetran key or any source secret into the chat. Every secret goes through a link.
 
 ## Workflow
+
+If `warehouse-migration-connect-link` is not among your tools, importing from Fivetran is not available for this
+project yet. Tell the user that and stop.
 
 1. **Start the read.** Get a link with `warehouse-migration-connect-link` and share it. Tell the user to create a
    read-only key in Fivetran: a system key with read access to connections, destinations, and the account works best.
@@ -51,7 +54,7 @@ Never ask the user to paste a Fivetran key or any source secret into the chat. E
      shows the host, port, database, and user from Fivetran, so the user types only the secret or clicks the OAuth
      button.
    - When the user confirms, find the credential with `data-warehouse-stored-credentials-list` and call
-     `external-data-sources-apply-migration-item` with the item id and the credential id.
+     `warehouse-migration-item-apply` with the item id and the credential id.
    - Read back the caveats the response returns. Apply can add some, for example a table the credentials cannot read.
 4. **Wrap up.** Confirm the new sources with `external-data-sources-list`. Suggest the user pauses each Fivetran
    connection only after its PostHog source finished a first sync, so they are never without data.
@@ -59,11 +62,12 @@ Never ask the user to paste a Fivetran key or any source secret into the chat. E
 ## Judgment calls
 
 - **Destinations.** If an item's `proposal.destination` names the user's warehouse (Snowflake, BigQuery, and so on),
-  ask whether PostHog should write there too. If yes, set up the destination first and pass its id as
-  `destination_ids` to apply. Use a schema other than the one Fivetran writes to while both run, or the two tools
-  write into the same tables.
+  ask whether PostHog should write there too. If yes, set up the destination first: share the link from
+  `external-data-destinations-connect-link`, then create it with `external-data-destinations-create`, and pass its id
+  as `destination_ids` to apply. If those tools are not available, the data lands in the PostHog warehouse only. Use a
+  schema other than the one Fivetran writes to while both run, or the two tools write into the same tables.
 - **Prefix taken.** If apply fails because the prefix is in use, offer a new one and pass it as `prefix`.
 - **Failed apply.** The item stays retryable. Read `error`, fix the cause with the user, and apply again with a new
   credential, since a stored credential is used up only when a source is created.
-- **The user changed Fivetran mid-migration.** Call `warehouse-migration-refresh`. Applied and skipped items stay as
-  they are, and the rest are planned again.
+- **The user changed Fivetran mid-migration.** Call `warehouse-migration-refresh`. Applied, skipped and in-progress
+  items stay as they are, and the rest are planned again.

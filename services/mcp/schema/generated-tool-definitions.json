@@ -6244,22 +6244,6 @@
             "readOnlyHint": true
         }
     },
-    "external-data-sources-apply-migration-item": {
-        "description": "Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix, destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the user filled the connect link for this item. Read the returned caveats to the user: they include any planned table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.",
-        "category": "Warehouse sources",
-        "feature": "warehouse_sources",
-        "summary": "Create a PostHog source from a Fivetran connection",
-        "title": "Create a PostHog source from a Fivetran connection",
-        "required_scopes": ["external_data_source:write"],
-        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/apply_migration_item/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "warehouse-migration-import"
-    },
     "external-data-sources-bulk-update-schemas": {
         "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
         "category": "Warehouse sources",
@@ -15854,7 +15838,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-get": {
-        "description": "Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran account; poll again in a few seconds. 'ready' means the items are planned. 'failed' means the read failed: tell the user what 'latest_error' says.",
+        "description": "Get one Fivetran migration. While status is 'pending' or 'crawling', PostHog is still reading the Fivetran account; poll again every 15 to 30 seconds. 'ready' means the items are planned. 'failed' means the read failed: tell the user what 'latest_error' says.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get a Fivetran migration",
@@ -15866,6 +15850,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-item-apply": {
+        "description": "Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix, destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the user filled the connect link for this item. Read the returned caveats to the user: they include any planned table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Create a PostHog source from a Fivetran connection",
+        "title": "Create a PostHog source from a Fivetran connection",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/external_data_sources/apply_migration_item/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "warehouse-migration-import"
     },
@@ -15886,7 +15886,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-items-list": {
-        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source in 'proposal'. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'external-data-sources-apply-migration-item' with the stored credential.",
+        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source type in 'proposal'. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List the connections in a Fivetran migration",
@@ -15902,7 +15902,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-refresh": {
-        "description": "Read the Fivetran account again after the user changed it. Applied and skipped connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.",
+        "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Read a Fivetran account again",
