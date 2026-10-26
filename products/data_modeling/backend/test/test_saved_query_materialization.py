@@ -113,7 +113,8 @@ class TestEnableSavedQueryMaterialization(BaseTest):
     ) -> None:
         self.saved_query.is_materialized = True
         self.saved_query.sync_frequency_interval = timedelta(hours=12)
-        self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval"])
+        self.saved_query.incremental_config = STORED_DAY_KEY
+        self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "incremental_config"])
 
         with (
             patch.object(DataWarehouseSavedQuery, "schedule_materialization", side_effect=error),
@@ -124,6 +125,7 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         self.saved_query.refresh_from_db()
         assert self.saved_query.is_materialized is True
         assert self.saved_query.sync_frequency_interval == timedelta(hours=12)
+        assert self.saved_query.incremental_config == STORED_DAY_KEY
 
     def test_a_schedule_that_disables_materialization_fails_without_logging_an_enable(self) -> None:
         def disable_materialization(saved_query: DataWarehouseSavedQuery, **_kwargs: object) -> None:
