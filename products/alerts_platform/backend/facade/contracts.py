@@ -457,6 +457,8 @@ class PlatformCheckEntry:
     value: float | None
     # None when the check succeeded.
     error_message: str | None
+    # What the source recorded beside the verdict. The platform reads only which top-level keys it holds.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen

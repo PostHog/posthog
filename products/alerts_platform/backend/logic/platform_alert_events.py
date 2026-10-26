@@ -425,10 +425,23 @@ def notable_checks(team_id: int, configuration_id: UUID, *, since: datetime, lim
     )
 
 
+def _check_entry(
+    occurred_at: datetime, evaluation_key: str, state: str, value: float | None, error_message: str, source_detail: str
+) -> PlatformCheckEntry:
+    return PlatformCheckEntry(
+        occurred_at=occurred_at,
+        evaluation_key=evaluation_key,
+        state=PlatformAlertState(state),
+        value=value,
+        error_message=error_message or None,
+        source_detail=_snapshot(source_detail),
+    )
+
+
 _CHECKS_SQL = f"""
-SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total
+SELECT occurred_at, evaluation_key, state, value, error_message, count() OVER () AS total, source_detail
 FROM (
-    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message
+    SELECT alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
@@ -486,16 +499,63 @@ def check_page(
     return PlatformCheckPage(
         total=total,
         checks=tuple(
-            PlatformCheckEntry(
-                occurred_at=occurred_at,
-                evaluation_key=evaluation_key,
-                state=PlatformAlertState(state),
-                value=value,
-                error_message=error_message or None,
-            )
-            for occurred_at, evaluation_key, state, value, error_message, _ in rows
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+            for occurred_at, evaluation_key, state, value, error_message, _, source_detail in rows
         ),
     )
+
+
+# Deduplicated as `_CHECKS_SQL` is. `JSONHas` is false for the empty string a check without detail
+# stores, so only checks whose source recorded the key are read.
+_CHECKS_WITH_DETAIL_SQL = f"""
+SELECT configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail
+FROM (
+    SELECT configuration_id, alert_id, evaluation_key, occurred_at, state, value, error_message, source_detail
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND grouping_key = ''
+      AND occurred_at >= toDateTime64(%(since)s, 6, 'UTC')
+      AND JSONHas(source_detail, %(detail_key)s)
+    ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
+    LIMIT 1 BY alert_id, evaluation_key
+)
+ORDER BY configuration_id, occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s BY configuration_id
+"""
+
+
+def checks_with_detail(
+    team_id: int, configuration_ids: Collection[UUID], *, detail_key: str, since: datetime, limit: int
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each configuration's newest `limit` checks since `since` whose source detail holds `detail_key`,
+    newest first, in one query.
+
+    Only the ungrouped instance is read, as in `history`. A configuration with no such check is left
+    out. Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _CHECKS_WITH_DETAIL_SQL,
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "since": _microseconds(since),
+            "detail_key": detail_key,
+            "limit": limit,
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    checks: dict[UUID, list[PlatformCheckEntry]] = {}
+    for configuration_id, occurred_at, evaluation_key, state, value, error_message, source_detail in rows:
+        checks.setdefault(configuration_id, []).append(
+            _check_entry(occurred_at, evaluation_key, state, value, error_message, source_detail)
+        )
+    return {configuration_id: tuple(entries) for configuration_id, entries in checks.items()}
 
 
 # Deduplication does not matter here, because two copies of one check are identical rows. The tuple
