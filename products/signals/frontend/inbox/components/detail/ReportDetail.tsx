@@ -176,6 +176,7 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
+    hasPullRequest: boolean
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -206,6 +207,7 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
+    hasPullRequest,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -270,6 +272,7 @@ export function InboxDetailFrame({
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
@@ -324,8 +327,8 @@ export function InboxDetailFrame({
     )
 
     const titleHeading = (
-        <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-            {conventionalTitle && (
+        <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+            {hasPullRequest && !plainReportTitles && conventionalTitle && (
                 <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
             )}
             {displayTitle}
@@ -691,6 +694,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
+            hasPullRequest={hasPr}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (
