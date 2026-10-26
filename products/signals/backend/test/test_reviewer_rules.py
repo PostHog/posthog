@@ -678,6 +678,16 @@ class TestStandingExclusions(BaseTest):
         second = self.exclude(repository="org/other")
         with self.assertRaises(DuplicateExclusion):
             revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
+        # A concurrent amend can pass the twin check and still lose the unique index.
+        with (
+            patch(
+                "products.signals.backend.reviewer_exclusions._active_twins",
+                return_value=SignalReviewerExclusion.objects.none(),
+            ),
+            self.assertRaises(DuplicateExclusion),
+        ):
+            revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
+        assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=second).repository == "org/other"
 
     def test_active_twin_is_scoped_to_one_team(self) -> None:
         self.exclude(repository="org/app")

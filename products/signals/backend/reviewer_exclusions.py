@@ -379,7 +379,12 @@ def revise_exclusion(
         if twin.exists():
             raise DuplicateExclusion("An active exclusion already covers this person and area.")
         exclusion.revision += 1
-        exclusion.save()
+        try:
+            with transaction.atomic():
+                exclusion.save()
+        except IntegrityError as e:
+            # A concurrent amend moved another row onto this area after the twin check.
+            raise DuplicateExclusion("An active exclusion already covers this person and area.") from e
         _record_revision(exclusion, SignalReviewerExclusionRevision.Action.REVISED, actor_id)
     return exclusion
 
