@@ -13,6 +13,8 @@ from typing import Any, cast
 
 from django.core.cache import cache
 
+import structlog
+
 from posthog.schema import ChartDisplayType, IntervalType
 
 from posthog.hogql import ast
@@ -22,6 +24,11 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
@@ -44,6 +51,8 @@ from products.signals.backend.anomaly_scores.state import RunPlan, load_states, 
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
+logger = structlog.get_logger(__name__)
+
 SCORE_EVENT = "$anomaly_score"
 SOURCE_INSIGHT = "insight"
 # An insight counts as watched when it is on a dashboard or someone viewed it in this window.
@@ -65,6 +74,13 @@ _CALENDAR_INTERVALS = {
     IntervalType.WEEK: CalendarInterval.WEEKLY,
     IntervalType.MONTH: CalendarInterval.MONTHLY,
 }
+# A scored-buckets query that hits a ClickHouse limit skips its team for the tick, so the other teams still get picks.
+# The cluster memory limit is a subclass of the query memory limit.
+_SCORED_BUCKETS_LIMIT_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+)
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -105,8 +121,6 @@ class InsightPick:
     query_cost: int = 1
     # None when the train and score split is off.
     run: ScoringRun | None = None
-    # Stored buckets that a score step fetches again.
-    refresh_buckets: int = 0
 
 
 @frozen
@@ -152,11 +166,11 @@ def watched_insights(
     ]
 
 
-def scored_state_since(config: AnomalyScoringConfig, now: datetime.datetime) -> datetime.datetime:
-    """How far back the scored state reaches: one bucket more than the backfill cap of the longest interval."""
-    return min(
-        now - interval_spec(interval).period * (config.limits.max_backfill_buckets + 1) for interval in config.intervals
-    )
+def scored_state_since(
+    config: AnomalyScoringConfig, interval: IntervalType, now: datetime.datetime
+) -> datetime.datetime:
+    """How far back the scored state of an insight with this interval reaches: one bucket more than the backfill cap."""
+    return now - interval_spec(interval).period * (config.limits.max_backfill_buckets + 1)
 
 
 def _utc(value: datetime.datetime) -> datetime.datetime:
@@ -365,11 +379,27 @@ def select_insights(
 ) -> Selection:
     teams = {team.id: team for team in eligible_teams(config)}
     insights = watched_insights(list(teams), config.intervals, now)
-    since = scored_state_since(config, now)
     state: dict[int, dict[str, datetime.datetime]] = {}
-    for team_id in sorted({insight.team_id for insight in insights}):
-        team_insight_ids = {insight.insight_id for insight in insights if insight.team_id == team_id}
-        state.update(scored_buckets(teams[team_id], team_insight_ids, since, now))
+    failed_teams: set[int] = set()
+    # One query per team and interval, so a day or week insight does not read the months a month insight needs.
+    for team_id, interval in sorted({(insight.team_id, insight.interval) for insight in insights}):
+        if team_id in failed_teams:
+            continue
+        insight_ids = {
+            insight.insight_id for insight in insights if insight.team_id == team_id and insight.interval == interval
+        }
+        try:
+            state.update(scored_buckets(teams[team_id], insight_ids, scored_state_since(config, interval, now), now))
+        except _SCORED_BUCKETS_LIMIT_ERRORS as error:
+            logger.warning(
+                "anomaly_scoring_scored_buckets_failed",
+                team_id=team_id,
+                interval=interval.value,
+                error_class=type(error).__name__,
+            )
+            failed_teams.add(team_id)
+    # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
+    insights = [insight for insight in insights if insight.team_id not in failed_teams]
 
     newest_buckets = {
         insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
@@ -441,7 +471,6 @@ def select_insights(
             interval=due_by_id[insight_id].interval,
             query_cost=plan.queries,
             run=plan.run,
-            refresh_buckets=plan.refresh_buckets,
         )
         for insight_id, plan in picked.items()
     ]

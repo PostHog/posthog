@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
     PlatformHandback,
     PlatformOwnershipHandover,
+    SourceKind,
     source_condition,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
@@ -797,6 +798,33 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+    _assign_edit(configuration, edit)
+    configuration.save(update_fields=update_fields)
+
+
+def create_native_configuration(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int,
+    now: datetime,
+) -> PlatformAlertConfiguration:
+    """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    configuration = PlatformAlertConfiguration(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        check_interval_minutes=check_interval_minutes,
+        next_check_at=now,
+        owner=PlatformAlertOwner.PLATFORM,
+    )
+    _assign_edit(configuration, edit)
+    # The model's own save logs the creation.
+    configuration.save()
+    return configuration
+
+
+def _assign_edit(configuration: PlatformAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     configuration.name = edit.name
     configuration.enabled = edit.enabled
     configuration.source_config = edit.source_config
@@ -805,7 +833,6 @@ def write_edit(
     configuration.evaluation_periods = edit.evaluation_periods
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm
     configuration.cooldown_minutes = edit.cooldown_minutes
-    configuration.save(update_fields=update_fields)
 
 
 def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:

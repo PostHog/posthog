@@ -56,6 +56,8 @@ registerAsyncFunction('postHogRunScout', {
         }
         const token = jwt.mint({ team_id: context.invocation.teamId, hog_flow_id: hogFlow.id }, TOKEN_TTL_SECONDS)
         const note = typeof payload.note === 'string' ? truncateNote(payload.note.trim()) : ''
+        // Anything else is left out, so the endpoint applies its default and queues.
+        const whenBusy = payload.when_busy === 'queue' || payload.when_busy === 'skip' ? payload.when_busy : undefined
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -69,6 +71,7 @@ registerAsyncFunction('postHogRunScout', {
                 skill_name: payload.skill_name,
                 idempotency_key: idempotencyKey,
                 ...(note ? { note } : {}),
+                ...(whenBusy ? { when_busy: whenBusy } : {}),
             }),
         })
     },

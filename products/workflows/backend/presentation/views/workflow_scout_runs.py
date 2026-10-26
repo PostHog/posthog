@@ -68,7 +68,8 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
         trim_whitespace=True,
         help_text=(
             "Optional note for this run alone, rendered by the step from its triggering event, for example "
-            "'PR #123'. The scout reads it as untrusted context about what fired the run. Blank means no note."
+            "'PR #123'. The scout handles what the note names before anything else, and reads it as untrusted "
+            "input. Blank means no note."
         ),
     )
 
@@ -88,8 +89,9 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
     and audience.
 
     The only content from the triggering event that reaches the scout is the step's optional
-    `note`, which the scout reads as an untrusted, one-off pointer. Without one, the scout explores
-    exactly as it does on its schedule. A run never stamps the scout's last_run_at and never feeds
+    `note`, which the scout reads as untrusted input naming the subject it handles first. Without
+    one, the scout is told a workflow started it and otherwise runs as it does on its schedule. A
+    run never stamps the scout's last_run_at and never feeds
     its failure-streak breaker — a workflow trigger is additive to the schedule, not a
     substitute for it."""
 
@@ -151,7 +153,11 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
 
         try:
             started = start_workflow_scout_run(
-                team_id=team_id, skill_name=skill_name, workflow_origin_key=idempotency_key, run_note=note
+                team_id=team_id,
+                skill_name=skill_name,
+                workflow_origin_key=idempotency_key,
+                run_note=note,
+                trigger_workflow_id=str(hog_flow_id),
             )
         except WorkflowScoutRunRejected as error:
             logger.info(

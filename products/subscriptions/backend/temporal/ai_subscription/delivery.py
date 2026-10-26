@@ -30,7 +30,6 @@ from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
     SlackMessage,
-    _subscription_header_blocks,
     _summary_rich_text,
     deliver_slack_message_data,
 )
@@ -47,7 +46,6 @@ from products.subscriptions.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
-    SubscriptionResource,
     get_unsubscribe_token,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, generate_ai_report
@@ -598,15 +596,17 @@ def _build_ai_slack_message(
     channel = channel_id_from_target(subscription.target_value)
     markdown = strip_external_links_markdown(markdown, additional_allowed_origin=absolute_uri("/"))
     env: EnvType = {}
-    _MARKDOWN_RENDERER.parse(markdown, env)
+    tokens = _MARKDOWN_RENDERER.parse(markdown, env)
+    if tokens and tokens[0].type == "heading_open" and tokens[0].tag == "h1" and tokens[0].map:
+        markdown = "".join(markdown.splitlines(keepends=True)[tokens[0].map[1] :]).lstrip("\r\n")
     sections = _safe_slack_markdown_sections(markdown)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
+    heading = f'Your report "{title}" is ready! 🎉'
 
     blocks: list[dict] = [
-        *_subscription_header_blocks(
-            subscription, SubscriptionResource("AI prompt", title, subscription.url or ""), False
-        ),
+        {"type": "divider"},
+        {"type": "header", "text": {"type": "plain_text", "text": heading[:150]}},
         *_slack_report_blocks(first_section, env),
     ]
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:

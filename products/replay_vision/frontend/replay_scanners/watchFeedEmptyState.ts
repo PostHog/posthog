@@ -13,6 +13,51 @@ export type WatchFeedEmptyReason =
     | 'filtered'
     | 'quiet-window'
 
+/** The reasons no new sessions can reach the feed, whether or not it still has older ones to show. */
+export type WatchFeedBlockReason = 'quota-exhausted' | 'all-disabled' | 'all-capped'
+
+/** What blocks the feed, and where the reader lifts the block. Both the banner and the empty note use it. */
+export const WATCH_FEED_BLOCKS: Record<
+    WatchFeedBlockReason,
+    {
+        cause: string
+        fix: string
+        actionLabel: string
+        tab: 'scanners' | 'usage'
+        dataAttr: string
+        bannerDataAttr: string
+    }
+> = {
+    'all-disabled': {
+        cause: 'All scanners on this project are off.',
+        fix: 'Turn one on to scan new recordings again.',
+        actionLabel: 'See scanners',
+        tab: 'scanners',
+        dataAttr: 'vision-watch-feed-see-scanners',
+        bannerDataAttr: 'vision-watch-feed-banner-see-scanners',
+    },
+    'quota-exhausted': {
+        cause: 'Your Replay Vision credits are used up for this period.',
+        fix: 'Raise the limit to scan new recordings again.',
+        actionLabel: 'See usage',
+        tab: 'usage',
+        dataAttr: 'vision-watch-feed-see-usage',
+        bannerDataAttr: 'vision-watch-feed-banner-see-usage',
+    },
+    'all-capped': {
+        cause: 'Every running scanner has reached its credit limit for this period.',
+        fix: "Raise a scanner's limit to scan new recordings again.",
+        actionLabel: 'See usage',
+        tab: 'usage',
+        dataAttr: 'vision-watch-feed-see-usage',
+        bannerDataAttr: 'vision-watch-feed-banner-see-usage',
+    },
+}
+
+export function isWatchFeedBlock(reason: WatchFeedEmptyReason | null): reason is WatchFeedBlockReason {
+    return reason !== null && reason in WATCH_FEED_BLOCKS
+}
+
 export interface WatchFeedEmptyInput {
     scanners: ReplayScannerApi[]
     /** Null when the snapshot has not answered, which reads here as "no block seen". */
