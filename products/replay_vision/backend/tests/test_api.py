@@ -5284,6 +5284,38 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
         self.assertEqual(picked, {"busy-0", "quiet-0"})
 
+    @parameterized.expand(
+        [
+            ("group_limit", 3, 4),
+            # The bounded fetch holds only copies, so the other finding needs the unbounded retry.
+            ("bounded_fetch_full_of_copies", 1, 2),
+        ]
+    )
+    def test_a_duplicate_group_cannot_fill_the_pick_cap(self, _name: str, group_candidates: int, cap: int) -> None:
+        scanner = self._create_scanner(name="m")
+        root_id: str | None = None
+        # Of 30 rows only the top six clear the percentile cut: five copies of one finding, then one other finding.
+        for index in range(30):
+            obs = self._succeeded_observation(scanner, f"row-{index}", index, self._monitor_result("yes"))
+            ReplayObservation.objects.filter(id=obs.id).update(
+                watch_rank={
+                    "category": "failure",
+                    "contrast": 1 - index / 100,
+                    "duplicate_of": root_id if 0 < index < 5 else None,
+                    "anchor_version": ANCHOR_VERSION,
+                }
+            )
+            root_id = root_id or str(obs.id)
+
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"),
+            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", cap),
+            patch("products.replay_vision.backend.watch_rank.WATCH_PICK_GROUP_CANDIDATES", group_candidates),
+        ):
+            items = self.client.get(self.feed_url).json()["results"]
+        picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
+        self.assertIn("row-5", picked)
+
     def test_impressions_lower_an_embedding_pick_only_after_the_load_that_showed_it(self) -> None:
         scanner = self._create_scanner(name="m")
         rows = {}
