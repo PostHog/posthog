@@ -416,4 +416,24 @@ describe('signalTeamConfigLogic', () => {
         expect(lastPostBody?.autostart_base_branches).toEqual({ 'acme/api': 'develop' })
         expect(logic.values.baseBranchOverrides).toEqual([{ repo: 'acme/api', branch: 'develop' }])
     })
+
+    it('appends an extra implementation repository once and closes the picker', async () => {
+        await mountWith({})
+        logic.actions.setImplementationRepositoryPickerOpen(true)
+        logic.actions.setDraftImplementationRepository('Acme/Assets')
+        logic.actions.addImplementationRepository()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lastPostBody?.implementation_repositories).toEqual(['acme/assets'])
+        expect(logic.values.implementationRepositoryPickerOpen).toBe(false)
+
+        lastPostBody = null
+        logic.actions.setImplementationRepositoryPickerOpen(true)
+        logic.actions.setDraftImplementationRepository('acme/assets')
+        logic.actions.addImplementationRepository()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.addImplementationRepositoryDisabledReason).toBe('This repository is already in the list')
+        expect(lastPostBody).toBeNull()
+    })
 })

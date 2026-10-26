@@ -725,6 +725,12 @@ export interface SignalTeamConfigApi {
      */
     pull_request_label?: string | null
     /**
+     * Extra GitHub repositories, as 'organization/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default.
+     * @maxItems 20
+     * @items.maxLength 255
+     */
+    implementation_repositories?: string[]
+    /**
      * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
      * @minimum 0
      */

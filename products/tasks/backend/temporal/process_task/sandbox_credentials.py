@@ -555,7 +555,7 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id, repositories=ctx.repositories)
+            return get_github_token(task.github_integration_id, repositories=ctx.github_access_repositories)
         except Integration.DoesNotExist as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",

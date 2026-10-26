@@ -1212,6 +1212,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         github_issue_writeback_enabled: true,
         pull_request_label_enabled: true,
         pull_request_label: true,
+        implementation_repositories: true,
     })
 }
 
