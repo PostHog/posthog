@@ -15,9 +15,10 @@ step reads as a graceful skip for the service-to-service path.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -26,7 +27,7 @@ from posthog.models import Team
 from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
@@ -79,6 +80,42 @@ def check_github_gate(team_id: int) -> ScoutRunRejection | None:
         reason=f"github_{readiness.status}",
         detail=str(GitHubAccessUnavailable(readiness.status).detail),
     )
+
+
+def github_may_be_ready(team_id: int) -> bool:
+    """Whether fleet planning may dispatch the team's scouts, from cached readiness only.
+
+    Planning must not call GitHub, because a slow refresh for one team would hold the planning
+    activity for every team. A `temporarily_unavailable` cached state cannot be confirmed without
+    a call, so it passes here and the runner's live `check_github_gate` decides in the child.
+    """
+    return get_team_github_readiness(team_id).status in (
+        GitHubReadinessStatus.READY,
+        GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE,
+    )
+
+
+def restore_schedule_after_github_rejection(
+    team_id: int, skill_name: str, previous_last_run_at: datetime | None
+) -> bool:
+    """Undo the coordinator's `last_run_at` stamp for a scheduled run that the runner's GitHub gate
+    stopped before it started, so the scout is due again on the next tick after access returns.
+
+    A scheduled run row created after `previous_last_run_at` belongs to a newer dispatch, so its
+    stamp stays. Scheduled runs carry no `triggered_by` metadata.
+    """
+    newer_scheduled_runs = SignalScoutRun.all_teams.filter(team_id=team_id, skill_name=skill_name).exclude(
+        metadata__has_key=TRIGGERED_BY_METADATA_KEY
+    )
+    if previous_last_run_at is not None:
+        newer_scheduled_runs = newer_scheduled_runs.filter(created_at__gt=previous_last_run_at)
+    with transaction.atomic():
+        config = SignalScoutConfig.all_teams.select_for_update().filter(team_id=team_id, skill_name=skill_name).first()
+        if config is None or config.last_run_at == previous_last_run_at or newer_scheduled_runs.exists():
+            return False
+        config.last_run_at = previous_last_run_at
+        config.save(update_fields=["last_run_at"])
+    return True
 
 
 def check_fleet_gates(

@@ -143,7 +143,7 @@ def _allowlist_payload() -> dict:
 def github_access_available():
     """Scheduling and harness tests start with the independent GitHub prerequisite satisfied."""
     with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.check_github_gate", return_value=None
+        "products.signals.backend.temporal.agentic.scout_coordinator.github_may_be_ready", return_value=True
     ) as readiness:
         yield readiness
 
@@ -366,13 +366,13 @@ async def test_github_blocked_scout_keeps_schedule_and_resumes_next_tick(ateam, 
     config = await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
     previous_run = config.last_run_at
     with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
-        github_access_available.return_value = object()
+        github_access_available.return_value = False
         blocked = await _run_activity()
         assert not any(p.team_id == ateam.id for p in blocked)
         await database_sync_to_async(config.refresh_from_db)()
         assert config.last_run_at == previous_run
         assert config.enabled
-        github_access_available.return_value = None
+        github_access_available.return_value = True
         recovered = await _run_activity()
     assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in recovered)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
@@ -42,6 +42,7 @@ from products.signals.backend.scout_harness.limits import (
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
+from products.signals.backend.scout_harness.run_gates import restore_schedule_after_github_rejection
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.temporal import metrics
 from products.skills.backend.models.skills import LLMSkill
@@ -85,6 +86,9 @@ class RunSignalsScoutInput:
     # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
     # tick. 0 for every other trigger, so those runs start at once.
     start_delay_seconds: int = 0
+    # The config's `last_run_at` before the coordinator stamped this dispatch. Restored when the
+    # runner's GitHub gate stops the run, so the scout stays due.
+    previous_last_run_at: datetime | None = None
 
 
 @frozen
@@ -378,6 +382,15 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
             runtime_s=0.0,
             skill_name=input.skill_name,
             skill_version=input.skill_version or 0,
+        )
+    if (
+        result.skip_reason is not None
+        and result.skip_reason.startswith("github_")
+        and input.triggered_by == TRIGGERED_BY_SCHEDULE
+        and input.trial_launch_id is None
+    ):
+        await database_sync_to_async(restore_schedule_after_github_rejection, thread_sensitive=False)(
+            input.team_id, input.skill_name, input.previous_last_run_at
         )
     metrics.increment_scout_run(result.status or "unknown")
     logger.info(
