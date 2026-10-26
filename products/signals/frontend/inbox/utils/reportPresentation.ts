@@ -5,6 +5,7 @@
 const MAX_HEADLINE_LENGTH = 140
 const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/
 const EDGE_EMPHASIS = /^[*_`\s]+|[*_`\s]+$/g
+const INLINE_MARKDOWN_LINK = /!?\[([^\]]+)]\((?:[^()]|\([^()]*\))*\)/g
 const CONVENTIONAL_COMMIT_TITLE = /^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)$/
 
 /** Compact single-sentence headline derived from a report summary, for list rendering. */
@@ -16,7 +17,7 @@ export function deriveHeadline(summary: string | null | undefined): string | nul
     if (!trimmed) {
         return null
     }
-    const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? ''
+    const firstLine = (trimmed.split(/\r?\n/, 1)[0] ?? '').replace(INLINE_MARKDOWN_LINK, '$1')
     let headline = firstLine
     const sentenceMatch = SENTENCE_END.exec(firstLine)
     if (sentenceMatch) {
