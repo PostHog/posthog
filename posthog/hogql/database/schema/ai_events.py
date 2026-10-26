@@ -74,6 +74,13 @@ AI_PROPERTY_TO_COLUMN: dict[str, str] = {
     "$ai_tools": "tools",
 }
 
+# A string column stores its lengths as a subcolumn of their own, so a length check skips the content.
+# A rule on the source column's property masks the subcolumn too (see restricted_properties.py).
+AI_SUBCOLUMN_TO_SOURCE: dict[str, str] = {
+    "input_state.size": "input_state",
+    "output_state.size": "output_state",
+}
+
 
 class AiEventsTable(Table):
     description: str = "AI observability events ($ai_generation, $ai_span, $ai_trace, $ai_evaluation, etc.) capturing model calls, token usage, costs, and trace structure."
@@ -252,6 +259,18 @@ class AiEventsTable(Table):
         ),
         "tools": StringJSONDatabaseField(
             name="tools", nullable=True, description="JSON of the tool/function definitions available to the model."
+        ),
+        "input_state_length": IntegerDatabaseField(
+            name="input_state.size",
+            nullable=True,
+            hidden=True,
+            description="Length in bytes of the input state JSON, read without loading the state itself.",
+        ),
+        "output_state_length": IntegerDatabaseField(
+            name="output_state.size",
+            nullable=True,
+            hidden=True,
+            description="Length in bytes of the output state JSON, read without loading the state itself.",
         ),
         # Person join via person_distinct_ids
         "pdi": LazyJoin(

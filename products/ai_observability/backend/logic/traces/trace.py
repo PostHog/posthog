@@ -68,11 +68,9 @@ class Trace:
 
     @cached_property
     def default_node_id(self) -> str:
-        if any(event.is_trace_event for event in self.events):
+        if any(event.is_trace_event and event.row.has_state for event in self.events):
             return self.id
-        first_generation = next((node for node in self.tree if node.event.kind == "generation"), None)
-        chosen = first_generation or next(iter(self.tree), None)
-        return chosen.event.id if chosen else self.id
+        return next(iter(self.thread_node_ids), None) or next((node.event.id for node in self.tree), self.id)
 
     @cached_property
     def node_ids_by_alias(self) -> dict[str, str]:

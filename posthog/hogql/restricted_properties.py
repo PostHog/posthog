@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AI_SUBCOLUMN_TO_SOURCE, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -46,6 +46,9 @@ _FLAG_EVALUATIONS_MIRRORED_COLUMNS: dict[str, str] = {
 
 
 _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column in AI_PROPERTY_TO_COLUMN.items()}
+_AI_EVENTS_MIRRORED_COLUMNS |= {
+    subcolumn: _AI_EVENTS_MIRRORED_COLUMNS[source] for subcolumn, source in AI_SUBCOLUMN_TO_SOURCE.items()
+}
 
 
 def mirrored_property_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> str | None:
