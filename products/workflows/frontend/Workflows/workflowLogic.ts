@@ -406,6 +406,9 @@ export interface workflowLogicActions {
     keepMyWorkflowVersion: () => {
         value: true
     }
+    leaveConfirmed: () => {
+        value: true
+    }
     loadAiEmailDraft: (request: EmailDraftRequestApi) => EmailDraftRequestApi
     loadAiEmailDraftFailure: (
         error: string,
@@ -3352,6 +3355,7 @@ export const workflowLogic = kea<workflowLogicType>([
         discardDraft: true,
         enableBlocked: true,
         workflowCreated: (workflowId: string) => ({ workflowId }),
+        leaveConfirmed: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         replayDeferredResourceEdited: true,
@@ -5014,6 +5018,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         message: 'Leave workflow?\nChanges you made will be discarded.',
         onConfirm: () => {
+            logic.actions.leaveConfirmed()
             if (logic.values.originalWorkflow) {
                 logic.actions.resetWorkflow(logic.values.originalWorkflow)
             }

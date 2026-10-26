@@ -265,6 +265,24 @@ describe('workflowEditorVisitLogic', () => {
         expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])
     })
 
+    it('reports the progress a person discards when they confirm leaving with unsaved changes', async () => {
+        const confirmLeave = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        useMocks({ get: { [`/api/projects/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
+        const props = { id: SAVED_ID }
+        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
+        const visit = await openEditor(props)
+
+        addStep(props, delayStep('wait_valid', { delay_duration: '10m' }))
+        router.actions.push(urls.workflow(SAVED_ID, 'metrics'))
+        visit.unmount()
+
+        expect(confirmLeave).toHaveBeenCalledTimes(1)
+        confirmLeave.mockRestore()
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ step_count: 1, step_types: { delay: 1 }, last_edit: 'step_added' }),
+        ])
+    })
+
     it.each(['workflow', 'overview'])(
         'reports the layout a person lands in, the one they leave from, and each real switch, from the %s route',
         async (startTab) => {
