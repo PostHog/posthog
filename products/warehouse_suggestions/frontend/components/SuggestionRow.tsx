@@ -13,6 +13,7 @@ export const SAVING_COLUMNS_CLASS =
 export interface SuggestionRowProps {
     suggestionId: string
     assignee: WarehouseSuggestionApi['assignee']
+    canAct: boolean
     icon: ReactNode
     title: ReactNode
     meta: ReactNode[]
@@ -24,6 +25,7 @@ export interface SuggestionRowProps {
 export function SuggestionRow({
     suggestionId,
     assignee,
+    canAct,
     icon,
     title,
     meta,
@@ -67,6 +69,7 @@ export function SuggestionRow({
                                         key="assignee"
                                         suggestionId={suggestionId}
                                         assignee={assignee}
+                                        canAct={canAct}
                                     />,
                                 ].map((item, index) => (
                                     <span key={index} className="-ml-4 inline-flex items-baseline">

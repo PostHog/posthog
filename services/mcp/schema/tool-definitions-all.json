@@ -16993,7 +16993,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-assign": {
-        "description": "Assign a proposed warehouse suggestion to the person who should accept or dismiss it, or pass assignee_id=null to remove the assignee. The assignee must be able to accept it: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. A 400 means they cannot. They get a notification unless they assign themselves. Nothing changes on the view or table. Find user ids with the organization member tools.",
+        "description": "Assign a proposed warehouse suggestion to the person who should accept or dismiss it, or pass assignee_id=null to remove the assignee. The caller needs edit access to the view or table, the same as for dismiss. The assignee must be able to accept it: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. A 400 means they cannot. They get a notification unless they assign themselves or already are the assignee. Nothing changes on the view or table. Find user ids with the organization member tools.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Assign a warehouse suggestion",

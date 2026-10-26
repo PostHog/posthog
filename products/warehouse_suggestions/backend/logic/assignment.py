@@ -3,10 +3,12 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db import transaction
+
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import User
-from posthog.scopes import APIScopeObject
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -33,7 +35,8 @@ KIND_ACTIONS: Mapping[WarehouseSuggestionKind, str] = {
     WarehouseSuggestionKind.MATERIALIZE: "materialize",
     WarehouseSuggestionKind.UNMATERIALIZE: "stop materializing",
 }
-NOTIFIED_RESOURCE: APIScopeObject = "warehouse_objects"
+NOTIFICATION_TITLE_MAX_LENGTH = 255
+ELLIPSIS = "…"
 MANUAL_ASSIGNMENT_BODY = "Open it to see why PostHog suggests it, then accept or dismiss it."
 
 Assignments = Mapping[User, Sequence[WarehouseSuggestion]]
@@ -46,24 +49,34 @@ def assign_surfaced(
     creators = _view_creators(context, surfaced)
     assigned: defaultdict[User, list[WarehouseSuggestion]] = defaultdict(list)
     for row in surfaced:
-        assignee = row.assignee or _default_assignee(team, row, creators.get(row.subject_id))
-        if assignee is None:
-            continue
-        if row.assignee_id is None:
+        assignee = _surfaced_assignee(team, row, creators.get(row.subject_id))
+        if assignee != row.assignee:
             WarehouseSuggestion.objects.for_team(team.pk).filter(id=row.id).update(assignee=assignee)
             row.assignee = assignee
-        assigned[assignee].append(row)
+        if assignee is not None:
+            assigned[assignee].append(row)
     return assigned
 
 
-def assign(team: "Team", suggestion: WarehouseSuggestion, assignee_id: int | None, *, assigned_by: User) -> None:
-    if suggestion.status != WarehouseSuggestionStatus.PROPOSED:
-        raise SuggestionNotOpenError()
-    assignee = _assignable_user(team, suggestion, assignee_id)
-    suggestion.assignee = assignee
-    suggestion.save(update_fields=["assignee"])
+@frozen
+class Assignment:
+    suggestion: WarehouseSuggestion
+    changed: bool
+
+
+def assign(team: "Team", suggestion_id: UUID, assignee_id: int | None, *, assigned_by: User) -> Assignment:
+    with transaction.atomic():
+        suggestion = WarehouseSuggestion.objects.for_team(team.pk).select_for_update().get(id=suggestion_id)
+        if suggestion.status != WarehouseSuggestionStatus.PROPOSED:
+            raise SuggestionNotOpenError()
+        if suggestion.assignee_id == assignee_id:
+            return Assignment(suggestion=suggestion, changed=False)
+        assignee = _assignable_user(team, suggestion, assignee_id)
+        suggestion.assignee = assignee
+        suggestion.save(update_fields=["assignee"])
     if assignee is not None and assignee != assigned_by:
         notify_assigned(team, suggestion, assignee, assigned_by=assigned_by)
+    return Assignment(suggestion=suggestion, changed=True)
 
 
 def _assignable_user(team: "Team", suggestion: WarehouseSuggestion, assignee_id: int | None) -> User | None:
@@ -88,11 +101,12 @@ def notify_surfaced(team: "Team", assigned: Assignments, run_id: str) -> None:
 
 
 def notify_assigned(team: "Team", suggestion: WarehouseSuggestion, assignee: User, *, assigned_by: User) -> None:
+    proposal = _proposal(suggestion)
     _notify(
         team,
         assignee,
-        title=f"{assigned_by.first_name} assigned you a suggestion to {_proposal(suggestion)}",
-        body=MANUAL_ASSIGNMENT_BODY,
+        title=f"{assigned_by.first_name} assigned you a suggestion to {proposal}",
+        body=f"{_sentence_case(proposal)}. {MANUAL_ASSIGNMENT_BODY}",
         source_url=_source_url(team, suggestion),
     )
 
@@ -109,10 +123,16 @@ def _view_creators(context: CandidateContext, rows: Sequence[WarehouseSuggestion
     return {subject_id: users[user_id] for subject_id, user_id in creator_ids.items() if user_id in users}
 
 
-def _default_assignee(team: "Team", row: WarehouseSuggestion, creator: User | None) -> User | None:
-    if creator is None or not can_take(team, creator, row):
-        return None
-    return creator
+def _surfaced_assignee(team: "Team", row: WarehouseSuggestion, creator: User | None) -> User | None:
+    """The current assignee if they can still accept the suggestion, else the view's creator if they can."""
+    return next(
+        (
+            candidate
+            for candidate in (row.assignee, creator)
+            if candidate is not None and can_take(team, candidate, row)
+        ),
+        None,
+    )
 
 
 def _surfaced_title(rows: Sequence[WarehouseSuggestion]) -> str:
@@ -137,6 +157,12 @@ def _source_url(team: "Team", row: WarehouseSuggestion) -> str:
     return f"/project/{team.pk}/models?tab=models"
 
 
+def _bounded_title(title: str) -> str:
+    if len(title) <= NOTIFICATION_TITLE_MAX_LENGTH:
+        return title
+    return title[: NOTIFICATION_TITLE_MAX_LENGTH - len(ELLIPSIS)] + ELLIPSIS
+
+
 def _notify(
     team: "Team", assignee: User, *, title: str, body: str, source_url: str, idempotency_key: str | None = None
 ) -> None:
@@ -145,11 +171,10 @@ def _notify(
             NotificationData(
                 team_id=team.pk,
                 notification_type=NotificationType.WAREHOUSE_SUGGESTION_ASSIGNED,
-                title=title,
+                title=_bounded_title(title),
                 body=body,
                 target_type=TargetType.USER,
                 target_id=str(assignee.pk),
-                resource_type=NOTIFIED_RESOURCE,
                 source_url=source_url,
                 idempotency_key=idempotency_key,
             )

@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -21,6 +22,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_suggestions.backend.facade import api
 from products.warehouse_suggestions.backend.facade.contracts import (
     DeprecatePayload,
     MaterializePayload,
@@ -212,13 +214,14 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_teammate_who_can_edit", "teammate", status.HTTP_200_OK, True),
-            ("themselves", "self", status.HTTP_200_OK, False),
-            ("nobody", "nobody", status.HTTP_200_OK, False),
-            ("someone_outside_the_organization", "outsider", status.HTTP_400_BAD_REQUEST, False),
+            ("a_teammate_who_can_edit", "teammate", "self", status.HTTP_200_OK, True),
+            ("themselves", "self", "teammate", status.HTTP_200_OK, False),
+            ("the_same_teammate_again", "teammate", "teammate", status.HTTP_200_OK, False),
+            ("nobody", "nobody", "self", status.HTTP_200_OK, False),
+            ("someone_outside_the_organization", "outsider", "self", status.HTTP_400_BAD_REQUEST, False),
         ]
     )
-    def test_assign(self, _name: str, who: str, expected_status: int, expect_notified: bool) -> None:
+    def test_assign(self, _name: str, who: str, current: str, expected_status: int, expect_notified: bool) -> None:
         assignees = {
             "teammate": User.objects.create_and_join(self.organization, "teammate@example.com", None).id,
             "self": self.user.id,
@@ -226,7 +229,9 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             "outsider": User.objects.create(email="outsider@example.com").id,
         }
         suggestion = self._suggest_materialize()
-        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(assignee=self.user)
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(
+            assignee_id=assignees[current]
+        )
 
         with patch(NOTIFY) as notify:
             response = self.client.post(
@@ -237,12 +242,37 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
         stored = WarehouseSuggestion.objects.for_team(self.team.id).get(id=suggestion.id).assignee_id
         notified = [call.args[0].target_id for call in notify.call_args_list]
-        expected_assignee = assignees[who] if expected_status == status.HTTP_200_OK else self.user.id
+        expected_assignee = assignees[who] if expected_status == status.HTTP_200_OK else assignees[current]
         assert (response.status_code, stored, notified) == (
             expected_status,
             expected_assignee,
             [str(assignees[who])] if expect_notified else [],
         ), response.json()
+
+    def test_assign_refuses_a_suggestion_someone_decided_while_it_was_being_assigned(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        suggestion = self._suggest_materialize()
+        read_suggestion = api._actionable_suggestion
+
+        def read_then_accepted_elsewhere(*args: Any, **kwargs: Any) -> Any:
+            read = read_suggestion(*args, **kwargs)
+            WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(
+                status=WarehouseSuggestionStatus.ACCEPTED
+            )
+            return read
+
+        with (
+            patch.object(api, "_actionable_suggestion", side_effect=read_then_accepted_elsewhere),
+            patch(NOTIFY) as notify,
+        ):
+            response = self.client.post(
+                f"{self.url}/{suggestion.id}/assign/",
+                json.dumps({"assignee_id": teammate.id}),
+                content_type="application/json",
+            )
+
+        stored = WarehouseSuggestion.objects.for_team(self.team.id).get(id=suggestion.id).assignee_id
+        assert (response.status_code, stored, notify.call_count) == (status.HTTP_409_CONFLICT, None, 0)
 
     @parameterized.expand(
         [
@@ -305,13 +335,16 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         bearer = self._bearer(scopes)
 
         listed = self.client.get(f"{self.url}/", HTTP_AUTHORIZATION=bearer)
-        dismissed = {
-            name: self.client.post(
-                f"{self.url}/{suggestion_id}/dismiss/",
-                {"reason": WarehouseSuggestionDismissalReason.NOT_NOW},
-                HTTP_AUTHORIZATION=bearer,
-            ).status_code
-            for name, suggestion_id in ids.items()
+        decided = {
+            action: {
+                name: self.client.post(
+                    f"{self.url}/{suggestion_id}/{action}/",
+                    {"reason": WarehouseSuggestionDismissalReason.NOT_NOW, "assignee_id": self.user.id},
+                    HTTP_AUTHORIZATION=bearer,
+                ).status_code
+                for name, suggestion_id in ids.items()
+            }
+            for action in ("assign", "dismiss")
         }
 
         if expected_can_act is None:
@@ -320,7 +353,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             names_by_id = {str(suggestion_id): name for name, suggestion_id in ids.items()}
             listed_can_act = {names_by_id[row["id"]]: row["can_act"] for row in listed.json()["results"]}
             assert listed_can_act == expected_can_act
-        assert dismissed == expected_dismiss
+        assert decided == {"assign": expected_dismiss, "dismiss": expected_dismiss}
 
     def test_a_token_without_a_write_scope_is_told_which_one_to_add(self) -> None:
         suggestion = self._suggest(self.view.id)
@@ -432,6 +465,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         [
             ("dismiss_as_view_viewer", "dismiss", "warehouse_view", False),
             ("accept_as_view_viewer", "accept", "warehouse_view", False),
+            ("assign_as_view_viewer", "assign", "warehouse_view", False),
             ("certify_as_catalog_viewer", "accept", "data_catalog", True),
         ]
     )
@@ -443,7 +477,8 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
         listed = self.client.get(f"{self.url}/")
         decided = self.client.post(
-            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL}
+            f"{self.url}/{suggestion.id}/{action}/",
+            {"reason": WarehouseSuggestionDismissalReason.NOT_USEFUL, "assignee_id": self.user.id},
         )
 
         assert listed.json()["results"][0]["can_act"] is expected_can_act

@@ -298,6 +298,45 @@ class TestApplyRun(BaseTest):
             [str(expected_assignee)] if expect_assigned else [],
         )
 
+    @parameterized.expand([("kept_access_to_the_view", False), ("lost_access_to_the_view", True)])
+    def test_a_resurfaced_suggestion_keeps_its_assignee_only_while_they_can_accept_it(
+        self, _name: str, access_revoked: bool
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        apply_run(ctx, self.team, [draft], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(assignee=teammate)
+        if access_revoked:
+            self._enable_access_control()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(saved_query.id),
+                organization_member=teammate.organization_memberships.get(),
+                access_level="none",
+            )
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        assert (row.surfaced_at is not None, row.assignee_id, notified) == (
+            True,
+            None if access_revoked else teammate.pk,
+            [] if access_revoked else [str(teammate.pk)],
+        )
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
     def _creator(self, creator_state: str) -> User | None:
         if creator_state == "none":
             return None
@@ -306,10 +345,7 @@ class TestApplyRun(BaseTest):
         return self.user
 
     def _restrict_catalog_to_viewer(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
+        self._enable_access_control()
         AccessControl.objects.create(
             team=self.team,
             resource="data_catalog",

@@ -155,16 +155,17 @@ def assign_suggestion(
     assignee_id: int | None,
     subject_kinds: SubjectKinds,
 ) -> Suggestion:
-    row, access = _visible_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
-    assignment.assign(team, row, assignee_id, assigned_by=user)
-    report_outcomes(
-        SuggestionOutcome.ASSIGNED,
-        [row],
-        team=team,
-        user=user,
-        properties={"unassigned": assignee_id is None, "self_assigned": assignee_id == user.id},
-    )
-    return _single_contract(team.pk, user_access_control, row, access)
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
+    result = assignment.assign(team, row.id, assignee_id, assigned_by=user)
+    if result.changed:
+        report_outcomes(
+            SuggestionOutcome.ASSIGNED,
+            [result.suggestion],
+            team=team,
+            user=user,
+            properties={"unassigned": assignee_id is None, "self_assigned": assignee_id == user.id},
+        )
+    return _single_contract(team.pk, user_access_control, result.suggestion, access)
 
 
 def accept_suggestion(

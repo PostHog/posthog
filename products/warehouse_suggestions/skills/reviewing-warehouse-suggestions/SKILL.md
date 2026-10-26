@@ -81,6 +81,7 @@ When a view's suggestion is first shown, PostHog assigns it to the person who cr
 To see one person's suggestions, pass `assignee_id` to `warehouse-suggestions-list`.
 
 When the user is not the right person to decide, assign it with `warehouse-suggestions-assign`.
+The user needs edit access to the view or table, the same as for dismissing it (`can_act`).
 The assignee gets a notification.
 They need edit access to the view or table, and to the data catalog for certify and deprecate suggestions.
 A 400 means they do not have it. Tell the user and ask who else should get it.
