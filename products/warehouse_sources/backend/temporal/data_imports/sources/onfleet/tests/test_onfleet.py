@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
     OnfleetSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet import onfleet as onfleet_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import (
     OnfleetResumeConfig,
     _to_epoch_ms,
@@ -96,6 +98,63 @@ class TestGetRowsPaginated:
         assert result.raised is None
         assert result.paths == ["/api/v2/tasks/all", "/api/v2/tasks/all"]
         assert [row["id"] for row in result.rows] == ["1", "1"]
+
+
+class TestRoutePlans:
+    @pytest.mark.parametrize("to_inclusive", [True, False])
+    def test_window_walk_yields_every_route_plan_once(
+        self, monkeypatch: pytest.MonkeyPatch, to_inclusive: bool
+    ) -> None:
+        monkeypatch.setattr(onfleet_module, "ROUTE_PLANS_LIMIT", 3)
+        monkeypatch.setattr(onfleet_module, "_now_ms", lambda: 128)
+        # Rows sit on the power-of-two window boundaries the walk produces.
+        created_times = {
+            f"r{index}": created for index, created in enumerate([0, 0, 4, 5, 8, 9, 9, 12, 16, 30, 32, 47, 64, 100])
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            start, end, limit = (
+                int(request.param(name) or 0) for name in ("createdTimeFrom", "createdTimeTo", "limit")
+            )
+            matches = [
+                {"id": plan_id, "timeCreated": created}
+                for plan_id, created in reversed(created_times.items())
+                if start <= created and (created <= end if to_inclusive else created < end)
+            ]
+            return ScriptedResponse(json=matches[:limit])
+
+        result = _driver().run("route_plans", respond)
+
+        assert result.raised is None
+        assert sorted(row["id"] for row in result.rows) == sorted(created_times)
+
+    @pytest.mark.parametrize(
+        "inputs, resume_state, expected_from, expected_to",
+        [
+            ({}, None, "0", None),
+            (
+                {"incremental_field": "timeCreated", "db_incremental_field_last_value": 1700000000000},
+                None,
+                "1700000000000",
+                None,
+            ),
+            ({}, OnfleetResumeConfig(from_ms=1750000000000, window_ms=500), "1750000000000", "1750000000500"),
+        ],
+    )
+    def test_first_window(
+        self,
+        inputs: dict[str, Any],
+        resume_state: OnfleetResumeConfig | None,
+        expected_from: str,
+        expected_to: str | None,
+    ) -> None:
+        result = _driver().run("route_plans", always(ScriptedResponse(json=[])), resume_state=resume_state, **inputs)
+
+        assert result.raised is None
+        assert result.paths[0] == "/api/v2/routePlans"
+        assert result.requests[0].param("createdTimeFrom") == expected_from
+        if expected_to is not None:
+            assert result.requests[0].param("createdTimeTo") == expected_to
 
 
 class TestGetCredentialsStatus:
