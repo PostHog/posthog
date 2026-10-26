@@ -1,5 +1,7 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
 import type { EvaluationResultApi } from '../../generated/api.schemas'
-import { EvaluationResultChange } from './EvaluationResultChange'
+import { EvaluationResultChange, noChangeReason } from './EvaluationResultChange'
 import { EvaluationResultMiniChart } from './EvaluationResultMiniChart'
 
 export function EvaluationResultTrendCell({
@@ -19,7 +21,12 @@ export function EvaluationResultTrendCell({
                     <EvaluationResultChange row={row} />
                 </div>
             )}
-            <EvaluationResultMiniChart row={row} buckets={buckets} />
+            {/* Without a change line, the chart carries the reason there is none. */}
+            <Tooltip title={row.change ? undefined : noChangeReason(row)}>
+                <div>
+                    <EvaluationResultMiniChart row={row} buckets={buckets} />
+                </div>
+            </Tooltip>
         </div>
     )
 }

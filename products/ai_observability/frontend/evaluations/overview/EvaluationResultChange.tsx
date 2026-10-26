@@ -3,6 +3,17 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 
+/** Why a row shows no change against the previous period. */
+export function noChangeReason(row: EvaluationResultApi): string {
+    return row.gradedCount === 0
+        ? 'No graded results in this range.'
+        : row.lowEvidence
+          ? 'Too few graded results to compare.'
+          : row.previousGradedCount
+            ? 'Too few graded results in the previous period to compare.'
+            : 'No results in the previous period.'
+}
+
 export function EvaluationResultChange({ row }: { row: EvaluationResultApi }): JSX.Element | null {
     const { change } = row
     if (!change) {
