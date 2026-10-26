@@ -50,8 +50,12 @@ def watch_group_root() -> Coalesce:
 class ReplayObservation(UUIDModel):
     """One application of a `ReplayScanner` to a session recording (see README)."""
 
-    scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_index=False: rlo_scanner_status_idx leads with scanner_id and serves every scanner filter.
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations", db_index=False
+    )
+    # db_index=False: rlo_team_created_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
     distinct_id = models.CharField(
         max_length=400,
