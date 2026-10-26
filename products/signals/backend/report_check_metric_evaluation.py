@@ -54,13 +54,14 @@ def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
     if any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes")):
         return "unsupported"
     entity = series[0]
+    if entity.get("math_property") == "$session_duration" or entity.get("math_property_type") == "session_properties":
+        return "unsupported"
     if entity.get("math") in (None, "total"):
         return "count"
     if (
         entity.get("math_property_type") not in (None, "event_properties")
         or not isinstance(entity.get("math_property"), str)
         or not entity["math_property"].strip()
-        or entity["math_property"] == "$session_duration"
     ):
         return "unsupported"
     if entity.get("math") == "sum":

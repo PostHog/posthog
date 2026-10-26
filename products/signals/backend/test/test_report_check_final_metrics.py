@@ -41,17 +41,28 @@ class TestMetricEvidenceAdapter(SimpleTestCase):
             ("event_sum", "sum", "amount", "sum"),
             ("average_needs_policy", "avg", "amount", "average"),
             ("session_sum", "sum", "$session_duration", "unsupported"),
+            ("session_count", "total", "$session_duration", "unsupported"),
+            ("implicit_session_count", None, "$session_duration", "unsupported"),
+            ("typed_session_count", "total", "$pageview_count", "unsupported", "session_properties"),
+            ("event_property_count", "total", "$pageview_count", "count", "event_properties"),
             ("missing_property", "sum", None, "unsupported"),
             ("unique_people", "dau", None, "unsupported"),
             ("custom_expression", "hogql", None, "unsupported"),
         ]
     )
     def test_source_semantics_do_not_follow_display_format(
-        self, _name: str, math: str | None, property_name: str | None, expected: str
+        self,
+        _name: str,
+        math: str | None,
+        property_name: str | None,
+        expected: str,
+        property_type: str | None = None,
     ) -> None:
         entity = {"kind": "EventsNode", "event": "checkout", "math": math}
         if property_name is not None:
             entity["math_property"] = property_name
+        if property_type is not None:
+            entity["math_property_type"] = property_type
         config = MetricThresholdConfig.model_validate(
             {"query": trends_metric_query(series=[entity]), "comparison": {"operator": "gte", "value": 1}}
         )
@@ -87,6 +98,8 @@ class TestFinalMetricExecution(BaseTest):
         *,
         soak_minutes: int | None = 60,
         math: str = "total",
+        math_property: str = "amount",
+        math_property_type: str | None = None,
         definition: bool = True,
         formula: bool = False,
         scaling: str = "fixed",
@@ -94,10 +107,12 @@ class TestFinalMetricExecution(BaseTest):
     ) -> FinalMetricCheck:
         config = {
             "query": trends_metric_query(
-                series=[{"kind": "EventsNode", "event": event, "math": math, "math_property": "amount"}]
+                series=[{"kind": "EventsNode", "event": event, "math": math, "math_property": math_property}]
             ),
             "comparison": {"operator": "gte", "value": 10},
         }
+        if math_property_type is not None:
+            config["query"]["source"]["series"][0]["math_property_type"] = math_property_type
         if definition:
             config["monitoring"] = {"reference_period_minutes": 120, "threshold_scaling": scaling}
         if formula:
@@ -180,12 +195,26 @@ class TestFinalMetricExecution(BaseTest):
         elif value < 0:
             assert result.evidence_status == "unsupported"
 
-    @parameterized.expand([("empty_window",), ("missing_definition",), ("formula",), ("average",)])
+    @parameterized.expand(
+        [
+            ("empty_window",),
+            ("missing_definition",),
+            ("formula",),
+            ("average",),
+            ("session_duration_count",),
+            ("session_property_count",),
+        ]
+    )
     def test_unmeasurable_members_get_explicit_results_without_querying(self, variant: str) -> None:
         self._member(
             soak_minutes=0 if variant == "empty_window" else 60,
             definition=variant != "missing_definition",
             math="avg" if variant == "average" else "total",
+            math_property={
+                "session_duration_count": "$session_duration",
+                "session_property_count": "$pageview_count",
+            }.get(variant, "amount"),
+            math_property_type="session_properties" if variant == "session_property_count" else None,
             formula=variant == "formula",
         )
         with patch(_MEASURE) as measure:
@@ -200,6 +229,8 @@ class TestFinalMetricExecution(BaseTest):
                 "missing_definition": "missing_monitoring_definition",
                 "formula": "unsupported_source",
                 "average": "minimum_denominator_unspecified",
+                "session_duration_count": "unsupported_source",
+                "session_property_count": "unsupported_source",
             }[variant]
         )
         measure.assert_not_called()

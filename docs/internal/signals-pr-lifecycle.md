@@ -112,6 +112,7 @@ After each metric check's soak ends, the coordinator evaluates its original Moni
 Final work uses the current attempt's check membership and definition versions, independently of interim observations and recurring run budgets.
 Candidate collection scans past stale definitions until it fills the eligible batch or reaches the tick deadline.
 Single-source raw event/action counts and event-property sums have supported evidence adapters; sampled values, formulas, distinct counts, and session/property aggregates without an adapter produce explicit unsupported results.
+Session aggregation remains unsupported when a count series carries `$session_duration` or a `session_properties` property type.
 An average without a source-specific minimum denominator produces insufficient evidence.
 Positive counts and supported sums qualify as sufficient evidence; zero totals remain insufficient when no relevant activity source is defined, even if they meet the numeric target.
 A zero-length window cannot establish success or failure, and a cached measurement from before the deadline cannot qualify as final evidence.
