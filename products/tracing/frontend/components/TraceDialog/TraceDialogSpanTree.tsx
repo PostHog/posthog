@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CSSProperties, KeyboardEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { List, useListRef } from 'react-window'
-
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
@@ -10,7 +8,13 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { getTimelineTicks } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceViewLogic, type TraceViewTimeline } from '../TraceView/traceViewLogic'
+import { TraceLoadMoreFooter } from '../TraceView/TraceLoadMoreFooter'
+import {
+    type TraceRunToggleMethod,
+    traceViewLogic,
+    type TraceViewSurface,
+    type TraceViewTimeline,
+} from '../TraceView/traceViewLogic'
 import type { TraceDialogSource } from './traceDialogLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
 import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
@@ -18,6 +22,7 @@ import { TraceDialogSpanRow } from './TraceDialogSpanRow'
 
 const ROW_HEIGHT = 32
 const LOAD_MORE_THRESHOLD = 10
+const SCROLL_KEYS = new Set(['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'End', 'Home', ' '])
 
 interface SpanListRowData {
     spanRows: TraceDialogRow[]
@@ -29,10 +34,14 @@ interface SpanListRowData {
     openedSpanId: string | null
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
+    /** Per row, whether it stands for a span of the highlighted operation. Null when nothing dims. */
+    operationRowMatches: boolean[] | null
     onSelect: (spanId: string) => void
     onToggleCollapsed: (spanId: string) => void
     onToggleChain: (spanId: string) => void
+    onToggleRun: (spanId: string, method: TraceRunToggleMethod) => void
     onShowAll: (spanId: string) => void
+    onShowFewer: (spanId: string) => void
 }
 
 function SpanListRow({
@@ -46,7 +55,9 @@ function SpanListRow({
     openedSpanId,
     openedAtUs,
     openedFrom,
+    operationRowMatches,
     onShowAll,
+    onShowFewer,
     ...rowProps
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -54,18 +65,25 @@ function SpanListRow({
     style: CSSProperties
 } & SpanListRowData): JSX.Element {
     const row = spanRows[index]
+    const isDimmed = operationRowMatches != null && !operationRowMatches[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} style={style}>
-            {row.kind === 'more' ? (
-                <TraceDialogMoreSpansRow row={row} onShowAll={onShowAll} />
+            {row.kind === 'more' || row.kind === 'fewer' ? (
+                <TraceDialogMoreSpansRow
+                    row={row}
+                    isDimmed={isDimmed}
+                    onShowAll={onShowAll}
+                    onShowFewer={onShowFewer}
+                />
             ) : (
-                <SpanOrChainRow
+                <SpanChainOrRunRow
                     row={row}
                     selectedSpanId={selectedSpanId}
                     openedSpanId={openedSpanId}
                     openedAtUs={openedAtUs}
                     openedFrom={openedFrom}
+                    isDimmed={isDimmed}
                     descendantCounts={descendantCounts}
                     collapsedSpanIds={collapsedSpanIds}
                     rowProps={rowProps}
@@ -75,32 +93,38 @@ function SpanListRow({
     )
 }
 
-function SpanOrChainRow({
+function SpanChainOrRunRow({
     row,
     selectedSpanId,
     openedSpanId,
     openedAtUs,
     openedFrom,
+    isDimmed,
     descendantCounts,
     collapsedSpanIds,
     rowProps,
 }: {
-    row: Extract<TraceDialogRow, { kind: 'span' | 'chain' }>
+    row: Extract<TraceDialogRow, { kind: 'span' | 'chain' | 'run' }>
     selectedSpanId: string | null
     openedSpanId: string | null
     openedAtUs: number | null
     openedFrom: TraceDialogSource | null
+    isDimmed: boolean
     descendantCounts: Map<string, number>
     collapsedSpanIds: Set<string>
-    rowProps: Pick<SpanListRowData, 'timeline' | 'serviceColorMap' | 'onSelect' | 'onToggleCollapsed' | 'onToggleChain'>
+    rowProps: Pick<
+        SpanListRowData,
+        'timeline' | 'serviceColorMap' | 'onSelect' | 'onToggleCollapsed' | 'onToggleChain' | 'onToggleRun'
+    >
 }): JSX.Element {
-    const spanId = (row.kind === 'chain' ? row.nodes[0] : row.node).span.span_id
+    const spanId = (row.kind === 'span' ? row.node : row.nodes[0]).span.span_id
     return (
         <TraceDialogSpanRow
             row={row}
             isSelected={spanId === selectedSpanId}
             openedAtUs={spanId === openedSpanId ? openedAtUs : null}
             openedFrom={spanId === openedSpanId ? openedFrom : null}
+            isDimmed={isDimmed}
             descendantCount={descendantCounts.get(spanId) ?? 0}
             isCollapsed={collapsedSpanIds.has(spanId)}
             {...rowProps}
@@ -126,19 +150,25 @@ function rowLabel(row: TraceDialogRow): string {
 const MAX_PINNED_ANCESTORS = 4
 
 export interface TraceDialogSpanTreeProps {
+    /** Where the tree sits, for analytics. */
+    surface: TraceViewSurface
     openedFrom: TraceDialogSource | null
     openedAtUs: number | null
     hasMore?: boolean
     loadingMore?: boolean
     onLoadMore?: () => void
+    /** Dim the rows outside the highlighted operation. Off while the inspector, which explains the dimming, is hidden. */
+    showOperationHighlight?: boolean
 }
 
 export function TraceDialogSpanTree({
+    surface,
     openedFrom,
     openedAtUs,
     hasMore = false,
     loadingMore = false,
     onLoadMore,
+    showOperationHighlight = true,
 }: TraceDialogSpanTreeProps): JSX.Element {
     const {
         spanRows,
@@ -149,8 +179,27 @@ export function TraceDialogSpanTree({
         selectedSpan,
         missingParentSpanId,
         pinnedSpanId: openedSpanId,
+        highlightedOperationKey,
+        operationRowMatches,
+        firstOperationRowIndex,
+        summary,
+        foldedRunStartIds,
+        shownTraceCount,
     } = useValues(traceViewLogic)
-    const { selectSpan, toggleSpanCollapsed, toggleChain, showAllChildren } = useActions(traceViewLogic)
+    const { selectSpan, toggleSpanCollapsed, toggleChain, toggleRun, showAllChildren, showFewerChildren, runsShown } =
+        useActions(traceViewLogic)
+    const onToggleRun = useCallback(
+        (spanId: string, method: TraceRunToggleMethod): void => toggleRun(spanId, method, surface),
+        [toggleRun, surface]
+    )
+    // The logic sends its event once per trace. This reports when folded runs come on screen, and again for each
+    // new trace, because the next trace's runs can replace this one's without a render of the empty list between.
+    const showsFoldedRuns = foldedRunStartIds.size > 0
+    useEffect(() => {
+        if (showsFoldedRuns) {
+            runsShown(surface)
+        }
+    }, [showsFoldedRuns, shownTraceCount, runsShown, surface])
     const [topIndex, setTopIndex] = useState(0)
     const listRef = useListRef(null)
 
@@ -165,21 +214,46 @@ export function TraceDialogSpanTree({
     // an early scroll is lost: retry each time the rendered rows change until the span is visible, then
     // leave scrolling to the user.
     const revealedIndexRef = useRef<number | null>(null)
-    // Fires at most once per loaded row count, so a page that adds no rows can't retrigger on every render.
-    const lastRequestedRowCountRef = useRef(-1)
+    // Folded runs can make a large trace a few rows tall, so the end of the list is often in view without a
+    // scroll. Paging on that alone would load the whole trace on its own, so the next page waits for the person
+    // to scroll, and the button below the list stays for the rest. A page whose spans all fold into runs on
+    // screen adds no row, so the guard counts loaded spans and not rows.
+    // The guard belongs to one shown trace, so a scroll in the previous trace cannot page this one. It starts
+    // again on the logic's trace count and not on an empty list, because the logic can hand over the next
+    // trace's spans before a render shows the empty list.
+    const pagingRef = useRef({ shownTraceCount, personScrolled: false, lastRequestedSpanCount: -1 })
+    const pagingGuard = useCallback((): typeof pagingRef.current => {
+        if (pagingRef.current.shownTraceCount !== shownTraceCount) {
+            pagingRef.current = { shownTraceCount, personScrolled: false, lastRequestedSpanCount: -1 }
+        }
+        return pagingRef.current
+    }, [shownTraceCount])
+    const lastVisibleIndexRef = useRef(-1)
+    const loadMoreAfterScroll = useCallback((): void => {
+        const guard = pagingGuard()
+        if (
+            !guard.personScrolled ||
+            !onLoadMore ||
+            !hasMore ||
+            loadingMore ||
+            lastVisibleIndexRef.current < spanRows.length - 1 - LOAD_MORE_THRESHOLD ||
+            guard.lastRequestedSpanCount === summary.spanCount
+        ) {
+            return
+        }
+        guard.personScrolled = false
+        guard.lastRequestedSpanCount = summary.spanCount
+        onLoadMore()
+    }, [pagingGuard, onLoadMore, hasMore, loadingMore, spanRows.length, summary.spanCount])
+    const onPersonScroll = useCallback((): void => {
+        pagingGuard().personScrolled = true
+        loadMoreAfterScroll()
+    }, [pagingGuard, loadMoreAfterScroll])
     const onRowsRendered = useCallback(
         (visibleRows: { startIndex: number; stopIndex: number }): void => {
             setTopIndex(visibleRows.startIndex)
-            if (
-                onLoadMore &&
-                hasMore &&
-                !loadingMore &&
-                visibleRows.stopIndex >= spanRows.length - 1 - LOAD_MORE_THRESHOLD &&
-                lastRequestedRowCountRef.current !== spanRows.length
-            ) {
-                lastRequestedRowCountRef.current = spanRows.length
-                onLoadMore()
-            }
+            lastVisibleIndexRef.current = visibleRows.stopIndex
+            loadMoreAfterScroll()
             if (openedIndex < 0 || revealedIndexRef.current === openedIndex) {
                 return
             }
@@ -189,17 +263,59 @@ export function TraceDialogSpanTree({
             }
             listRef.current?.scrollToRow({ index: openedIndex, align: 'center' })
         },
-        [openedIndex, listRef, onLoadMore, hasMore, loadingMore, spanRows.length]
+        [openedIndex, listRef, loadMoreAfterScroll]
     )
     // Keep each span J and K step to in view. While the opened span still waits for its centred reveal
     // above, this leaves it alone.
     const selectedSpanId = missingParentSpanId ?? selectedSpan?.span_id ?? null
+    const lastSelectionInputsRef = useRef({ spanTree, selectedSpanId })
     useEffect(() => {
+        const last = lastSelectionInputsRef.current
+        lastSelectionInputsRef.current = { spanTree, selectedSpanId }
+        // A page of spans loads when the person scrolls near the end of the list. It changes the rows but not
+        // the selection, so the list stays where the person scrolled it, or where an operation highlight put it.
+        if (spanTree !== last.spanTree && selectedSpanId === last.selectedSpanId) {
+            return
+        }
         const index = spanRows.findIndex((row) => rowSpanNode(row)?.span.span_id === selectedSpanId)
         if (index >= 0 && (selectedSpanId !== openedSpanId || revealedIndexRef.current !== null)) {
             listRef.current?.scrollToRow({ index, align: 'smart' })
         }
-    }, [spanRows, selectedSpanId, openedSpanId, listRef])
+    }, [spanRows, spanTree, selectedSpanId, openedSpanId, listRef])
+    // The view's key handler stops J and K before the list sees them, so a step reaches the list as a new
+    // selection. A new selection among the same spans counts as the person's own movement, so a step to the end
+    // of the loaded spans pages too. New spans or a new trace do not count.
+    const lastSelectionRef = useRef({ selectedSpanId, spanTree })
+    useEffect(() => {
+        const last = lastSelectionRef.current
+        lastSelectionRef.current = { selectedSpanId, spanTree }
+        if (last.spanTree === spanTree && last.selectedSpanId !== selectedSpanId) {
+            onPersonScroll()
+        }
+    }, [selectedSpanId, spanTree, onPersonScroll])
+    // The first span of a large operation often sits far down the tree, so a click on the operations table
+    // scrolls to it. The logic has already opened what hid it, so it is the first row of the operation. The
+    // `start` alignment puts it at the top, so the rest of the operation's spans fill the list below it. The
+    // ref holds the key that last scrolled, so that a later collapse, expand or page of spans does not pull
+    // the list back. This effect runs after the selection scroll above, so its scroll wins when the opened
+    // rows trigger both.
+    const scrolledOperationKeyRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (highlightedOperationKey == null) {
+            scrolledOperationKeyRef.current = null
+            return
+        }
+        if (scrolledOperationKeyRef.current === highlightedOperationKey || !listRef.current) {
+            return
+        }
+        if (firstOperationRowIndex >= 0) {
+            // The opened rows can move the opened span to a new index, which the reveal in `onRowsRendered`
+            // reads as a span still to bring into view. The person steers the list now, so that reveal stops.
+            revealedIndexRef.current = openedIndex
+            listRef.current.scrollToRow({ index: firstOperationRowIndex, align: 'start' })
+            scrolledOperationKeyRef.current = highlightedOperationKey
+        }
+    }, [highlightedOperationKey, firstOperationRowIndex, openedIndex, listRef])
 
     const pinnedAncestors = scrolledPastAncestors(spanRows[topIndex])
     const hiddenAncestorCount = Math.max(pinnedAncestors.length - MAX_PINNED_ANCESTORS, 0)
@@ -280,36 +396,34 @@ export function TraceDialogSpanTree({
                                 openedSpanId,
                                 openedAtUs,
                                 openedFrom,
+                                operationRowMatches: showOperationHighlight ? operationRowMatches : null,
                                 onSelect: selectSpan,
                                 onToggleCollapsed: toggleSpanCollapsed,
                                 onToggleChain: toggleChain,
+                                onToggleRun,
                                 onShowAll: showAllChildren,
+                                onShowFewer: showFewerChildren,
                             }}
                             listRef={listRef}
                             onRowsRendered={onRowsRendered}
+                            onWheel={onPersonScroll}
+                            onTouchMove={onPersonScroll}
+                            onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+                                if (SCROLL_KEYS.has(event.key)) {
+                                    onPersonScroll()
+                                }
+                            }}
+                            onPointerDown={(event: PointerEvent<HTMLDivElement>) => {
+                                // A press past the content width lands on the scrollbar.
+                                if (event.nativeEvent.offsetX >= event.currentTarget.clientWidth) {
+                                    onPersonScroll()
+                                }
+                            }}
                         />
                     )}
                 />
             </div>
-            {hasMore && (
-                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted border-t">
-                    {loadingMore ? (
-                        <>
-                            <Spinner />
-                            <span>Loading more spans…</span>
-                        </>
-                    ) : (
-                        <LemonButton
-                            size="xsmall"
-                            type="tertiary"
-                            onClick={() => onLoadMore?.()}
-                            data-attr="trace-view-load-more-spans"
-                        >
-                            Load more spans
-                        </LemonButton>
-                    )}
-                </div>
-            )}
+            {hasMore && <TraceLoadMoreFooter loadingMore={loadingMore} onLoadMore={onLoadMore} />}
         </div>
     )
 }
