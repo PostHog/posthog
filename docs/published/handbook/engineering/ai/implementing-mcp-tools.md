@@ -671,7 +671,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 
