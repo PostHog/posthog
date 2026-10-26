@@ -233,21 +233,45 @@ class TestGitHubReadiness(BaseTest):
             )
         refresh.assert_not_called()
 
-    @parameterized.expand([(True, False), (False, True)])
-    def test_recovery_respects_quota_and_daily_limit(self, quota: bool, daily: bool) -> None:
-        SignalReport.objects.create(
+    @parameterized.expand(
+        [
+            # A quota pause follows the next-matching-signal rule, so the sweep does not retry it.
+            (True, False, None),
+            # Other prerequisites keep the reconnect for the periodic sweep.
+            (False, True, "temporarily_unavailable"),
+        ]
+    )
+    def test_reconnect_recovery_stopped_by_a_prerequisite_keeps_its_intent(
+        self, quota: bool, daily: bool, expected_reason: str | None
+    ) -> None:
+        blocked = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.CANDIDATE,
-            research_blocked_reason="temporarily_unavailable",
-            research_blocked_at=timezone.now(),
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now() - timedelta(days=2),
         )
+        legacy = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.PENDING_INPUT, error=LEGACY_GITHUB_BLOCKERS[0]
+        )
+        SignalReport.objects.filter(id=legacy.id).update(created_at=timezone.now() - timedelta(days=3))
         with (
             patch(f"{TASKS}.self_driving_quota_gate", return_value=Mock(enforced=quota)),
             patch(f"{TASKS}.daily_report_limit_gate", return_value=Mock(limited=daily)),
             patch(f"{TASKS}.get_team_github_readiness") as resolve,
+            patch(f"{TASKS}.start_recovered_report", new_callable=AsyncMock) as start,
         ):
-            resume_github_blocked_reports(self.team.id)
+            resume_github_blocked_reports(self.team.id, connection_restored=True)
         resolve.assert_not_called()
+        start.assert_not_awaited()
+        blocked.refresh_from_db()
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.status, SignalReport.Status.CANDIDATE)
+        self.assertEqual(
+            [blocked.research_blocked_reason, legacy.research_blocked_reason], [expected_reason, expected_reason]
+        )
+        # The original recovery window still applies.
+        self.assertEqual(blocked.research_blocked_at, timezone.now() - timedelta(days=2))
+        self.assertEqual(legacy.research_blocked_at, timezone.now() - timedelta(days=3))
 
     @parameterized.expand([(False,), (True,)])
     def test_recovery_only_restarts_github_blocked_reports(self, connection_restored: bool) -> None:

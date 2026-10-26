@@ -4,6 +4,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import QuerySet
 
 from asgiref.sync import async_to_sync
 from celery import shared_task
@@ -42,6 +43,28 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
         pass
 
 
+def _reopen_legacy_report(report: SignalReport, reason: GitHubReadinessStatus | None) -> None:
+    fields = report.transition_to(SignalReport.Status.POTENTIAL)
+    fields.extend(report.transition_to(SignalReport.Status.CANDIDATE))
+    report.research_blocked_reason = reason
+    # The recovery window counts from the run that hit the legacy blocker, not from the reconnect.
+    report.research_blocked_at = report.last_run_at or report.created_at
+    report.save(update_fields=[*set(fields), "research_blocked_reason", "research_blocked_at"])
+
+
+def _keep_recovery_intent(reports: QuerySet[SignalReport], reason: GitHubReadinessStatus | None) -> None:
+    """Persist a reconnect-triggered recovery that a prerequisite stopped.
+
+    Legacy `pending_input` reports have no blocker for the sweep to select, so they move to
+    candidate here. A `temporarily_unavailable` reason makes the sweep retry them. A `None` reason
+    leaves them to the next matching signal or a manual rerun, which is the rule for quota pauses.
+    """
+    with transaction.atomic():
+        for report in reports.select_for_update().filter(status=SignalReport.Status.PENDING_INPUT):
+            _reopen_legacy_report(report, reason)
+        reports.filter(status=SignalReport.Status.CANDIDATE).update(research_blocked_reason=reason)
+
+
 @shared_task(queue=CeleryQueue.LONG_RUNNING.value, ignore_result=True, soft_time_limit=240, time_limit=300)
 @with_team_scope()
 def resume_github_blocked_reports(
@@ -54,13 +77,20 @@ def resume_github_blocked_reports(
     if not reports.exists():
         return
     team = Team.objects.select_related("organization").get(pk=team_id)
-    if not team.organization.is_ai_data_processing_approved:
+    if self_driving_quota_gate(team).enforced:
+        if connection_restored:
+            _keep_recovery_intent(reports, None)
         return
-    if self_driving_quota_gate(team).enforced or daily_report_limit_gate(team).limited:
+    if not team.organization.is_ai_data_processing_approved or daily_report_limit_gate(team).limited:
+        if connection_restored:
+            _keep_recovery_intent(reports, GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE)
         return
     readiness = get_team_github_readiness(team_id, verify=True)
     if readiness.status != GitHubReadinessStatus.READY:
-        reports.filter(status=SignalReport.Status.CANDIDATE).update(research_blocked_reason=readiness.status)
+        if connection_restored:
+            _keep_recovery_intent(reports, readiness.status)
+        else:
+            reports.filter(status=SignalReport.Status.CANDIDATE).update(research_blocked_reason=readiness.status)
         return
     report_ids = list(reports.order_by("id").values_list("id", flat=True)[:RECOVERY_BATCH_SIZE])
     for report_id in report_ids:
@@ -69,11 +99,7 @@ def resume_github_blocked_reports(
             if report is None:
                 continue
             if report.status == SignalReport.Status.PENDING_INPUT:
-                fields = report.transition_to(SignalReport.Status.POTENTIAL)
-                fields.extend(report.transition_to(SignalReport.Status.CANDIDATE))
-                report.research_blocked_reason = GitHubReadinessStatus.NOT_CONNECTED
-                report.research_blocked_at = report.last_run_at or report.created_at
-                report.save(update_fields=[*set(fields), "research_blocked_reason", "research_blocked_at"])
+                _reopen_legacy_report(report, GitHubReadinessStatus.NOT_CONNECTED)
         async_to_sync(start_recovered_report)(team_id, str(report_id))
     if len(report_ids) == RECOVERY_BATCH_SIZE:
         resume_github_blocked_reports.apply_async(
