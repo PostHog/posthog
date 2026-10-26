@@ -32,11 +32,14 @@ on:
 jobs:
     build:
         name: Build and push container image
+        # posthog-private mirrors master, so it only needs CI on its own PRs.
         if: |
+            (github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.repository_owner == 'PostHog' && (
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
+            )
             )
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30

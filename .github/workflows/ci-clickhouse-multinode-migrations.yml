@@ -34,6 +34,8 @@ permissions:
 
 jobs:
     multinode-migration-smoke:
+        # posthog-private mirrors master, so it only needs CI on its own PRs.
+        if: github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
         # The common path primes Postgres from the master schema artifact. The

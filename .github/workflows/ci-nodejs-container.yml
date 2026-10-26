@@ -40,7 +40,8 @@ jobs:
         timeout-minutes: 5
         # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
         # pulls images pushed for them, and each constituent PR already built its own.
-        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
+        # posthog-private mirrors master, so it only needs CI on its own PRs.
+        if: (github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')) && (github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/'))
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}

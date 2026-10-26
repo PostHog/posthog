@@ -53,6 +53,8 @@ env:
 
 jobs:
     rust-flags-integration:
+        # posthog-private mirrors master, so it only needs CI on its own PRs.
+        if: github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30

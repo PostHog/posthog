@@ -28,6 +28,8 @@ permissions:
 
 jobs:
     canary:
+        # posthog-private mirrors master, so it only needs CI on its own PRs.
+        if: github.repository != 'PostHog/posthog-private' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Live GeoLite2 database sanity
         runs-on: ubuntu-24.04
         timeout-minutes: 15
