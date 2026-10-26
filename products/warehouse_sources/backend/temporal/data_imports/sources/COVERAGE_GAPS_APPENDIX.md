@@ -8189,10 +8189,10 @@ Diffed against: <https://docs.mono.co/llms.txt>
 - [x] `Fetch all Payments (GET /v2/payments/transactions)` — analyze payment collection revenue, failures, fees, and refunds separately from linked bank transactions (high)
 - [x] `Get all Mandates (GET /v3/payments/mandates)` — track direct debit authorizations, their states, and customer relationships for recurring collection analysis (high)
 - [x] `Retrieve All Debits (GET /v3/payments/mandates/debits)` — measure successful and failed mandate collections, collected amounts, and debit fees (high)
-- [ ] `Payout (GET /v2/payments/payouts)` — reconcile payment collections with settlement amounts and payout status (high)
-- [ ] `Payout Transactions (GET /v2/payments/payout/{payout}/transactions)` — match individual collections to settlements and explain payout totals (high)
-- [ ] `Disbursements and distributions (GET /v3/payments/disburse/disbursements; GET /v3/payments/disburse/disbursements/{batch_id}/distributions)` — analyze outgoing payment batches and recipient distributions, including payment status and amounts (high)
-- [ ] `Income Records (GET /v2/accounts/{id}/income-records)` — analyze completed income assessments and compare customer earning capacity over time (medium)
+- [x] `Payout (GET /v2/payments/payouts)` — reconcile payment collections with settlement amounts and payout status (high). Added as `payouts`. Mono requires a `status` filter and documents only `settled`, so the table holds settled payouts
+- [ ] `Payout Transactions (GET /v2/payments/payout/{payout}/transactions)` — match individual collections to settlements and explain payout totals (high). Skipped: the endpoint requires an `account` query parameter that payout records do not carry, so it cannot fan out from `payouts`
+- [x] `Disbursements and distributions (GET /v3/payments/disburse/disbursements; GET /v3/payments/disburse/disbursements/{batch_id}/distributions)` — analyze outgoing payment batches and recipient distributions, including payment status and amounts (high). Added as `disbursements` and `disbursement_distributions`
+- [x] `Income Records (GET /v2/accounts/{id}/income-records)` — analyze completed income assessments and compare customer earning capacity over time (medium). Added as `income_records`
 - [ ] `Assets (GET /v2/accounts/{id}/assets)` — analyze customer investment holdings that bank transaction tables do not expose (medium)
 - [ ] `Earnings (GET /v2/accounts/{id}/earnings)` — measure investment income and portfolio returns alongside customer holdings (medium)
 
