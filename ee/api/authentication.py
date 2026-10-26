@@ -198,12 +198,8 @@ class MultitenantSAMLAuth(SAMLAuth):
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     def parse_relay_state(self, relay_state_str: str) -> dict:
-        # Only reads still accept the pre-cache JSON payload, for logins already in flight. Anything
-        # else is our opaque key, an IdP-supplied value, or an expired key, which the base parser
-        # routes to the IdP-initiated recovery.
-        legacy = _relay_state_from_json(relay_state_str)
-        if legacy is not None:
-            return legacy
+        # A miss still routes the pre-cache JSON payload, an IdP-supplied value, or an expired key
+        # through the base parser, which sends the last two to the IdP-initiated recovery.
         stored = _load_saml_relay_state(relay_state_str)
         return stored if stored is not None else super().parse_relay_state(relay_state_str)
 
