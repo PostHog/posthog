@@ -1086,7 +1086,7 @@ export const getExperimentsRunningTimeTargetRetrieveUrl = (
 
 /**
  * The target sample of the experiment's running time estimate, which the experiment page's header compares
- * with the exposures so far.
+ * with the exposures so far, and what the experiment can detect over time.
  *
  * In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
  * current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's

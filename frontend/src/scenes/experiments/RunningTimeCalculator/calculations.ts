@@ -35,3 +35,16 @@ export function calculateExposureRate(currentExposures: number | null, daysElaps
 
     return currentExposures / daysElapsed
 }
+
+/**
+ * The target sample for another minimum detectable effect, by the rule the target endpoint documents: the variances come
+ * from the results, so the sample scales with 1 / effect². The settings rescale locally, which lets every value of the
+ * slider show its estimate at once, without a request.
+ */
+export function rescaleSampleSize(sampleSize: number, fromEffect: number, toEffect: number): number | null {
+    if (!(sampleSize > 0) || !(fromEffect > 0) || !(toEffect > 0)) {
+        return null
+    }
+    // Round before the ceiling, as the backend does, so that float noise doesn't turn an exact 3,200 into 3,201.
+    return Math.ceil(Number((sampleSize * (fromEffect / toEffect) ** 2).toFixed(6)))
+}

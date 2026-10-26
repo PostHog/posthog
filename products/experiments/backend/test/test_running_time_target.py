@@ -1,11 +1,14 @@
+import math
 from typing import Any
+
+import pytest
 
 from parameterized import parameterized
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQueryResponse, ExperimentRatioMetric
 
 from products.experiments.backend.metric_resolution import ExperimentMetric
-from products.experiments.backend.running_time_target import size_target
+from products.experiments.backend.running_time_target import project_outlook, size_target
 from products.feature_flags.backend.facade.edits import FlagVariant
 
 REVENUE = ExperimentMeanMetric.model_validate(
@@ -211,3 +214,78 @@ class TestSizeTarget:
             )
             is None
         )
+
+    @parameterized.expand(
+        [
+            ("mean", REVENUE, _response(("test", SPREAD))),
+            ("cuped", REVENUE, _response(("test", {**SPREAD, **COVARIATE}), control={**SPREAD, **COVARIATE})),
+            ("funnel", CHECKOUT, _response(("test", CONVERSIONS), control=CONVERSIONS)),
+            ("ratio", REVENUE_PER_ORDER, _response(("test", ORDERS), control=ORDERS)),
+        ]
+    )
+    def test_sample_scales_with_the_inverse_square_of_the_effect(
+        self, _name: str, metric: ExperimentMetric, response: ExperimentQueryResponse
+    ) -> None:
+        # The page rescales the target by this rule while the user edits the effect, without asking again.
+        split = _split(("control", 80), ("test", 20))
+        at_30 = size_target(metric=metric, response=response, split=split, minimum_detectable_effect=30)
+        at_15 = size_target(metric=metric, response=response, split=split, minimum_detectable_effect=15)
+
+        assert at_30 is not None and at_15 is not None
+        assert at_15 == pytest.approx(4 * at_30, abs=4)
+
+
+class TestProjectOutlook:
+    @parameterized.expand(
+        [
+            ("first_days", 3, 3, (1, 2, 4)),
+            ("past_week_four", 30, 30, (6, 8, 12)),
+            # Results that end before today set the rate, and the week marks still start after today.
+            ("results_from_before_today", 14.2, 13.9, (4, 6, 8)),
+            ("first_two_hours", 0.05, 0.05, None),
+        ]
+    )
+    def test_projects_the_next_week_marks_on_the_target_curve(
+        self, _name: str, days_since_launch: float, days_measured: float, weeks: tuple[int, ...] | None
+    ) -> None:
+        response = _response(("test", SPREAD))
+        target = size_target(metric=REVENUE, response=response, split=_split(*EVEN), minimum_detectable_effect=30)
+        assert target is not None
+
+        outlook = project_outlook(
+            metric=REVENUE,
+            response=response,
+            split=_split(*EVEN),
+            days_since_launch=days_since_launch,
+            days_measured=days_measured,
+        )
+
+        if weeks is None:
+            assert outlook is None
+            return
+        assert outlook is not None
+        rate = 2000 / days_measured
+
+        def on_curve(samples: float) -> Any:
+            return pytest.approx(30 * math.sqrt(target / samples), rel=1e-3)
+
+        assert outlook.exposures_per_day == pytest.approx(rate)
+        assert outlook.detectable_effect_now == on_curve(2000)
+        assert [(c.weeks_since_launch, c.detectable_effect) for c in outlook.upcoming_checkpoints] == [
+            (week, on_curve(rate * 7 * week)) for week in weeks
+        ]
+        assert outlook.reachable_effect == on_curve(2000 + rate * 28)
+
+    @parameterized.expand(
+        [
+            # A covariance larger than the two spreads allow gives the delta method a negative variance.
+            ("negative_ratio_variance", REVENUE_PER_ORDER, {**ORDERS, "numerator_denominator_sum_product": 3100000}),
+            ("constant_metric", REVENUE, {"number_of_samples": 1000, "sum": 1000, "sum_squares": 1000}),
+        ]
+    )
+    def test_projects_nothing_from_stats_without_a_spread(
+        self, _name: str, metric: ExperimentMetric, stats: dict[str, Any]
+    ) -> None:
+        response = _response(("test", stats), control=stats)
+
+        assert project_outlook(metric=metric, response=response, split=_split(*EVEN), days_since_launch=10) is None

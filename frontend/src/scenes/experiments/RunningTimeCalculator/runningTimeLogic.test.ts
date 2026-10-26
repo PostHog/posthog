@@ -196,10 +196,7 @@ describe('runningTimeLogic', () => {
     })
 
     describe('automatic target', () => {
-        it.each([
-            ['an effect in range', 7, { mode: 'automatic', minimum_detectable_effect: 7 }],
-            ['an effect out of range', 0.5, null],
-        ])('asks for %s while the user edits it', async (_name, mde, expected) => {
+        it('rescales the target for an edited effect without asking the backend', async () => {
             runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
             api.update.mockResolvedValue({ ...experiment, version: 4 })
 
@@ -208,15 +205,11 @@ describe('runningTimeLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
             runningTimeTargetMock.mockClear()
 
-            logic.actions.setConfig({ mde })
+            logic.actions.setConfig({ mde: 15 })
             await expectLogic(logic).toFinishAllListeners()
 
-            if (expected) {
-                await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess'])
-                expect(runningTimeTargetMock).toHaveBeenCalledWith(expect.any(String), EXPERIMENT_ID, expected)
-            } else {
-                expect(runningTimeTargetMock).not.toHaveBeenCalled()
-            }
+            expect(logic.values.targetSampleSize).toEqual(8000)
+            expect(runningTimeTargetMock).not.toHaveBeenCalled()
         })
 
         it('counts the exposures the backend sizes the target over', async () => {
@@ -256,6 +249,43 @@ describe('runningTimeLogic', () => {
     })
 
     describe('save', () => {
+        it('persists the estimate the backend sizes for the saved effect', async () => {
+            runningTimeTargetMock.mockResolvedValueOnce({
+                recommended_sample_size: 2000,
+                minimum_detectable_effect: 30,
+            })
+            api.update.mockImplementation(async (_url: string, payload: unknown) => ({
+                ...experiment,
+                ...(payload as Partial<Experiment>),
+                version: 4,
+            }))
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            modalsLogic.actions.openRunningTimeConfigModal()
+            logic.actions.setConfig({ mde: 15 })
+            runningTimeTargetMock.mockResolvedValueOnce({
+                recommended_sample_size: 8000,
+                minimum_detectable_effect: 15,
+            })
+            api.update.mockClear()
+
+            await expectLogic(logic, () => logic.actions.save())
+                .toDispatchActions(['loadAutomaticCalculationSuccess'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(
+                expect.stringContaining(`/experiments/${EXPERIMENT_ID}`),
+                expect.objectContaining({
+                    running_time_calculation: expect.objectContaining({
+                        minimum_detectable_effect: 15,
+                        recommended_sample_size: 8000,
+                    }),
+                })
+            )
+        })
+
         it('keeps the modal open with the edited config when the experiment save fails', async () => {
             // A failed estimate request stops the automatic estimate from saving anything on mount.
             runningTimeTargetMock.mockRejectedValue(new Error('backend unavailable'))

@@ -1871,17 +1871,6 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
 
 
 class RunningTimeTargetQuerySerializer(serializers.Serializer):
-    minimum_detectable_effect = FiniteFloatField(
-        required=False,
-        min_value=1,
-        max_value=100,
-        help_text=(
-            "Smallest relative change to detect, as a percentage from 1 to 100 (e.g. 5 means a 5% lift), the range "
-            "the running time settings allow. Defaults to the experiment's saved minimum detectable effect, else the "
-            "project default."
-        ),
-    )
-
     mode = serializers.ChoiceField(
         required=False,
         choices=RunningTimeMode.choices,
@@ -1889,6 +1878,41 @@ class RunningTimeTargetQuerySerializer(serializers.Serializer):
             "The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes "
             "it from the results, also for an experiment saved in manual mode."
         ),
+    )
+
+
+class DetectableEffectCheckpointSerializer(serializers.Serializer):
+    weeks_since_launch = serializers.IntegerField(help_text="The week mark, in whole weeks since launch.")
+    detectable_effect = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures by this week mark can detect."
+    )
+
+
+class RunningTimeOutlookSerializer(serializers.Serializer):
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch = serializers.FloatField(help_text="Days since the experiment launched, with fractions.")
+    exposures_per_day = serializers.FloatField(
+        help_text=(
+            "Exposures that count toward the target, per day from launch to the end of the window the current "
+            "results cover."
+        )
+    )
+    detectable_effect_now = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures so far can detect."
+    )
+    upcoming_checkpoints = DetectableEffectCheckpointSerializer(
+        many=True,
+        help_text=(
+            "Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each "
+            "can detect at the exposure rate so far."
+        ),
+    )
+    reachable_effect = serializers.FloatField(
+        help_text=(
+            "The smallest relative change, as a percentage, that the experiment can detect within four weeks from "
+            "today. A target for a smaller change is out of reach."
+        )
     )
 
 
@@ -1902,9 +1926,11 @@ class RunningTimeTargetSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Exposures needed across the analyzed variants, so that the comparison of each variant with the control "
-            "can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, "
+            "can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, "
             "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
-            "analysis uses and the flag's traffic split. Null when no result can size it yet."
+            "analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from "
+            "the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another "
+            "effect is recommended_sample_size × (minimum_detectable_effect / effect)²."
         ),
     )
     current_sample_size = serializers.IntegerField(
@@ -1912,6 +1938,13 @@ class RunningTimeTargetSerializer(serializers.Serializer):
         help_text=(
             "Exposures so far that count toward the target: the control's and those of the variants that get "
             "traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target."
+        ),
+    )
+    outlook = RunningTimeOutlookSerializer(
+        allow_null=True,
+        help_text=(
+            "What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, "
+            "before launch, when the current results cover less than 0.1 days, and when no result can size the target."
         ),
     )
 

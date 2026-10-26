@@ -361,6 +361,29 @@ class RunningTimeMode(LabeledStrEnum):
 
 
 @frozen
+class ExperimentDetectableEffectCheckpoint:
+    weeks_since_launch: int
+    # The smallest relative effect, as a percentage, that the exposures by then detect.
+    detectable_effect: float
+
+
+@frozen
+class ExperimentRunningTimeOutlook:
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch: float
+    # The exposures that count toward the target, per day from launch to the end of the window the results cover.
+    exposures_per_day: float
+    # The smallest relative effect, as a percentage, that the exposures so far detect.
+    detectable_effect_now: float
+    # The next week marks after today.
+    upcoming_checkpoints: tuple[ExperimentDetectableEffectCheckpoint, ...]
+    # The smallest effect the experiment detects within four weeks from today. A target for a smaller one is out of
+    # reach.
+    reachable_effect: float
+
+
+@frozen
 class ExperimentRunningTimeTarget:
     """The target sample of an experiment's running time estimate."""
 
@@ -371,6 +394,9 @@ class ExperimentRunningTimeTarget:
     # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
     # None in manual mode, and when no stored result can size the target.
     current_sample_size: int | None
+    # None in manual mode, before the experiment has run long enough to project, and when no stored result can size the
+    # target.
+    outlook: ExperimentRunningTimeOutlook | None
 
 
 @frozen

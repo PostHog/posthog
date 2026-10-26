@@ -8990,6 +8990,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         with_result: bool = True,
         stats_config: dict | None = None,
         paused_variant_samples: int | None = None,
+        result_days_ago: int = 0,
     ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -9030,7 +9031,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
                 metric_uuid="revenue",
                 fingerprint=build_primary_calculation_configs(experiment)[0].calculation_key(),
                 query_from=launched_at,
-                query_to=timezone.now(),
+                query_to=timezone.now() - timedelta(days=result_days_ago),
                 completed_at=timezone.now(),
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result={
@@ -9057,20 +9058,30 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("sized_from_the_result_and_the_split", {}, {}, "", (30, 13903, 2000)),
-            ("for_an_effect_being_edited", {}, {}, "?minimum_detectable_effect=60", (60, 3476, 2000)),
-            ("no_result_yet", {}, {"with_result": False}, "", (30, None, None)),
+            ("sized_from_the_result_and_the_split", {}, {}, "", (30, 13903, 2000, True)),
+            ("no_result_yet", {}, {"with_result": False}, "", (30, None, None, False)),
             (
                 "a_saved_effect_outside_the_editable_range",
                 {"minimum_detectable_effect": 0.5},
                 {},
                 "",
-                (0.5, 50050051, 2000),
+                (0.5, 50050051, 2000, True),
             ),
-            ("a_paused_variant_counts_toward_nothing", {}, {"paused_variant_samples": 300}, "", (30, 13903, 2000)),
-            ("manual_mode_keeps_the_saved_target", MANUAL, {}, "", (30, 5000, None)),
-            ("manual_mode_keeps_the_saved_effect", MANUAL, {}, "?minimum_detectable_effect=60", (30, 5000, None)),
-            ("manual_experiment_sized_from_the_results_on_request", MANUAL, {}, "?mode=automatic", (30, 13903, 2000)),
+            (
+                "a_paused_variant_counts_toward_nothing",
+                {},
+                {"paused_variant_samples": 300},
+                "",
+                (30, 13903, 2000, True),
+            ),
+            ("manual_mode_keeps_the_saved_target", MANUAL, {}, "", (30, 5000, None, False)),
+            (
+                "manual_experiment_sized_from_the_results_on_request",
+                MANUAL,
+                {},
+                "?mode=automatic",
+                (30, 13903, 2000, True),
+            ),
         ]
     )
     def test_returns_the_target_the_header_compares(
@@ -9079,7 +9090,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         running_time_calculation: dict[str, Any],
         setup: dict[str, Any],
         query: str,
-        expected: tuple[int, int | None, int | None],
+        expected: tuple[float, int | None, int | None, bool],
     ) -> None:
         experiment = self._experiment(running_time_calculation, **setup)
 
@@ -9088,15 +9099,31 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        effect, sample_size, current = expected
+        effect, sample_size, current, has_outlook = expected
         self.assertEqual(
             response.json(),
             {
                 "minimum_detectable_effect": effect,
                 "recommended_sample_size": sample_size,
                 "current_sample_size": current,
+                "outlook": ANY if has_outlook else None,
             },
         )
+        if has_outlook:
+            assert current is not None
+            outlook = response.json()["outlook"]
+            # Launched three days ago, so the exposures so far set the rate and the next marks are weeks 1, 2 and 4.
+            self.assertAlmostEqual(outlook["exposures_per_day"], current / 3, places=0)
+            self.assertEqual([c["weeks_since_launch"] for c in outlook["upcoming_checkpoints"]], [1, 2, 4])
+
+    def test_projects_the_rate_over_the_window_the_results_cover(self) -> None:
+        # Launched three days ago with results up to yesterday: 2,000 exposures over two days.
+        experiment = self._experiment({}, result_days_ago=1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertAlmostEqual(response.json()["outlook"]["exposures_per_day"], 1000, places=0)
 
     @parameterized.expand(
         [
@@ -9113,25 +9140,6 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["recommended_sample_size"], sample_size)
-
-    @parameterized.expand(
-        [
-            ("below_the_editable_range", "0.5"),
-            ("above_the_editable_range", "101"),
-            ("too_small_to_compute", "1e-160"),
-            ("not_a_number", "nan"),
-            ("infinite", "inf"),
-        ]
-    )
-    def test_rejects_an_edited_effect_outside_the_editable_range(self, _name: str, effect: str) -> None:
-        experiment = self._experiment({})
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/"
-            f"?minimum_detectable_effect={effect}"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestCalculateRunningTimeEndpoint(APILicensedTest):

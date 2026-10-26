@@ -343,7 +343,7 @@ Older versions read "Complete".
 On an ended experiment "Complete" is the status tag: every ended experiment carries it, and the duration display is hidden.
 Read `status` first when the user says "complete".
 
-- The target is the sample needed to detect the **minimum detectable effect** with about 80% power at 95% confidence.
+- The target is the sample needed to detect the **minimum detectable effect** with about 80% power, at the confidence level of the experiment's analysis (95% by default).
 - The estimate uses the **first primary metric** only, with the variance that the analysis computes from its results (after CUPED, when the experiment uses it).
 - The target is sized so that the comparison of the control with the smallest variant can detect the effect, so an uneven split needs a larger total than an even one.
 - The minimum detectable effect is the project's default, and 30% where none is set.

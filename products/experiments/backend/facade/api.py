@@ -38,8 +38,10 @@ from .contracts import (
     CreateExperimentInput,
     EndedExperiment,
     Experiment,
+    ExperimentDetectableEffectCheckpoint,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
+    ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     RunningExperiment,
     RunningTimeMode,
@@ -167,20 +169,32 @@ def get_experiment_health_inputs(
 
 
 def get_running_time_target(
-    *,
-    team_id: int,
-    experiment_id: int,
-    minimum_detectable_effect: float | None = None,
-    mode: RunningTimeMode | None = None,
+    *, team_id: int, experiment_id: int, mode: RunningTimeMode | None = None
 ) -> ExperimentRunningTimeTarget:
-    """The target sample of the experiment's running time estimate. `minimum_detectable_effect` and `mode` replace the
-    saved ones, so that the page can show the target for settings the user is still editing."""
+    """The target sample of the experiment's running time estimate, with what the experiment can detect over time.
+    `mode` replaces the saved one, so that the page can show the automatic target while the user switches to it."""
     experiment = ExperimentModel.objects.select_related("feature_flag").get(team_id=team_id, id=experiment_id)
-    target = load_running_time_target(experiment, minimum_detectable_effect=minimum_detectable_effect, mode=mode)
+    target = load_running_time_target(experiment, mode=mode)
+    outlook = target.outlook
     return ExperimentRunningTimeTarget(
         minimum_detectable_effect=target.minimum_detectable_effect,
         recommended_sample_size=target.recommended_sample_size,
         current_sample_size=target.current_sample_size,
+        outlook=ExperimentRunningTimeOutlook(
+            days_since_launch=outlook.days_since_launch,
+            exposures_per_day=outlook.exposures_per_day,
+            detectable_effect_now=outlook.detectable_effect_now,
+            upcoming_checkpoints=tuple(
+                ExperimentDetectableEffectCheckpoint(
+                    weeks_since_launch=checkpoint.weeks_since_launch,
+                    detectable_effect=checkpoint.detectable_effect,
+                )
+                for checkpoint in outlook.upcoming_checkpoints
+            ),
+            reachable_effect=outlook.reachable_effect,
+        )
+        if outlook
+        else None,
     )
 
 

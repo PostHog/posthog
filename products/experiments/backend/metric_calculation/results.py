@@ -198,6 +198,10 @@ class MetricResultStore:
         stored = self._current_rows({self.experiment_id: calculation_config}).values_list("result", flat=True).first()
         return parse_stored_response(stored)
 
+    def current_query_to(self, calculation_config: MetricCalculationConfig) -> datetime | None:
+        """The end of the window that the result `current_outcome` picks covers, or None when it has none."""
+        return self._current_rows({self.experiment_id: calculation_config}).values_list("query_to", flat=True).first()
+
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
     ) -> ExperimentMetricResult | None:

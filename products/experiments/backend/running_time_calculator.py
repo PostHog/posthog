@@ -260,6 +260,26 @@ def comparison_sample_size(
     )
 
 
+def comparison_detectable_difference(
+    samples: float,
+    *,
+    control_variance: float,
+    variant_variance: float,
+    control_share: float,
+    variant_share: float,
+    confidence_level: float = 0.95,
+) -> float | None:
+    """The absolute difference that the comparison of one variant with the control detects at `samples` exposures
+    across all variants, split by each side's share. The inverse of :func:`comparison_sample_size`, so the detectable
+    difference shrinks with the square root of the samples."""
+    squared = z_factor(confidence_level) * (control_variance / control_share + variant_variance / variant_share) / 2
+    # The delta method can return a negative variance, and stats without a spread a zero one. Neither has a detectable
+    # difference, just as neither gets a target sample.
+    if samples <= 0 or not squared > 0:
+        return None
+    return _finite(math.sqrt(squared / samples))
+
+
 def z_factor(confidence_level: float) -> float:
     """The multiplier of the sample-size formula for a two-sided test at `confidence_level` with 80% power. It is
     `SAMPLE_SIZE_Z_FACTOR` at 95%, so that every estimate at 95% keeps its value."""

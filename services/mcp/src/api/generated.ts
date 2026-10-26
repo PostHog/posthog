@@ -37759,6 +37759,13 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
+    export interface DetectableEffectCheckpoint {
+      /** The week mark, in whole weeks since launch. */
+      weeks_since_launch: number;
+      /** The smallest relative change, as a percentage, that the exposures by this week mark can detect. */
+      detectable_effect: number;
+    }
+
     export interface DevUserUsage {
       /**
          * PostHog user id. Null when no user has this distinct_id.
@@ -105153,13 +105160,29 @@ export namespace Schemas {
     }
 
     /**
+     * What the experiment can detect over time, at its exposure rate so far.
+     */
+    export interface RunningTimeOutlook {
+      /** Days since the experiment launched, with fractions. */
+      days_since_launch: number;
+      /** Exposures that count toward the target, per day from launch to the end of the window the current results cover. */
+      exposures_per_day: number;
+      /** The smallest relative change, as a percentage, that the exposures so far can detect. */
+      detectable_effect_now: number;
+      /** Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each can detect at the exposure rate so far. */
+      upcoming_checkpoints: DetectableEffectCheckpoint[];
+      /** The smallest relative change, as a percentage, that the experiment can detect within four weeks from today. A target for a smaller change is out of reach. */
+      reachable_effect: number;
+    }
+
+    /**
      * The target sample of the experiment's running time estimate.
      */
     export interface RunningTimeTarget {
       /** The relative change, as a percentage, that the target sample is sized to detect. */
       minimum_detectable_effect: number;
       /**
-         * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at 95% confidence and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet.
+         * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another effect is recommended_sample_size × (minimum_detectable_effect / effect)².
          * @nullable
          */
       recommended_sample_size: number | null;
@@ -105168,6 +105191,8 @@ export namespace Schemas {
          * @nullable
          */
       current_sample_size: number | null;
+      /** What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, before launch, when the current results cover less than 0.1 days, and when no result can size the target. */
+      outlook: RunningTimeOutlook | null;
     }
 
     /**
@@ -132824,12 +132849,6 @@ export namespace Schemas {
     };
 
     export type ExperimentsRunningTimeTargetRetrieveParams = {
-    /**
-     * Smallest relative change to detect, as a percentage from 1 to 100 (e.g. 5 means a 5% lift), the range the running time settings allow. Defaults to the experiment's saved minimum detectable effect, else the project default.
-     * @minimum 1
-     * @maximum 100
-     */
-    minimum_detectable_effect?: number;
     /**
      * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.
      *

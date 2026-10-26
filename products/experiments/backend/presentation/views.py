@@ -1689,7 +1689,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
     def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """The target sample of the experiment's running time estimate, which the experiment page's header compares
-        with the exposures so far.
+        with the exposures so far, and what the experiment can detect over time.
 
         In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
         current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
@@ -1699,7 +1699,6 @@ class EnterpriseExperimentsViewSet(
         target = get_running_time_target(
             team_id=self.team.id,
             experiment_id=experiment.id,
-            minimum_detectable_effect=request.validated_query_data.get("minimum_detectable_effect"),
             mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
         )
         return Response(RunningTimeTargetSerializer(target).data)
