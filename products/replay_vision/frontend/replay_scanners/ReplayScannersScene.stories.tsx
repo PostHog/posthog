@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -71,7 +73,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
-        created_at: '2026-05-12T00:00:00Z',
+        // Older than the Overview's 14-day default, so its range matches the 14 days in the trend mock.
+        created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
         credits_this_month: 0,
@@ -82,6 +85,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         estimated_at: null,
         user_access_level: 'editor',
         sweep_throttle_factor: 1,
+        dashboard_id: null,
+        dashboard_suggested: false,
         ...overrides,
     }) as ReplayScannerApi
 
@@ -432,9 +437,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
                 id: '00000000-0000-0000-0000-0000000000f1',
                 kind: 'thumbnail',
                 asset_id: 4001,
-                description: null,
                 video_start_ms: 24000,
-                video_end_ms: null,
             },
         ],
         ...overrides,
@@ -608,6 +611,7 @@ const estimate = {
     credits_per_observation: 1,
     estimated_credits_per_month: 92,
     other_enabled_scanners_monthly_credits: 5108,
+    free_only_monthly_credits_left: 2500,
     sampling_rate: 0.05,
 }
 
@@ -781,12 +785,14 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
                     theme: 'first-try-payment',
                     statement: 'Most people complete payment on the first try.',
                     count: 21,
+                    read: null,
                     example_observation_ids: ['00000000-0000-0000-0000-0000000000c1'],
                 },
                 {
                     theme: 'summary-rereads',
                     statement: 'Some people scroll the order summary twice before they pay.',
                     count: 8,
+                    read: null,
                     example_observation_ids: [],
                 },
             ],
@@ -819,12 +825,14 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
                     theme: 'payment-method-pause',
                     statement: 'Many people pause at the payment method step before they select an option.',
                     count: 11,
+                    read: null,
                     example_observation_ids: ['00000000-0000-0000-0000-0000000000t1'],
                 },
                 {
                     theme: 'promo-field',
                     statement: 'Several people open and close the promo code field without entering a code.',
                     count: 7,
+                    read: null,
                     example_observation_ids: [],
                 },
             ],
@@ -844,11 +852,13 @@ const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}):
             theme: 'payment-method-pause',
             statement: 'Pauses at the payment method step appear far more often in test.',
             counts: { test: 11, control: 2 },
+            read: {},
         },
         {
             theme: 'promo-field',
             statement: 'Promo code interactions appear only in test.',
             counts: { test: 7, control: 0 },
+            read: {},
         },
     ],
     unattributed_count: 6,
@@ -878,6 +888,16 @@ const variantsDecorator = (readout: ExperimentVariantsReadoutApi): ReturnType<ty
         },
     })
 
+const runningExperiments = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        { id: 11, name: 'AI creation flow', feature_flag: { filters: {} } },
+        { id: 12, name: 'Pricing page layout', feature_flag: { filters: {} } },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -891,6 +911,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
+                '/api/projects/:team_id/experiments/': runningExperiments,
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -1075,7 +1096,9 @@ const meta: Meta = {
 }
 export default meta
 
-export const ScannersList: StoryObj = {}
+export const ScannersList: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+}
 
 // A project that has never created a scanner: the surface of the empty-state experiment.
 const emptyProjectDecorators = [
@@ -1100,39 +1123,34 @@ const emptyProjectDecorators = [
 
 export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
 }
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home-redesign experiment's test arm lands on the What to watch feed.
+// The home page lands on the What to watch feed. The viewer created one scanner, so the feed offers the scope tabs.
 export const HomeWatchFeed: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((item, index) =>
+                        index === 0
+                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
+                            : item
+                    ),
+                },
+            },
+        }),
+    ],
 }
 
-const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
-
-// The same feed as thumbnail cards, each closing with why the recording was picked.
-export const HomeWatchFeedGrid: StoryObj = {
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
-    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
-    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
-    // later feed story renders as a grid too.
-    beforeEach: () => {
-        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
-        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
-    },
-}
-
-// The jev ranker arm serves the simplified card: the scan's own sentence plus a scanner chip and
-// person line, with the question and verdict behind the chip's tooltip. The first card leads with
-// the scan's notability sentence, the second falls back to the derived headline, and the filler
-// row reads muted with no finding claim.
+// The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
+// first row leads with the scan's notability sentence, the second falls back to the derived headline,
+// and the filler row reads muted with no finding claim or reason.
 export const HomeWatchFeedJevArm: StoryObj = {
     decorators: [
         mswDecorator({
@@ -1171,6 +1189,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 jev_probability: 0.91,
                                 notability_reason:
                                     'The card form rejected a valid card three times before the user abandoned the checkout.',
+                                watch_reason: 'visible_error',
                             },
                         },
                         {
@@ -1198,7 +1217,7 @@ export const HomeWatchFeedJevArm: StoryObj = {
                                 },
                                 viewed: true,
                             }),
-                            reason: { kind: 'jev_watchable', jev_probability: 0.48 },
+                            reason: { kind: 'jev_watchable', jev_probability: 0.48, watch_reason: 'success' },
                         },
                         {
                             observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
@@ -1209,9 +1228,74 @@ export const HomeWatchFeedJevArm: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
+}
+
+// The embedding ranker arm: each pick names its category, and the first stands for three similar sessions.
+export const HomeWatchFeedEmbeddingArm: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    ranker: 'embedding',
+                    has_more: false,
+                    results: [
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000a1',
+                                prompt_question: 'Did the user hesitate at checkout?',
+                                scanner_id: scanners.results[0].id,
+                                scanner_snapshot: {
+                                    name: 'Confused checkout',
+                                    scanner_type: 'monitor',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: true,
+                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'monitor',
+                                        verdict: 'yes',
+                                        confidence: 0.92,
+                                        reasoning:
+                                            'The card form rejected a valid card three times before the user left.',
+                                        key_moment_ms: 154000,
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: false,
+                            }),
+                            reason: {
+                                kind: 'embedding_pick',
+                                watch_category: 'failure',
+                                similar_count: 3,
+                                affected_people: 3,
+                            },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000a2',
+                                prompt_question: 'What happened in this session?',
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'summarizer',
+                                        confidence: 0.8,
+                                        title: 'Plan limit blocked an export',
+                                        summary: 'The export stopped at the plan limit and the user opened billing.',
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: true,
+                            }),
+                            reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+    parameters: { featureFlags: { [FEATURE_FLAGS.VISION_WATCH_FEED_RANKER]: 'embedding' } },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
@@ -1229,9 +1313,6 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
             },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const HomeWatchFeedEmpty: StoryObj = {
@@ -1240,9 +1321,6 @@ export const HomeWatchFeedEmpty: StoryObj = {
             get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
         }),
     ],
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
-    },
 }
 
 export const SummarizerOverview: StoryObj = {
@@ -1254,10 +1332,28 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
+// A scanner with legacy experiment targeting points its owner to an experiment scanner.
+export const MonitorOverviewLegacyTargeting: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
+}
+
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
     decorators: [overviewDecorator({ ...summarizerScanner, sweep_throttle_factor: 12 }, summarizerStats)],
+}
+
+// Once a scanner has enough observations, the overview offers a dashboard for it.
+export const MonitorOverviewDashboardOffer: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(monitorOverviewScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_SCANNER_DASHBOARD]: true },
+    },
+    decorators: [overviewDecorator({ ...monitorOverviewScanner, dashboard_suggested: true }, monitorOverviewStats)],
 }
 
 export const ClassifierOverview: StoryObj = {
@@ -1796,10 +1892,6 @@ export const ScannerAlertsEmpty: StoryObj = {
     },
 }
 
-export const ScannerTemplates: StoryObj = {
-    parameters: { pageUrl: urls.replayVisionTemplates() },
-}
-
 export const ScannerEditorDetails: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
 }
@@ -1911,6 +2003,7 @@ export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inli
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
 export const StartupProgramCap: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
     decorators: [
         mswDecorator({
             get: {
@@ -1924,12 +2017,10 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal-based creation flow when the flag's test variant is on: a typed goal and budget on the
-// left, one-click starting points on the right.
+// The goal step: a typed goal and budget on the left, one-click starting points on the right.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
-        pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        pageUrl: urls.replayVisionScannerGoal('new'),
     },
 }
 
@@ -1958,7 +2049,7 @@ const goalDraft: DraftScannerResponseApi = {
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
     credit_limit: 5000,
-    experiment_targeting: null,
+    free_only: false,
     estimated_monthly_observations: 1000,
 }
 
@@ -1967,7 +2058,6 @@ const goalDraft: DraftScannerResponseApi = {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
     decorators: [
         (StoryFn) => {
@@ -1995,7 +2085,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
     decorators: [
         mswDecorator({
@@ -2030,10 +2120,14 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
             const draft: DraftScannerResponseApi = {
                 ...goalDraft,
                 name: 'New creation flow friction',
-                description: 'Flags sessions where a participant struggles in the new AI creation flow.',
+                description: 'Describes how participants get through the new AI creation flow.',
+                scanner_type: 'experiment',
                 scanner_config: {
-                    prompt: 'Did the participant hesitate, backtrack, or give up while describing their goal in the scanner creation flow? Answer yes or no with a one-sentence reason.',
-                    allow_inconclusive: true,
+                    prompt: 'Watch the scanner creation flow. Note where the participant hesitates, backtracks, or gives up while describing their goal, and how the session ends.',
+                    length: 'medium',
+                    experiment_id: 11,
+                    variants: ['test'],
+                    balance_variants: true,
                 },
                 rationale:
                     'Your goal is about the new AI creation flow, so this watches only the sessions of people the experiment put in its test variant, on the pages where that flow lives. Struggling looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
@@ -2056,7 +2150,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                         },
                     ],
                 } as RecordingsQuery,
-                experiment_targeting: { experiment_id: 11, variant: 'test' },
             }
             logic.actions.draftScannerFromGoalSuccess(draft)
             logic.actions.setScannerValues({
@@ -2067,7 +2160,57 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                 query: draft.query as RecordingsQuery,
                 sampling_mode: draft.sampling_mode as SamplingMode,
                 sampling_rate: draft.sampling_rate ?? 1,
-                experiment_targeting: draft.experiment_targeting,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// A filter with many values renders as one long snack, which must wrap inside the card rather than
+// push it past the edge of the page.
+export const ScannerEditorGoalOverviewLongFilters: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            const draft: DraftScannerResponseApi = {
+                ...goalDraft,
+                name: 'Sign-in friction monitor',
+                description: 'Flags sessions where a user struggles to sign in.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    properties: [
+                        {
+                            type: 'event',
+                            key: '$screen_name',
+                            value: [
+                                '/sign-in',
+                                '/sign-in/verify-code',
+                                '/sign-in/magic-link',
+                                '/account/security',
+                                '/account/two-factor-setup',
+                                '/password/forgot',
+                                '/password/reset',
+                                '/sign-up/more-details',
+                            ],
+                            operator: 'exact',
+                        },
+                    ],
+                    events: [{ id: 'user_signed_in', name: 'user_signed_in', type: 'events', order: 0 }],
+                } as RecordingsQuery,
+            }
+            logic.actions.draftScannerFromGoalSuccess(draft)
+            logic.actions.setScannerValues({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type as ScannerType,
+                scanner_config: draft.scanner_config as ScannerConfig,
+                query: draft.query as RecordingsQuery,
+                sampling_mode: draft.sampling_mode as SamplingMode,
+                sampling_rate: draft.sampling_rate ?? 1,
             })
             return <StoryFn />
         },
@@ -2079,7 +2222,6 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
 export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
@@ -2093,7 +2235,161 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
             // Hold the draft loader open so the overview renders its skeleton instead of a result.
-            logic.actions.draftScannerFromGoal('find out where people give up in billing', 5000)
+            logic.actions.draftScannerFromGoal({
+                goal: 'find out where people give up in billing',
+                spend: { monthlyCreditBudget: 5000 },
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
+// Free-only scanners stop when the org's free credits run out, so these quotas sit on either side of that.
+const freeCreditsLeftQuota: VisionQuotaApi = { ...quota, credits_used: 600, credits_settled: 600, remaining: 9400 }
+const freeCreditsUsedQuota: VisionQuotaApi = { ...quota, credits_used: 2600, credits_settled: 2600, remaining: 7400 }
+
+const freeOnlyScanner: ReplayScannerApi = {
+    ...summarizerScanner,
+    id: '00000000-0000-0000-0000-00000000000e',
+    name: 'Free checkout summaries',
+    free_only: true,
+    credit_limit: null,
+    credits_used_against_limit: 600,
+    limit_reached: false,
+}
+
+const freeOnlyLimitReachedScanner: ReplayScannerApi = {
+    ...freeOnlyScanner,
+    credits_used_against_limit: 2600,
+    limit_reached: true,
+}
+
+// Large enough that the free credits left, not the estimate, bound the forecast.
+const largeEstimate = { ...estimate, estimated_observations_per_month: 3000, estimated_credits_per_month: 3000 }
+
+// The headroom is the free credits left as a monthly rate over the 20 days to June 1.
+const freeOnlyEditorDecorator = (
+    quotaResponse: VisionQuotaApi,
+    freeHeadroom: number
+): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/:id/': freeOnlyScanner,
+            '/api/projects/:team_id/vision/quota/': quotaResponse,
+        },
+        post: {
+            '/api/projects/:team_id/vision/scanners/estimate/': {
+                ...largeEstimate,
+                free_only_monthly_credits_left: freeHeadroom,
+            },
+        },
+    })
+
+// The list shows a free-only scanner that ran out as stopped, with the free-credits reason on hover.
+export const ScannersListFreeCreditsUsed: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision()}?tab=scanners` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((scanner) =>
+                        scanner.id === summarizerScanner.id
+                            ? { ...freeOnlyLimitReachedScanner, id: scanner.id }
+                            : scanner
+                    ),
+                },
+                '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota,
+            },
+        }),
+    ],
+}
+
+// The status strip explains the free-credits stop and how to keep scanning.
+export const ScannerOverviewFreeCreditsUsed: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        overviewDecorator({ ...freeOnlyLimitReachedScanner, id: summarizerScanner.id }, summarizerStats),
+        mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } }),
+    ],
+}
+
+// Plenty of free credits left: the forecast still caps this scanner at what they cover.
+export const ScannerEditorBudgetFreeOnly: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
+    decorators: [freeOnlyEditorDecorator(freeCreditsLeftQuota, 2850)],
+}
+
+// 100 free credits left: the forecast shrinks to what they cover instead of warning about the org limit.
+export const ScannerEditorBudgetFreeOnlyNearlyUsed: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(freeOnlyScanner.id) },
+    decorators: [freeOnlyEditorDecorator(quota, 150)],
+}
+
+// The goal flow with "Set a budget" picked instead of the free default.
+export const ScannerEditorGoalFlowBudget: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerGoal('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setGoalSpendMode('budget')
+            return <StoryFn />
+        },
+    ],
+}
+
+// "Track an experiment" opened and an experiment picked: the starter lists running experiments and drafts an
+// experiment scanner on the one picked.
+export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerGoal('new'),
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Track an experiment'))
+        const picker = await waitFor(() => {
+            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment-picker"]')
+            expect(button).not.toHaveClass('LemonButton--loading')
+            return button as HTMLElement
+        })
+        await userEvent.click(picker)
+        await userEvent.click(await within(document.body).findByText('AI creation flow'))
+    },
+}
+
+// No free credits left this period, so "Free" is disabled and the budget input shows.
+export const ScannerEditorGoalFlowFreeCreditsUsed: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerGoal('new'),
+    },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/quota/': freeCreditsUsedQuota } })],
+}
+
+// A free draft whose estimate is more than the monthly free credits cover.
+export const ScannerEditorGoalOverviewFreeOnly: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        mswDecorator({ post: { '/api/projects/:team_id/vision/scanners/estimate/': largeEstimate } }),
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_type: goalDraft.scanner_type as ScannerType,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+                query: goalDraft.query as RecordingsQuery,
+                sampling_mode: goalDraft.sampling_mode as SamplingMode,
+                sampling_rate: 0.0001,
+                free_only: true,
+                credit_limit: null,
+            })
             return <StoryFn />
         },
     ],
@@ -2129,12 +2425,29 @@ export const ObservationDetailTimeline: StoryObj = {
     },
 }
 
+// The experiment scanner's variant analysis scout, so the Variants tab offers Run now.
+const variantAnalysisScoutMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [
+            {
+                ...digestScoutConfig,
+                id: '00000000-0000-0000-0000-0000000000c9',
+                skill_name: 'signals-scout-post-exposure-friction-variant-analysis',
+                display_name: 'Post-exposure friction / variant analysis',
+                description: 'Compares what users in each experiment variant do.',
+                source_id: experimentScanner.id,
+                tags: ['replay-vision-variant-analysis'],
+            },
+        ],
+    },
+})
+
 export const ExperimentVariants: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(experimentScanner.id),
         featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
     },
-    decorators: [variantsDecorator(variantsReadout())],
+    decorators: [variantsDecorator(variantsReadout()), variantAnalysisScoutMocks],
 }
 
 // No variant analysis scout yet: the counts show, and the comparison offers to set one up.
@@ -2153,6 +2466,34 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+        variantAnalysisScoutMocks,
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
     ],
 }
 

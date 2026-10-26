@@ -96,6 +96,52 @@ function formatMissingOrganizationContextMessage(): string {
     )
 }
 
+/**
+ * Thrown by `switch-project` and `switch-organization` when the request pins the
+ * context and carries no MCP session id. Nothing records the switch across
+ * requests, so the next request applies the pin again. Failing here tells the
+ * agent the truth instead of a success that the next call silently reverts.
+ */
+export class PinnedContextSwitchError extends Error {
+    constructor(pinned: { organizationId?: string | undefined; projectId?: string | undefined }) {
+        super(formatPinnedContextSwitchMessage(pinned))
+        this.name = 'PinnedContextSwitchError'
+    }
+}
+
+function formatPinnedContextSwitchMessage(pinned: {
+    organizationId?: string | undefined
+    projectId?: string | undefined
+}): string {
+    const target = pinned.projectId ? `project \`${pinned.projectId}\`` : `organization \`${pinned.organizationId}\``
+    return (
+        `This connection pins ${target} on every request and sends no MCP session id, so a switch cannot persist. ` +
+        'The next tool call would run against the pinned context again, so the switch was not applied.' +
+        '\n\n' +
+        `Keep working in the pinned ${pinned.projectId ? 'project' : 'organization'}, or ask the user to change the pin in the MCP client configuration ` +
+        '(the `project_id` / `organization_id` URL parameters or the `x-posthog-project-id` / `x-posthog-organization-id` headers).'
+    )
+}
+
+export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
+
+/**
+ * Thrown before any tool runs when an MCP session saved its project and
+ * organization selection under the store key that held only the session id.
+ * The server does not trust those values, because any credential can send the
+ * same session id, and it does not silently start over from the pin or the
+ * shared token selection either. A new session starts with a clean selection.
+ */
+export class McpSessionResetRequiredError extends Error {
+    constructor() {
+        super(
+            'This MCP session started before a PostHog MCP server update, and the server cannot restore its project and organization selection. ' +
+                'No tool ran. Reconnect the PostHog MCP server to start a new session, then try again.'
+        )
+        this.name = 'McpSessionResetRequiredError'
+    }
+}
+
 export interface PostHogValidationErrorOptions {
     detail: string
     attr: string | undefined
@@ -159,6 +205,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'tool_not_granted'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'
@@ -191,6 +238,7 @@ export interface PostHogApiErrorOptions {
     url: string
     method: string
     message?: string
+    retryAfterSeconds?: number | null
 }
 
 /**
@@ -211,6 +259,7 @@ export class PostHogApiError extends Error {
     public readonly body: string
     public readonly url: string
     public readonly method: string
+    public readonly retryAfterSeconds: number | null
 
     constructor(options: PostHogApiErrorOptions) {
         super(options.message ?? buildDefaultApiErrorMessage(options))
@@ -220,6 +269,7 @@ export class PostHogApiError extends Error {
         this.body = options.body
         this.url = options.url
         this.method = options.method
+        this.retryAfterSeconds = options.retryAfterSeconds ?? null
     }
 }
 
@@ -247,14 +297,10 @@ export interface PostHogRateLimitErrorOptions {
 }
 
 /**
- * Thrown when the PostHog API responds with HTTP 429. Never retried inside the
- * MCP server: sleeping here keeps the client's request open and lets pending
- * work pile up behind it, so the rate limit is surfaced immediately with the
- * server's Retry-After hint and the client decides when to retry.
+ * Thrown when an HTTP 429 reaches the caller, including after the JSON client's
+ * bounded retries. Preserves the server's Retry-After hint for the next attempt.
  */
 export class PostHogRateLimitError extends PostHogApiError {
-    public readonly retryAfterSeconds: number | null
-
     constructor(options: PostHogRateLimitErrorOptions) {
         const retryHint = options.retryAfterSeconds !== null ? ` Retry after ${options.retryAfterSeconds} seconds.` : ''
         super({
@@ -263,11 +309,16 @@ export class PostHogRateLimitError extends PostHogApiError {
             body: options.body,
             url: options.url,
             method: options.method,
+            retryAfterSeconds: options.retryAfterSeconds,
             message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
-        this.retryAfterSeconds = options.retryAfterSeconds
     }
+}
+
+/** True for an error raised by a request deadline, as opposed to a cancellation or a network fault. */
+export function isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
 }
 
 export interface PostHogTransportErrorOptions {
@@ -294,6 +345,8 @@ export class PostHogTransportError extends Error {
     public readonly url: string
     public readonly method: string
     public readonly attempts: number
+    /** True when the request hit the client's deadline instead of failing to connect. */
+    public readonly timedOut: boolean
 
     constructor(options: PostHogTransportErrorOptions) {
         const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
@@ -308,20 +361,22 @@ export class PostHogTransportError extends Error {
         this.url = options.url
         this.method = options.method
         this.attempts = options.attempts
+        // A forwarded request nests the local transport error, so look through the cause chain.
+        this.timedOut = hasTimeoutCause(options.cause)
         ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }
 
 /**
  * Parses a Retry-After header into whole seconds. Returns null for missing
- * headers, HTTP-date values, and bogus negatives.
+ * headers, HTTP-date values, and invalid delay values.
  */
 export function parseRetryAfterSeconds(header: string | null): number | null {
-    if (!header) {
+    if (!header || !/^\d+$/.test(header.trim())) {
         return null
     }
-    const seconds = Number.parseInt(header, 10)
-    return Number.isNaN(seconds) || seconds < 0 ? null : seconds
+    const seconds = Number(header)
+    return Number.isSafeInteger(seconds) ? seconds : null
 }
 
 export interface PostHogPermissionErrorOptions {
@@ -379,6 +434,19 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
             `Your Personal API key is missing the '${error.missingScope}' scope, which is required to call ${callTarget}.`,
             '',
             `To fix: edit the Personal API key in PostHog (User settings → Personal API keys) and add the '${error.missingScope}' scope. Alternatively, select the "MCP Server" scope preset which includes every scope the MCP needs.`,
+            '',
+            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ].join('\n')
+    }
+
+    // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
+    if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
+        return [
+            `PostHog API permission denied: ${error.detail}`,
+            '',
+            `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
+            '',
+            'To fix: use a Personal API key or OAuth token with organization access. In PostHog, open User settings → Personal API keys and set the key access to "All access" or "Organizations" (with this organization), not "Projects".',
             '',
             `See: ${PERSONAL_API_KEY_DOCS_URL}`,
         ].join('\n')
@@ -482,6 +550,21 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+/** True when the error or any error in its `cause` chain came from a request deadline. Tools that
+ *  rethrow through `wrapError` keep the timeout in `cause`. */
+export function hasTimeoutCause(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (isTimeoutError(current) || (current instanceof PostHogTransportError && current.timedOut)) {
+            return true
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
+}
+
 /**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
@@ -512,6 +595,7 @@ export function handleToolError(
     if (
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
+        error instanceof PinnedContextSwitchError ||
         error instanceof ToolInputValidationError ||
         error instanceof ExecCommandError ||
         (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
@@ -615,7 +699,11 @@ export function handleToolError(
     // reach here (4xx short-circuited earlier).
     const recoveryHint =
         recoverableApiError instanceof PostHogApiError
-            ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+            ? getToolRecoveryHint({
+                  url: recoverableApiError.url,
+                  status: recoverableApiError.status,
+                  retryAfterSeconds: recoverableApiError.retryAfterSeconds,
+              })
             : undefined
 
     return {

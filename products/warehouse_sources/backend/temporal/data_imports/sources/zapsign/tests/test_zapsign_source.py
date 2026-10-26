@@ -60,13 +60,6 @@ class TestZapSignSource:
         assert result.success is False
         assert "Delete it in ZapSign" in str(result.error)
 
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-
-        # ZapSign answers 403 for a bad token, so both auth statuses must permanently fail.
-        assert "403 Client Error: Forbidden" in errors
-        assert "401 Client Error: Unauthorized" in errors
-
     @parameterized.expand(
         [
             ("incremental", True, datetime.datetime(2026, 5, 1)),

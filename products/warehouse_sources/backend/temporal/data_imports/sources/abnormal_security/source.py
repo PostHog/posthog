@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -42,6 +43,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AbnormalSecuritySource(ResumableSource[AbnormalSecuritySourceConfig, AbnormalSecurityResumeConfig]):
+    codebase_detection = detect(env=("^(ABNORMAL_SECURITY|ABNORMALSECURITY)_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("v1",)
     default_version = "v1"
@@ -62,7 +65,7 @@ class AbnormalSecuritySource(ResumableSource[AbnormalSecuritySourceConfig, Abnor
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Abnormal Security (Abnormal AI)",
             iconPath="/static/services/abnormal_security.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token in [Abnormal Settings > Integrations > Abnormal REST API]"
                 "(https://portal.abnormalsecurity.com/home/settings/integrations). "

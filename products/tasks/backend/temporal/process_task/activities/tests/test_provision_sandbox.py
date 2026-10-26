@@ -13,10 +13,13 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     OrganizationExecutionError,
+    RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
     SandboxRateLimitedError,
@@ -66,43 +69,24 @@ def _context_for_desktop_bootstrap(
     )
 
 
-@pytest.mark.parametrize("marker", [None, "scout_trial", "scout_trial_judge"])
+@pytest.mark.parametrize("is_trial", [False, True])
 @override_settings(
     DEBUG=False,
     SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
     SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
 )
-def test_private_trial_keeps_the_pinned_model_after_overload(mocker, marker: str | None) -> None:
+def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is_trial: bool) -> None:
     context = _context_for_desktop_bootstrap()
-    context.state = {marker: {"version": 1}} if marker else {}
     context.agent_otel_telemetry_enabled = True
     for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
         mocker.patch.object(provision_sandbox_module, name, return_value={})
     mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
 
-    task = mocker.Mock(is_scout_experiment=marker is not None)
+    task = mocker.Mock(is_scout_experiment=is_trial)
     environment = provision_sandbox_module._build_environment_variables(context, task, "", "fake-token")
 
-    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if marker else None)
-    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if marker else "synthetic-token")
-
-
-def test_judge_does_not_inherit_github_credentials(mocker) -> None:
-    context = _context_for_desktop_bootstrap()
-    context.state = {"github_read_access": True, "scout_trial_judge": {"version": 1}}
-    task = Task(origin_product="signals_scout", origin_key="scout-trial-judge:synthetic-evaluation:synthetic-launch")
-    token = mocker.patch.object(provision_sandbox_module, "get_sandbox_github_token")
-    readonly_token = mocker.patch.object(provision_sandbox_module, "get_readonly_github_token")
-
-    assert (
-        provision_sandbox_module._resolve_sandbox_github_token(
-            context, task=task, actor_user=None, repository=None, has_repo=False
-        )
-        == ""
-    )
-    assert context.github_read_access is False
-    token.assert_not_called()
-    readonly_token.assert_not_called()
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
+    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
 
 
 class _ShellSandbox:
@@ -606,7 +590,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
             ),
         )
 
-    assert "exit code 124" in str(error.value)
+    assert "Could not clone posthog/posthog (git exited with code 124)" in str(error.value)
     assert error.value.context == {
         "repository": "posthog/posthog",
         "sandbox_id": "sandbox-id",
@@ -616,15 +600,74 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         "error": "execution stopped",
         "team": "array",
     }
-    metric_meter.assert_called_once_with(
+    clone_samples = [args.args[0] for args in metric_meter.call_args_list if args.args[0]["step"] == "repository_clone"]
+    assert clone_samples == [
         {
             "step": "repository_clone",
             "used_snapshot": "false",
             "status": "FAILED",
             "runtime": "gvisor",
+            "sandbox_backend": "modal",
         }
-    )
+    ]
     assert str(capture_exception.call_args.args[0]) == "clone output"
+
+
+@pytest.mark.parametrize(
+    "stderr, expected_error",
+    [
+        (
+            "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
+            RepositoryAccessError,
+        ),
+        (
+            "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
+            RepositoryAccessError,
+        ),
+        (
+            "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
+            RepositoryCloneError,
+        ),
+    ],
+)
+def test_clone_failure_stops_retries_only_when_github_denies_access(
+    mocker, activity_environment, stderr, expected_error
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="acme/repo",
+        distinct_id="distinct-id",
+        state={},
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            CloneRepositoryInSandboxInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                repository="acme/repo",
+                github_token="",
+                shallow_clone=True,
+            ),
+        )
+
+    access_denied = expected_error is RepositoryAccessError
+    assert error.value.non_retryable is access_denied
+    assert is_expected_activity_failure(error.value) is access_denied
+    assert capture_exception.called is not access_denied
 
 
 def _prepared_for_create() -> PrepareSandboxForRepositoryOutput:

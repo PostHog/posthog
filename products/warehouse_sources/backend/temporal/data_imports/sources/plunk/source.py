@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
+    codebase_detection = detect(env=("^PLUNK_", "^PLUNK_SECRET_KEY$"), npm=("@plunk/node",))
+
     # Plunk's data endpoints carry no version prefix (only the public send/track endpoints
     # are versioned), so the source is unversioned.
     api_docs_url = "https://docs.useplunk.com/api-reference/overview"
@@ -106,7 +109,7 @@ class PlunkSource(ResumableSource[PlunkSourceConfig, PlunkResumeConfig]):
             name=ExternalDataSourceType.PLUNK,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Plunk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["useplunk", "email marketing"],
             caption="""Enter your Plunk secret API key to pull your contacts, campaigns, templates, and segments into the PostHog Data warehouse.
 

@@ -44,7 +44,7 @@ from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_a
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
-from posthog.hogql.sharing_rules import SameAggregationTopNRule
+from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     json_dynamic_read_sql,
@@ -158,6 +158,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert "\n".join(line.rstrip() for line in sql.strip().splitlines()) == self._schema_snapshot(
                 use_new_events_schema_snapshot=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             )
+
+    @patch(
+        "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+    )
+    def test_prepared_unlimited_counts_can_share_execution(self, _flag: mock.Mock) -> None:
+        prepared = [
+            HogQLQueryExecutor(query=query, team=self.team).prepare_for_sharing(
+                query_id=str(index), scope_key="test-refresh"
+            )
+            for index, query in enumerate(
+                ("SELECT count() FROM events", "SELECT count() FROM events WHERE event = 'signup'")
+            )
+        ]
+
+        plan = MultiQueryPlanner([CountFusionRule()]).plan(prepared)
+
+        self.assertEqual(len(plan.groups), 1, plan.rejections)
+        self.assertEqual(plan.groups[0].query_ids, ("0", "1"))
+        self.assertIsNone(plan.groups[0].query.limit)
 
     @parameterized.expand(
         [
@@ -1143,6 +1163,52 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, team=self.team, pretty=False)
             self.assertEqual(response.results, [])
             self.assertResponseMatchesSnapshot(response)
+
+    @parameterized.expand(
+        [
+            ("array_raw", "JSONExtractArrayRaw(properties.list)", ["1", "2"], []),
+            ("array_raw_to_string", "JSONExtractArrayRaw(toString(properties.list))", ["1", "2"], []),
+            ("keys", "JSONExtractKeys(properties.obj)", ["a", "b"], []),
+            ("keys_and_values_raw", "JSONExtractKeysAndValuesRaw(properties.map)", [("k", '"v"')], []),
+            ("keys_and_values", "JSONExtractKeysAndValues(properties.map, 'String')", [("k", "v")], []),
+            ("extract_array", "JSONExtract(properties.list, 'Array(Int64)')", [1, 2], []),
+            ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
+            ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
+            ("null_literal_keeps_null", "JSONExtractArrayRaw(NULL)", None, None),
+            ("null_through_function_returns_empty", "JSONExtractArrayRaw(toString(NULL))", [], []),
+            ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
+            ("cte_to_string", "JSONExtractArrayRaw(toString(list))", ["1", "2"], [], "t"),
+            ("cte_unknown_function", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t", "toValidUTF8(properties.list)"),
+            ("cte_equality_unchanged", "list = 'x'", False, None, "t"),
+            ("cte_inequality_unchanged", "list != 'x'", True, None, "t"),
+        ]
+    )
+    def test_json_container_functions_accept_nullable_input(
+        self,
+        _name: str,
+        expression: str,
+        expected_with: Any,
+        expected_without: Any,
+        source: str = "events",
+        cte_expression: str = "properties.list",
+    ) -> None:
+        _create_event(
+            distinct_id="d1",
+            event="with",
+            team=self.team,
+            properties={"list": [1, 2], "obj": {"a": 1, "b": 2}, "map": {"k": "v"}, "num": 7},
+        )
+        _create_event(distinct_id="d1", event="without", team=self.team, properties={})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            f"WITH t AS (SELECT event, {cte_expression} AS list FROM events) SELECT event, {expression} FROM {source}",
+            team=self.team,
+            pretty=False,
+        )
+
+        rows = sorted(response.results, key=lambda row: row[0])
+        self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):

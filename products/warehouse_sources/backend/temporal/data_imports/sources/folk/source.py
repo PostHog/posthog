@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FolkSource(ResumableSource[FolkSourceConfig, FolkResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://developer.folk.app/api-reference/overview"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -46,8 +49,8 @@ class FolkSource(ResumableSource[FolkSourceConfig, FolkResumeConfig]):
             name=ExternalDataSourceType.FOLK,
             category=DataWarehouseSourceCategory.CRM,
             label="Folk",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Folk API key to pull your CRM contacts, companies, groups, notes, tasks, and reminders into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.GA,
+            caption="""Enter your Folk API key to pull your CRM contacts, companies, groups, deals and other custom objects, notes, tasks, and reminders into the PostHog Data warehouse.
 
 You can create an API key in your [Folk workspace settings](https://app.folk.app/apps/contacts/network/settings/api-keys) under the "API" section. The key syncs the data its creating user can access, so create it as a user who can see the groups you want to sync.""",
             iconPath="/static/services/folk.png",

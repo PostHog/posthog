@@ -15,6 +15,8 @@ class SystemsManagerEndpoint:
     page_size: int = 50
     probe_size: int = 1
     timestamps: tuple[str, ...] = ()
+    # Endpoint whose rows supply the required identifiers for each request to this one.
+    parent: str | None = None
 
 
 ENDPOINTS: dict[str, SystemsManagerEndpoint] = {
@@ -58,7 +60,104 @@ ENDPOINTS: dict[str, SystemsManagerEndpoint] = {
         description="Patch baseline identities, operating systems, and default baseline flags.",
         page_size=100,
     ),
+    "documents": SystemsManagerEndpoint(
+        operation="ListDocuments",
+        result_key="DocumentIdentifiers",
+        primary_key=("region", "owner", "name"),
+        description="SSM documents owned by you, shared with you, or provided by AWS, with types, versions, and platforms.",
+        timestamps=("created_date",),
+    ),
+    "compliance_items": SystemsManagerEndpoint(
+        operation="ListComplianceItems",
+        result_key="ComplianceItems",
+        primary_key=("region", "resource_type", "resource_id", "compliance_type", "id"),
+        description="Individual patch, association, and custom compliance results behind each resource compliance summary.",
+        timestamps=("execution_summary_execution_time",),
+        parent="resource_compliance_summaries",
+    ),
+    "inventory_entries": SystemsManagerEndpoint(
+        operation="ListInventoryEntries",
+        result_key="Entries",
+        primary_key=("region", "instance_id", "type_name", "entry_id"),
+        description="Inventory entries of every collected type except AWS:InstanceInformation, such as applications and services, for each node.",
+        parent="inventory",
+    ),
+    "association_executions": SystemsManagerEndpoint(
+        operation="DescribeAssociationExecutions",
+        result_key="AssociationExecutions",
+        primary_key=("region", "association_id", "execution_id"),
+        description="Execution history of each State Manager association, with status and resource counts by status.",
+        timestamps=("created_time", "last_execution_date"),
+        parent="associations",
+    ),
+    "association_execution_targets": SystemsManagerEndpoint(
+        operation="DescribeAssociationExecutionTargets",
+        result_key="AssociationExecutionTargets",
+        primary_key=("region", "association_id", "execution_id", "resource_type", "resource_id"),
+        description="Status of each resource targeted by an association execution.",
+        timestamps=("last_execution_date",),
+        parent="association_executions",
+    ),
+    "instance_patch_states": SystemsManagerEndpoint(
+        operation="DescribeInstancePatchStates",
+        result_key="InstancePatchStates",
+        primary_key=("region", "instance_id"),
+        description="Patch counts by state, the patch baseline, and the last patch operation for each managed node.",
+        probe_size=10,
+        timestamps=("operation_start_time", "operation_end_time", "last_no_reboot_install_operation_time"),
+        parent="managed_instances",
+    ),
+    "instance_patches": SystemsManagerEndpoint(
+        operation="DescribeInstancePatches",
+        result_key="Patches",
+        primary_key=("region", "instance_id", "kb_id", "title"),
+        description="Installed, missing, and failed patches on each managed node, with classification and severity.",
+        page_size=100,
+        probe_size=10,
+        timestamps=("installed_time",),
+        parent="managed_instances",
+    ),
+    "sessions": SystemsManagerEndpoint(
+        operation="DescribeSessions",
+        result_key="Sessions",
+        primary_key=("region", "session_id"),
+        description="Active Session Manager sessions and sessions that ended in the past 30 days.",
+        page_size=200,
+        timestamps=("start_date", "end_date"),
+    ),
+    "ops_items": SystemsManagerEndpoint(
+        operation="DescribeOpsItems",
+        result_key="OpsItemSummaries",
+        primary_key=("region", "ops_item_id"),
+        description="OpsCenter OpsItems with status, priority, severity, and planned and actual times.",
+        timestamps=(
+            "created_time",
+            "last_modified_time",
+            "actual_start_time",
+            "actual_end_time",
+            "planned_start_time",
+            "planned_end_time",
+        ),
+    ),
+    "ops_item_events": SystemsManagerEndpoint(
+        operation="ListOpsItemEvents",
+        result_key="Summaries",
+        primary_key=("region", "ops_item_id", "event_id"),
+        description="Events that changed OpsItems, with the event source, detail, and creation time.",
+        timestamps=("created_time",),
+    ),
 }
+
+# Ended sessions first, so a session that ends between the two requests cannot appear twice under one key.
+SESSION_STATES = ("History", "Active")
+
+# Other tables already sync these inventory types.
+EXCLUDED_INVENTORY_TYPES = frozenset({"AWS:InstanceInformation", "AWS:ComplianceItem", "AWS:ComplianceSummary"})
+
+# A parent can disappear between listing it and reading its children.
+MISSING_PARENT_ERRORS = frozenset(
+    {"AssociationDoesNotExist", "AssociationExecutionDoesNotExist", "InvalidInstanceId", "InvalidResourceId"}
+)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 

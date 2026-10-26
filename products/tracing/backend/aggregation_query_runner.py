@@ -18,6 +18,7 @@ windows in parallel when set.
 import datetime as dt
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
@@ -51,7 +52,6 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
@@ -164,25 +164,32 @@ class _SpanAggregationMixin:
         compare_range = self._compare_query_date_range()
 
         if compare_range is None:
-            return self._run_period(self.query_date_range), None
+            return self._run_period(self.query_date_range, self.timings), None
 
         # Copy contextvars to worker threads so query tags (product/feature) set by the
         # viewset propagate. ThreadPoolExecutor does not inherit contextvars by default.
         primary_ctx = contextvars.copy_context()
         compare_ctx = contextvars.copy_context()
+        # HogQLTimings is not thread safe, so each worker gets its own clone.
+        primary_timings = self.timings.clone_for_subquery(0)
+        compare_timings = self.timings.clone_for_subquery(1)
 
         def run_primary() -> list:
-            return primary_ctx.run(self._run_period, self.query_date_range)
+            return primary_ctx.run(self._run_period, self.query_date_range, primary_timings)
 
         def run_compare() -> list:
-            return compare_ctx.run(self._run_period, compare_range)
+            return compare_ctx.run(self._run_period, compare_range, compare_timings)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             current_future = pool.submit(run_primary)
             previous_future = pool.submit(run_compare)
-            return current_future.result(), previous_future.result()
+            results = current_future.result(), previous_future.result()
 
-    def _run_period(self, query_date_range: QueryDateRange) -> list:
+        self.timings.timings.update(primary_timings.timings)
+        self.timings.timings.update(compare_timings.timings)
+        return results
+
+    def _run_period(self, query_date_range: QueryDateRange, timings: HogQLTimings) -> list:
         query = self._build_query(query_date_range)
         response = execute_hogql_query(
             query_type=self.query.kind,
@@ -190,7 +197,7 @@ class _SpanAggregationMixin:
             modifiers=self.modifiers,
             team=self.team,
             workload=Workload.LOGS,
-            timings=self.timings,
+            timings=timings,
             limit_context=self.limit_context,
             settings=self.settings,
             filters=query_date_range.to_hogql_filters(),

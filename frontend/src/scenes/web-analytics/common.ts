@@ -22,9 +22,9 @@ import {
 import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-/** Matches BREAKDOWN_NULL_DISPLAY in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_NULL_DISPLAY = '(none)'
-/** Matches BREAKDOWN_REFERRER_PREFIX in posthog/hogql_queries/web_analytics/stats_table.py */
+/** Matches BREAKDOWN_REFERRER_PREFIX in products/web_analytics/backend/hogql_queries/stats_table.py */
 export const BREAKDOWN_REFERRER_PREFIX = 'referrer:'
 
 export interface WebTileLayout {
@@ -618,6 +618,12 @@ export const sessionPropertiesToPathClean = new Set([
     '$end_current_url',
 ])
 export const personPropertiesToPathClean = new Set(['$initial_pathname', '$initial_current_url'])
+
+/** Operators that compare raw paths, mapped to the operators that clean both sides before they compare. */
+export const cleanedPathOperators: Partial<Record<PropertyOperator, PropertyOperator>> = {
+    [PropertyOperator.Exact]: PropertyOperator.IsCleanedPathExact,
+    [PropertyOperator.IsNot]: PropertyOperator.IsCleanedPathNotExact,
+}
 
 /**
  * Pick the operator for an exact match on a breakdown value. With path cleaning on, the value is a

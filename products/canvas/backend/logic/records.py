@@ -110,6 +110,7 @@ def widening_record(widening: CapabilityWidening) -> CanvasCapabilityWidening:
         network_origins_added=widening.network_origins_added,
         state_scopes_added=widening.state_scopes_added,
         actions_added=widening.actions_added,
+        tools_added=widening.tools_added,
         connectors_added=[{"provider": grant.provider, "tools": grant.tools} for grant in widening.connectors_added],
     )
 

@@ -37,7 +37,9 @@ use cohort_stream_processor::store::{
     PersonRecordKey, PersonRecords, Stage2Key, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::seed_run::RunBudget;
-use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, SkipReason, Stage1Worker};
+use cohort_stream_processor::workers::{
+    process_event, EvictionRestore, MergeWorkerDeps, SkipReason, Stage1Worker,
+};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -49,6 +51,7 @@ const PARTITION_ID: u16 = 0;
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+const SECOND_TOPIC_PARTITION_10: i32 = 1_000_010;
 /// A window over 180 days routes `performed_event_multiple` to the compressed history variant.
 const COMPRESSED_WINDOW_DAYS: i64 = 365;
 
@@ -787,8 +790,14 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
     let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
 
-    // Leave from source partition 20 at a low offset, with a newer event time so argMax applies it.
-    let leave = person_event(p, "nope@x.com", "2026-05-26 13:00:00.000000", 20, 3);
+    // Leave from the second topic at a low offset, with a newer event time so argMax applies it.
+    let leave = person_event(
+        p,
+        "nope@x.com",
+        "2026-05-26 13:00:00.000000",
+        SECOND_TOPIC_PARTITION_10,
+        3,
+    );
     let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
     assert_eq!(
         out.transitions.len(),
@@ -799,7 +808,7 @@ fn cross_partition_low_offset_is_not_masked_by_a_high_offset_elsewhere() {
 
     let applied = person_record_at(&store, p).unwrap().applied_offsets;
     assert_high_water(&applied, 10, 100);
-    assert_high_water(&applied, 20, 3);
+    assert_high_water(&applied, SECOND_TOPIC_PARTITION_10, 3);
 }
 
 #[test]
@@ -1181,7 +1190,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     dispatch_to_worker(&tracker, &tx, event(alice, 1, 0), 0).await;
@@ -1237,7 +1246,7 @@ async fn sub_batch_read_your_writes_survives_offload() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     // Same source coordinates (5, 0) make the second event an exact replay of the first; shipping
@@ -1298,7 +1307,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     // Event A flips only the behavioral leaf (non-matching email): the single-leaf cohort 2 enters,
@@ -1366,7 +1375,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     // Skipped before touching the store, but the offset must still advance (no partition wedge).
@@ -1413,7 +1422,7 @@ async fn worker_produces_changes_and_advances_offset() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 5).await;
@@ -1456,7 +1465,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     let non_match = CohortStreamEvent {
@@ -1491,7 +1500,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1522,7 +1531,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1961,7 +1970,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     let alice = person(1);
@@ -2302,7 +2311,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
 
     let alice = person(1);
@@ -2587,7 +2596,7 @@ async fn every_queued_live_batch_is_served_before_a_waiting_seed_turn() {
         Arc::new(sink.clone()),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     worker.join().await.unwrap();
 
@@ -2686,7 +2695,7 @@ async fn a_seed_backlog_is_served_in_run_sized_quanta() {
         Arc::new(sink.clone()),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     worker.join().await.unwrap();
 
@@ -2760,7 +2769,7 @@ async fn a_live_batch_arriving_during_a_seed_backlog_is_served_before_the_next_s
         Arc::new(sink),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     worker.join().await.unwrap();
 
@@ -2850,7 +2859,7 @@ async fn a_live_batch_arriving_mid_quantum_is_served_before_the_next_run() {
         Arc::new(sink),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     worker.join().await.unwrap();
 
@@ -2900,7 +2909,7 @@ async fn a_closed_seed_lane_does_not_stall_the_live_lane() {
         Arc::new(sink.clone()),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
 
     // Let the worker observe the closed seed lane while the live lane is still open.
@@ -2965,7 +2974,7 @@ async fn both_lanes_drain_before_the_worker_exits() {
         Arc::new(sink.clone()),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     worker.join().await.unwrap();
 
@@ -3014,7 +3023,7 @@ async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
         Arc::new(sink.clone()),
         Arc::new(OffsetTracker::new()),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
     seed_tx
@@ -3058,7 +3067,7 @@ async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
         Arc::new(replay_sink.clone()),
         Arc::new(OffsetTracker::new()),
         replay_deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     replay_deps
         .seed_tracker
@@ -3125,7 +3134,7 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
         Arc::new(sink.clone()),
         tracker.clone(),
         deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
 
     tracker.mark_dispatched(PARTITION_ID as i32, 1);
@@ -3187,7 +3196,7 @@ async fn seed_produce_failure_holds_only_the_seed_tracker_and_the_redelivery_re_
         Arc::new(replay_sink.clone()),
         replay_tracker.clone(),
         replay_deps.clone(),
-        false,
+        EvictionRestore::Skip,
     );
     replay_deps
         .seed_tracker
@@ -3253,7 +3262,7 @@ async fn watermark_advances_only_after_a_successful_mark() {
                 Arc::new(sink),
                 tracker.clone(),
                 deps,
-                false,
+                EvictionRestore::Skip,
             );
             tracker.mark_dispatched(PARTITION_ID as i32, 1);
             tx.send(batch).await.unwrap();

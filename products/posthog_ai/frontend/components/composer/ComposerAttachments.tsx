@@ -1,11 +1,10 @@
 import { useActions } from 'kea'
 import { type ClipboardEvent, type RefObject, useCallback } from 'react'
 
-import { IconUpload } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
-import { ComposerAttachmentChips } from './ComposerAttachmentChips'
 import { useComposerFilePicker } from './useComposerFilePicker'
 
 export interface ComposerAttachmentsProps {
@@ -19,29 +18,27 @@ export function ComposerAttachments({
     dropTargetRef,
     disabledReason,
 }: ComposerAttachmentsProps): JSX.Element {
-    const { fileInput, openPicker, isOver, addDisabledReason, hasStagedFiles } = useComposerFilePicker(
+    const { fileInput, openPicker, isOver, addDisabledReason } = useComposerFilePicker(
         attachmentsKey,
         dropTargetRef,
         disabledReason
     )
 
     return (
-        <div className="flex flex-wrap items-center gap-1 min-w-0">
+        <>
             {fileInput}
             <LemonButton
-                size="xxsmall"
+                size="xsmall"
                 type="tertiary"
-                className={isOver ? 'flex-shrink-0 border border-accent' : 'flex-shrink-0 border'}
-                icon={<IconUpload className="text-secondary" />}
+                className={isOver ? 'size-6 shrink-0 ring-1 ring-accent' : 'size-6 shrink-0'}
+                icon={<IconPlus className="text-secondary" />}
+                aria-label="Attach files"
                 disabledReason={addDisabledReason}
                 tooltip="Attach files for PostHog AI to read"
                 onClick={openPicker}
                 data-attr="posthog-ai-attach-file"
-            >
-                {hasStagedFiles ? null : <span className="text-secondary">{isOver ? 'Drop to attach' : 'Attach'}</span>}
-            </LemonButton>
-            <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
-        </div>
+            />
+        </>
     )
 }
 

@@ -1,7 +1,8 @@
+"""Django app configuration for ai_gateway."""
+
 from django.apps import AppConfig
 
 
-class AIGatewayConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
+class AiGatewayConfig(AppConfig):
     name = "products.ai_gateway.backend"
     label = "ai_gateway"

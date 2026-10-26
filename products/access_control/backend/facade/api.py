@@ -24,11 +24,13 @@ from uuid import UUID
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
@@ -37,6 +39,7 @@ from products.event_definitions.backend.models import effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
+from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
@@ -195,6 +198,25 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
 
 
+def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
+    return (
+        AccessControl.objects.filter(
+            team_id=team_id,
+            resource__in=[
+                "project",
+                "dashboard",
+                "notebook",
+                "insight",
+                "external_data_source",
+                "warehouse_objects",
+                "warehouse_table",
+                "warehouse_view",
+            ],
+        ).exists()
+        or PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+    )
+
+
 def user_organizations_use_access_controls(*, user_id: int) -> bool:
     """Whether access rules can narrow what the user reaches in one of their organizations.
 
@@ -209,6 +231,62 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
+    """True when the lock is disabled, or when the user is the Terraform account. An enabled lock
+    with no account refuses everyone until the first Terraform write. The check is on the user
+    behind the request and never on a client header, because any client can send any header."""
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True).first()
+    if config is None:
+        return True
+    return config.terraform_managed_by is not None and config.terraform_managed_by.user_id == user_id
+
+
+def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
+    """False when the role has rules in a project that Terraform manages and the user is not the
+    Terraform account. AccessControl.role cascades, so the delete would remove those rules without
+    any rule endpoint running."""
+    return not (
+        TeamAccessControlConfig.objects.filter(
+            is_managed_by_terraform=True,
+            team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
+        )
+        .exclude(terraform_managed_by__user_id=user_id)
+        .exists()
+    )
+
+
+def get_terraform_lock(*, team_id: int) -> contracts.TerraformLock:
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
+    return contracts.TerraformLock(
+        managed=config is not None and config.is_managed_by_terraform,
+        terraform_last_applied_at=config.terraform_last_applied_at if config else None,
+        has_terraform_account=config is not None and config.terraform_managed_by_id is not None,
+    )
+
+
+def set_terraform_lock(*, team_id: int, enabled: bool, terraform_user_id: int | None = None) -> contracts.TerraformLock:
+    """Enable or disable the lock.
+
+    With terraform_user_id, a Terraform write made the call. The owner of that API key becomes the
+    Terraform account of the project, and the write time is recorded. A different account replaces
+    the stored one, so a rotated service account continues to work.
+
+    Without terraform_user_id, an admin made the call. Disable keeps the account. Enable before the
+    first Terraform write locks everyone out until that write."""
+    team = get_object_or_404(Team, id=team_id)
+    config = get_or_create_team_extension(team, TeamAccessControlConfig)
+    if terraform_user_id is not None:
+        membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user_id=terraform_user_id
+        ).first()
+        if membership is not None:
+            config.terraform_managed_by = membership
+        config.terraform_last_applied_at = timezone.now()
+    config.is_managed_by_terraform = enabled
+    config.save(update_fields=["terraform_managed_by", "terraform_last_applied_at", "is_managed_by_terraform"])
+    return get_terraform_lock(team_id=team_id)
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:
@@ -299,6 +377,28 @@ def object_ids_restricted_from_any_member(
         .values_list("resource_id", flat=True)
     )
     return {resource_id for resource_id in restricted if resource_id}
+
+
+def object_ids_with_rules(*, team_id: int, resource: APIScopeObject) -> set[str]:
+    """Ids of `resource` objects that carry any object-level rule, whatever its level.
+
+    For a caller that copies an object into a new one that can't carry the same rules. It skips
+    every object with a rule rather than judging which rules restrict, and it ignores whether
+    the organization enforces rules today, because the rules apply again when it does.
+    """
+    resource_ids = AccessControl.objects.filter(
+        team_id=team_id, resource=resource, resource_id__isnull=False
+    ).values_list("resource_id", flat=True)
+    return {resource_id for resource_id in resource_ids if resource_id}
+
+
+def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
+    """Whether the team has any resource-level rule for `resource`, whatever its level.
+
+    For a caller about to make objects inherit from `resource`, which changes what those rules
+    reach. Like `object_ids_with_rules`, it ignores whether the organization enforces rules today.
+    """
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=True).exists()
 
 
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
@@ -510,13 +610,15 @@ def set_object_access_control(
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
     if input.access_level is None:
-        AccessControl.objects.filter(
+        # Deleted one by one because a queryset delete writes no activity log row.
+        for rule in AccessControl.objects.filter(
             team_id=team_id,
             resource=resource,
             resource_id=input.resource_id,
             organization_member_id=input.organization_member_id,
             role_id=cast(UUID | str, input.role_id),
-        ).delete()
+        ):
+            rule.delete()
         return None
 
     rule, _created = AccessControl.objects.update_or_create(

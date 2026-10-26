@@ -24,7 +24,7 @@ pool as the default user, which is what has always served these frames. ClickHou
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
 
-That same flag also hands the object write to ClickHouse (phase 2 of the design doc): it
+That same flag also hands the object write to ClickHouse: it
 issues `INSERT INTO FUNCTION s3(...)` through the pooled native clients (sync_execute), so
 zero result bytes transit the worker, errors arrive in-band and typed, and the streaming
 path's EOS-marker check and query_log recovery are unnecessary. One flag carries both
@@ -53,7 +53,7 @@ from posthog.schema import QueryStatus
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clone_expr
@@ -156,6 +156,9 @@ _QUERY_SIZE_MESSAGE = "The query is too large to materialize. Simplify it (e.g. 
 _RESULT_SIZE_MESSAGE = (
     "The materialized result is too large (over the frame size budget). "
     "Select fewer columns or aggregate before materializing."
+)
+_LOGS_CLUSTER_MESSAGE = (
+    "Notebooks can't load logs, trace spans, or metrics yet. Run this query in the SQL editor instead."
 )
 _MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
 # ClickHouse exception codes worth a specific user-facing message when a query dies
@@ -432,6 +435,10 @@ def _generate_sql(
     context.values.clear()
     sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
+    # Both write paths connect to the main cluster, and logs-cluster tables exist only on the
+    # logs cluster. Fail before the DESCRIBE so the user sees why, not an unknown-table error.
+    if resolved.workload == Workload.LOGS:
+        raise QueryError(_LOGS_CLUSTER_MESSAGE)
     # The executor keeps the database it built on its own `dataclasses.replace` copy, so
     # without this hand-back the shared context still looks empty and the next pass builds a
     # second one. It resets the per-execution state it shares by reference, so a database
@@ -612,7 +619,7 @@ def _frame_s3_url(key: str) -> str:
 
 
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:
-    """Wrap the printed SELECT in the CH-side object write (design doc phase 2).
+    """Wrap the printed SELECT in the CH-side object write.
 
     The s3() endpoint/bucket/key and any credentials are bound as query parameters, not
     spliced as literals: sync_execute runs one `%`-substitution pass over the whole
@@ -657,7 +664,7 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     """
     kwargs = get_kwargs_for_client(workload=Workload.OFFLINE, team_id=team_id, ch_user=ClickHouseUser.NOTEBOOKS)
     creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
-    if is_file_backed_user(creds, Workload.OFFLINE, kwargs.get("user")):
+    if is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         pool = make_ch_pool(
             send_receive_timeout=_INSERT_SEND_RECEIVE_TIMEOUT_SECONDS,
@@ -681,7 +688,7 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
     """Materialize by having ClickHouse write the object itself.
 
     Runs through the pooled native clients (sync_execute) with a bounded socket timeout:
-    offline workload and hedging hygiene come from the workload routing, errors arrive
+    the offline workload comes from the workload routing, errors arrive
     in-band and typed, and no result bytes transit the worker — so the streaming path's
     EOS-marker check and query_log recovery have no equivalent here.
     """
@@ -837,7 +844,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """
     # The new flow rides one flag, resolved per user in the web process and carried on the
     # job. Off, this run is the path that has been serving frames all along: interactive
-    # pool, default credentials, hedging left alone.
+    # pool, default credentials.
     offline = inputs.ch_writes
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
@@ -931,14 +938,6 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         max_result_bytes=_MAX_RESULT_BYTES,
                         result_overflow_mode="throw",
                     )
-                    if offline:
-                        # sync_execute's offline hygiene, and only meaningful off the
-                        # interactive pool: without it, distributed subqueries of a saturated
-                        # offline query hedge onto online replicas, bleeding the whale back
-                        # into the pool this move protects. Set after construction rather than
-                        # as a kwarg so the online path sends no such setting at all, exactly
-                        # as it did before this flag existed.
-                        client.params["use_hedged_requests"] = "0"
                     printed = _print_clickhouse_sql(
                         lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
                         team,

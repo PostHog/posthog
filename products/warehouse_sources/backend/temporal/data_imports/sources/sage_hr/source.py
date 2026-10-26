@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SageHRSource(ResumableSource[SageHRSourceConfig, SageHRResumeConfig]):
+    codebase_detection = detect(env=("^(SAGE_HR|SAGEHR)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     api_docs_url = "https://sagehr.docs.apiary.io/"
@@ -49,7 +52,7 @@ class SageHRSource(ResumableSource[SageHRSourceConfig, SageHRResumeConfig]):
             name=ExternalDataSourceType.SAGEHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Sage HR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cakehr", "hris"],
             caption="""Enter your Sage HR company subdomain and API key to pull your HR data into the PostHog Data warehouse.
 

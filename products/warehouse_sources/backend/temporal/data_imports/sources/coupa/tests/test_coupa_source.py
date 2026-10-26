@@ -1,6 +1,9 @@
-import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
 
@@ -16,29 +19,6 @@ class TestCoupaSource:
     def test_connection_host_fields_cover_instance_url(self):
         # The instance URL decides where the stored credentials get sent.
         assert self.source.connection_host_fields == ["instance_url"]
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "400 Client Error: Bad Request for url: https://myorg.coupahost.com/oauth2/token",
-            "403 Client Error: Forbidden for url: https://myorg.coupahost.com/api/invoices",
-        ],
-    )
-    def test_non_retryable_errors_match_known_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://myorg.coupahost.com/api/invoices",
-            # Mid-sync 401s on data endpoints are handled by token re-mint.
-            "401 Client Error: Unauthorized for url: https://myorg.coupahost.com/api/invoices",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.validate_coupa_credentials"
@@ -109,25 +89,23 @@ class TestCoupaSource:
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
 
     @mock.patch.object(CoupaSource, "is_database_host_valid")
-    def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid):
+    def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid: mock.MagicMock) -> None:
         mock_host_valid.return_value = (False, "Host is not allowed")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "invoices"
-        inputs.team_id = self.team_id
+        result = SourceDriver(self.source, self.config).run("invoices", [], team_id=self.team_id)
 
-        with pytest.raises(ValueError, match="Host is not allowed"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Host is not allowed"
+        assert result.requests == []
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.coupa_source")
-    @mock.patch.object(CoupaSource, "is_database_host_valid")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_host_valid, mock_coupa_source):
-        mock_host_valid.return_value = (True, None)
-        inputs = mock.MagicMock()
-        inputs.schema_name = "users"
-        inputs.team_id = self.team_id
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+    def test_source_for_pipeline_omits_last_value_on_full_refresh(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "users",
+            [ScriptedResponse(json={"access_token": "tok-1"}), ScriptedResponse(json=[])],
+            team_id=self.team_id,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value="2024-01-02T03:04:05Z",
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_coupa_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert result.paths == ["/oauth2/token", "/api/users"]
+        assert result.requests[1].param("updated_at[gt]") is None

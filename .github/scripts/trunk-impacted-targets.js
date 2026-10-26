@@ -182,9 +182,6 @@ const DESKTOP = 'desktop'
 // from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
 const CLI_ARTIFACTS = 'cli-artifacts'
 
-// The hogbox preview-environment workflows, which read the hogbox tooling.
-const HOGBOX_PREVIEW = 'hogbox-preview'
-
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -256,9 +253,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-nodejs.yml', NODE],
     ['.github/workflows/ci-nodejs-container.yml', NODE],
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
-    ['.github/workflows/ci-backend.yml', PYTHON],
+    ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-shadow-drift.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON],
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
@@ -321,10 +319,6 @@ const TRIPWIRE_RULES = [
     // the rust lanes on top of deploy: those PR checks parse it, even though
     // only the image builds act on what it maps.
     ['.github/rust-images.yml', [RUST, DEPLOY]],
-    // The hogbox preview environment gates no check, and its deploys read the
-    // hogbox tooling, which owns a lane already.
-    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
-    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
@@ -332,6 +326,8 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    // ci-backend's events_json leg and its test selection read this list.
+    ['.github/new-events-schema-targets.txt', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -348,7 +344,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
     ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
     ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
-    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
     ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
@@ -364,13 +359,11 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
-    // More single-suite workflows, held to the trees their suites read: the AI
-    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // More single-suite workflows, held to the trees their suites read:
+    // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-ai.yml', PYTHON],
-    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
@@ -388,7 +381,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
     ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
     ['.github/workflows/build-hobby-installer.yml', HOBBY],
-    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
@@ -413,16 +406,12 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
     ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
     ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
-    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
-    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/auto-assign-labels.json', REPO_AUTOMATION],
@@ -444,7 +433,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
     ['.github/scripts/post-django-migration-section.mjs', PYTHON],
     ['.github/scripts/post-coverage-section.mjs', PYTHON],
-    ['.github/scripts/post-eval-section.mjs', PYTHON],
     // CI-report sections and helpers owned by one suite each.
     ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
     ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
@@ -501,6 +489,7 @@ const TRIPWIRE_RULES = [
     // The vendored paths-filter action and its CI (see CI_TOOLING). The
     // .depot/ shadow of the action follows through canonicalPath.
     ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/actions/shared-image-releases/**', CI_TOOLING],
     ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
     // Feed turbo-discover's backend product selection, so they take the
     // python lanes the same way the snob selector does.
@@ -533,8 +522,9 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    ['.oxlintrc.json', JAVASCRIPT],
-    ['.oxfmtrc*', JAVASCRIPT],
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
+    ['.oxlintrc.json', FRONTEND_SUITE],
+    ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
     // its ignore file is a JS toolchain setting like the two above.
     ['.prettierignore', JAVASCRIPT],
@@ -597,6 +587,7 @@ const TRIPWIRE_RULES = [
     ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
+    ['.depot/workflows/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
@@ -624,7 +615,7 @@ const TRIPWIRE_RULES = [
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
-    // loads at runtime and user_product_list.py keys off the `path` values of.
+    // loads at runtime and starred_products.py keys off the `path` values of.
     // So both sides of the fe/py split can hold a reference to what one manifest
     // renames, and both claim their full lane family here.
     //
@@ -939,16 +930,13 @@ function globToRegExp(glob) {
 
 const TRIPWIRE_MATCHERS = TRIPWIRE_RULES.map(([glob, domain]) => [globToRegExp(glob), domain])
 
-// .depot/ holds Depot-runner shadows of the workflows and composite actions in
-// .github/, kept apples-to-apples with their canonicals by the shadow-drift
-// check, and their statuses are non-blocking. A shadow can only affect what
-// its canonical affects, so it resolves through the canonical's rules: the
-// ci-backend shadow takes the python lanes, and a shadow of something unplaced
-// still lands on the .github/** blanket.
-const DEPOT_MIRROR_PREFIX = '.depot/'
+// .depot/actions/ holds Depot CI's mirrors of the composite actions in .github/actions/,
+// kept in sync by the action-mirrors check, so a mirror resolves through its canonical
+// action's rules. Depot CI's own workflows under .depot/workflows/ carry rules of their own.
+const DEPOT_MIRROR_PREFIX = '.depot/actions/'
 
 function canonicalPath(file) {
-    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
+    return file.startsWith(DEPOT_MIRROR_PREFIX) ? `.github/actions/${file.slice(DEPOT_MIRROR_PREFIX.length)}` : file
 }
 
 // The domain of the first rule matching the file, or null when no rule claims
@@ -1513,8 +1501,8 @@ const rustCrate = (crate) => `rust:crate:${crate}`
 const RUST_DETERMINATOR = 'rust:determinator'
 
 // The lanes that import a native module built from the cargo workspace.
-// nodejs/package.json is the only dependent of the two binding packages
-// (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/hogvm-node, @posthog/replay-anonymizer, @posthog/ai-research-v4-native) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
 // dependent fails there rather than silently going unclaimed here. The
 // image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
@@ -1740,11 +1728,6 @@ function addHobbyLane(targets) {
     return true
 }
 
-function addHogboxPreviewLane(targets) {
-    targets.add('tools:hogbox-preview')
-    return true
-}
-
 function addCliArtifactLanes(targets) {
     targets.add('cli')
     targets.add('svc:mcp')
@@ -1874,7 +1857,6 @@ const DOMAIN_LANES = new Map([
     [FULLSTACK, addFullstackLanes],
     [DEPLOY, addDeployLane],
     [HOBBY, addHobbyLane],
-    [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
@@ -1889,7 +1871,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 
@@ -2936,6 +2918,11 @@ function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
     }
 }
 
+// The change list carries deleted paths too; the tree no longer does.
+function findDeletedFiles(changedFiles) {
+    return new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+}
+
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
     const tachGraph = loadTachGraph(repoRoot)
@@ -2971,6 +2958,7 @@ module.exports = {
     buildContext,
     compileContractMatcher,
     compileWorkspaceMatcher,
+    findDeletedFiles,
     globToRegExp,
     isProductDirectory,
     isTripwire,
@@ -2991,7 +2979,6 @@ module.exports = {
     DESKTOP,
     FULLSTACK,
     HOBBY,
-    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,
@@ -3014,9 +3001,10 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            // The change list carries deleted paths too; the tree no longer does.
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
+            result = computeTargets(changedFiles, {
+                ...buildContext(REPO_ROOT),
+                deletedFiles: findDeletedFiles(changedFiles),
+            })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a

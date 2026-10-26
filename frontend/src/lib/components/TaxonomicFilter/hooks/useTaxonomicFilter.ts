@@ -324,6 +324,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         excludedProperties,
         includeHiddenEvents,
         propertyAllowList,
+        showNumericalPropsOnly,
         selectedProperties,
         maxContextOptions,
         hideBehavioralCohorts,

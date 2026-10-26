@@ -189,7 +189,11 @@ describe("finish tool", () => {
     expect(updateTaskRun).toHaveBeenCalledWith(
       "task-1",
       "run-1",
-      { status: "failed", error_message: "blocked" },
+      {
+        status: "failed",
+        error_message: "blocked",
+        error_type: "agent_declined",
+      },
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();

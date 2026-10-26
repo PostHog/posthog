@@ -3,3 +3,6 @@ export const PATH_NODE_CARD_HEIGHT = 38
 export const PATH_NODE_CARD_OVERLAP_GAP = 4
 export const PATH_NODE_CARD_TOP_OFFSET = 5
 export const PATH_NODE_CARD_LEFT_OFFSET = 7
+/** A node shorter than this shows its card only while it is part of the hovered path. */
+export const HIDE_PATH_CARD_HEIGHT = 30
+export const FALLBACK_CANVAS_WIDTH = 1000

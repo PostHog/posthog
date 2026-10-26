@@ -1,19 +1,41 @@
 import posthog from 'posthog-js'
 
-import { initKeaTests } from '~/test/init'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-import { areClientFeatureFlagsHonored, featureFlagLogic } from './featureFlagLogic'
+import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
+
+import { areClientFeatureFlagsHonored, featureFlagLogic, getPersistedFeatureFlags } from './featureFlagLogic'
 
 describe('featureFlagLogic', () => {
     describe('areClientFeatureFlagsHonored', () => {
+        afterEach(() => {
+            delete window.JS_POSTHOG_SELF_CAPTURE
+        })
+
         it.each([
-            [null, false],
-            [{ cloud: false, is_debug: false }, false],
-            [{ cloud: true, is_debug: false }, true],
-            [{ cloud: false, is_debug: true }, true],
-            [{ cloud: true, is_debug: true }, true],
-        ])('preflight %s returns %s', (preflight, expected) => {
+            [null, false, false],
+            [{ cloud: false, is_debug: false }, false, false],
+            [{ cloud: true, is_debug: false }, false, true],
+            [{ cloud: false, is_debug: true }, false, true],
+            [{ cloud: true, is_debug: true }, false, true],
+            [{ cloud: false, is_debug: false }, true, true],
+            [null, true, true],
+        ])('preflight %s with self-capture %s returns %s', (preflight, selfCapture, expected) => {
+            window.JS_POSTHOG_SELF_CAPTURE = selfCapture
             expect(areClientFeatureFlagsHonored(preflight)).toBe(expected)
+        })
+    })
+
+    describe('getPersistedFeatureFlags', () => {
+        it('maps server-persisted flags to the enabled frontend baseline', () => {
+            const appContext = {
+                persisted_feature_flags: [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES],
+            } as AppContext
+
+            expect(getPersistedFeatureFlags(appContext)).toEqual({
+                [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true,
+            })
         })
     })
 

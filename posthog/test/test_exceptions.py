@@ -20,9 +20,9 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut, Que
 class TestQueryRetryAfter(SimpleTestCase):
     @parameterized.expand(
         [
-            ("capacity", ClickHouseAtCapacity, 0, 503, "57"),
-            ("capacity_minimum", ClickHouseAtCapacity, 31, 503, "30"),
-            ("capacity_maximum", ClickHouseAtCapacity, 2, 503, "60"),
+            ("capacity", ClickHouseAtCapacity, 0, 503, "17"),
+            ("capacity_minimum", ClickHouseAtCapacity, 31, 503, "5"),
+            ("capacity_maximum", ClickHouseAtCapacity, 12, 503, "20"),
             ("timeout", ClickHouseQueryTimeOut, 0, 504, None),
             ("single_flight_follower", QueryRanConcurrently, 0, 503, None),
         ]
@@ -43,7 +43,7 @@ class TestQueryRetryAfter(SimpleTestCase):
 
     def test_capacity_retry_after_varies_between_errors_but_is_stable_for_each_error(self) -> None:
         with patch("random.randint", side_effect=Random(0).randint):
-            for expected_retry_after in ("57", "42", "54"):
+            for expected_retry_after in ("17", "18", "6"):
                 exception = ClickHouseAtCapacity(detail="Try again later.", code="busy")
                 for _ in range(2):
                     response = exception_handler(
