@@ -2,7 +2,10 @@ import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { FeatureFlagRulesV2ReturnType, JsonType } from '~/types'
 
-import { BOOLEAN_OPTIONS } from './featureFlagRulesV2EditorLogic'
+const BOOLEAN_OPTIONS = [
+    { value: 'true', label: 'true' },
+    { value: 'false', label: 'false' },
+]
 
 /** A value of the flag's return type. A nullable string value is null while its input is empty. */
 export function RulesV2ValueInput({
@@ -37,13 +40,15 @@ export function RulesV2ValueInput({
             />
         )
     }
+    // LemonSegmentedButton drops these props, so a labelled group carries them.
     return (
-        <LemonSegmentedButton
-            size="small"
-            value={String(value)}
-            onChange={(option) => onChange(option === 'null' ? null : option === 'true')}
-            options={nullable ? [...BOOLEAN_OPTIONS, { value: 'null', label: 'null' }] : BOOLEAN_OPTIONS}
-            data-attr={dataAttr}
-        />
+        <div role="group" id={id} aria-label={ariaLabel} data-attr={dataAttr}>
+            <LemonSegmentedButton
+                size="small"
+                value={String(value)}
+                onChange={(option) => onChange(option === 'null' ? null : option === 'true')}
+                options={nullable ? [...BOOLEAN_OPTIONS, { value: 'null', label: 'null' }] : BOOLEAN_OPTIONS}
+            />
+        </div>
     )
 }

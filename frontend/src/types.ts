@@ -4532,9 +4532,9 @@ export interface FeatureFlagRulesV2Variant {
     value: JsonType
 }
 
-/** Belongs to its rule. The seed is server-owned, so a new holdout has none until the server assigns it. */
+/** Belongs to its rule. The seed is server-owned. */
 export interface FeatureFlagRulesV2Holdout {
-    seed?: string
+    seed: string
     exclusion_percentage: number
 }
 
@@ -4572,9 +4572,15 @@ export interface FeatureFlagUnsupportedConfig extends WithoutFeatureFlagFiltersK
 export type FeatureFlagRulesV2DraftRule =
     | (Omit<FeatureFlagRulesV2TargetedReleaseRule, 'id'> & { id?: string })
     | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string; seed?: string })
-    | (Omit<FeatureFlagRulesV2ExperimentRule, 'id' | 'seed'> & { id?: string; seed?: string })
+    | (Omit<FeatureFlagRulesV2ExperimentRule, 'id' | 'seed' | 'holdout'> & {
+          id?: string
+          seed?: string
+          holdout?: FeatureFlagRulesV2DraftHoldout
+      })
 
 export type FeatureFlagRulesV2DraftExperimentRule = Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'experiment' }>
+
+export type FeatureFlagRulesV2DraftHoldout = Omit<FeatureFlagRulesV2Holdout, 'seed'> & { seed?: string }
 
 export interface FeatureFlagRulesV2DraftConfig extends Omit<FeatureFlagRulesV2Config, 'rules'> {
     rules: FeatureFlagRulesV2DraftRule[]

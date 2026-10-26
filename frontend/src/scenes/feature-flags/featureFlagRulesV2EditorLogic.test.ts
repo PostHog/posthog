@@ -25,14 +25,20 @@ import {
 } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
-import { NEW_HOLDOUT, moved, newVariant, rulesV2DraftErrors, withEqualWeights } from './featureFlagRulesV2Draft'
 import {
+    NEW_HOLDOUT,
     NEW_TARGETED_RELEASE_RULE,
+    moved,
+    newVariant,
+    rulesV2DraftErrors,
+    withEqualWeights,
+    withRuleType,
+} from './featureFlagRulesV2Draft'
+import {
     featureFlagRulesV2EditorLogic,
     rulesV2DraftFromFlag,
     rulesV2SaveError,
     rulesV2WriteBody,
-    withRuleType,
 } from './featureFlagRulesV2EditorLogic'
 
 jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
@@ -179,6 +185,10 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 'variants',
             ])
             expect(sent.holdout).toEqual({ exclusion_percentage: 10 })
+            expect(sent.variants).toEqual([
+                { key: 'control', weight: 50, value: false },
+                { key: 'test', weight: 50, value: true },
+            ])
         })
 
         it('adds the rollout fields when a rule becomes a percentage rollout and drops them when it stops', () => {

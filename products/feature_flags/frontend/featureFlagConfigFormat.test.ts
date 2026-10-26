@@ -63,6 +63,7 @@ describe('featureFlagConfigFormat', () => {
 
     it.each([
         ['an experiment rule', stringFlag({}), true],
+        ['a string targeted release', stringFlag({ rule_type: 'targeted_release', value: 'compact' }), true],
         [
             'an experiment rule with a holdout',
             stringFlag({ holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }),

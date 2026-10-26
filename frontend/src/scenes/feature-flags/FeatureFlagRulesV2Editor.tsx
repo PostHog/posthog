@@ -9,21 +9,24 @@ import { Button } from '@posthog/quill'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 
+import { RULES_V2_EDITABLE_RETURN_TYPES } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { RulesV2RuleEditor } from './RulesV2RuleEditor'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
-const RETURN_TYPE_OPTIONS = [
-    { value: 'boolean' as const, label: 'Boolean' },
-    { value: 'string' as const, label: 'String' },
-]
+const RETURN_TYPE_OPTIONS = RULES_V2_EDITABLE_RETURN_TYPES.map((value) => ({
+    value,
+    label: capitalizeFirstLetter(value),
+}))
 
 export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Element {
     const logic = featureFlagRulesV2EditorLogic({ id })

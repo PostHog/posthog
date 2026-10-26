@@ -57,8 +57,8 @@ import {
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import {
+    NEW_TARGETED_RELEASE_RULE,
     moved,
-    newExperimentFields,
     rulesV2DraftErrors,
     rulesV2InitialValue,
     withReturnType,
@@ -95,70 +95,9 @@ export const NEW_RULES_V2_DRAFT: FeatureFlagRulesV2Draft = {
     version: null,
 }
 
-export const BOOLEAN_OPTIONS = [
-    { value: 'true', label: 'true' },
-    { value: 'false', label: 'false' },
-]
-
-export const NEW_TARGETED_RELEASE_RULE: FeatureFlagRulesV2DraftRule = {
-    rule_type: 'targeted_release',
-    targeting: { properties: [] },
-    value: true,
-}
-
-// The rollout fields a rule gains when it becomes a percentage rollout; the server assigns its seed.
-export const NEW_ROLLOUT_FIELDS = {
-    rollout_percentage: 0,
-    on_rollout_miss: 'continue',
-    assignment_algorithm: 'sha1_60_v1',
-    assign_by: 'person',
-} as const
-
-const NEW_EXPERIMENT_ROLLOUT_FIELDS = { ...NEW_ROLLOUT_FIELDS, rollout_percentage: 100 } as const
-
 // React keys for rule cards: new rules have no id, and index keys would follow a moved rule's position.
 let lastRuleKey = 0
 const nextRuleKey = (): number => ++lastRuleKey
-
-/**
- * Keeps the rule's identity and shared fields; type-specific fields come and go with the type. A rollout keeps its
- * percentage and miss behaviour between the two randomized types. The seed is dropped, and the server keeps the
- * stored one for as long as the rule stays randomized.
- */
-export function withRuleType(
-    rule: FeatureFlagRulesV2DraftRule,
-    ruleType: FeatureFlagRulesV2DraftRule['rule_type'],
-    returnType: FeatureFlagRulesV2ReturnType
-): FeatureFlagRulesV2DraftRule {
-    if (rule.rule_type === ruleType) {
-        return rule
-    }
-    const { id, targeting, description, metadata } = rule
-    const shared = { id, targeting, description, metadata }
-    const value = rule.rule_type === 'experiment' ? rulesV2InitialValue(returnType) : rule.value
-    const rollout =
-        rule.rule_type === 'targeted_release'
-            ? null
-            : {
-                  rollout_percentage: rule.rollout_percentage,
-                  on_rollout_miss: rule.on_rollout_miss,
-                  assignment_algorithm: rule.assignment_algorithm,
-                  assign_by: rule.assign_by,
-              }
-    switch (ruleType) {
-        case 'targeted_release':
-            return { ...shared, rule_type: ruleType, value }
-        case 'percentage_rollout':
-            return { ...shared, rule_type: ruleType, value, ...(rollout ?? NEW_ROLLOUT_FIELDS) }
-        case 'experiment':
-            return {
-                ...shared,
-                rule_type: ruleType,
-                ...(rollout ?? NEW_EXPERIMENT_ROLLOUT_FIELDS),
-                ...newExperimentFields(returnType),
-            }
-    }
-}
 
 /** The draft holds the stored document as loaded, seeds and unrendered fields included, so a save echoes them. */
 export function rulesV2DraftFromFlag(flag: FeatureFlagType): FeatureFlagRulesV2Draft {

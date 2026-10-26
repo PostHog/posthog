@@ -151,6 +151,18 @@ describe('FeatureFlagRulesV2Editor', () => {
             await renderEditor(9)
         })
 
+        it('keeps a variant value that differs from its key when the key is renamed', () => {
+            fireEvent.change(screen.getByLabelText('Variant 1 key'), { target: { value: 'baseline' } })
+            expect(screen.getByLabelText('Variant 1 value')).toHaveValue('standard')
+        })
+
+        it('stores a cleared string default as null', () => {
+            fireEvent.change(screen.getByLabelText('Default value'), { target: { value: 'standard' } })
+            expect(featureFlagRulesV2EditorLogic({ id: 9 }).values.draft.config.default_value).toBe('standard')
+            fireEvent.change(screen.getByLabelText('Default value'), { target: { value: '' } })
+            expect(featureFlagRulesV2EditorLogic({ id: 9 }).values.draft.config.default_value).toBeNull()
+        })
+
         it('labels every variant input and shows no seed', () => {
             expect(screen.getByLabelText('Variant 1 key')).toHaveValue('control')
             expect(screen.getByLabelText('Variant 2 value')).toHaveValue('compact')

@@ -29,7 +29,7 @@ interface ExperimentFieldsProps extends FeatureFlagLogicProps {
 }
 
 /** Pause and holdout, which an experiment rule checks before its rollout. Seeds are server-owned and never shown. */
-export function RulesV2ExperimentGuards({ id, index, rule }: ExperimentFieldsProps): JSX.Element {
+export function RulesV2PauseAndHoldoutFields({ id, index, rule }: ExperimentFieldsProps): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
@@ -129,7 +129,7 @@ export function RulesV2VariantsField({
                     const label = `Variant ${variantIndex + 1}`
                     return (
                         <div
-                            // Rows hold no state of their own, so index keys are safe.
+                            // Rows hold no state of their own; with index keys, focus stays put when a row moves.
                             key={variantIndex}
                             className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem_6.5rem] gap-2 items-start"
                             data-attr="rules-v2-variant"

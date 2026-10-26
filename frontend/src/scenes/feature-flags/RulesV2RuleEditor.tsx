@@ -12,9 +12,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2ReturnType } from '~/types'
 
 import { FeatureFlagLogicProps } from './featureFlagLogic'
-import { featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
+import { withRuleType } from './featureFlagRulesV2Draft'
+import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { PercentageInput } from './PercentageInput'
-import { RulesV2ExperimentGuards, RulesV2VariantsField } from './RulesV2ExperimentFields'
+import { RulesV2PauseAndHoldoutFields, RulesV2VariantsField } from './RulesV2ExperimentFields'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
 export function RulesV2RuleEditor({
@@ -110,7 +111,7 @@ export function RulesV2RuleEditor({
                     addText="Add condition"
                 />
             </LemonField.Pure>
-            {rule.rule_type === 'experiment' && <RulesV2ExperimentGuards id={id} index={index} rule={rule} />}
+            {rule.rule_type === 'experiment' && <RulesV2PauseAndHoldoutFields id={id} index={index} rule={rule} />}
             {rule.rule_type !== 'targeted_release' && (
                 <div className="flex flex-wrap gap-4">
                     <LemonField.Pure
