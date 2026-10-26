@@ -93,8 +93,8 @@ permissions:
 
 env:
     # dev: prod-us no longer serves previews.
-    HOG_HOST: https://TODO-dev-hogland-host.ts.net
-    HOG_OIDC_AUDIENCE: TODO-dev-hogland-oidc-audience
+    HOG_HOST: https://hogland-dev.hedgehog-kitefin.ts.net
+    HOG_OIDC_AUDIENCE: hogland.dev.posthog.dev
     PR: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
     # One shared GitHub environment for every PR, keyed per PR by the deployment
     # task. GitHub creates an environment for each new deployment name, and a

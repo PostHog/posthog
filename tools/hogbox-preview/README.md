@@ -22,9 +22,9 @@ The thing that changes when we swap providers is small and isolated:
 ```python
 from hogbox_preview import HoglandBackend, PostHogPreviewStack
 
-backend = HoglandBackend(host="https://hogland.hedgehog-kitefin.ts.net", name="preview-pr-123")
+backend = HoglandBackend(host="https://hogland-dev.hedgehog-kitefin.ts.net", name="preview-pr-123")
 url = PostHogPreviewStack(backend, branch="pull/123/head").bring_up()
-print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across rebuilds)
+print(url)  # https://pen-….boxes.hogland.dev.posthog.dev/  (stable across rebuilds)
 ```
 
 ## How it actually works

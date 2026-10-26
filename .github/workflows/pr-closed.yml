@@ -40,8 +40,8 @@ jobs:
             contents: read
             id-token: write # OIDC for the tailnet join + hogplane token
         env:
-            HOG_HOST: https://TODO-dev-hogland-host.ts.net
-            HOG_OIDC_AUDIENCE: TODO-dev-hogland-oidc-audience
+            HOG_HOST: https://hogland-dev.hedgehog-kitefin.ts.net
+            HOG_OIDC_AUDIENCE: hogland.dev.posthog.dev
             PR: ${{ github.event.pull_request.number }}
         steps:
             # Run the teardown tool from the trusted default branch, never the PR's
