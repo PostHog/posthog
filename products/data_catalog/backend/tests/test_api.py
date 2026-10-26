@@ -155,6 +155,27 @@ class TestMetricAPI(APIBaseTest):
         assert body["owner"] == expected_owner
         assert body["status"] == MetricStatus.APPROVED
 
+    @parameterized.expand(
+        [
+            ("member", {"owner": "new.owner@example.com"}, status.HTTP_201_CREATED, "new.owner@example.com"),
+            ("explicit_null", {"owner": None}, status.HTTP_201_CREATED, None),
+            ("omitted_defaults_to_caller", {}, status.HTTP_201_CREATED, "user1@posthog.com"),
+            ("reject_outsider", {"owner": "outsider@example.com"}, status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_create_assigns_owner(
+        self, _name: str, owner_payload: dict, expected_status: int, expected_owner: str | None
+    ) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        User.objects.create_and_join(Organization.objects.create(name="Other"), "outsider@example.com", None)
+
+        response = self.client.post(self.url, {"name": "mrr", "description": "v1", **owner_payload}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        created = Metric.objects.for_team(self.team.id).filter(name="mrr").select_related("owner").first()
+        assert (created.owner.email if created and created.owner else None) == expected_owner
+        assert (created is not None) == (expected_status == status.HTTP_201_CREATED)
+
     def test_create_after_delete_starts_fresh(self) -> None:
         created = self.client.post(
             self.url, {"name": "mrr", "description": "v1", "definition": _HOGQL}, format="json"
