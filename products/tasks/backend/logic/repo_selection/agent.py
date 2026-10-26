@@ -13,6 +13,7 @@ from django.utils import timezone
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -20,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.logic.repo_selection.github_readiness import get_team_github_readiness
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -125,7 +127,9 @@ def resolve_team_github_integration(
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
-    A team-level integration always wins. When the team has none, the fallback depends on context:
+    A usable team-level integration wins. Background work can use a ready owner connection when
+    the team connections are stale. Without a ready connection, preserve team-first resolution.
+    Personal fallbacks depend on context:
 
     - ``requester_user_id`` set (user-initiated path, e.g. a sandbox chat message): the requester
       acts on their own behalf, so their own connected GitHub stands in next — using their own
@@ -143,6 +147,17 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
+    readiness = get_team_github_readiness(team_id, team_only=team_only or requester_user_id is not None)
+    if readiness.status == GitHubReadinessStatus.READY:
+        if isinstance(readiness.integration, GitHubIntegration):
+            return GitHubIntegration(
+                readiness.integration.integration, source="repo_selection", priority=Priority.CRITICAL
+            )
+        if isinstance(readiness.integration, UserGitHubIntegration):
+            return UserGitHubIntegration(
+                readiness.integration.integration, source="repo_selection", priority=Priority.CRITICAL
+            )
+
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)

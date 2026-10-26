@@ -1,3 +1,5 @@
+import time
+
 from celery import Task, shared_task
 from requests import RequestException
 
@@ -211,8 +213,20 @@ def revalidate_github_installation(
             for row in projects.order_by("id")[:25]
         ]
     for github in integrations:
-        github.refresh_access_token()
-        github.sync_repository_cache()
+        try:
+            github.refresh_access_token()
+            github.sync_repository_cache()
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError) as error:
+            countdown = 60
+            if isinstance(error, GitHubRateLimitError):
+                countdown = max(countdown, error.retry_after or 0, (error.reset_at or 0) - int(time.time()))
+            revalidate_github_installation.apply_async(
+                args=[installation_id],
+                kwargs={"personal": personal, "after_id": after_id},
+                countdown=countdown,
+            )
+            return
+        after_id = str(github.integration.pk)
     if len(integrations) == 25:
         revalidate_github_installation.apply_async(
             args=[installation_id],
