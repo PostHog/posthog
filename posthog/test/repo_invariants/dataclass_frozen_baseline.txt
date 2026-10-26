@@ -784,6 +784,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/netlify/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/new_relic/new_relic.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/new_relic/settings.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/new_york_times/new_york_times.py
+1 products/warehouse_sources/backend/temporal/data_imports/sources/new_york_times/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/news_api/news_api.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/news_api/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/newsdata/newsdata.py
