@@ -232,6 +232,17 @@ class BaseTaskAPITest(TestCase):
             level=OrganizationMembership.Level.ADMIN
         )
 
+    def _connect_github_for_self_driving(self) -> None:
+        # Starting Self-Driving implementation work requires a usable GitHub connection.
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="self-driving-github",
+            config={"installation_id": "self-driving-github"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
     def setUp(self):
         self.client = APIClient()
         self.client.force_authenticate(self.user)
@@ -2978,6 +2989,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["attr"], "github_user_integration")
 
     def test_create_task_with_signal_report_same_team(self):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
@@ -3186,6 +3198,7 @@ class TestTaskAPI(BaseTaskAPITest):
         # question to the report's scout as a REPORT_DISCUSSION note. Guards the facade hook firing for
         # discussion but not for implementation or free-form labels (which would spam a note on every
         # PR kickoff), and the URL-prefix strip end to end.
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport, SignalScoutNote
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
@@ -3490,6 +3503,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_second_implementation_task_per_report_gated_on_prior_state(
         self, _name, run_specs, prior_deleted, expected_status, expected_detail
     ):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
@@ -3504,6 +3518,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
     def test_implementation_creation_respects_an_external_claim(self):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
         report = SignalReport.objects.create(team=self.team)
@@ -3529,6 +3544,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_rerunning_a_released_implementation_rechecks_the_report_slot(
         self, _name, create_second_task, expect_refused, mock_workflow
     ):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
@@ -3550,6 +3566,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_rerun_refuses_when_the_slot_is_taken_after_the_preflight_check(self, mock_workflow):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
@@ -3573,6 +3590,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(TaskRun.objects.filter(task=task, status=TaskRun.Status.QUEUED).exists())
 
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport
         from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
 
@@ -3592,6 +3610,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
     def test_report_task_cap_counts_tasks_across_team_members(self):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
@@ -17201,6 +17220,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         ]
     )
     def test_create_pr_without_resolvable_repository(self, _name, client_provenance, expected_status):
+        self._connect_github_for_self_driving()
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.tasks.backend.models import Channel
 
@@ -17426,6 +17446,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
     def test_run_report_create_pr_task_bypasses_code_access(self, _mock_gate, mock_workflow):
         # "Create PR" holds a repository by design, so the repo-less Inbox exemption cannot cover
         # it. The implementation link entitles the run while the Desktop policy denies the caller.
+        self._connect_github_for_self_driving()
         self.set_tasks_feature_flag(False)
         task = self._create_pr_task()
 

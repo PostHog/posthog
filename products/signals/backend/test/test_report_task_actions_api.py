@@ -1,8 +1,12 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models.integration import Integration
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_task_actions import (
@@ -37,6 +41,15 @@ class TestReportTaskActionsAPI(APIBaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
+        # Starting implementation work requires a usable GitHub connection.
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="self-driving-github",
+            config={"installation_id": "self-driving-github"},
+            repository_cache=[{"id": 1, "name": "repo", "full_name": "example/repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
 
     def _report(
         self, status_: str = SignalReport.Status.READY, prompts: list[str] | None = None, title: str = "Checkout fails"
