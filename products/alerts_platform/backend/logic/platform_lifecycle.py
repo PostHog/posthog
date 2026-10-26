@@ -222,9 +222,14 @@ def suppressed() -> Q:
     return Q(check_status=PlatformAlertConfiguration.CheckStatus.BROKEN)
 
 
+# The evaluation path never reads the author's metadata, and an annotation can hold 4 KB.
+RULE_METADATA_FIELDS: Final = ("labels", "annotations")
+
+
 def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
     return (
         PlatformAlertConfiguration.objects.for_team(team_id)
+        .defer(*RULE_METADATA_FIELDS)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
@@ -533,6 +538,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         configurations = list(
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
+            .defer(*RULE_METADATA_FIELDS)
             .filter(id__in=by_id)
             .filter(due_q(now))
             .order_by("id")

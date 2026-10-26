@@ -19,7 +19,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.signals import model_activity_signal
 
-from products.alerts_platform.backend.facade import rule_metadata
 from products.alerts_platform.backend.facade.contracts import (
     MAX_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
@@ -35,7 +34,13 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts_platform.backend.logic import control_plane, platform_lifecycle, platform_reads, source_configs
+from products.alerts_platform.backend.logic import (
+    control_plane,
+    platform_lifecycle,
+    platform_reads,
+    rule_metadata,
+    source_configs,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 

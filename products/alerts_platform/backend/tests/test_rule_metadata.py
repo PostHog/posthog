@@ -2,10 +2,9 @@ import pytest
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.facade.rule_metadata import (
+from products.alerts_platform.backend.logic.rule_metadata import (
     MAX_RULE_LABELS,
     InvalidRuleMetadata,
-    referenced_labels,
     validate_annotations,
     validate_labels,
 )
@@ -13,15 +12,15 @@ from products.alerts_platform.backend.facade.rule_metadata import (
 
 @parameterized.expand(
     [
-        ("plain_text", "Checkout is down", []),
         ("one_label", "{{ $labels.service_name }} is down", ["service_name"]),
         ("tight_spacing", "{{$labels.team}}", ["team"]),
-        ("value_only", "Errors at {{ $value }}", []),
         ("two_labels", "{{ $labels.team }}/{{ $labels.env }}", ["team", "env"]),
     ]
 )
-def test_templates_reference_labels_by_name(_name: str, value: str, expected: list[str]) -> None:
-    assert referenced_labels("summary", value) == expected
+def test_a_template_needs_every_label_it_references(_name: str, value: str, referenced: list[str]) -> None:
+    validate_annotations({"summary": value}, referenced)
+    with pytest.raises(InvalidRuleMetadata):
+        validate_annotations({"summary": value}, referenced[1:])
 
 
 @parameterized.expand(
@@ -35,7 +34,7 @@ def test_templates_reference_labels_by_name(_name: str, value: str, expected: li
 )
 def test_a_template_beyond_substitution_is_refused(_name: str, value: str) -> None:
     with pytest.raises(InvalidRuleMetadata):
-        referenced_labels("summary", value)
+        validate_annotations({"summary": value}, {"team"})
 
 
 @parameterized.expand(
@@ -44,6 +43,7 @@ def test_a_template_beyond_substitution_is_refused(_name: str, value: str) -> No
         ("leading_digit", {"1team": "api"}),
         ("reserved_prefix", {"posthog_team": "api"}),
         ("blank_value", {"team": " "}),
+        ("unstorable_value", {"team": "a\x00b"}),
         ("too_many", {f"label_{index}": "x" for index in range(MAX_RULE_LABELS + 1)}),
     ]
 )
@@ -52,7 +52,17 @@ def test_an_invalid_label_is_refused(_name: str, labels: dict[str, str]) -> None
         validate_labels(labels)
 
 
-def test_a_link_may_template_its_path_but_not_its_scheme() -> None:
+def test_a_link_may_template_its_path() -> None:
     validate_annotations({"runbook_url": "https://runbooks.example.com/{{ $labels.team }}"}, {"team"})
+
+
+@parameterized.expand(
+    [
+        ("templated_scheme", "{{ $labels.team }}"),
+        ("templated_host", "https://{{ $labels.team }}/runbook"),
+        ("templated_subdomain", "https://{{ $labels.team }}.example.com/runbook"),
+    ]
+)
+def test_a_link_may_not_template_its_site(_name: str, value: str) -> None:
     with pytest.raises(InvalidRuleMetadata):
-        validate_annotations({"runbook_url": "{{ $labels.team }}"}, {"team"})
+        validate_annotations({"runbook_url": value}, {"team"})

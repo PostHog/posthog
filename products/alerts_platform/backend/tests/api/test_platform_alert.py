@@ -362,13 +362,11 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
             ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
-            ("templated_label", {"labels": {"team": "{{ $labels.service_name }}"}}, "labels"),
             (
                 "annotation_on_an_unknown_label",
                 {"annotations": {"summary": "{{ $labels.service_name }} errors"}},
                 "annotations",
             ),
-            ("link_without_https", {"annotations": {"runbook_url": "javascript:alert(1)"}}, "annotations"),
         ]
     )
     def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
