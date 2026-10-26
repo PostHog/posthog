@@ -1954,6 +1954,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
