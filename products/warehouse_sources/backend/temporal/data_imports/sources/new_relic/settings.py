@@ -49,6 +49,27 @@ NEW_RELIC_ENDPOINTS: dict[str, NewRelicEndpointConfig] = {
         incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
         description="Browser page view events. Only syncs the last 30 days on initial sync",
     ),
+    "javascript_errors": NewRelicEndpointConfig(
+        name="javascript_errors",
+        nrql_table="JavaScriptError",
+        partition_key="timestamp",
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        description="Browser JavaScript error events. Only syncs the last 30 days on initial sync",
+    ),
+    "alert_incidents": NewRelicEndpointConfig(
+        name="alert_incidents",
+        nrql_table="NrAiIncident",
+        partition_key="timestamp",
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        description="Alert incident open and close events. Only syncs the last 30 days on initial sync",
+    ),
+    "alert_issues": NewRelicEndpointConfig(
+        name="alert_issues",
+        nrql_table="NrAiIssue",
+        partition_key="timestamp",
+        incremental_fields=_TIMESTAMP_INCREMENTAL_FIELD,
+        description="Alert issue lifecycle events (created, activated, acknowledged, closed). Only syncs the last 30 days on initial sync",
+    ),
     "logs": NewRelicEndpointConfig(
         name="logs",
         nrql_table="Log",
