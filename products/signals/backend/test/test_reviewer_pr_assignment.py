@@ -25,6 +25,7 @@ from products.signals.backend.report_assignments import (
     sync_task_pull_request_to_assignments,
     update_assignments_for_pull_request,
 )
+from products.signals.backend.reviewer_exclusions import create_exclusion
 from products.signals.backend.reviewer_pr_assignment import (
     assign_reviewers_to_pull_request,
     opted_in_assignee_logins,
@@ -878,6 +879,34 @@ class TestDirectlyResponsibleIndividual:
         )
 
         assert self._assign(team, report, github) == []
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("subject", "repository", "expected_owner"),
+        [
+            ("uuid", "PostHog/posthog", "bob"),
+            ("login", "posthog/posthog", "bob"),
+            ("uuid", "PostHog/other", "alice"),
+        ],
+        ids=["user_in_this_repository", "login_in_this_repository", "another_repository"],
+    )
+    def test_standing_exclusions_keep_a_person_off_owner_and_review_candidates(
+        self, org_and_team: tuple[Organization, Team], subject: str, repository: str, expected_owner: str
+    ) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice", "bob"])
+        create_exclusion(
+            team_id=team.id,
+            actor_id=users["alice"].id,
+            instruction="I moved off this repository.",
+            subject_user_uuid=users["alice"].uuid if subject == "uuid" else None,
+            subject_github_login="alice" if subject == "login" else None,
+            repository=repository,
+        )
+        github = self._github(existing_assignees=[], assignable=None)
+
+        assert self._assign(team, report, github) == [[expected_owner]]
+        assert [call.args[2] for call in github.request_pull_request_reviews.call_args_list] == [[expected_owner]]
 
     @pytest.mark.django_db
     @pytest.mark.parametrize("source", ["claimant", "reviewer-uuid", "reviewer-login"])
