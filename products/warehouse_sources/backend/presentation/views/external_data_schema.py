@@ -66,7 +66,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     AnySource,
-    HistoryTableNameTakenError,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -74,7 +73,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
-    history_naming,
+    history_naming_unless_taken,
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
@@ -474,14 +473,12 @@ def _refuse_reserved_columns(
     refused, so a table that already has one can still be edited or switched back."""
     history = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
-        try:
-            history = history_naming(instance)
-        except HistoryTableNameTakenError:
-            if is_history_table_mode(new_mode):
-                raise ValidationError(
-                    f"A history table for {instance.name} would share its name with another table of this "
-                    "source. Choose the consolidated table only for this table."
-                )
+        history = history_naming_unless_taken(instance)
+        if history is None and is_history_table_mode(new_mode):
+            raise ValidationError(
+                f"A history table for {instance.name} would share its name with another table of this "
+                "source. Choose the consolidated table only for this table."
+            )
     columns = _source_column_names(instance)
     taken = reserved_column_collisions(
         columns,

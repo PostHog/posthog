@@ -90,6 +90,14 @@ def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
     return HISTORY_NAMING
 
 
+def history_naming_unless_taken(schema: ExternalDataSchema) -> HistoryNaming | None:
+    """`history_naming`, or None when the new name belongs to another table of the source."""
+    try:
+        return history_naming(schema)
+    except HistoryTableNameTakenError:
+        return None
+
+
 def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
     """Whether the schema's own table name already belongs to the history table of another schema."""
     name = build_table_name(schema.source, schema.name)
@@ -130,6 +138,10 @@ def history_tables(source: ExternalDataSource) -> QuerySet[DataWarehouseTable]:
     return DataWarehouseTable.objects.filter(
         team_id=source.team_id, external_data_source_id=source.id, deleted=False
     ).filter(Q(options__history_table=True) | Q(name__in=_legacy_history_names(source) - own_names))
+
+
+def history_table_ids(source: ExternalDataSource) -> list[UUID]:
+    return list(history_tables(source).values_list("id", flat=True))
 
 
 def history_table_name(schema: ExternalDataSchema) -> str | None:

@@ -35,7 +35,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCSourceAdapter,
     PostgresSource,
     get_cdc_adapter,
-    history_tables,
+    history_table_ids,
     repair_cdc_source,
     source_type_supports_cdc,
 )
@@ -542,7 +542,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
             # Read before the update below takes the schemas out of CDC, because a history table
             # registered before the marker existed is found by its schema's legacy name.
-            history_table_ids = list(history_tables(instance).values_list("id", flat=True))
+            table_ids = history_table_ids(instance)
 
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(
@@ -551,7 +551,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             ).exclude(deleted=True).update(sync_type=None, should_sync=False)
 
             # Soft-delete the history tables so the next sync rebuilds them once the user picks a new strategy.
-            DataWarehouseTable.objects.filter(id__in=history_table_ids, team_id=self.team_id).update(deleted=True)
+            DataWarehouseTable.objects.filter(id__in=table_ids, team_id=self.team_id).update(deleted=True)
 
             # Clear ALL cdc_* keys from job_inputs — leaving stale engine identifiers
             # behind (e.g. `cdc_consistent_point`) would corrupt resume tracking if
