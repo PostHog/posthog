@@ -29,6 +29,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -202,6 +203,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
 
@@ -483,13 +485,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
+                            key !== MCP_INTENT_PROMPT_FLAG &&
+                            !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),
                 payloads: {},
