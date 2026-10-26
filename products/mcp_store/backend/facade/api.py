@@ -27,7 +27,14 @@ from products.mcp_store.backend.connector_approvals import (
     consume_connector_approval,
     issue_connector_approval,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, ConnectorCallOutcome, ConnectorTool
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    ConnectorCallOutcome,
+    ConnectorTool,
+    SandboxInstallations,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -374,6 +381,69 @@ def get_installations_for_sandbox(
     allowed_installation_ids: list[str] | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[ActiveInstallation]:
+    """The installations ``resolve_installations_for_sandbox`` mounts."""
+    return list(
+        resolve_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_installation_ids=allowed_installation_ids,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        ).mounted
+    )
+
+
+def _member_unmounted_reason(
+    installation: MCPServerInstallation,
+    revoked_gateway_server_ids: set[uuid.UUID],
+    allowed_gateway_server_ids: set[str] | None,
+    allowed_installation_ids: set[str] | None,
+) -> UnmountedInstallationReason | None:
+    gateway_server = installation.gateway_server
+    gateway_server_id = gateway_server.id if gateway_server is not None else None
+    if (
+        installation.scope == "shared"
+        and allowed_gateway_server_ids is not None
+        and (gateway_server_id is None or str(gateway_server_id) not in allowed_gateway_server_ids)
+    ):
+        return "not_selected"
+    health_failure: UnmountedInstallationReason | None = None
+    if gateway_server is not None and not gateway_server.is_team_enabled:
+        health_failure = "server_disabled"
+    elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
+        health_failure = "revoked"
+    elif not _is_oauth_ready(installation):
+        health_failure = "needs_reconnect"
+    # Healthy unselected installations stay in play until the personal-copy dedup has run.
+    if (
+        health_failure is not None
+        and allowed_installation_ids is not None
+        and str(installation.id) not in allowed_installation_ids
+    ):
+        return "not_selected"
+    return health_failure
+
+
+def _unmounted(installation: MCPServerInstallation, reason: UnmountedInstallationReason) -> UnmountedInstallation:
+    return UnmountedInstallation(
+        id=str(installation.id), name=_resolve_name(installation), scope=installation.scope, reason=reason
+    )
+
+
+def resolve_installations_for_sandbox(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_installation_ids: list[str] | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> SandboxInstallations:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
@@ -406,7 +476,16 @@ def get_installations_for_sandbox(
     workflow step's connector selection); see ``_mounts_for_agent_run``. It
     binds on both paths: passing ``[]`` mounts no MCP Store servers at all, and
     passing ``None`` leaves the mounts unnarrowed.
+
+    ``unmounted`` lists the enabled member-path installations the run reached but
+    left out, with the reason, so a run can tell its user why a connection is
+    missing. The agent path reports none.
     """
+    allowed_installations = (
+        {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installation_ids is not None
+        else None
+    )
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
             "template", "gateway_server"
@@ -423,14 +502,15 @@ def get_installations_for_sandbox(
                 team_id=team_id,
                 task_origin=task_origin,
             )
-            return []
+            return SandboxInstallations(mounted=())
 
         agent_key = mapped_agent_key
         agent_account = get_built_in_agent(team_id, agent_key) if agent_key is not None else None
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
-            return []
+            return SandboxInstallations(mounted=())
 
         installations: list[MCPServerInstallation] = []
+        unmounted: list[UnmountedInstallation] = []
         agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
         if agent_key is not None:
             if agent_account is not None:
@@ -447,29 +527,38 @@ def get_installations_for_sandbox(
                         team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
                     )
         else:
-            shared_queryset = base_queryset.filter(scope="shared")
-            shared_queryset = shared_queryset.filter(
-                Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
-            )
-            if allowed_gateway_server_ids is not None:
-                # An explicit allowlist binds here too, so a caller that narrowed its mounts does
-                # not silently get every shared installation while the team waits for the
-                # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
-                shared_queryset = shared_queryset.filter(gateway_server_id__in=allowed_gateway_server_ids)
-            if user_id is not None:
-                shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
             # list() evaluates the lazy querysets here so DB errors hit this handler.
-            installations = list(shared_queryset)
+            candidates = list(base_queryset.filter(scope="shared"))
             if include_personal and user_id is not None:
-                personal_queryset = (
-                    base_queryset.filter(scope="personal", user_id=user_id)
-                    .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
-                    .exclude(gateway_server__member_revocations__user_id=user_id)
+                candidates.extend(base_queryset.filter(scope="personal", user_id=user_id))
+            revoked_gateway_server_ids: set[uuid.UUID] = (
+                set(
+                    MCPMemberServerRevocation.objects.for_team(team_id)
+                    .filter(user_id=user_id)
+                    .values_list("gateway_server_id", flat=True)
                 )
-                installations.extend(personal_queryset)
+                if user_id is not None
+                else set()
+            )
+            # An explicit allowlist binds here too, so a caller that narrowed its mounts does
+            # not silently get every shared installation while the team waits for the
+            # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
+            allowed_servers = (
+                {str(server_id) for server_id in allowed_gateway_server_ids}
+                if allowed_gateway_server_ids is not None
+                else None
+            )
+            for candidate in candidates:
+                reason = _member_unmounted_reason(
+                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                )
+                if reason is None:
+                    installations.append(candidate)
+                else:
+                    unmounted.append(_unmounted(candidate, reason))
     except Exception as e:
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
-        return []
+        return SandboxInstallations(mounted=())
 
     results: list[ActiveInstallation]
     if agent_key is not None:
@@ -479,16 +568,25 @@ def get_installations_for_sandbox(
             else []
         )
     else:
-        ready = [installation for installation in installations if _is_oauth_ready(installation)]
+        ready = installations
         if include_personal and user_id is not None:
             personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
+            unmounted.extend(
+                _unmounted(installation, "replaced_by_personal")
+                for installation in ready
+                if installation.scope != "personal" and installation.url in personal_urls
+            )
             ready = [
                 installation
                 for installation in ready
                 if installation.scope == "personal" or installation.url not in personal_urls
             ]
-        if allowed_installation_ids is not None:
-            allowed_installations = {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installations is not None:
+            unmounted.extend(
+                _unmounted(installation, "not_selected")
+                for installation in ready
+                if str(installation.id) not in allowed_installations
+            )
             ready = [installation for installation in ready if str(installation.id) in allowed_installations]
         results = [_to_info(installation, team_id) for installation in ready]
 
@@ -499,8 +597,9 @@ def get_installations_for_sandbox(
         include_personal=include_personal,
         task_origin=task_origin,
         has_trusted_agent_key=agent_key is not None,
+        unmounted_count=len(unmounted),
     )
-    return results
+    return SandboxInstallations(mounted=tuple(results), unmounted=tuple(unmounted))
 
 
 def get_sandbox_mcp_server_names(

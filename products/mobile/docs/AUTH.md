@@ -171,7 +171,7 @@ The app never asks for an email or password itself.
 
 The app does not create accounts. The footer link "Create an account" opens `{host}/signup` in the browser for the selected cloud region.
 Store review may not allow a link out of the app for sign-up, so a build can hide the link with `EXPO_PUBLIC_SIGNUP_LINK=0`.
-The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link.
+Production builds and OTA bundles set it to `0`, so store builds hide the link.
 Under the card, "Privacy policy" and "Terms" open posthog.com in the browser.
 
 Internal builds show the environment ribbon above the logo, for example "Dev build · US cloud".

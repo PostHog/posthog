@@ -27,5 +27,8 @@ def _normalize(value: object) -> object:
 
 def submission_fingerprint(submission: ExperimentSubmission | ItemSubmission | ResultSubmission) -> str:
     # This format must stay stable across deployments and after payload deletion.
-    content = json.dumps(_normalize(asdict(submission)), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    fields = asdict(submission)
+    if isinstance(submission, ItemSubmission) and submission.model_version is None:
+        fields.pop("model_version")
+    content = json.dumps(_normalize(fields), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(b"offline-evaluation:v1:" + content.encode("utf-8")).hexdigest()

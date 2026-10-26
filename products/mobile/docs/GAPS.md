@@ -144,7 +144,7 @@ The following need shared server policy or additional product work:
 - **No EAS build has run yet.** The `.easignore` archive could not be inspected without an Expo login (`eas build:inspect` needs one).
 - **Internal variants need portal setup before their first build.** The dev and preview bundle ids, widget ids, App Groups, push credentials and OAuth redirect URIs do not exist until someone registers them. See [RELEASING.md](RELEASING.md#one-time-setup).
 - **Per-variant widget stores were not run on a device.** Both Swift readers derive the App Group from their bundle id. Only the generated entitlements and a Swift typecheck were checked.
-- **OTA publishing is manual.** No workflow runs `eas update`.
+- **Shared OTA publishing is pending.** A repository workflow is needed before OTA updates are part of the shared release process.
 - **Chat composer under the keyboard (iOS).** On iPhone 17 with iOS 27, the composer's bottom row (Add a report, Send) sits about 30pt behind the keyboard, so Send cannot be tapped while typing. The return key still sends. See the `KeyboardAvoidingView` in `src/features/chat/ChatSheet.tsx`.
 - **Sheets do not hide the screen under them from VoiceOver.** The report's controls stay in the accessibility tree under the hand-off, snooze and chat sheets.
 - **Dev build overlays.** The Expo dev client's tools button covers the inbox More button, and its fast refresh banner covers Back and Close. Release builds do not have them. [TESTING.md](TESTING.md) says how to turn them off.

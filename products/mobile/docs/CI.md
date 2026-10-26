@@ -73,6 +73,8 @@ The `mobile-production` environment and Expo credentials govern publication. A d
 
 Production build/submit/OTA package commands now direct developers to this request flow. No active release request is included with the automation itself.
 
+Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md) before sharing builds or promoting an internal build publicly. Hosted checks and the advisory demo flows do not verify real sign-in, push delivery or physical-device behavior.
+
 ## Check workflow changes
 
 From the main checkout:

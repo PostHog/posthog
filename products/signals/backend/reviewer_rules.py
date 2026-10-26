@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q
 
 from posthog.dataclasses import frozen
@@ -25,6 +26,11 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_generation.reviewer_telemetry import (
+    ReviewerExclusionOutcome,
+    capture_reviewer_exclusion_applied,
+)
+from products.signals.backend.reviewer_exclusions import StandingExclusions
 
 
 class ReviewerWriteError(ValueError):
@@ -254,6 +260,15 @@ class ReviewerRules:
             unresolved_candidates=tuple(unresolved),
         )
 
+    def _capture_exclusion_events(
+        self, events: list[tuple[ReviewerExclusionOutcome, list[str]]], *, source: str
+    ) -> None:
+        transaction.on_commit(
+            lambda: capture_reviewer_exclusion_applied(
+                team_id=self.team.id, report_id=self.report_id, source=source, events=events
+            )
+        )
+
     def prepare(
         self,
         content: SuggestedReviewers,
@@ -264,6 +279,10 @@ class ReviewerRules:
     ) -> ReviewerUpdate:
         """Called by append_status while it holds the report lock."""
         snapshot = self.read()
+        # Standing exclusions bind automatic writers only. A person's own edit or pin always wins.
+        # They load only on a path that can change the list, because the read runs under the report lock.
+        exclusions_bind = edit is None and attribution.kind != "user"
+        exclusion_events: list[tuple[ReviewerExclusionOutcome, list[str]]] = []
         if edit is not None and attribution.kind != "user":
             raise ReviewerWriteError("Only a person can change reviewer corrections.")
         repairing = snapshot.invalid_reviewers
@@ -336,12 +355,31 @@ class ReviewerRules:
             if corrections.confirmed or corrections.needs_review or failed:
                 proposed = snapshot.reviewers
             else:
+                standing = (
+                    StandingExclusions.load(team_id=self.team.id, report_id=self.report_id) if exclusions_bind else None
+                )
                 validated = self._validate_members(proposed)
-                if proposed and not validated.reviewers:
+                review = (
+                    standing.review(
+                        tuple(
+                            entry for entry in validated.reviewers if not contains_reviewer(corrections.pinned, entry)
+                        )
+                    )
+                    if standing
+                    else None
+                )
+                if review and review.unresolved:
+                    exclusion_events.append(("unresolved", []))
+                if (proposed and not validated.reviewers) or (review and review.unresolved):
                     proposed = snapshot.reviewers
                 else:
+                    suppressed = tuple(item.reviewer for item in review.suppressed) if review else ()
+                    if review:
+                        exclusion_events.extend(("suppressed", [item.exclusion_id]) for item in review.suppressed)
                     proposed = tuple(
-                        entry for entry in validated.reviewers if not contains_reviewer(corrections.excluded, entry)
+                        entry
+                        for entry in validated.reviewers
+                        if not contains_reviewer(corrections.excluded + suppressed, entry)
                     )
                     extra_pins = tuple(
                         entry
@@ -352,12 +390,45 @@ class ReviewerRules:
                     )
                     proposed += self._validate_members(extra_pins).reviewers if extra_pins else ()
                     members_validated = True
+                    pin_review = (
+                        standing.review(
+                            tuple(entry for entry in proposed if contains_reviewer(corrections.pinned, entry))
+                        )
+                        if standing
+                        else None
+                    )
+                    if pin_review and pin_review.unresolved:
+                        exclusion_events = [("unresolved", [])]
+                        proposed = snapshot.reviewers
+                        members_validated = False
+                    elif pin_review and pin_review.suppressed:
+                        corrections = corrections.model_copy(update={"needs_review": True})
+                        exclusion_events.append(("pin_conflict", [item.exclusion_id for item in pin_review.suppressed]))
         elif (
             proposal
             and proposal.source == "research"
             and (corrections.pinned or corrections.excluded or corrections.needs_review)
         ):
             proposed = snapshot.reviewers
+        elif (
+            exclusions_bind
+            and not protected
+            and (standing := StandingExclusions.load(team_id=self.team.id, report_id=self.report_id)).exclusions
+        ):
+            # Writers without the protected flow store login-only entries, so match on resolved
+            # identities and keep each entry as it was written.
+            resolved = self._resolve_identities(self.team.id, proposed)
+            review = standing.review(resolved)
+            if review.unresolved:
+                exclusion_events.append(("unresolved", []))
+                proposed = snapshot.reviewers
+            else:
+                exclusion_events.extend(("suppressed", [item.exclusion_id]) for item in review.suppressed)
+                proposed = tuple(
+                    entry for entry, match in zip(proposed, resolved) if contains_reviewer(review.kept, match)
+                )
+        if exclusion_events:
+            self._capture_exclusion_events(exclusion_events, source=proposal.source if proposal else attribution.kind)
         if protected and not members_validated:
             proposed = self._validate_members(proposed).reviewers
         reviewers = SuggestedReviewers(root=list(proposed))

@@ -7,7 +7,10 @@ import type {
   CanvasLoadInsightInput,
 } from "@posthog/core/canvas/freeformSchemas";
 import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
-import { invokeCanvasAction } from "@posthog/core/canvas/invokeCanvasAction";
+import {
+  invokeCanvasAction,
+  invokeCanvasTool,
+} from "@posthog/core/canvas/invokeCanvasAction";
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
@@ -17,6 +20,8 @@ import { hostClient } from "../hostClient";
 
 // Namespace for every cached canvas read.
 export const CANVAS_QUERY_KEY = "canvasData/read";
+
+const TOOL_REGISTRY_STALE_MS = 5 * 60 * 1_000;
 
 // Deterministic stringify for cache keys: object keys are emitted in sorted order
 // at every depth so two reads that differ only by key order share a cache entry.
@@ -288,6 +293,41 @@ export async function handleFreeformDataRequest(
         (action) => window.confirm(`${action.summary}\n\nContinue?`),
         (action) => client.invokeAction.mutate(action),
       );
+    }
+    case "toolRead":
+    case "toolCall": {
+      const input = payload as {
+        tool?: string;
+        arguments?: Record<string, unknown>;
+      };
+      if (!input?.tool || typeof input.tool !== "string") {
+        throw new Error("ph.tools requires a tool name");
+      }
+      // Reads and writes into PostHog as the viewer, never cached.
+      const client = hostClient().dashboards;
+      const { result } = await invokeCanvasTool(
+        {
+          id: requireDashboardId(),
+          tool: input.tool,
+          arguments: input.arguments ?? {},
+        },
+        method === "toolCall",
+        // Cached so a board that reads many flags fetches the registry once. A desktop session
+        // outlives backend deploys, so the cache expires: `read_only` decides which tools skip
+        // the click and the confirm.
+        () =>
+          queryClient.fetchQuery({
+            queryKey: [CANVAS_QUERY_KEY, "tools"],
+            queryFn: () => client.listTools.query(),
+            staleTime: TOOL_REGISTRY_STALE_MS,
+          }),
+        (tool, args) =>
+          window.confirm(
+            `${tool.summary}\n\n${tool.name}\n${JSON.stringify(args, null, 2)}\n\nContinue?`,
+          ),
+        (call) => client.invokeTool.mutate(call),
+      );
+      return result;
     }
     case "connectorCall": {
       const dashboardId = requireDashboardId();

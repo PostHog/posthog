@@ -3,6 +3,8 @@
 EAS Update ships JavaScript and asset changes to installed builds without a store release.
 Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 
+Production OTA updates use a release request merged to `master`. See [Releasing](RELEASING.md#request-a-hosted-release) for request creation, prerequisites and recovery.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.
@@ -51,7 +53,9 @@ The device's `appVersion` policy does not detect native changes. The hosted rele
 
 An incompatible OTA request fails before publication. The first hosted release must be native to establish this compatibility baseline; the implementation PR contains no request and publishes nothing.
 
-## Ship a JavaScript-only fix
+## Validate an update
+
+Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md). A preview build can verify behavior before merge, but it has a separate identity and channel. Hosted staging uses the production identity on an unlinked branch; it does not deliver the candidate to preview builds or provide a manual tester gate before promotion.
 
 1. Keep `version` unchanged for a JavaScript/assets-only fix. Find the preceding completed request in the latest mobile release receipt.
 2. Prepare a request locally; this command only writes a file:
