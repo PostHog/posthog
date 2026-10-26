@@ -1,19 +1,24 @@
 import json
 import uuid
+from contextlib import ExitStack
 
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import connection
+from django.contrib.contenttypes.models import ContentType
+from django.db import connection, connections
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -27,6 +32,7 @@ from products.access_control.backend.facade.user_access_control import AccessSou
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.team_access_control_config import TeamAccessControlConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -42,10 +48,17 @@ from ee.api.test.base import APILicensedTest
 class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
+        self._set_access_control_available(True)
+
+    def _set_access_control_available(self, available: bool) -> None:
+        self.organization.available_product_features = (
+            [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            if available
+            else []
+        )
         self.organization.save()
 
     def _put_project_access_control(self, data=None):
@@ -95,6 +108,28 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         res = self._put_project_access_control()
         res = self._put_project_access_control({"access_level": None})
         assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_rule_changes_are_written_to_the_activity_log(self):
+        self._org_membership(OrganizationMembership.Level.OWNER)
+        subject = {"organization_member": str(self.organization_membership.id)}
+        for level in ("member", "admin", None):
+            self._put_project_access_control({**subject, "access_level": level})
+
+        logs = list(ActivityLog.objects.filter(scope="AccessControl").order_by("created_at"))
+        details = [log.detail or {} for log in logs]
+        assert [(log.activity, detail["changes"][0]["after"]) for log, detail in zip(logs, details)] == [
+            ("created", "member"),
+            ("updated", "admin"),
+            ("deleted", None),
+        ]
+        assert {log.user for log in logs} == {self.user}
+        assert details[0]["context"] == {
+            "resource": "project",
+            "resource_id": str(self.team.id),
+            "access_level": "member",
+            "role_id": None,
+            "organization_member_id": str(self.organization_membership.id),
+        }
 
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -1224,7 +1259,29 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="my notebook")
 
         # Baseline call to trigger caching of one off things like instance settings
+        content_type_for(Dashboard)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        # Tag lookups read content types through a process-wide cache. Fill it here so the counts
+        # do not depend on which tests ran before in the same worker.
+        ContentType.objects.get_for_models(Dashboard, FeatureFlag)
+
+    def _count_queries(self, url: str) -> int:
+        captures = [CaptureQueriesContext(connections[db]) for db in self.databases]
+        with ExitStack() as stack:
+            for capture in captures:
+                stack.enter_context(capture)
+            self.client.get(url)
+        return sum(len(capture.captured_queries) for capture in captures)
+
+    def _assert_access_control_adds_queries(self, url: str, expected_extra_queries: int) -> None:
+        self._set_access_control_available(False)
+        self.client.get(url)
+        queries_without_access_control = self._count_queries(url)
+
+        self._set_access_control_available(True)
+        self.client.get(url)
+        with self.assertNumQueries(queries_without_access_control + expected_extra_queries):
+            self.client.get(url)
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1233,41 +1290,34 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 18
-
-        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
-            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
-            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
-        baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+        )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+        )
 
-        # The 9th query is domain enforcement resolving the user's current organization — this
-        # endpoint is the only one here that doesn't already load it for other reasons.
-        baseline = 9
-        # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 9):
-            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
-            self.client.get("/api/projects/@current/is_generating_demo_data")
+        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+        self._assert_access_control_adds_queries(
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+        )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_with_preload_optimization(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1276,75 +1326,56 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
-
-        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 5):
-            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 5):
-            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 8
-
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+        )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+        )
 
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        # The 9th query is domain enforcement resolving the user's current organization — this
-        # endpoint is the only one here that doesn't already load it for other reasons.
-        baseline = 9
-        # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 9):
-            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
-            self.client.get("/api/projects/@current/is_generating_demo_data")
+        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+        self._assert_access_control_adds_queries(
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+        )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
+        content_type_for(FeatureFlag)
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
-
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
-        # IDs, the project's replay gates
-        with self.assertNumQueries(baseline + 8):
-            self.client.get("/api/projects/@current/feature_flags/")
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
-        # IDs, the project's replay gates
-        with self.assertNumQueries(baseline + 8):
-            self.client.get("/api/projects/@current/feature_flags/")
+        # More flags add no access control queries
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):
@@ -1493,8 +1524,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 2
-        assert app_context["current_team"]["id"] == self.team.id
-        assert app_context["current_team"]["user_access_level"] == "none"
+        assert app_context["current_team"] is None
 
 
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
@@ -2267,7 +2297,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
 
 # A viewset gaining or losing AccessControlViewSetMixin changes this set. Regenerate with
-# `pytest ee/api/rbac/test/test_access_control.py --snapshot-update` so the change shows up in
+# `pytest products/access_control/backend/tests/test_access_control.py --snapshot-update` so the change shows up in
 # review, and give the settings picker a look for the new resource while at it.
 def test_resources_with_object_access_controls_snapshot(snapshot):
     assert sorted(resources_with_object_access_controls()) == snapshot
@@ -2679,6 +2709,7 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
         assert block["total"] == 1
+        assert block["hidden"] == 1
         assert block["has_more"] is False
 
     def test_used_in_includes_restricted_flags_for_org_admins(self):
@@ -2689,7 +2720,66 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
+        assert block["hidden"] == 0
         assert block["has_more"] is False
+
+    def _create_reference(self, resource: str, cohort: Cohort, created_by: User, archived: bool = False) -> int:
+        reference = {"type": "cohort", "key": "id", "value": cohort.id}
+        if resource == "insight":
+            return Insight.objects.create(
+                team=self.team,
+                created_by=created_by,
+                query={
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "properties": [reference]},
+                },
+            ).id
+        if resource == "cohort":
+            return Cohort.objects.create(
+                team=self.team,
+                created_by=created_by,
+                name="Outer Cohort",
+                filters={"properties": {"type": "OR", "values": [{"type": "OR", "values": [reference]}]}},
+            ).id
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=created_by,
+            key=f"flag-{uuid.uuid4().hex[:8]}",
+            active=not archived,
+            archived=archived,
+            filters=self._cohort_flag_filters(cohort.id),
+        ).id
+
+    @parameterized.expand(
+        [
+            ("insight_member", "insight", "insights", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("insight_admin", "insight", "insights", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            ("cohort_member", "cohort", "cohorts", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("cohort_admin", "cohort", "cohorts", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            # An archived flag never blocks a delete, so it is not a hidden blocker.
+            ("archived_flag_member", "feature_flag", "feature_flags", OrganizationMembership.Level.MEMBER, True, 1, 0),
+        ]
+    )
+    def test_used_in_counts_hidden_references_that_block_a_delete(
+        self,
+        _name: str,
+        resource: str,
+        block_key: str,
+        level: OrganizationMembership.Level,
+        hidden_is_archived: bool,
+        total: int,
+        hidden: int,
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        self._create_reference(resource, cohort, created_by=self.user)
+        hidden_id = self._create_reference(resource, cohort, created_by=self.other_user, archived=hidden_is_archived)
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id=str(hidden_id), access_level="none")
+        self._org_membership(level)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()[block_key]
+        assert (len(block["results"]), block["total"], block["hidden"]) == (total, total, hidden)
 
 
 class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
@@ -3007,3 +3097,241 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         res = self._put("default", {**base, "access_level": "read"})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
         assert not PropertyAccessControl.objects.filter(team=self.team).exists()
+
+
+class TestAccessControlManagedByTerraform(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self.terraform_user = User.objects.create_and_join(
+            self.organization, "terraform@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.terraform_membership = OrganizationMembership.objects.get(
+            user=self.terraform_user, organization=self.organization
+        )
+        TeamAccessControlConfig.objects.create(
+            team=self.team,
+            terraform_managed_by=self.terraform_membership,
+            is_managed_by_terraform=True,
+            terraform_last_applied_at=now(),
+        )
+
+    def _put_default_rule(self):
+        return self.client.put(
+            "/api/projects/@current/access_control_default_rules",
+            {"resource": "dashboard", "access_level": "viewer"},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("org_admin", OrganizationMembership.Level.ADMIN),
+            ("member", OrganizationMembership.Level.MEMBER),
+        ]
+    )
+    def test_everyone_but_the_managing_account_is_refused(self, _name, level):
+        self._org_membership(level)
+        for response in (
+            self._put_global_access_control({"resource": "feature_flag"}),
+            self._put_project_access_control(),
+            self._put_default_rule(),
+        ):
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        # A member is refused by the existing admin check first, so only the admin sees the managed message
+        if level == OrganizationMembership.Level.ADMIN:
+            assert "managed with Terraform" in self._put_default_rule().json()["detail"]
+        assert AccessControl.objects.filter(team=self.team).count() == 0
+
+    def test_the_managing_account_writes_rules_without_a_terraform_user_agent(self):
+        self.client.force_login(self.terraform_user)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        assert self._put_default_rule().status_code == status.HTTP_200_OK
+        assert AccessControl.objects.filter(team=self.team).count() == 2
+
+    def test_object_rules_are_refused_too(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        response = self.client.put(
+            f"/api/projects/@current/dashboards/{dashboard.id}/access_controls", {"access_level": "viewer"}
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_a_lock_with_no_account_refuses_everyone(self):
+        TeamAccessControlConfig.objects.filter(team=self.team).update(terraform_managed_by=None)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_removing_the_terraform_account_disables_the_lock(self):
+        self.terraform_membership.delete()
+        config = TeamAccessControlConfig.objects.get(team=self.team)
+        assert config.terraform_managed_by is None and config.is_managed_by_terraform is False
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+
+    def test_turning_the_lock_off_hands_the_rules_back(self):
+        assert self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
+        TeamAccessControlConfig.objects.filter(team=self.team).update(is_managed_by_terraform=False)
+        assert self._put_global_access_control({"resource": "feature_flag"}).status_code == status.HTTP_200_OK
+        assert not self.client.get("/api/projects/@current/access_control_defaults").json()["is_managed_by_terraform"]
+
+    @parameterized.expand(
+        [
+            ("access_control_defaults",),
+            ("access_control_roles",),
+            ("access_control_members",),
+        ]
+    )
+    def test_payloads_turn_off_editing_for_everyone_but_the_terraform_account(self, action):
+        response = self.client.get(f"/api/projects/@current/{action}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["can_edit"] is False
+
+        self.client.force_login(self.terraform_user)
+        body = self.client.get(f"/api/projects/@current/{action}").json()
+        assert body["can_edit"] is True
+
+    def test_object_panel_turns_off_editing(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        body = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/access_controls").json()
+        assert body["user_can_edit_access_levels"] is False
+
+    def test_deleting_a_role_with_rules_in_a_managed_project_is_refused(self):
+        role = Role.objects.create(name="Flag editors", organization=self.organization)
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="editor", role=role)
+        response = self.client.delete(f"/api/organizations/@current/roles/{role.id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Role.objects.filter(id=role.id).exists()
+
+        self.client.force_login(self.terraform_user)
+        assert (
+            self.client.delete(f"/api/organizations/@current/roles/{role.id}").status_code == status.HTTP_204_NO_CONTENT
+        )
+
+    def test_deleting_a_role_without_rules_there_is_allowed(self):
+        role = Role.objects.create(name="Unused", organization=self.organization)
+        assert (
+            self.client.delete(f"/api/organizations/@current/roles/{role.id}").status_code == status.HTTP_204_NO_CONTENT
+        )
+
+
+TERRAFORM_USER_AGENT = "posthog/terraform-provider; version: 1.0.24"
+
+
+class TestAccessControlTerraformLockAPI(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self.url = f"/api/projects/{self.team.id}/access_control_management"
+        self.terraform_user = User.objects.create_and_join(
+            self.organization, "terraform@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.terraform_key = self._api_key(self.terraform_user)
+
+    def _api_key(self, user: User) -> str:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=user, label="terraform", secure_value=hash_key_value(key_value), scopes=["*"]
+        )
+        return key_value
+
+    def _write_rule(self, headers: dict[str, str], resource: str = "feature_flag"):
+        return self.client.put(
+            f"/api/projects/{self.team.id}/resource_access_controls",
+            {"resource": resource, "access_level": "editor"},
+            format="json",
+            headers=headers,
+        )
+
+    def _terraform_write(self, key: str, resource: str = "feature_flag"):
+        return self._write_rule({"authorization": f"Bearer {key}", "user-agent": TERRAFORM_USER_AGENT}, resource)
+
+    def _managed_by_user(self) -> User | None:
+        config = (
+            TeamAccessControlConfig.objects.filter(team=self.team).select_related("terraform_managed_by__user").first()
+        )
+        return config.terraform_managed_by.user if config and config.terraform_managed_by else None
+
+    def test_a_terraform_write_marks_the_project_with_the_key_owner(self):
+        assert self.client.get(self.url).json() == {
+            "managed": False,
+            "terraform_last_applied_at": None,
+            "has_terraform_account": False,
+        }
+
+        self.client.logout()
+        assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+        self.client.force_login(self.user)
+        body = self.client.get(self.url).json()
+        assert body["managed"] is True and body["terraform_last_applied_at"] is not None
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_api_key_without_the_terraform_user_agent_does_not_mark_it(self):
+        self.client.logout()
+        response = self._write_rule({"authorization": f"Bearer {self.terraform_key}"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() is None
+
+    def test_a_session_with_the_terraform_user_agent_does_not_mark_it(self):
+        response = self._write_rule({"user-agent": TERRAFORM_USER_AGENT})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() is None
+
+    def test_another_terraform_account_takes_over(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        rotated_user = User.objects.create_and_join(
+            self.organization, "terraform-rotated@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        response = self._terraform_write(self._api_key(rotated_user), resource="dashboard")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._managed_by_user() == rotated_user
+
+    def test_turning_it_off_hands_the_rules_back(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+
+        response = self.client.put(self.url, {"managed": False}, format="json")
+        assert response.json()["managed"] is False
+        assert response.json()["terraform_last_applied_at"] is not None
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+    def test_turning_it_back_on_locks_to_the_terraform_account(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        response = self.client.put(self.url, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert self._managed_by_user() == self.terraform_user
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_enabling_before_the_first_terraform_write_locks_everyone_out_until_it(self):
+        response = self.client.put(self.url, {"managed": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["managed"] is True
+        assert response.json()["has_terraform_account"] is False
+        assert self._put_global_access_control({"resource": "dashboard"}).status_code == status.HTTP_403_FORBIDDEN
+
+        self.client.logout()
+        assert self._terraform_write(self.terraform_key).status_code == status.HTTP_200_OK
+        assert self._managed_by_user() == self.terraform_user
+
+    def test_a_terraform_write_turns_it_back_on(self):
+        self.client.logout()
+        self._terraform_write(self.terraform_key)
+        self.client.force_login(self.user)
+        self.client.put(self.url, {"managed": False}, format="json")
+
+        self.client.logout()
+        self._terraform_write(self.terraform_key, resource="dashboard")
+        self.client.force_login(self.user)
+        assert self.client.get(self.url).json()["managed"] is True
+
+    def test_a_member_can_read_but_not_turn_it_off(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        assert self.client.get(self.url).status_code == status.HTTP_200_OK
+        assert self.client.put(self.url, {"managed": False}, format="json").status_code == status.HTTP_403_FORBIDDEN

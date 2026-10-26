@@ -26,19 +26,29 @@ Two layers, by design:
   governor predicted. The governor aims never to reach it; the backstop guarantees safety when a
   prediction is wrong.
 
-The memory model follows the shape of the files a merge rewrites, not their total size. A
-partition worker in deltalite 0.1.9 holds three things at its peak:
+The slices guarantee room for ``max_concurrent`` upserts, but a pod mostly runs far fewer. So an
+upsert whose slice keeps its plan narrow can borrow idle memory, up to a few slices, to run more
+partition workers. ``MemoryGovernor._borrowable_mb`` holds the rule that keeps a borrow fair.
 
-* **Readers.** Each of its ``max_parallel_files`` readers fetches one whole compressed row group
-  before it decodes it, and no budget covers that fetch. A worker therefore holds about the sum of
-  its largest ``max_parallel_files`` candidate row groups.
-* **Writer.** The write buffer grows to ``target_file_size`` before it flushes, and the flush
-  copies it once more. A partition that writes less than the target only buffers what it writes.
+The memory model follows the shape of the files a merge rewrites, not their total size. An upsert
+in deltalite 0.1.10 holds three things at its peak:
+
+* **Readers.** Each reader fetches one whole compressed row group before it decodes it. A reader
+  reserves its row group from the per-call fetch budget (``max_fetch_bytes``) first, so all readers
+  of one upsert together hold at most the budget, or one row group when a row group is larger.
+  Add actions record file sizes, not row groups, so a file's size is its reader bound. When that
+  bound keeps the plan narrow, the writer can read the footers (``row_group_sizes``) and use the
+  real largest row group of each file instead.
+* **Writers.** Each partition worker streams its open file into fixed-size chunks, so it holds about
+  one ``target_file_size`` file, and less when the partition writes less. Each column also keeps
+  page and dictionary buffers, so wide tables cost more per worker than narrow ones.
 * **Decode.** Decoded survivor batches in flight, capped per call by ``max_buffered_bytes``.
+  Compressible files decode to many times their stored size, so the decoded volume comes from the
+  candidate rows, not the stored bytes.
 
 Profiling on Linux showed that peak memory does not grow with the partition count, the file count
-or the total bytes a merge rewrites — only with these per-worker terms. The terms are named
-constants, so a deltalite release that budgets the fetch or streams the write changes one number.
+or the total bytes a merge rewrites — only with these terms. The terms are named constants, so a
+deltalite release that changes one of them changes one number.
 """
 
 from __future__ import annotations
@@ -62,6 +72,10 @@ import pyarrow.compute as pc
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DEFAULT_TARGET_FILE_SIZE_BYTES,
+    table_target_file_size,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import (
     RssPeakSampler,
     RssWindow,
@@ -70,6 +84,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 
 if TYPE_CHECKING:
     import deltalake
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+        RowGroupSizeReader,
+        RowGroupSizes,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -87,33 +106,42 @@ _DEFAULT_MAX_CONCURRENT = 100
 #: an env var so the governor uses the loader's actual source of truth. None until declared.
 _PROCESS_MAX_CONCURRENT: int | None = None
 
-# --- File-shape memory model (deltalite 0.1.9) -------------------------------------------------
+# --- File-shape memory model (deltalite 0.1.10) ------------------------------------------------
 #
-# Fitted on a Linux harness that runs the loader's exact upsert (glibc, 30-column tables): small
-# files over 100 to 1,000 partitions, single partitions of 57 MB and 99 MiB single-row-group files,
-# and four partitions of 57 MB files, with max_parallel_files 1, 2 and 4 and target_file_size 32
-# and 100 MiB. The model predicts malloc in-use bytes; ``_rss_retention`` turns that into RSS,
-# which is what the cgroup limit counts.
+# Fitted on a Linux harness that runs the loader's exact upsert (glibc, MALLOC_MMAP_THRESHOLD_ at
+# 128 KiB, a warm process): 6-, 30- and 200-column tables; small files over 10 to 1,000 partitions;
+# single-row-group files of 27 to 93 MB; 150 MB files of three row groups; compressible files of
+# 2 to 10 stored bytes per row; target_file_size 32, 100 and 256 MiB; plans from 1x1 to 4x4; and
+# insert-only writes of 5 to 250 MB. The model predicts malloc in-use bytes; ``_rss_retention``
+# turns that into RSS, which is what the cgroup limit counts.
 
-#: Resident bytes per stored byte of the row group one reader fetches. deltalite 0.1.9 fetches the
-#: whole compressed row group before it decodes it, outside every budget. Lower this when deltalite
-#: budgets or streams the fetch.
+#: Resident bytes per stored byte of the row group one reader fetches: the whole compressed row
+#: group, held until it is decoded.
 _READER_BYTES_PER_ROW_GROUP_BYTE = 1.0
 #: Each reader also holds decompressed pages next to the fetched row group: ~22 MB per reader on
 #: 57 MB and 99 MiB row groups of the 30-column harness tables, far less on small row groups.
 _READER_PAGE_BUFFER_MB = 22.0
 #: Cap on the page buffers as a share of the row group, which keeps small row groups small.
 _READER_PAGE_BUFFER_SHARE = 0.4
-#: Resident bytes per byte of ``target_file_size`` in one partition worker's writer: the buffer
-#: grows to the target before it flushes, and the flush copies it. Lower this when deltalite
-#: streams the write.
-_WRITER_BYTES_PER_TARGET_BYTE = 2.3
+#: deltalite's per-call ``max_fetch_bytes``, passed explicitly. All readers of one upsert hold at
+#: most this much fetched row-group data, or one row group when a row group is larger.
+_FETCH_BUDGET_BYTES = 128 * MB
+#: Files at or below this size are not worth a footer read: their whole size is already a small
+#: reader bound. It matches the default row-group cap of the files deltalite writes.
+_ROW_GROUP_PROBE_MIN_BYTES = 16 * MB
+#: Resident bytes per byte of the file one partition worker writes, up to ``target_file_size``.
+_WRITER_BYTES_PER_TARGET_BYTE = 1.8
+#: Page and dictionary buffers per column of one open output file, once the file is large enough
+#: to fill them.
+_WRITER_MB_PER_COLUMN = 0.8
+#: Bytes written before the per-column buffers are full; a smaller file fills them in proportion.
+_WRITER_COLUMN_FILL_MB = 32.0
 #: Part of ``max_buffered_bytes`` that decoded batches actually fill at the peak.
 _DECODE_BUDGET_FILL = 0.875
-#: Decoded bytes per stored byte, used only to cap the decode term for small files.
-_DECODED_BYTES_PER_STORED_BYTE = 1.5
+#: Columns assumed when the source is unknown: wider than most tables, so the guess errs high.
+_UNKNOWN_COLUMNS = 64
 #: Per upsert, before any partition worker: channels, tasks, the commit.
-_BASE_INUSE_MB = 6.0
+_BASE_INUSE_MB = 8.0
 #: Per candidate file, the plan state deltalite keeps for it (its add action, the remove it may
 #: write). Fitted on 600 to 6,000 candidate files.
 _PLAN_KB_PER_CANDIDATE_FILE = 2.6
@@ -123,8 +151,7 @@ _SOURCE_INUSE_PER_MB = 0.73
 #: deltalite keeps one add action per table file in its snapshot. Measured at ~2.2 KB per file on
 #: the 30-column harness tables (6,000 files hold 12 MB more than 600 files).
 _SNAPSHOT_KB_PER_FILE = 2.2
-#: deltalite and delta-rs both default to 100 MiB when the table does not set ``delta.targetFileSize``.
-_DEFAULT_TARGET_FILE_SIZE = 100 * MB
+_DEFAULT_TARGET_FILE_SIZE = DEFAULT_TARGET_FILE_SIZE_BYTES
 
 #: RSS per byte of malloc in-use memory. glibc keeps freed memory in its arenas, and with its
 #: default mmap threshold the large Arrow buffers stay there too. RSS ran 1.25–2.1× in-use in most
@@ -141,7 +168,7 @@ _MAX_PARALLEL_PARTITIONS = 4
 #: Concurrent file readers inside one partition worker at deltalite's own default.
 _DEFAULT_FILES_PER_WORKER = 4
 #: Most readers one partition worker may run. A partition with few, small row groups gains I/O
-#: overlap from more; the reader term charges every extra reader its row group.
+#: overlap from more; the reader term charges every extra reader its row group, up to the fetch budget.
 _MAX_PARALLEL_FILES = 8
 #: Ceiling on ``max_parallel_partitions × max_parallel_files`` for one upsert, the process-wide
 #: reader limit deltalite enforces by default.
@@ -160,6 +187,11 @@ _WAIT_POLL_S = 0.5
 _ROOM_TOLERANCE_MB = 1.0
 #: How often the RSS sampler reads the process RSS while an upsert runs.
 _DEFAULT_RSS_SAMPLE_MS = 100.0
+#: Most slices one upsert may borrow when the pod has idle memory. 4 slices let a wide-row merge
+#: run 4 partition workers, and beyond 4 workers the gains vanish.
+_DEFAULT_BORROW_MAX_SLICES = 4.0
+#: deltalite's own default for ``DELTALITE_PROBE_CACHE_BYTES``.
+_DEFAULT_PROBE_CACHE_BYTES = 128 * MB
 
 
 def _rss_retention(environ: Mapping[str, str] = os.environ) -> float:
@@ -187,23 +219,33 @@ def _rss_retention(environ: Mapping[str, str] = os.environ) -> float:
 class PartitionShape:
     """The part of one touched partition that sizes its worker."""
 
-    #: Stored bytes of the largest files the merge can rewrite, largest first. Only as many as one
-    #: worker can read at once are kept; each bounds the row group a reader fetches.
-    largest_file_bytes: tuple[int, ...]
+    #: Per candidate file, the largest row group a reader of it fetches, largest first. Only as many
+    #: as one worker can read at once are kept. A file whose footer was not read counts its whole size.
+    largest_row_group_bytes: tuple[int, ...]
     #: All candidate files in the partition, and their stored bytes.
     files: int
     stored_bytes: int
     #: Bytes of the source rows that land in this partition.
     source_bytes: int = 0
+    #: Decoded bytes of all candidate files: their rows times the source's bytes per row. None
+    #: when a file does not record its row count, which sizes the decode term at its budget.
+    decoded_bytes: int | None = None
 
     @staticmethod
-    def of(file_bytes: Sequence[int], source_bytes: int = 0) -> PartitionShape:
-        ordered = sorted(file_bytes, reverse=True)
+    def of(
+        file_bytes: Sequence[int],
+        source_bytes: int = 0,
+        decoded_bytes: int | None = None,
+        row_group_bytes: Sequence[int] | None = None,
+    ) -> PartitionShape:
+        """``row_group_bytes`` holds the largest row group of each file in ``file_bytes``, in the same order."""
+        readers = file_bytes if row_group_bytes is None else row_group_bytes
         return PartitionShape(
-            largest_file_bytes=tuple(ordered[:_MAX_PARALLEL_FILES]),
-            files=len(ordered),
-            stored_bytes=sum(ordered),
+            largest_row_group_bytes=tuple(sorted(readers, reverse=True)[:_MAX_PARALLEL_FILES]),
+            files=len(file_bytes),
+            stored_bytes=sum(file_bytes),
             source_bytes=source_bytes,
+            decoded_bytes=0 if not file_bytes else decoded_bytes,
         )
 
 
@@ -217,6 +259,13 @@ class RewriteProfile:
     table_files: int = 0
     #: The table's ``delta.targetFileSize``, which deltalite uses as its write-buffer flush point.
     target_file_size: int = _DEFAULT_TARGET_FILE_SIZE
+    #: Columns of the rows the merge writes. Each column of an open output file keeps buffers.
+    columns: int = _UNKNOWN_COLUMNS
+    #: Candidate files whose reader bound is their largest row group, read from the footer. The
+    #: other candidates count their whole size.
+    row_group_sized_files: int = 0
+    #: Footers fetched from storage to size this merge. Cached footers are not counted.
+    footers_read: int = 0
 
     @property
     def files(self) -> int:
@@ -228,15 +277,23 @@ class RewriteProfile:
 
     @property
     def max_row_group_mb(self) -> float:
-        """Upper bound on the largest row group a reader fetches: the largest candidate file.
+        """Upper bound on the largest row group a reader fetches.
 
-        Add actions carry each file's size but not its row-group count, and the footer that has it
-        costs one request per file. A file holds at least one row group, so its size bounds its
-        largest one. The bound is exact for single-row-group files, which is what deltalite and
-        delta-rs write while a file stays under the 1M-row row-group limit. For files with several
-        row groups it over-counts (about 1.5× on 2–3 row-group files), so it errs toward a smaller plan.
+        A file holds at least one row group, so its size bounds its largest one. The bound is exact
+        for single-row-group files. For a file whose footer was read, the bound is its real largest
+        row group, which is much smaller for files written with a row-group cap.
         """
-        return max((p.largest_file_bytes[0] for p in self.partitions if p.largest_file_bytes), default=0) / MB
+        return max((p.largest_row_group_bytes[0] for p in self.partitions if p.largest_row_group_bytes), default=0) / MB
+
+
+@frozen
+class CandidateFile:
+    """One existing file that a merge can rewrite."""
+
+    partition: str | None
+    path: str | None
+    size_bytes: int
+    num_records: int | None
 
 
 def _files_that_can_match(add_actions: pa.Table, source: pa.Table, primary_keys: Sequence[str]) -> list[bool]:
@@ -273,76 +330,157 @@ def _files_that_can_match(add_actions: pa.Table, source: pa.Table, primary_keys:
     return [d is not True for d in disjoint.to_pylist()]
 
 
+def _rows_per_partition(source: pa.Table, partition_col: str | None) -> dict[str | None, int]:
+    if partition_col is None:
+        return {None: source.num_rows}
+    counts = pc.value_counts(source[partition_col].cast(pa.string()))
+    return {
+        value: int(count or 0)
+        for value, count in zip(counts.field("values").to_pylist(), counts.field("counts").to_pylist())
+    }
+
+
+def candidate_files(
+    add_actions: pa.Table, source: pa.Table, partition_col: str | None, primary_keys: Sequence[str]
+) -> list[CandidateFile]:
+    """The existing files a merge of ``source`` can rewrite.
+
+    A file is a candidate when it is in a partition the batch touches and its PK range overlaps the
+    batch. Every candidate is counted because duplicate target keys can make one source row match
+    several files.
+    """
+    if source.num_rows == 0 or add_actions.num_rows == 0:
+        return []
+    touched = _rows_per_partition(source, partition_col)
+    file_partitions: list[str | None] = (
+        [None] * add_actions.num_rows
+        if partition_col is None
+        else add_actions[f"partition.{partition_col}"].cast(pa.string()).to_pylist()
+    )
+    paths = add_actions["path"].to_pylist() if "path" in add_actions.column_names else [None] * add_actions.num_rows
+    file_rows = (
+        add_actions["num_records"].to_pylist()
+        if "num_records" in add_actions.column_names
+        else [None] * add_actions.num_rows
+    )
+    can_match = _files_that_can_match(add_actions, source, primary_keys)
+    return [
+        CandidateFile(partition=partition, path=path, size_bytes=size or 0, num_records=rows)
+        for partition, path, size, rows, candidate in zip(
+            file_partitions, paths, add_actions["size_bytes"].to_pylist(), file_rows, can_match
+        )
+        if candidate and partition in touched
+    ]
+
+
 def rewrite_profile(
     add_actions: pa.Table,
     source: pa.Table,
     partition_col: str | None,
     primary_keys: Sequence[str],
     target_file_size: int = _DEFAULT_TARGET_FILE_SIZE,
+    row_groups: RowGroupSizes | None = None,
+    candidates: Sequence[CandidateFile] | None = None,
 ) -> RewriteProfile:
     """Upper bound on the existing files a merge of ``source`` rewrites, from the table's add actions.
 
-    A file is a candidate when it is in a partition the batch touches and its PK range overlaps the
-    batch. Every candidate is counted because duplicate target keys can make one source row match
-    several files. Every touched partition gets an entry with its share of the source, also when it
-    has no candidate files.
+    Every touched partition gets an entry with its share of the source, also when it has no
+    candidate files. ``row_groups`` gives the largest row group of the files whose footer was read.
+    Each other file counts its whole size. ``candidates`` reuses a ``candidate_files`` result.
     """
     if source.num_rows == 0:
-        return RewriteProfile(partitions=(), table_files=add_actions.num_rows, target_file_size=target_file_size)
-
-    if partition_col is None:
-        rows_per_partition: dict[str | None, int] = {None: source.num_rows}
-        file_partitions: list[str | None] = [None] * add_actions.num_rows
-    else:
-        counts = pc.value_counts(source[partition_col].cast(pa.string()))
-        rows_per_partition = {
-            value: int(count or 0)
-            for value, count in zip(counts.field("values").to_pylist(), counts.field("counts").to_pylist())
-        }
-        file_partitions = (
-            add_actions[f"partition.{partition_col}"].cast(pa.string()).to_pylist() if add_actions.num_rows else []
+        return RewriteProfile(
+            partitions=(),
+            table_files=add_actions.num_rows,
+            target_file_size=target_file_size,
+            columns=source.num_columns,
         )
 
+    rows_per_partition = _rows_per_partition(source, partition_col)
+    known_row_groups: Mapping[str, int] = row_groups.bytes_by_path if row_groups is not None else {}
     sizes_by_partition: dict[str | None, list[int]] = {partition: [] for partition in rows_per_partition}
-    if add_actions.num_rows:
-        can_match = _files_that_can_match(add_actions, source, primary_keys)
-        for partition, size, candidate in zip(file_partitions, add_actions["size_bytes"].to_pylist(), can_match):
-            if candidate and partition in sizes_by_partition:
-                sizes_by_partition[partition].append(size or 0)
-
-    bytes_per_row = source.nbytes / source.num_rows
-    partitions = [
-        PartitionShape.of(
-            sizes,
-            source_bytes=round(bytes_per_row * rows_per_partition[partition]),
+    readers_by_partition: dict[str | None, list[int]] = {partition: [] for partition in rows_per_partition}
+    rows_by_partition: dict[str | None, int | None] = dict.fromkeys(rows_per_partition, 0)
+    row_group_sized = 0
+    if candidates is None:
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+    for file in candidates:
+        sizes_by_partition[file.partition].append(file.size_bytes)
+        largest_row_group = known_row_groups.get(file.path) if file.path is not None else None
+        if largest_row_group is None:
+            readers_by_partition[file.partition].append(file.size_bytes)
+        else:
+            row_group_sized += 1
+            readers_by_partition[file.partition].append(min(largest_row_group, file.size_bytes))
+        known = rows_by_partition[file.partition]
+        rows_by_partition[file.partition] = (
+            None if known is None or file.num_records is None else known + file.num_records
         )
-        for partition, sizes in sizes_by_partition.items()
-    ]
+
+    # The source has the table's columns, so its bytes per row also size the decoded candidates.
+    bytes_per_row = source.nbytes / source.num_rows
+    partitions = []
+    for partition, sizes in sizes_by_partition.items():
+        candidate_rows = rows_by_partition[partition]
+        partitions.append(
+            PartitionShape.of(
+                sizes,
+                source_bytes=round(bytes_per_row * rows_per_partition[partition]),
+                decoded_bytes=None if candidate_rows is None else round(bytes_per_row * candidate_rows),
+                row_group_bytes=readers_by_partition[partition],
+            )
+        )
     return RewriteProfile(
         partitions=tuple(sorted(partitions, key=lambda p: p.stored_bytes + p.source_bytes, reverse=True)),
         table_files=add_actions.num_rows,
         target_file_size=target_file_size,
+        columns=source.num_columns,
+        row_group_sized_files=row_group_sized,
+        footers_read=row_groups.footers_read if row_groups is not None else 0,
     )
 
 
-def _table_target_file_size(table: deltalake.DeltaTable) -> int:
-    raw = table.metadata().configuration.get("delta.targetFileSize")
-    try:
-        return int(raw) if raw and int(raw) > 0 else _DEFAULT_TARGET_FILE_SIZE
-    except ValueError:
-        return _DEFAULT_TARGET_FILE_SIZE
-
-
 def estimate_rewrite_profile(
-    table: deltalake.DeltaTable, source: pa.Table, partition_col: str | None, primary_keys: Sequence[str]
+    table: deltalake.DeltaTable,
+    source: pa.Table,
+    partition_col: str | None,
+    primary_keys: Sequence[str],
+    row_group_reader: RowGroupSizeReader | None = None,
+    wants_row_groups: Callable[[RewriteProfile], bool] | None = None,
 ) -> RewriteProfile | None:
-    """``rewrite_profile`` for a live table, or None when its add actions cannot be read."""
+    """``rewrite_profile`` for a live table, or None when its add actions cannot be read.
+
+    With a ``row_group_reader``, the footers of candidate files above ``_ROW_GROUP_PROBE_MIN_BYTES``
+    are read when ``wants_row_groups`` says the whole-file profile limits the plan. Any failure
+    there keeps the whole-file profile.
+    """
     try:
         add_actions = pa.table(table.get_add_actions(flatten=True))
-        return rewrite_profile(add_actions, source, partition_col, primary_keys, _table_target_file_size(table))
+        target_file_size = table_target_file_size(table)
+        candidates = candidate_files(add_actions, source, partition_col, primary_keys)
+        profile = rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, candidates=candidates
+        )
     except Exception as e:  # noqa: BLE001 - an estimate must never fail a write; None sizes conservatively
         logger.debug("deltalite governor: could not estimate the rewrite size: %s", e)
         return None
+    if row_group_reader is None or profile.max_row_group_mb * MB <= _ROW_GROUP_PROBE_MIN_BYTES:
+        return profile
+    try:
+        if wants_row_groups is not None and not wants_row_groups(profile):
+            return profile
+        to_read = {
+            file.path: file.size_bytes
+            for file in candidates
+            if file.path is not None and file.size_bytes > _ROW_GROUP_PROBE_MIN_BYTES
+        }
+        row_groups = row_group_reader.largest_row_groups(to_read)
+        return rewrite_profile(
+            add_actions, source, partition_col, primary_keys, target_file_size, row_groups, candidates
+        )
+    except Exception as e:  # noqa: BLE001 - row-group sizing is an optimization; keep the whole-file bound
+        logger.debug("deltalite governor: could not read row group sizes: %s", e)
+        return profile
 
 
 @frozen
@@ -364,9 +502,17 @@ class MemoryEstimate:
 class WorkerTerms:
     """Memory terms for one partition worker."""
 
-    reader_mb: float
-    writer_mb: float
+    #: Fetched row groups of its readers, before the per-call fetch budget caps them.
     held_mb: float
+    #: Decompressed pages next to those row groups.
+    pages_mb: float
+    #: The largest row group one of its readers fetches.
+    largest_row_group_mb: float
+    writer_mb: float
+
+    @property
+    def reader_mb(self) -> float:
+        return _READER_BYTES_PER_ROW_GROUP_BYTE * self.held_mb + self.pages_mb
 
 
 @frozen
@@ -374,18 +520,24 @@ class WorkerBounds:
     """Independent upper bounds for worker memory terms."""
 
     terms: tuple[WorkerTerms, ...]
-    held_mb: tuple[float, ...]
+    #: Decoded bytes of the largest partitions, largest first. None is unknown.
+    decoded_mb: tuple[float | None, ...]
 
 
-def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float) -> WorkerTerms:
-    row_groups_mb = [size / MB for size in shape.largest_file_bytes[:files_per_worker]]
-    held = sum(row_groups_mb)
-    pages = sum(min(_READER_PAGE_BUFFER_MB, _READER_PAGE_BUFFER_SHARE * rg) for rg in row_groups_mb)
+def _writer_mb(written_mb: float, target_mb: float, columns: int) -> float:
+    file_mb = min(target_mb, written_mb)
+    column_fill = min(1.0, file_mb / _WRITER_COLUMN_FILL_MB)
+    return _WRITER_BYTES_PER_TARGET_BYTE * file_mb + _WRITER_MB_PER_COLUMN * columns * column_fill
+
+
+def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float, columns: int) -> WorkerTerms:
+    row_groups_mb = [size / MB for size in shape.largest_row_group_bytes[:files_per_worker]]
     written = (shape.stored_bytes + shape.source_bytes) / MB
     return WorkerTerms(
-        reader_mb=_READER_BYTES_PER_ROW_GROUP_BYTE * held + pages,
-        writer_mb=_WRITER_BYTES_PER_TARGET_BYTE * min(target_mb, written),
-        held_mb=held,
+        held_mb=sum(row_groups_mb),
+        pages_mb=sum(min(_READER_PAGE_BUFFER_MB, _READER_PAGE_BUFFER_SHARE * rg) for rg in row_groups_mb),
+        largest_row_group_mb=max(row_groups_mb, default=0.0),
+        writer_mb=_writer_mb(written, target_mb, columns),
     )
 
 
@@ -404,7 +556,8 @@ def _unknown_shapes(n_partitions: int | None, source_mb: float, target_mb: float
 def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> WorkerBounds:
     """Independent bounds for the costliest workers' reader/writer and decode terms."""
     target_mb = profile.target_file_size / MB
-    terms = [_worker_terms(shape, files_per_worker, target_mb) for shape in profile.partitions]
+    terms = [_worker_terms(shape, files_per_worker, target_mb, profile.columns) for shape in profile.partitions]
+    decoded = [None if p.decoded_bytes is None else p.decoded_bytes / MB for p in profile.partitions]
     return WorkerBounds(
         terms=tuple(
             heapq.nlargest(
@@ -413,8 +566,26 @@ def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> Worker
                 key=lambda worker: worker.reader_mb + worker.writer_mb,
             )
         ),
-        held_mb=tuple(heapq.nlargest(_MAX_PARALLEL_PARTITIONS, (worker.held_mb for worker in terms))),
+        # Unknown sorts first: it is sized as a full decode budget.
+        decoded_mb=tuple(
+            heapq.nlargest(_MAX_PARALLEL_PARTITIONS, decoded, key=lambda mb: float("inf") if mb is None else mb)
+        ),
     )
+
+
+def _readers_in_flight_mb(workers: Sequence[WorkerTerms]) -> float:
+    """Reader memory of ``workers``, capped by the per-call fetch budget.
+
+    A reader takes fetch budget for its row group before it fetches it, so the readers of one
+    upsert hold at most the budget at once. A row group larger than the budget takes all of it
+    and runs alone. Fewer readers in flight also hold fewer pages, in the same proportion.
+    """
+    held = sum(w.held_mb for w in workers)
+    if held <= 0:
+        return sum(w.pages_mb for w in workers)
+    budget_mb = max(_FETCH_BUDGET_BYTES / MB, max(w.largest_row_group_mb for w in workers))
+    share = min(1.0, budget_mb / held)
+    return share * sum(w.reader_mb for w in workers)
 
 
 def predict_upsert_memory(
@@ -435,10 +606,12 @@ def predict_upsert_memory(
     if costliest is None:
         costliest = _costliest_workers(profile, files_per_worker)
     workers = costliest.terms[:mpp]
-    reader_mb = sum(w.reader_mb for w in workers)
+    reader_mb = _readers_in_flight_mb(workers)
     writer_mb = sum(w.writer_mb for w in workers)
-    held_mb = sum(costliest.held_mb[:mpp])
-    decode_mb = _DECODE_BUDGET_FILL * min(buffered_bytes / MB, _DECODED_BYTES_PER_STORED_BYTE * held_mb)
+    decoded = costliest.decoded_mb[:mpp]
+    budget_mb = buffered_bytes / MB
+    decoded_mb = budget_mb if None in decoded else sum(mb for mb in decoded if mb is not None)
+    decode_mb = _DECODE_BUDGET_FILL * min(budget_mb, decoded_mb)
     fixed_mb = (
         _BASE_INUSE_MB
         + _SOURCE_INUSE_PER_MB * source_mb
@@ -468,12 +641,15 @@ class UpsertPlan:
     fits: bool
     estimate: MemoryEstimate
     probe_concurrency: int = _PROBE_CONCURRENCY
+    #: The reader term assumes this budget, so it goes out explicitly rather than as deltalite's default.
+    max_fetch_bytes: int = _FETCH_BUDGET_BYTES
 
     def as_upsert_kwargs(self) -> dict[str, int]:
         return {
             "max_parallel_partitions": self.max_parallel_partitions,
             "max_parallel_files": self.max_parallel_files,
             "max_buffered_bytes": self.max_buffered_bytes,
+            "max_fetch_bytes": self.max_fetch_bytes,
             "probe_concurrency": self.probe_concurrency,
         }
 
@@ -482,6 +658,22 @@ def _reader_options(mpp: int) -> list[int]:
     """Readers per worker to try at ``mpp`` workers, most first, under ``_MAX_READERS_PER_UPSERT``."""
     widest = max(1, min(_MAX_PARALLEL_FILES, _MAX_READERS_PER_UPSERT // mpp))
     return sorted({f for f in (widest, _DEFAULT_FILES_PER_WORKER, 2, 1) if f <= widest}, reverse=True)
+
+
+def _partition_cap(profile: RewriteProfile, n_partitions: int | None) -> int:
+    cap = min(_MAX_PARALLEL_PARTITIONS, max(1, len(profile.partitions)))
+    if n_partitions is not None and n_partitions >= 1:
+        cap = min(cap, n_partitions)
+    return cap
+
+
+def is_widest_plan(plan: UpsertPlan, profile: RewriteProfile, n_partitions: int | None = None) -> bool:
+    """True when ``plan`` fits and already runs the most workers and readers ``size_upsert`` ever picks."""
+    partition_cap = _partition_cap(profile, n_partitions)
+    return plan.fits and (plan.max_parallel_partitions, plan.max_parallel_files) == (
+        partition_cap,
+        _reader_options(partition_cap)[0],
+    )
 
 
 def size_upsert(
@@ -495,8 +687,8 @@ def size_upsert(
 
     ``available_mb`` is the per-upsert memory slice, not the whole pod. Partition workers come
     first: the search starts at the most workers and, for each count, tries the most readers per
-    worker before fewer. A worker's readers cost its largest row groups, so a partition of big
-    single-row-group files steps its readers down before the plan loses a worker. When no plan
+    worker before fewer. A worker's readers cost its largest row groups up to the fetch budget, so a
+    partition of big single-row-group files steps its readers down before the plan loses a worker. When no plan
     fits, return one worker with one reader and ``fits=False``. The caller does not fall back on
     ``fits=False`` — it runs deltalite with that plan anyway (the memory floor, far below the MERGE)
     and flags ``capacity_exceeded``. ``rewrite=None`` (shape unknown) assumes target-sized files.
@@ -504,19 +696,19 @@ def size_upsert(
     profile = rewrite
     if profile is None:
         target_mb = _DEFAULT_TARGET_FILE_SIZE / MB
-        profile = RewriteProfile(partitions=_unknown_shapes(n_partitions, source_mb, target_mb))
+        profile = RewriteProfile(
+            partitions=_unknown_shapes(n_partitions, source_mb, target_mb), columns=_UNKNOWN_COLUMNS
+        )
     elif not profile.partitions:
         # An empty source touches no partition; size it as one worker that writes nothing.
         profile = RewriteProfile(
             partitions=(PartitionShape.of([]),),
             table_files=profile.table_files,
             target_file_size=profile.target_file_size,
+            columns=profile.columns,
         )
 
-    partition_cap = min(_MAX_PARALLEL_PARTITIONS, max(1, len(profile.partitions)))
-    if n_partitions is not None and n_partitions >= 1:
-        partition_cap = min(partition_cap, n_partitions)
-
+    partition_cap = _partition_cap(profile, n_partitions)
     # One pass over the partitions per reader count, however many plans are tried.
     costliest: dict[int, WorkerBounds] = {}
     for mpp in range(partition_cap, 0, -1):
@@ -647,6 +839,13 @@ class GovernorConfig:
     rss_sample_ms: float = _DEFAULT_RSS_SAMPLE_MS
     #: RSS per byte of predicted in-use memory. Read from the allocator settings by default.
     rss_retention: float = _RSS_RETENTION_GLIBC_DEFAULT
+    #: Rollout gate for borrowing idle pod memory, with the same three values as ``mode``. Advisory
+    #: computes and logs the borrowed plan. Enforce runs it, and only when ``mode`` is enforce too.
+    borrow_mode: Mode = "advisory"
+    #: Most slices one borrowed plan may reserve.
+    borrow_max_slices: float = _DEFAULT_BORROW_MAX_SLICES
+    #: Cap of deltalite's process-wide probe cache. No slice holds it, so a borrow leaves it free.
+    probe_cache_mb: float = _DEFAULT_PROBE_CACHE_BYTES / MB
 
     @staticmethod
     def from_env() -> GovernorConfig:
@@ -664,7 +863,25 @@ class GovernorConfig:
             max_wait_s=max(0.0, _env_float("DELTALITE_GOVERNOR_MAX_WAIT_S", 60.0)),
             rss_sample_ms=max(0.0, _env_float("DELTALITE_GOVERNOR_RSS_SAMPLE_MS", _DEFAULT_RSS_SAMPLE_MS)),
             rss_retention=_rss_retention(),
+            borrow_mode=GovernorConfig._resolve_borrow_mode(),
+            borrow_max_slices=max(1.0, float(settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES)),
+            probe_cache_mb=GovernorConfig._resolve_probe_cache_mb(),
         )
+
+    @staticmethod
+    def _resolve_borrow_mode() -> Mode:
+        mode = str(settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW).strip().lower()
+        if mode not in ("off", "advisory", "enforce"):
+            logger.warning("invalid DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW=%r; defaulting to advisory", mode)
+            return "advisory"
+        return mode  # type: ignore[return-value]
+
+    @staticmethod
+    def _resolve_probe_cache_mb() -> float:
+        """The probe cache cap, read from the variable deltalite reads. 0 when the writer turns the cache off."""
+        if not settings.DATA_WAREHOUSE_DELTALITE_PROBE_CACHE:
+            return 0.0
+        return max(0.0, _env_float("DELTALITE_PROBE_CACHE_BYTES", _DEFAULT_PROBE_CACHE_BYTES)) / MB
 
     @staticmethod
     def _resolve_max_concurrent() -> int:
@@ -721,11 +938,16 @@ class Admission:
     capacity_exceeded: bool = False
     #: The predicted peak by term, in-use and RSS.
     estimate: MemoryEstimate | None = None
-    #: Largest candidate file, the bound on the largest row group a reader fetches. None when unknown.
+    #: The bound on the largest row group a reader fetches. None when unknown.
     max_row_group_mb: float | None = None
+    #: Candidate files sized by their largest row group, and footers fetched for that. None when unknown.
+    row_group_sized_files: int | None = None
+    footers_read: int | None = None
     #: Stored MB of all candidate files the merge can rewrite, over every touched partition.
     rewrite_total_mb: float | None = None
     rewrite_files: int | None = None
+    #: Columns of the rows the merge writes. None when the shape is unknown.
+    columns: int | None = None
     #: Upserts admitted in this process at admission, this one included (every mode but off).
     concurrent_upserts: int | None = None
     #: What the RSS sampler saw from admission to release. Process-wide: see ``RssPeakSampler``.
@@ -736,6 +958,13 @@ class Admission:
     #: Time spent waiting for room before the write, and whether the wait ran out.
     wait_ms: int = 0
     wait_timed_out: bool = False
+    #: The borrowed plan: the slices it reserves and its knobs. None when no borrow was possible:
+    #: borrowing off, the slice-sized plan already the widest, or too little idle pod memory.
+    borrow_slots: float | None = None
+    borrow_mpp: int | None = None
+    borrow_mpf: int | None = None
+    #: True when this upsert runs the borrowed plan and holds its reservation.
+    borrow_applied: bool = False
 
 
 # --- The governor ----------------------------------------------------------------------------
@@ -801,6 +1030,22 @@ class MemoryGovernor:
         limit_mb = self.pod.limit_mb()
         return None if limit_mb is None else self._per_upsert_budget_mb(limit_mb)
 
+    def row_groups_can_widen(
+        self, profile: RewriteProfile, *, source_bytes: int, n_partitions: int | None = None
+    ) -> bool:
+        """True when the plan for ``profile`` is narrower than the widest plan.
+
+        Only then can smaller reader bounds change the plan, so only then are footer reads worth
+        their requests. False when this governor sizes no plan (mode off, or no pod limit).
+        """
+        limit_mb = self.pod.limit_mb()
+        if self.config.mode == "off" or limit_mb is None:
+            return False
+        plan = size_upsert(
+            self._per_upsert_budget_mb(limit_mb), source_bytes / MB, n_partitions, profile, self.config.rss_retention
+        )
+        return not is_widest_plan(plan, profile, n_partitions)
+
     def _has_room(self, reserve_mb: float, usable_mb: float) -> bool:
         return self._reserved_mb + reserve_mb <= usable_mb + _ROOM_TOLERANCE_MB
 
@@ -845,6 +1090,56 @@ class MemoryGovernor:
                     if ticket in self._waiters:
                         self._waiters.remove(ticket)
 
+    # -- borrowing idle pod memory -------------------------------------------------------------
+
+    def _borrowable_mb(self, usable_mb: float) -> float:
+        """Memory one borrow may reserve now: half of the free pod memory, and none while an upsert waits.
+
+        Free memory is the usable pod (the limit after the safety derate and the reserve) less the
+        reservations in flight and the probe cache cap. The half rule leaves at least as much free as a
+        borrower takes, so the next upsert finds room without a wait, and a series of borrowers fills
+        the pod in shrinking steps instead of at once. A waiter means the pod is already full, so a
+        borrow then would only make the wait longer. Call with ``self._lock`` held.
+        """
+        if self._waiters:
+            return 0.0
+        free_mb = usable_mb - self._reserved_mb - self.config.probe_cache_mb
+        return max(0.0, free_mb) / 2
+
+    def _borrowed_plan(
+        self,
+        slice_plan: UpsertPlan,
+        budget_mb: float,
+        usable_mb: float,
+        source_mb: float,
+        n_partitions: int | None,
+        rewrite: RewriteProfile,
+    ) -> UpsertPlan | None:
+        """A plan wider than ``slice_plan`` sized to the borrowable pod memory, or None when there is none.
+
+        The pod state can change before the caller reserves, so ``_take_borrowed`` checks it again.
+        """
+        if self.config.borrow_mode == "off" or is_widest_plan(slice_plan, rewrite, n_partitions):
+            return None
+        with self._lock:
+            borrow_mb = min(self.config.borrow_max_slices * budget_mb, self._borrowable_mb(usable_mb))
+        if borrow_mb <= budget_mb:
+            return None
+        plan = size_upsert(borrow_mb, source_mb, n_partitions, rewrite, self.config.rss_retention)
+        widens = (plan.max_parallel_partitions, plan.max_parallel_files) > (
+            slice_plan.max_parallel_partitions,
+            slice_plan.max_parallel_files,
+        )
+        return plan if plan.fits and widens else None
+
+    def _take_borrowed(self, reserve_mb: float, usable_mb: float) -> bool:
+        """Reserve a borrowed plan if it still fits the borrow rule. A borrow never waits."""
+        with self._lock:
+            if reserve_mb > self._borrowable_mb(usable_mb) + _ROOM_TOLERANCE_MB:
+                return False
+            self._take(reserve_mb)
+            return True
+
     @contextlib.asynccontextmanager
     async def admit(
         self,
@@ -860,6 +1155,10 @@ class MemoryGovernor:
         mode an upsert predicted above its slice reserves up to the whole usable pod, and entry
         waits (bounded by ``max_wait_s``) until the reservation fits beside the ones in flight.
         In every mode but off, the process RSS is sampled from the end of any wait until exit.
+
+        When the slice-sized plan is narrower than the widest plan, the upsert can borrow idle pod
+        memory (``_borrowable_mb``) up to ``borrow_max_slices`` slices. Borrow advisory only logs the
+        borrowed plan. Borrow enforce, with enforce mode, runs it and holds its reservation.
         """
         source_mb = source_bytes / MB
 
@@ -869,6 +1168,7 @@ class MemoryGovernor:
 
         limit_mb = self.pod.limit_mb()
         plan: UpsertPlan | None = None
+        borrowed: UpsertPlan | None = None
         budget_mb: float | None = None
         usable_mb = reserve_mb = 0.0
         # No cgroup limit visible (local dev / unreadable): we can't size a slice, so use deltalite's
@@ -879,34 +1179,57 @@ class MemoryGovernor:
             plan = size_upsert(budget_mb, source_mb, n_partitions, rewrite, self.config.rss_retention)
             # Capped at the usable pod so an upsert alone always fits and never waits for itself.
             reserve_mb = min(plan.predicted_peak_mb, usable_mb)
+            # An unknown shape is sized by a guess, so it never borrows on top of it.
+            if rewrite is not None:
+                borrowed = self._borrowed_plan(plan, budget_mb, usable_mb, source_mb, n_partitions, rewrite)
 
         # Only enforce reserves against the budget (and may wait for room); advisory is a pure
         # no-op on the accounting.
         admitted = False
+        borrow_applied = False
         waited_s, timed_out = 0.0, False
         if plan is not None and self.config.mode == "enforce":
-            waited_s, timed_out = await self._reserve(reserve_mb, usable_mb)
+            if (
+                borrowed is not None
+                and self.config.borrow_mode == "enforce"
+                and self._take_borrowed(borrowed.predicted_peak_mb, usable_mb)
+            ):
+                borrow_applied = True
+                reserve_mb = borrowed.predicted_peak_mb
+            else:
+                waited_s, timed_out = await self._reserve(reserve_mb, usable_mb)
             admitted = True
+        applied = borrowed if borrow_applied else plan
         with self._lock:
             self._active += 1
             concurrent = self._active
 
         adm = Admission(
-            upsert_kwargs=plan.as_upsert_kwargs() if plan is not None and admitted else {},
+            upsert_kwargs=applied.as_upsert_kwargs() if applied is not None and admitted else {},
             mode=self.config.mode,
-            predicted_peak_mb=plan.predicted_peak_mb if plan is not None else None,
+            predicted_peak_mb=applied.predicted_peak_mb if applied is not None else None,
             budget_mb=round(budget_mb, 1) if budget_mb is not None else None,
-            planned_mpp=plan.max_parallel_partitions if plan is not None else None,
-            planned_mpf=plan.max_parallel_files if plan is not None else None,
+            planned_mpp=applied.max_parallel_partitions if applied is not None else None,
+            planned_mpf=applied.max_parallel_files if applied is not None else None,
+            # Measured against the slice, so the ops signal keeps its meaning when the upsert borrows.
             capacity_exceeded=plan is not None and not plan.fits,
-            estimate=plan.estimate if plan is not None else None,
+            estimate=applied.estimate if applied is not None else None,
             max_row_group_mb=round(rewrite.max_row_group_mb, 1) if rewrite is not None else None,
+            row_group_sized_files=rewrite.row_group_sized_files if rewrite is not None else None,
+            footers_read=rewrite.footers_read if rewrite is not None else None,
             rewrite_total_mb=round(rewrite.total_mb, 1) if rewrite is not None else None,
             rewrite_files=rewrite.files if rewrite is not None else None,
+            columns=rewrite.columns if rewrite is not None else None,
             concurrent_upserts=concurrent,
             reserved_slots=round(reserve_mb / budget_mb, 2) if budget_mb else None,
             wait_ms=round(waited_s * 1000),
             wait_timed_out=timed_out,
+            borrow_slots=round(borrowed.predicted_peak_mb / budget_mb, 2)
+            if borrowed is not None and budget_mb
+            else None,
+            borrow_mpp=borrowed.max_parallel_partitions if borrowed is not None else None,
+            borrow_mpf=borrowed.max_parallel_files if borrowed is not None else None,
+            borrow_applied=borrow_applied,
         )
         if plan is not None:
             self._emit_decision(adm, source_mb)
@@ -932,13 +1255,16 @@ class MemoryGovernor:
         if adm.capacity_exceeded:
             logger.warning(
                 "deltalite governor: source %.0f MB with %.0f MB row groups exceeds its %.0f MB "
-                "per-upsert slice (max_concurrent=%d); running deltalite at mpp=1, mpf=1 and "
-                "reserving %.2f slices (waited %d ms, timed out: %s).",
+                "per-upsert slice (max_concurrent=%d); running deltalite at mpp=%s, mpf=%s and "
+                "reserving %.2f slices (borrowed: %s, waited %d ms, timed out: %s).",
                 source_mb,
                 adm.max_row_group_mb or 0.0,
                 adm.budget_mb or 0.0,
                 self.config.max_concurrent,
+                adm.planned_mpp,
+                adm.planned_mpf,
                 adm.reserved_slots or 0.0,
+                adm.borrow_applied,
                 adm.wait_ms,
                 adm.wait_timed_out,
             )

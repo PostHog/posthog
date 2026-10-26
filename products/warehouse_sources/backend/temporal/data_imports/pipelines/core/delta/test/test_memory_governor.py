@@ -8,6 +8,8 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import pyarrow.fs as pafs
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import memory_governor as _mg
@@ -24,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     predict_upsert_memory,
     rewrite_profile,
     size_upsert,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+    RowGroupSizeReader,
+    RowGroupSizes,
+    _FooterCache,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 
@@ -71,12 +78,31 @@ def _governor(
     return MemoryGovernor(config, _FakePod(limit_mb, current_mb), rss_sampler=rss_sampler, **timing)
 
 
-def _profile(*partitions: list[float], target_mb: float = 100.0, table_files: int = 0) -> RewriteProfile:
-    """A profile from per-partition candidate file sizes in MB."""
+def _profile(
+    *partitions: list[float],
+    target_mb: float = 100.0,
+    table_files: int = 0,
+    columns: int = 64,
+    decoded_mb: float | None = None,
+    source_mb_per_partition: float = 0.0,
+    row_group_mb: float | None = None,
+) -> RewriteProfile:
+    """A profile from per-partition candidate file sizes in MB, each file of row groups up to ``row_group_mb``."""
     return RewriteProfile(
-        partitions=tuple(PartitionShape.of([round(size * MB) for size in sizes]) for sizes in partitions),
+        partitions=tuple(
+            PartitionShape.of(
+                [round(size * MB) for size in sizes],
+                source_bytes=round(source_mb_per_partition * MB),
+                decoded_bytes=None if decoded_mb is None else round(decoded_mb * MB),
+                row_group_bytes=None
+                if row_group_mb is None
+                else [round(min(size, row_group_mb) * MB) for size in sizes],
+            )
+            for sizes in partitions
+        ),
         table_files=table_files,
         target_file_size=round(target_mb * MB),
+        columns=columns,
     )
 
 
@@ -92,28 +118,37 @@ _SMALL = _profile(*([[0.5] * 6] * 10))
 _WIDE = _profile([57.0] * 24)
 #: The production slice: (29 GiB x 0.8 - 2048) / 16.
 _SLOT = 1356.8
+#: The same slice at a 14 GiB limit: (14 GiB x 0.8 - 2048) / 16.
+_SLOT_14GI = 588.8
 
 
 class TestPredictUpsertMemory:
-    # Per reader: the row group plus min(22, 0.4 x row group) of page buffers.
-    # Per worker: 2.3 x min(target, partition bytes written). Decode: 0.875 x min(64, 1.5 x held).
-    # Fixed: 6 + 0.73 x source + (2.2 KB x table files + 2.6 KB x candidate files) / 1024.
+    # Readers: row group + min(22, 0.4 x row group) each, scaled down so all readers of the upsert
+    # hold at most max(128 MB, largest row group). Per worker: 1.8 x min(target, written) +
+    # 0.8 x columns x min(1, file / 32). Decode: 0.875 x min(64, decoded candidates), 64 when unknown.
+    # Fixed: 8 + 0.73 x source + (2.2 KB x table files + 2.6 KB x candidate files) / 1024.
     @parameterized.expand(
         [
-            # 4 x 4 x (0.5 + 0.2) = 11.2; 4 x 2.3 x 3 = 27.6; 0.875 x 1.5 x 8 = 10.5; 6 + 60 x 2.6 / 1024.
-            ("small_files", _SMALL, 0.0, 4, 4, (11.2, 27.6, 10.5, 6.2)),
-            # 4 x (100 + 22) = 488: the reader term follows the row group, not the 1 GB partition.
-            ("single_large_row_groups", _profile([100.0] * 10), 0.0, 1, 4, (488.0, 230.0, 56.0, 6.0)),
-            ("one_reader", _profile([100.0] * 10), 0.0, 1, 1, (122.0, 230.0, 56.0, 6.0)),
-            ("small_target_file_size", _profile([100.0] * 10, target_mb=32.0), 0.0, 1, 4, (488.0, 73.6, 56.0, 6.0)),
-            # (100 + 22) + (10 + 4) + (1 + 0.4) + 4 x 0.7 = 140.2; 230 + 2.3 x 3 = 236.9.
+            # 4 x 4 x (0.5 + 0.2) = 11.2; 4 x (1.8 x 3 + 0.8 x 64 x 3 / 32) = 40.8; 8 + 60 x 2.6 / 1024.
+            ("small_files", _SMALL, 0.0, 4, 4, (11.2, 40.8, 56.0, 8.2)),
+            # Four 100 MB row groups want 400 MB; the 128 MB fetch budget holds 0.32 of 4 x 122.
+            ("fetch_budget_caps_readers", _profile([100.0] * 10), 0.0, 1, 4, (156.2, 231.2, 56.0, 8.0)),
+            ("one_reader", _profile([100.0] * 10), 0.0, 1, 1, (122.0, 231.2, 56.0, 8.0)),
+            # A row group above the budget takes all of it and runs alone: 200 + 22.
+            ("row_group_above_the_budget_runs_alone", _profile([200.0] * 4), 0.0, 1, 4, (222.0, 231.2, 56.0, 8.0)),
+            # 1.8 x 32 + 0.8 x 64 = 108.8.
+            ("small_target_file_size", _profile([100.0] * 10, target_mb=32.0), 0.0, 1, 4, (156.2, 108.8, 56.0, 8.0)),
+            # Per-column buffers: 1.8 x 100 + 0.8 x 200 = 340 against 1.8 x 100 + 0.8 x 7 = 185.6.
+            ("wide_table_writer", _profile([100.0], columns=200), 0.0, 1, 1, (122.0, 340.0, 56.0, 8.0)),
+            ("narrow_table_writer", _profile([100.0], columns=7), 0.0, 1, 1, (122.0, 185.6, 56.0, 8.0)),
+            # (100 + 22) + (10 + 4) + (1 + 0.4) + 4 x 0.7 = 140.2 stays under the budget.
             (
                 "mixed_partitions_both_run",
                 _profile([100.0, 10.0, 1.0], [0.5] * 6),
                 0.0,
                 2,
                 4,
-                (140.2, 236.9, 56.0, 6.0),
+                (140.2, 241.4, 56.0, 8.0),
             ),
             (
                 "one_worker_takes_the_costliest",
@@ -121,26 +156,36 @@ class TestPredictUpsertMemory:
                 0.0,
                 1,
                 4,
-                (137.4, 230.0, 56.0, 6.0),
+                (137.4, 231.2, 56.0, 8.0),
             ),
-            ("more_workers_than_partitions", _profile([100.0]), 0.0, 4, 4, (122.0, 230.0, 56.0, 6.0)),
-            # 6 + 0.73 x 10 = 13.3.
+            ("more_workers_than_partitions", _profile([100.0]), 0.0, 4, 4, (122.0, 231.2, 56.0, 8.0)),
+            # A 4 MB file of compressible rows decodes to 500 MB: the decode budget fills.
+            (
+                "compressible_file_fills_the_decode_budget",
+                _profile([4.0], decoded_mb=500.0),
+                0.0,
+                1,
+                1,
+                (5.6, 13.6, 56.0, 8.0),
+            ),
+            ("small_decoded_volume", _profile([4.0], decoded_mb=8.0), 0.0, 1, 1, (5.6, 13.6, 7.0, 8.0)),
+            # Nothing to read: 1.8 x 10 + 0.8 x 64 x 10 / 32 = 34; 8 + 0.73 x 10 = 15.3.
             (
                 "insert_only_partition",
                 RewriteProfile(partitions=(PartitionShape.of([], source_bytes=10 * MB),)),
                 10.0,
                 1,
                 4,
-                (0.0, 23.0, 0.0, 13.3),
+                (0.0, 34.0, 0.0, 15.3),
             ),
-            # 6 + (2.2 x 10000 + 2.6 x 60) / 1024 = 27.6.
+            # 8 + (2.2 x 10000 + 2.6 x 60) / 1024 = 29.6.
             (
                 "large_table_snapshot",
                 _profile(*([[0.5] * 6] * 10), table_files=10_000),
                 0.0,
                 4,
                 4,
-                (11.2, 27.6, 10.5, 27.6),
+                (11.2, 40.8, 56.0, 29.6),
             ),
         ]
     )
@@ -164,6 +209,13 @@ class TestPredictUpsertMemory:
         assert (a.reader_mb, a.writer_mb, a.decode_mb) == (b.reader_mb, b.writer_mb, b.decode_mb)
         assert b.fixed_mb - a.fixed_mb < 0.003 * (larger.files - smaller.files)
 
+    def test_readers_never_hold_more_than_the_fetch_budget(self):
+        # Eight readers of 57 MB row groups ask for 456 MB, but the upsert holds 128 MB of it.
+        one = predict_upsert_memory(_WIDE, 0.0, 1, 1)
+        eight = predict_upsert_memory(_WIDE, 0.0, 1, 8)
+        assert eight.reader_mb == pytest.approx(128.0 / 456.0 * 8 * (57.0 + 22.0), abs=0.1)
+        assert eight.reader_mb < 3 * one.reader_mb
+
     def test_decode_uses_an_independent_costliest_worker_bound(self):
         profile = RewriteProfile(
             partitions=(
@@ -172,8 +224,9 @@ class TestPredictUpsertMemory:
             )
         )
         estimate = predict_upsert_memory(profile, 50.0, 1, 1, retention=1.0)
-        assert estimate.writer_mb == pytest.approx(115.0)
-        assert estimate.decode_mb == pytest.approx(32.8)
+        # The insert-only partition writes the most, the other one decodes: both count.
+        assert estimate.writer_mb == pytest.approx(1.8 * 50 + 0.8 * 64)
+        assert estimate.decode_mb == pytest.approx(56.0)
 
     def test_retention_scales_only_the_rss(self):
         low = predict_upsert_memory(_WIDE, 0.0, 1, 4, retention=1.4)
@@ -182,48 +235,163 @@ class TestPredictUpsertMemory:
         assert low.rss_mb == pytest.approx(low.inuse_mb * 1.4, abs=0.2)
         assert high.rss_mb == pytest.approx(high.inuse_mb * 2.0, abs=0.2)
 
+    # Peak RSS measured for these synthetic shapes on deltalite 0.1.10 (Linux, glibc,
+    # MALLOC_MMAP_THRESHOLD_=131072, a warm process).
+    @parameterized.expand(
+        [
+            # 1.9M rows in one 8 MB file per partition, 43 columns: decodes to ~100x its stored size.
+            (
+                "compressible_files",
+                _profile(*([[8.1]] * 2), columns=43, decoded_mb=815.0, source_mb_per_partition=1.3),
+                2.4,
+                1,
+                1,
+                141.6,
+            ),
+            (
+                "compressible_files_two_workers",
+                _profile(*([[8.1]] * 2), columns=43, decoded_mb=815.0, source_mb_per_partition=1.3),
+                2.4,
+                2,
+                8,
+                159.3,
+            ),
+            (
+                "wide_table",
+                _profile(*([[46.6] * 4] * 4), columns=202, decoded_mb=249.2, source_mb_per_partition=2.7),
+                10.8,
+                1,
+                1,
+                621.5,
+            ),
+            (
+                "small_target_file_size",
+                _profile(
+                    *([[27.3] * 6] * 4), target_mb=32.0, columns=31, decoded_mb=214.3, source_mb_per_partition=0.4
+                ),
+                1.6,
+                1,
+                1,
+                254.0,
+            ),
+            (
+                "wide_table_four_workers",
+                _profile(*([[46.6] * 4] * 4), columns=202, decoded_mb=249.2, source_mb_per_partition=2.7),
+                10.8,
+                4,
+                1,
+                1365.4,
+            ),
+            (
+                "narrow_table_large_row_groups",
+                _profile(*([[75.4] * 4] * 4), columns=7, decoded_mb=400.6, source_mb_per_partition=0.1),
+                0.3,
+                1,
+                1,
+                426.4,
+            ),
+            (
+                "large_insert_of_narrow_rows",
+                RewriteProfile(partitions=(PartitionShape.of([], source_bytes=round(332.2 * MB)),), columns=7),
+                332.2,
+                1,
+                1,
+                492.9,
+            ),
+        ]
+    )
+    def test_prediction_covers_the_measured_peak(self, _name, profile, source_mb, mpp, mpf, measured_rss_mb):
+        assert predict_upsert_memory(profile, source_mb, mpp, mpf, retention=1.4).rss_mb >= measured_rss_mb
+
 
 class TestSizeUpsert:
     @parameterized.expand(
         [
-            ("small_files_take_the_widest_plan", _SMALL, None, 2.0, 4, 4, True),
-            # (1, 8) = 2 x 931.4 does not fit; (1, 4) = 2 x 615.4 does.
-            ("large_row_groups_step_readers_down", _WIDE, None, 2.0, 1, 4, True),
-            ("lower_retention_allows_more_readers", _WIDE, None, 1.4, 1, 8, True),
-            ("larger_row_groups_step_further", _profile([99.0] * 12 + [8.5] * 12), None, 2.0, 1, 2, True),
-            # Two workers of two readers beat one worker of four: workers come first.
-            ("workers_before_readers", _profile(*([[57.0] * 6] * 4)), None, 1.4, 2, 2, True),
-            ("partition_cap_fills_readers", _SMALL, 2, 2.0, 2, 8, True),
-            ("single_small_partition_gets_the_widest_worker", _profile([0.5] * 6), None, 2.0, 1, 8, True),
-            ("three_partitions_share_the_reader_ceiling", _profile(*([[0.5] * 6] * 3)), None, 2.0, 3, 5, True),
-            # One 1 GB row group per reader: even (1, 1) is 2 x (1024 + 22 + 230 + 56 + 13.3) > slot.
-            ("huge_row_group_does_not_fit", _profile([1024.0] * 3), None, 2.0, 1, 1, False),
-            # Unknown shapes assume target-sized files: (1, 2) = 2 x (244 + 230 + 56 + 13.4).
-            ("unknown_shape_is_conservative", None, 4, 2.0, 1, 2, True),
+            ("small_files_take_the_widest_plan", _SMALL, None, 2.0, _SLOT, 4, 4, True),
+            # The fetch budget bounds the readers, so large row groups keep every reader.
+            ("fetch_budget_keeps_readers_on_large_row_groups", _WIDE, None, 1.4, _SLOT, 1, 8, True),
+            # (1, 2) = 1.4 x 460.6 does not fit 588.8; (1, 1) = 1.4 x 381.6 does.
+            ("small_slot_steps_readers_down", _WIDE, None, 1.4, _SLOT_14GI, 1, 1, True),
+            ("workers_before_readers", _profile(*([[57.0] * 6] * 4)), None, 1.4, _SLOT, 3, 5, True),
+            ("partition_cap_fills_readers", _SMALL, 2, 2.0, _SLOT, 2, 8, True),
+            ("single_small_partition_gets_the_widest_worker", _profile([0.5] * 6), None, 2.0, _SLOT, 1, 8, True),
+            ("three_partitions_share_the_reader_ceiling", _profile(*([[0.5] * 6] * 3)), None, 2.0, _SLOT, 3, 5, True),
+            # One 1 GB row group: even (1, 1) is 2 x (1024 + 22 + 231.2 + 56 + 15.3) > slot.
+            ("huge_row_group_does_not_fit", _profile([1024.0] * 3), None, 2.0, _SLOT, 1, 1, False),
+            # Unknown shapes assume target-sized files of 64 columns in every worker.
+            ("unknown_shape_is_conservative", None, 4, 1.4, _SLOT, 3, 5, True),
+            ("unknown_shape_does_not_fit_a_small_slot", None, 4, 1.4, _SLOT_14GI, 1, 1, False),
+            # The same partitions of wide rows in default-size files and in 32 MB files: the smaller row
+            # groups and write buffers leave room for more workers and readers in the same slice.
+            (
+                "wide_rows_in_default_files",
+                _profile(*([[100.0] * 2] * 4), columns=30),
+                None,
+                1.4,
+                _SLOT_14GI,
+                1,
+                1,
+                True,
+            ),
+            (
+                "wide_rows_in_smaller_files",
+                _profile(*([[32.0] * 6] * 4), columns=30, target_mb=32.0),
+                None,
+                1.4,
+                _SLOT_14GI,
+                2,
+                8,
+                True,
+            ),
+            # The same default-size files written as 16 MB row groups: each reader holds 16 MB, not 100.
+            (
+                "wide_rows_in_16mb_row_groups",
+                _profile(*([[100.0] * 2] * 4), columns=30, row_group_mb=16.0),
+                None,
+                1.4,
+                _SLOT_14GI,
+                1,
+                8,
+                True,
+            ),
+            ("single_row_group_files_take_one_worker", _profile(*([[130.0] * 2] * 4)), None, 2.0, _SLOT, 1, 8, True),
+            (
+                "small_row_groups_take_two_workers",
+                _profile(*([[130.0] * 2] * 4), row_group_mb=16.0),
+                None,
+                2.0,
+                _SLOT,
+                2,
+                8,
+                True,
+            ),
+            # Three 130 MB single-row-group files overflow a 900 MB slice; in 16 MB row groups they fit 1 x 8.
+            ("single_row_group_files_overflow", _profile([130.0] * 3), None, 2.0, 900.0, 1, 1, False),
+            ("small_row_groups_fit", _profile([130.0] * 3, row_group_mb=16.0), None, 2.0, 900.0, 1, 8, True),
         ]
     )
-    def test_sizing(self, _name, profile, n_partitions, retention, exp_mpp, exp_files, exp_fits):
-        plan = size_upsert(_SLOT, 10.0, n_partitions, profile, retention)
+    def test_sizing(self, _name, profile, n_partitions, retention, slot, exp_mpp, exp_files, exp_fits):
+        plan = size_upsert(slot, 10.0, n_partitions, profile, retention)
         assert (plan.max_parallel_partitions, plan.max_parallel_files, plan.fits) == (exp_mpp, exp_files, exp_fits)
         assert plan.max_parallel_partitions * plan.max_parallel_files <= 16
         assert plan.predicted_peak_mb == plan.estimate.rss_mb
         if exp_fits:
-            assert plan.predicted_peak_mb <= _SLOT
-        kwargs = plan.as_upsert_kwargs()
-        assert set(kwargs) == {
-            "max_parallel_partitions",
-            "max_parallel_files",
-            "max_buffered_bytes",
-            "probe_concurrency",
-        }
+            assert plan.predicted_peak_mb <= slot
         # Probes are budgeted against max_buffered_bytes, so the raised concurrency goes out in
-        # every plan; leaving it out would silently hand deltalite its default of 8.
-        assert kwargs["probe_concurrency"] == 32
+        # every plan; leaving it out would silently hand deltalite its default of 8. The reader
+        # term assumes the fetch budget, so it goes out too.
+        assert plan.as_upsert_kwargs() == {
+            "max_parallel_partitions": plan.max_parallel_partitions,
+            "max_parallel_files": plan.max_parallel_files,
+            "max_buffered_bytes": 64 * MB,
+            "max_fetch_bytes": 128 * MB,
+            "probe_concurrency": 32,
+        }
 
     def test_the_chosen_plan_is_the_first_that_fits(self):
-        plan = size_upsert(_SLOT, 10.0, None, _WIDE)
-        wider = predict_upsert_memory(_WIDE, 10.0, 1, 8)
-        assert wider.rss_mb > _SLOT >= plan.predicted_peak_mb
+        plan = size_upsert(_SLOT_14GI, 10.0, None, _WIDE, 1.4)
+        wider = predict_upsert_memory(_WIDE, 10.0, 1, 2, retention=1.4)
+        assert wider.rss_mb > _SLOT_14GI >= plan.predicted_peak_mb
 
     def test_empty_source_sizes_one_idle_worker(self):
         plan = size_upsert(_SLOT, 0.0, None, RewriteProfile(partitions=(), table_files=10))
@@ -380,8 +548,20 @@ class TestGovernorSizing:
         gov = _governor("advisory")
         async with gov.admit(source_bytes=MB, rewrite=_WIDE) as adm:
             pass
-        assert (adm.max_row_group_mb, adm.rewrite_files, adm.rewrite_total_mb) == (57.0, 24, 1368.0)
-        assert adm.estimate is not None and adm.estimate.reader_mb > adm.estimate.writer_mb
+        assert (adm.max_row_group_mb, adm.rewrite_files, adm.rewrite_total_mb, adm.columns) == (57.0, 24, 1368.0, 64)
+
+    @parameterized.expand(
+        [
+            ("narrow_plan_can_widen", "enforce", 15_000.0, _profile(*([[130.0] * 2] * 4)), True),
+            ("advisory_sizes_a_plan_too", "advisory", 15_000.0, _profile(*([[130.0] * 2] * 4)), True),
+            ("widest_plan_cannot_widen", "enforce", 30_000.0, _SMALL, False),
+            ("off_sizes_no_plan", "off", 15_000.0, _profile(*([[130.0] * 2] * 4)), False),
+            ("no_pod_limit_sizes_no_plan", "enforce", None, _profile(*([[130.0] * 2] * 4)), False),
+        ]
+    )
+    def test_row_groups_can_widen_only_a_narrow_plan(self, _name, mode, limit_mb, profile, expected):
+        gov = _governor(mode, limit_mb=limit_mb)
+        assert gov.row_groups_can_widen(profile, source_bytes=10 * MB) is expected
 
     async def test_reservation_released_on_exception(self):
         sampler = _fake_sampler(1_000.0, 1_000.0)
@@ -505,12 +685,14 @@ _FILES = [
 ]
 
 
-def _add_actions(files=_FILES, *, with_stats=True) -> pa.Table:
+def _add_actions(files=_FILES, *, with_stats=True, num_records=None) -> pa.Table:
     columns = {
         "path": [f"{_PART}={p}/f{i}.parquet" for i, (p, *_rest) in enumerate(files)],
         "size_bytes": pa.array([f[1] for f in files], pa.int64()),
         f"partition.{_PART}": [f[0] for f in files],
     }
+    if num_records is not None:
+        columns["num_records"] = pa.array(num_records, pa.int64())
     if with_stats:
         columns["min.id"] = pa.array([f[2] for f in files], pa.int64())
         columns["max.id"] = pa.array([f[3] for f in files], pa.int64())
@@ -547,7 +729,7 @@ class TestRewriteProfile:
     )
     def test_profile(self, _name, source, partition_col, expected_files, expected_count):
         profile = rewrite_profile(_add_actions(), source, partition_col, ["id"])
-        assert tuple(p.largest_file_bytes for p in profile.partitions) == expected_files
+        assert tuple(p.largest_row_group_bytes for p in profile.partitions) == expected_files
         assert profile.files == expected_count
         assert profile.table_files == len(_FILES)
         # Each partition carries its share of the source, for the bytes its worker writes.
@@ -565,12 +747,29 @@ class TestRewriteProfile:
         source = _source([("a", 5000), ("a", 5001), ("a", 5002)])
         source = source.append_column("other", pa.array([1, 2, 3], pa.int64()))
         profile = rewrite_profile(add_actions, source, _PART, primary_keys)
-        assert [(p.largest_file_bytes, p.stored_bytes) for p in profile.partitions] == [((100, 50, 30), 180)]
+        assert [(p.largest_row_group_bytes, p.stored_bytes) for p in profile.partitions] == [((100, 50, 30), 180)]
+
+    @parameterized.expand(
+        [
+            # a's two candidates hold 40 + 60 rows.
+            ("rows_size_the_decoded_volume", [10, 40, 60, 5, 7], True),
+            # A file without a row count leaves the volume unknown, which sizes it at the budget.
+            ("missing_row_count_is_unknown", [10, 40, None, 5, 7], False),
+            ("no_row_counts_is_unknown", None, False),
+        ]
+    )
+    def test_decoded_volume_and_columns(self, _name, num_records, known):
+        source = _source([("a", 150), ("a", 250)])
+        profile = rewrite_profile(_add_actions(num_records=num_records), source, _PART, ["id"])
+        shape = profile.partitions[0]
+        assert shape.stored_bytes == 80
+        assert shape.decoded_bytes == (round(100 * source.nbytes / source.num_rows) if known else None)
+        assert profile.columns == 2
 
     def test_one_source_row_can_match_duplicate_keys_in_multiple_files(self):
         files = [("a", 100, 100, 200), ("a", 50, 150, 250)]
         profile = rewrite_profile(_add_actions(files), _source([("a", 175)]), _PART, ["id"])
-        assert (profile.partitions[0].largest_file_bytes, profile.files) == ((100, 50), 2)
+        assert (profile.partitions[0].largest_row_group_bytes, profile.files) == ((100, 50), 2)
 
     def test_string_keys_are_not_pruned(self):
         # Delta truncates long string stats, so a string max proves nothing.
@@ -586,7 +785,7 @@ class TestRewriteProfile:
         files = [("a", size, 0, 99) for size in range(1, 21)]
         source = _source([("a", i) for i in range(20)])
         shape = rewrite_profile(_add_actions(files), source, _PART, ["id"]).partitions[0]
-        assert shape.largest_file_bytes == (20, 19, 18, 17, 16, 15, 14, 13)
+        assert shape.largest_row_group_bytes == (20, 19, 18, 17, 16, 15, 14, 13)
         assert (shape.files, shape.stored_bytes) == (20, sum(range(1, 21)))
 
     @parameterized.expand(
@@ -597,7 +796,7 @@ class TestRewriteProfile:
     )
     def test_nothing_to_rewrite(self, _name, files, source, expected_files, table_files):
         profile = rewrite_profile(_add_actions(files), source, _PART, ["id"])
-        assert tuple(p.largest_file_bytes for p in profile.partitions) == expected_files
+        assert tuple(p.largest_row_group_bytes for p in profile.partitions) == expected_files
         assert (profile.files, profile.total_mb, profile.max_row_group_mb, profile.table_files) == (
             0,
             0.0,
@@ -630,6 +829,87 @@ class TestRewriteProfile:
         )
         assert (profile.files, profile.table_files, profile.target_file_size) == (2, 3, expected_target)
         assert profile.max_row_group_mb == max(sizes[f"{_PART}=a"], sizes[f"{_PART}=b"]) / MB
+
+    @parameterized.expand(
+        [
+            # a/f0 holds row groups of 10 bytes at most; the other files keep their size.
+            ("footer_bounds_the_reader", {f"{_PART}=a/f0.parquet": 10}, (50, 30, 10), 1),
+            # A footer cannot report more than the file holds; the file size still bounds it.
+            ("never_above_the_file_size", {f"{_PART}=a/f0.parquet": 500}, (100, 50, 30), 1),
+            ("unread_files_keep_their_size", {"elsewhere.parquet": 1}, (100, 50, 30), 0),
+        ]
+    )
+    def test_row_groups_bound_the_readers(self, _name, bytes_by_path, expected, sized):
+        row_groups = RowGroupSizes(bytes_by_path=bytes_by_path, footers_read=2)
+        source = _source([("a", 5), ("a", 150), ("a", 250)])
+        profile = rewrite_profile(_add_actions(), source, _PART, ["id"], row_groups=row_groups)
+        shape = profile.partitions[0]
+        assert shape.largest_row_group_bytes == expected
+        assert (shape.files, shape.stored_bytes) == (3, 180)
+        assert (profile.row_group_sized_files, profile.footers_read) == (sized, 2)
+
+    @pytest.mark.parametrize(
+        "reader,wants,sized",
+        [
+            ("local", None, True),
+            # The setting off passes no reader: today's whole-file sizing.
+            (None, None, False),
+            # A plan that is already the widest gains nothing from footers, so none are read.
+            ("local", False, False),
+            ("broken", None, False),
+        ],
+        ids=["reads_the_footers", "no_reader", "widest_plan_reads_nothing", "unreadable_footers"],
+    )
+    def test_estimate_sizes_readers_by_their_row_groups(self, reader, wants, sized, tmp_path: Path):
+        existing = pa.table(
+            {
+                _PART: ["a"] * 2000 + ["b"] * 2000,
+                "id": pa.array(range(4000), pa.int64()),
+                "v": [f"value-{i:06d}" * 8 for i in range(4000)],
+            }
+        )
+        deltalake.write_deltalake(
+            str(tmp_path),
+            existing,
+            partition_by=_PART,
+            writer_properties=deltalake.WriterProperties(max_row_group_size=250, compression="UNCOMPRESSED"),
+        )
+        table = deltalake.DeltaTable(str(tmp_path))
+        sizes = table._table.get_add_file_sizes()
+        footers = [pq.read_metadata(tmp_path / path) for path in sizes]
+        largest_row_group = max(
+            sum(m.row_group(i).column(c).total_compressed_size for c in range(m.num_columns))
+            for m in footers
+            for i in range(m.num_row_groups)
+        )
+
+        def _broken(_sizes) -> pafs.FileSystem:
+            raise OSError("unreachable")
+
+        readers = {
+            "local": RowGroupSizeReader(str(tmp_path), cache=_FooterCache(10)),
+            "broken": RowGroupSizeReader(str(tmp_path), open_filesystem=_broken, cache=_FooterCache(10)),
+            None: None,
+        }
+        with patch.object(_mg, "_ROW_GROUP_PROBE_MIN_BYTES", 0):
+            profile = estimate_rewrite_profile(
+                table,
+                _source([("a", 5), ("b", 2500)]),
+                _PART,
+                ["id"],
+                readers[reader],
+                None if wants is None else lambda _profile: wants,
+            )
+
+        assert profile is not None
+        assert (profile.files, profile.total_mb) == (2, sum(sizes.values()) / MB)
+        if sized:
+            assert largest_row_group < max(sizes.values()) / 4
+            assert profile.max_row_group_mb == largest_row_group / MB
+            assert (profile.row_group_sized_files, profile.footers_read) == (2, 2)
+        else:
+            assert profile.max_row_group_mb == max(sizes.values()) / MB
+            assert (profile.row_group_sized_files, profile.footers_read) == (0, 0)
 
     def test_estimate_unreadable_table_is_unknown(self):
         broken = MagicMock()
@@ -784,3 +1064,173 @@ class TestOverSlotReservation:
         assert adm.upsert_kwargs == {} and adm.reserved_slots == 4.0
         assert (gov._reserved_mb, gov._inflight, fake.sleeps) == (0.0, 0, 0)
         await self._exit(cm)
+
+
+class TestBorrowIdleMemory:
+    # 16 slices of 500 MB. Wide-row merges: 8 partitions of 33 MB files under a 250 MB source, so the
+    # slice-sized plan is (1, 1) at 748.9 MB, above the slice. 4 slices fit (4, 4) at 1504.5 MB.
+    _WIDE_ROWS = _profile(*([[33.0] * 8] * 8), target_mb=32.0, columns=30)
+    _SOURCE = 250 * MB
+    _SLICE_PLAN_MB = 748.9
+
+    @staticmethod
+    def _gov(
+        mode: str = "enforce",
+        borrow_mode: str = "enforce",
+        *,
+        limit_mb: float = 8_000.0,
+        max_concurrent: int = 16,
+        clock=None,
+        sleep=None,
+        **cfg,
+    ) -> MemoryGovernor:
+        config = GovernorConfig(
+            **{
+                "mode": mode,
+                "borrow_mode": borrow_mode,
+                "safety": 1.0,
+                "reserve_mb": 0.0,
+                "max_concurrent": max_concurrent,
+                "probe_cache_mb": 0.0,
+                "rss_sample_ms": 0.0,
+                **cfg,
+            }
+        )
+        timing = {k: v for k, v in (("clock", clock), ("sleep", sleep)) if v is not None}
+        return MemoryGovernor(config, _FakePod(limit_mb, 1_000.0), **timing)
+
+    @parameterized.expand(
+        [
+            ("idle_pod_borrows_up_to_k_slices", {}, 0, _WIDE_ROWS, (4, 4)),
+            ("k_caps_the_borrow", {"borrow_max_slices": 2.0}, 0, _WIDE_ROWS, (1, 2)),
+            ("half_of_free_memory_caps_the_borrow", {}, 10, _WIDE_ROWS, (3, 5)),
+            ("busy_pod_borrows_nothing", {}, 13, _WIDE_ROWS, None),
+            ("probe_cache_is_not_borrowed", {"probe_cache_mb": 1_000.0}, 10, _WIDE_ROWS, (1, 2)),
+            ("pod_reserve_is_not_borrowed", {"limit_mb": 10_000.0, "reserve_mb": 2_000.0}, 10, _WIDE_ROWS, (3, 5)),
+            ("safety_margin_is_not_borrowed", {"limit_mb": 10_000.0, "safety": 0.8}, 10, _WIDE_ROWS, (3, 5)),
+            ("widest_slice_plan_borrows_nothing", {"limit_mb": 30_000.0}, 0, _SMALL, None),
+            ("unknown_shape_borrows_nothing", {}, 0, None, None),
+        ]
+    )
+    async def test_borrow(self, _name, cfg, reserved_slices, rewrite, expected):
+        gov = self._gov(**cfg)
+        budget_mb = gov.slot_budget_mb()
+        assert budget_mb is not None
+        usable_mb = budget_mb * 16
+        gov._reserved_mb = reserved_slices * budget_mb
+        free_mb = usable_mb - gov._reserved_mb - gov.config.probe_cache_mb
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=rewrite) as adm:
+            reserved_mb = gov._reserved_mb - reserved_slices * budget_mb
+            knobs = (adm.upsert_kwargs["max_parallel_partitions"], adm.upsert_kwargs["max_parallel_files"])
+            if expected is None:
+                assert (adm.borrow_mpp, adm.borrow_slots, adm.borrow_applied) == (None, None, False)
+                assert reserved_mb == pytest.approx(adm.predicted_peak_mb)
+            else:
+                assert (adm.borrow_mpp, adm.borrow_mpf) == knobs == expected
+                assert adm.borrow_applied is True and adm.capacity_exceeded is True
+                assert reserved_mb == pytest.approx(adm.predicted_peak_mb)
+                assert reserved_mb <= free_mb / 2 and reserved_mb <= gov.config.borrow_max_slices * budget_mb
+                assert adm.reserved_slots == adm.borrow_slots == round(reserved_mb / budget_mb, 2)
+        assert gov._reserved_mb == pytest.approx(reserved_slices * budget_mb)
+
+    @parameterized.expand(
+        [
+            ("borrow_off", "enforce", "off", (1, 1), None, _SLICE_PLAN_MB),
+            ("borrow_advisory_keeps_the_slice_plan", "enforce", "advisory", (1, 1), (4, 4), _SLICE_PLAN_MB),
+            ("borrow_enforce_widens_the_plan", "enforce", "enforce", (4, 4), (4, 4), 1_504.5),
+            ("governor_advisory_never_applies_a_borrow", "advisory", "enforce", None, (4, 4), 0.0),
+        ]
+    )
+    async def test_modes(self, _name, mode, borrow_mode, expected_knobs, expected_borrow, expected_reserved_mb):
+        gov = self._gov(mode, borrow_mode)
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as adm:
+            knobs = (
+                (adm.upsert_kwargs["max_parallel_partitions"], adm.upsert_kwargs["max_parallel_files"])
+                if adm.upsert_kwargs
+                else None
+            )
+            assert knobs == expected_knobs
+            assert (adm.borrow_mpp, adm.borrow_mpf) == (expected_borrow or (None, None))
+            assert adm.borrow_applied is (expected_knobs == expected_borrow)
+            assert gov._reserved_mb == pytest.approx(expected_reserved_mb)
+            if expected_knobs is not None:
+                assert (adm.planned_mpp, adm.planned_mpf) == expected_knobs
+        assert gov._reserved_mb == 0.0 and gov._inflight == 0
+
+    async def test_the_next_upsert_finds_room_without_a_wait(self):
+        async def _no_sleep(_seconds: float) -> None:
+            raise AssertionError("the upsert after a borrower must not wait")
+
+        # 4 slices: the first borrower may take only half of the 2000 MB pod.
+        gov = self._gov(limit_mb=2_000.0, max_concurrent=4, sleep=_no_sleep)
+        async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as first:
+            assert first.borrow_applied is True and (first.planned_mpp, first.planned_mpf) == (1, 2)
+            assert first.predicted_peak_mb is not None and first.predicted_peak_mb <= 1_000.0
+            async with gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS) as second:
+                assert second.borrow_applied is False and second.wait_ms == 0
+                assert (second.planned_mpp, second.planned_mpf) == (1, 1)
+                assert gov._reserved_mb == pytest.approx(first.predicted_peak_mb + self._SLICE_PLAN_MB)
+        assert gov._reserved_mb == pytest.approx(0.0)
+
+    async def test_a_borrower_never_overtakes_a_waiter(self):
+        fake = _FakeTime()
+        gov = self._gov(clock=fake.clock, sleep=fake.sleep)
+        held = gov.admit(source_bytes=50 * MB, rewrite=_SMALL)
+        await held.__aenter__()
+        # Even (1, 1) of 16 GB files is above the pod, so it waits for the pod to empty.
+        pod_sized = gov.admit(source_bytes=50 * MB, rewrite=_profile([16_384.0] * 4))
+        waiter = asyncio.create_task(pod_sized.__aenter__())
+        await _settle()
+        borrower_cm = gov.admit(source_bytes=self._SOURCE, rewrite=self._WIDE_ROWS)
+        borrower = asyncio.create_task(borrower_cm.__aenter__())
+        await _settle()
+        assert not waiter.done() and not borrower.done()
+
+        await held.__aexit__(None, None, None)
+        await _settle()
+        assert waiter.done() and not borrower.done()
+        await pod_sized.__aexit__(None, None, None)
+        await _settle()
+        adm = borrower.result()
+        assert adm.borrow_applied is False and (adm.planned_mpp, adm.planned_mpf) == (1, 1)
+        await borrower_cm.__aexit__(None, None, None)
+        assert gov._reserved_mb == 0.0 and gov._inflight == 0
+
+
+class TestBorrowConfigFromEnv:
+    @parameterized.expand(
+        [
+            ("defaults", {}, {}, ("advisory", 4.0, 128.0)),
+            (
+                "settings_and_cache_size",
+                {
+                    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW": "ENFORCE",
+                    "DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES": 2.5,
+                },
+                {"DELTALITE_PROBE_CACHE_BYTES": str(256 * MB)},
+                ("enforce", 2.5, 256.0),
+            ),
+            (
+                "invalid_mode_is_advisory",
+                {"DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW": "nonsense"},
+                {},
+                ("advisory", 4.0, 128.0),
+            ),
+            (
+                "at_least_one_slice",
+                {"DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES": 0.0},
+                {},
+                ("advisory", 1.0, 128.0),
+            ),
+            (
+                "cache_turned_off_holds_nothing",
+                {"DATA_WAREHOUSE_DELTALITE_PROBE_CACHE": False},
+                {},
+                ("advisory", 4.0, 0.0),
+            ),
+        ]
+    )
+    def test_reads_borrow_settings(self, _name, overrides, env, expected):
+        with patch.dict("os.environ", env, clear=True), override_settings(**overrides):
+            cfg = GovernorConfig.from_env()
+        assert (cfg.borrow_mode, cfg.borrow_max_slices, cfg.probe_cache_mb) == expected

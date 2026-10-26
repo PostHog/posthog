@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -38,10 +39,22 @@ export function InboxWaitingForWork(): JSX.Element {
     useMountedLogic(signalSourcesLogic)
     useMountedLogic(scoutFleetLogic)
 
-    const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
+    const { sourceConfigs, sourceConfigsLoading, hasEmittingScanner } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
     const { isWizardRunning } = useValues(inboxOnboardingLogic)
-    const enabledSources = uniqueEnabledSources(sourceConfigs)
+    const { completed } = useValues(inboxSetupLogic)
+    const enabledSources = [
+        ...uniqueEnabledSources(sourceConfigs),
+        ...(completed && hasEmittingScanner
+            ? [
+                  {
+                      id: 'replay-vision',
+                      source_product: SignalSourceProduct.ReplayVision,
+                      source_type: SignalSourceType.ScannerFinding,
+                  },
+              ]
+            : []),
+    ]
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
     const visibleSources = enabledSources.slice(0, MAX_VISIBLE_ITEMS)
     const visibleScouts = enabledScouts.slice(0, MAX_VISIBLE_ITEMS)
@@ -49,16 +62,17 @@ export function InboxWaitingForWork(): JSX.Element {
     const scoutsLoading = scoutConfigs === null || scoutConfigsLoading
 
     return (
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">
+        <div className="@container mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">
             <div className="flex flex-col items-center gap-2 text-center">
                 <h2 className="m-0 text-lg font-semibold">Your agents are working in the background</h2>
                 <p className="m-0 max-w-xl text-sm text-tertiary">
-                    Your signal sources and scouts are running in the background. When they find something actionable, a
-                    pull request will appear here.
+                    {completed
+                        ? 'Your sources are listening and your scouts will run on their schedules. Reports appear here when they find something worth investigating.'
+                        : 'Your signal sources and scouts are running in the background. When they find something actionable, a pull request will appear here.'}
                 </p>
             </div>
 
-            <div className="grid items-start gap-8 md:grid-cols-2">
+            <div className="grid items-start gap-8 @min-[40rem]:grid-cols-2">
                 <section className="flex flex-col">
                     <div className="flex items-center justify-between gap-2 border-b border-primary px-1 pb-3">
                         <div>
@@ -75,14 +89,18 @@ export function InboxWaitingForWork(): JSX.Element {
                             ) : (
                                 <>
                                     <IconCheckCircle className="size-3.5" />
-                                    {enabledSources.length} active
+                                    <span>{enabledSources.length} active</span>
                                 </>
                             )}
                         </span>
                     </div>
                     <div className="flex flex-col gap-2">
                         {visibleSources.map((source) => (
-                            <SignalSourceFlowRow key={source.id} source={source} />
+                            <SignalSourceFlowRow
+                                key={source.id}
+                                source={source}
+                                outcome={completed ? 'Investigate and create a report.' : undefined}
+                            />
                         ))}
                         {isWizardRunning ? <InstallingFlowRow type="source" /> : null}
                         {!sourcesLoading && !isWizardRunning && visibleSources.length === 0 ? (
@@ -144,8 +162,12 @@ export function InboxWaitingForWork(): JSX.Element {
             </div>
 
             <div className="flex items-center justify-center gap-2 text-sm text-secondary">
-                <IconPullRequest className="text-lg" />
-                Pull requests will appear here when a finding is ready to ship.
+                {completed ? <IconCheckCircle className="text-lg" /> : <IconPullRequest className="text-lg" />}
+                <span>
+                    {completed
+                        ? 'Your reports will appear here when they’re ready.'
+                        : 'Pull requests will appear here when a finding is ready to ship.'}
+                </span>
             </div>
         </div>
     )

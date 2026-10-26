@@ -3,7 +3,10 @@
 import json
 import base64
 from collections.abc import Mapping
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 
 class IntegrationError(Exception):
@@ -47,6 +50,14 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
 
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
+
+
+@frozen
+class OauthClientCredentials:
+    """PostHog's own OAuth app credentials for one provider, as resolved for a single use."""
+
+    client_id: str
+    client_secret: str = field(repr=False)
 
 
 def _return_non_empty_str_from_config(

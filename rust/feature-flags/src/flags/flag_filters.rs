@@ -56,6 +56,22 @@ impl FlagFilters {
         requirements
     }
 
+    /// Flag IDs whose variant this config reads. A v1 `flag_evaluates_to` filter with a string
+    /// value reads the variant, and a `true` or `false` value reads only whether the flag
+    /// matched. Every v2 flag reference counts, because this method does not inspect v2
+    /// predicate values.
+    pub fn flag_ids_read_by_variant(&self) -> Vec<FeatureFlagId> {
+        if !self.is_v1() {
+            return self.requirements().flag_ids;
+        }
+        self.groups
+            .iter()
+            .flat_map(|group| group.properties.iter().flatten())
+            .filter(|property| matches!(property.value, Some(Value::String(_))))
+            .filter_map(|property| property.get_feature_flag_id())
+            .collect()
+    }
+
     /// Returns the person property key used for early access feature enrollment.
     pub fn enrollment_key(flag_key: &str) -> String {
         format!("$feature_enrollment/{}", flag_key)

@@ -319,6 +319,21 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
         )
         assert "options" not in payload["batch"][0]
 
+    @parameterized.expand(
+        [
+            ("no_ip", {"$set": {"a": 1}}, {"$geoip_disable": True, "$set": {"a": 1}}),
+            ("client_ip", {"$ip": "203.0.113.7"}, {"$ip": "203.0.113.7"}),
+            ("caller_opts_in", {"$geoip_disable": False}, {"$geoip_disable": False}),
+        ]
+    )
+    def test_geoip_disabled_without_a_client_ip(
+        self, _name: str, properties: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        payload, _ = prepare_capture_internal_batch(
+            [_make_event(properties=properties)], token="tok", event_source="test"
+        )
+        assert payload["batch"][0]["properties"] == expected
+
     def test_options_present_when_set(self) -> None:
         events = [_make_event(options={"cookieless_mode": True})]
         payload, _ = prepare_capture_internal_batch(events, token="tok", event_source="test")
@@ -1765,7 +1780,7 @@ class TestCaptureAiInternal(SimpleTestCase):
 
         entry = spy.calls[0]["json"]["batch"][0]
         assert (entry["session_id"], entry["window_id"]) == ("s1", "w1")
-        assert entry["properties"] == {"$ai_model": "m"}
+        assert entry["properties"] == {"$geoip_disable": True, "$ai_model": "m"}
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_server_side_misrouted_drop_surfaces_per_event(self, mock_session_fn: MagicMock) -> None:

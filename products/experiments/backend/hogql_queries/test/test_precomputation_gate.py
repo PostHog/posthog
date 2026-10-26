@@ -9,9 +9,9 @@ from parameterized import parameterized
 from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, PrecomputationMode
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.hogql_queries.experiment_query_runner import (
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.precompute_policy import (
     MIN_PRECOMPUTATION_DURATION_SECONDS,
-    ExperimentQueryRunner,
     experiment_has_min_runtime_for_precomputation,
     has_uncalculated_cohorts,
 )

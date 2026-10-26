@@ -3,26 +3,19 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
-import type {
-    ChartSettings,
-    DataVisualizationNode,
-    ErrorTrackingQueryResponse,
-    HogQLAutocompleteResponse,
-    HogQLMetadataResponse,
-    HogQLQueryResponse,
-    HogQueryResponse,
-    LogAttributesQueryResponse,
-    LogValuesQueryResponse,
-    MetricsQueryResponse,
-    SessionsQueryResponse,
-    TraceSpansAggregationQueryResponse,
-    TraceSpansAttributeBreakdownQueryResponse,
-    TraceSpansQueryResponse,
-} from '../../../schema/schema-general'
-import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
+
+import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import { createBIMemberDisplayLookup } from 'products/business_intelligence/frontend/biMemberAliases'
+import { getBISeriesSettings } from 'products/business_intelligence/frontend/biQueryResults'
+
+import type { AnyResponseType, ChartSettings, VisualizationNode } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
+import type { SqlChartProps } from './Charts/SqlChart'
+import { sqlChartData } from './Charts/sqlLineGraphAdapter'
 
 /**
  * Sentinel used to key result customizations for null / undefined breakdown values.
@@ -100,26 +93,15 @@ export interface seriesBreakdownLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     chartSettings: ChartSettings // dataVisualizationLogic
     columns: Column[] // dataVisualizationLogic
-    query: DataVisualizationNode // dataVisualizationLogic
-    response:
-        | ErrorTrackingQueryResponse
-        | HogQLAutocompleteResponse
-        | HogQLMetadataResponse
-        | HogQLQueryResponse<any[]>
-        | HogQueryResponse
-        | LogAttributesQueryResponse
-        | LogValuesQueryResponse
-        | MetricsQueryResponse
-        | Record<string, any>
-        | SessionsQueryResponse
-        | TraceSpansAggregationQueryResponse
-        | TraceSpansAttributeBreakdownQueryResponse
-        | TraceSpansQueryResponse
-        | TraceSpansTreeQueryResponse
-        | null // dataVisualizationLogic
+    effectiveVisualizationType: ChartDisplayType // dataVisualizationLogic
+    query: VisualizationNode // dataVisualizationLogic
+    response: AnyResponseType | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
+    xData: AxisSeries<string> | null // dataVisualizationLogic
+    yData: AxisSeries<number | null>[] // dataVisualizationLogic
     breakdownColumnValues: string[]
+    chartData: Pick<SqlChartProps, 'xData' | 'yData'>
     selectedSeriesBreakdownColumn: string | null | undefined
     seriesBreakdownData: BreakdownSeriesData<number | null>
     showSeriesBreakdown: boolean
@@ -130,27 +112,12 @@ export interface seriesBreakdownLogicActions {
     clearAxis: () => {
         value: true
     } // dataVisualizationLogic
-    setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => {
-        setter: (node: DataVisualizationNode) => DataVisualizationNode
+    setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
+        setter: (node: VisualizationNode) => VisualizationNode
     } // dataVisualizationLogic
     addSeriesBreakdown: (columnName: string | null) => {
         columnName: string | null
-        response:
-            | ErrorTrackingQueryResponse
-            | HogQLAutocompleteResponse
-            | HogQLMetadataResponse
-            | HogQLQueryResponse<any[]>
-            | HogQueryResponse
-            | LogAttributesQueryResponse
-            | LogValuesQueryResponse
-            | MetricsQueryResponse
-            | Record<string, any>
-            | SessionsQueryResponse
-            | TraceSpansAggregationQueryResponse
-            | TraceSpansAttributeBreakdownQueryResponse
-            | TraceSpansQueryResponse
-            | TraceSpansTreeQueryResponse
-            | null
+        response: AnyResponseType | null
     }
     deleteSeriesBreakdown: () => {}
 }
@@ -159,26 +126,11 @@ export interface seriesBreakdownLogicActions {
 export interface seriesBreakdownLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        selectedSeriesBreakdownColumn: (query: DataVisualizationNode) => string | null | undefined
+        selectedSeriesBreakdownColumn: (query: VisualizationNode) => string | null | undefined
         showSeriesBreakdown: (selectedSeriesBreakdownColumn: string | null | undefined) => boolean
         breakdownColumnValues: (
             selectedSeriesBreakdownColumn: string | null | undefined,
-            response:
-                | ErrorTrackingQueryResponse
-                | HogQLAutocompleteResponse
-                | HogQLMetadataResponse
-                | HogQLQueryResponse<any[]>
-                | HogQueryResponse
-                | LogAttributesQueryResponse
-                | LogValuesQueryResponse
-                | MetricsQueryResponse
-                | Record<string, any>
-                | SessionsQueryResponse
-                | TraceSpansAggregationQueryResponse
-                | TraceSpansAttributeBreakdownQueryResponse
-                | TraceSpansQueryResponse
-                | TraceSpansTreeQueryResponse
-                | null,
+            response: AnyResponseType | null,
             columns: Column[]
         ) => string[]
         seriesBreakdownData: (
@@ -186,26 +138,18 @@ export interface seriesBreakdownLogicMeta {
             breakdownColumnValues: string[],
             selectedYAxis: (SelectedYAxis | null)[] | null,
             selectedXAxis: string | null,
-            response:
-                | ErrorTrackingQueryResponse
-                | HogQLAutocompleteResponse
-                | HogQLMetadataResponse
-                | HogQLQueryResponse<any[]>
-                | HogQueryResponse
-                | LogAttributesQueryResponse
-                | LogValuesQueryResponse
-                | MetricsQueryResponse
-                | Record<string, any>
-                | SessionsQueryResponse
-                | TraceSpansAggregationQueryResponse
-                | TraceSpansAttributeBreakdownQueryResponse
-                | TraceSpansQueryResponse
-                | TraceSpansTreeQueryResponse
-                | null,
+            response: AnyResponseType | null,
             columns: Column[],
             chartSettings: ChartSettings,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
+            query: VisualizationNode
         ) => BreakdownSeriesData<number | null>
+        chartData: (
+            seriesBreakdownData: BreakdownSeriesData<number | null>,
+            xData: AxisSeries<string> | null, // dataVisualizationLogic
+            yData: AxisSeries<number | null>[], // dataVisualizationLogic
+            effectiveVisualizationType: ChartDisplayType // dataVisualizationLogic
+        ) => Pick<SqlChartProps, 'xData' | 'yData'>
     }
 }
 
@@ -224,7 +168,17 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
         values: [
             dataVisualizationLogic,
-            ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
+            [
+                'query',
+                'response',
+                'columns',
+                'selectedXAxis',
+                'selectedYAxis',
+                'chartSettings',
+                'xData',
+                'yData',
+                'effectiveVisualizationType',
+            ],
             dataThemeLogic,
             ['getTheme'],
         ],
@@ -291,6 +245,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 s.columns,
                 s.chartSettings,
                 s.getTheme,
+                s.query,
             ],
             (
                 selectedBreakdownColumn: string | null | undefined,
@@ -314,7 +269,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     | import('../../../schema').TraceSpansQueryResponse,
                 columns: import('../dataVisualizationLogic').Column[],
                 chartSettings: import('../../../schema').ChartSettings,
-                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
+                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null,
+                query: VisualizationNode
             ): BreakdownSeriesData<number | null> => {
                 if (
                     !response ||
@@ -379,12 +335,29 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 // xData is unique x values
                 const xData = Array.from(new Set(data.map((n) => n[xColumn.dataIndex])))
 
+                const rowsByBreakdown = new Map<unknown, any[]>()
+                for (const row of data) {
+                    const value = row[breakdownColumn.dataIndex]
+                    const rows = rowsByBreakdown.get(value)
+                    if (rows) {
+                        rows.push(row)
+                    } else {
+                        rowsByBreakdown.set(value, [row])
+                    }
+                }
+
                 let isUnaggregated = false
 
                 const multipleYSeries = yAxis.length > 1
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
                 const resultCustomizations = chartSettings.resultCustomizations ?? {}
                 const theme = getTheme(undefined)
+                const dimension =
+                    query.kind === NodeKind.BIVisualizationNode
+                        ? getBIResultDimensions(query.config).find(({ column }) => column === breakdownColumn.name)
+                        : undefined
+                const memberLabel =
+                    query.kind === NodeKind.BIVisualizationNode ? createBIMemberDisplayLookup(query.config) : undefined
 
                 const seriesData: AxisBreakdownSeries<number | null>[] = yAxis.flatMap((selectedYAxis) => {
                     const yColumn = columns.find((n) => n.name === selectedYAxis.name)
@@ -394,47 +367,44 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                     return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const valueLabel = humanizeEventColumnValue(breakdownColumn.name, value) || '[No value]'
-                        const seriesName = multipleYSeries ? `${selectedYAxis.name} - ${valueLabel}` : valueLabel
+                        const measureLabel = selectedYAxis.settings.display?.label || selectedYAxis.name
+                        const alias = dimension ? memberLabel?.(dimension.field, value) : undefined
+                        const aliasLabel =
+                            alias === undefined ? undefined : multipleYSeries ? `${measureLabel} - ${alias}` : alias
+                        const seriesName = multipleYSeries ? `${measureLabel} - ${valueLabel}` : valueLabel
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =
-                            customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined
+                            resultCustomizations[breakdownValue]?.customColor ??
+                            (customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined)
 
-                        // first filter data by breakdown column value
-                        const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
+                        const filteredData = rowsByBreakdown.get(value) ?? []
                         if (filteredData.length === 0) {
                             return {
                                 name: seriesName,
                                 breakdownValue,
                                 data: [],
-                                settings: customColor ? { display: { color: customColor } } : undefined,
+                                settings: getBISeriesSettings(
+                                    query,
+                                    customColor ? { display: { color: customColor } } : undefined
+                                ),
                             }
                         }
 
-                        // check if there are any duplicates of xColumn values
-                        // (if we know there is unaggregated data, we don't need to check again)
-                        if (!isUnaggregated) {
-                            const xColumnValues = filteredData.map((n) => n[xColumn.dataIndex])
-                            const xColumnValuesSet = new Set(xColumnValues)
-                            if (xColumnValues.length !== xColumnValuesSet.size) {
+                        const totalsByX = new Map<unknown, number | null>()
+                        for (const row of filteredData) {
+                            const xValue = row[xColumn.dataIndex]
+                            if (totalsByX.has(xValue)) {
                                 isUnaggregated = true
                             }
+                            const numeric = parseBreakdownSeriesValue(row[yColumn.dataIndex], selectedYAxis)
+                            const previous = totalsByX.get(xValue)
+                            totalsByX.set(xValue, numeric === null ? (previous ?? null) : (previous ?? 0) + numeric)
                         }
 
                         // Missing buckets should remain null unless the chart explicitly
                         // requests zero-filling, matching the non-breakdown series path.
-                        const dataset = xData.map((xValue) => {
-                            const numericValues = filteredData
-                                .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => parseBreakdownSeriesValue(n[yColumn.dataIndex], selectedYAxis))
-                                .filter((value): value is number => value !== null)
-
-                            if (numericValues.length === 0) {
-                                return showNullsAsZero ? 0 : null
-                            }
-
-                            return numericValues.reduce((a, b) => a + b, 0)
-                        })
+                        const dataset = xData.map((xValue) => totalsByX.get(xValue) ?? (showNullsAsZero ? 0 : null))
 
                         return {
                             name: seriesName,
@@ -442,17 +412,17 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment. The per-breakdown
-                            // color customization (if any) wins over the inherited
-                            // y-axis color.
-                            settings: {
+                            // breakdown series at the moment. The y-axis color is not
+                            // copied, so each breakdown value gets its own palette color.
+                            settings: getBISeriesSettings(query, {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
                                     color: customColor,
+                                    ...(aliasLabel === undefined ? {} : { label: aliasLabel }),
                                 },
-                            },
+                            }),
                         }
                     })
                 })
@@ -460,13 +430,27 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 return {
                     xData: {
                         column: xColumn,
-                        data: xData.map((value) => humanizeEventColumnValue(xColumn.name, value)),
+                        data: xData.map((value) =>
+                            query.kind === NodeKind.BIVisualizationNode
+                                ? value
+                                : humanizeEventColumnValue(xColumn.name, value)
+                        ),
                     },
                     seriesData,
                     isUnaggregated,
                     warning,
                 }
             },
+        ],
+        chartData: [
+            (s) => [s.seriesBreakdownData, s.xData, s.yData, s.effectiveVisualizationType],
+            (
+                seriesBreakdownData: BreakdownSeriesData<number | null>,
+                xData: AxisSeries<string> | null,
+                yData: AxisSeries<number | null>[],
+                effectiveVisualizationType: ChartDisplayType
+            ): Pick<SqlChartProps, 'xData' | 'yData'> =>
+                sqlChartData(seriesBreakdownData, xData, yData, effectiveVisualizationType),
         ],
     }),
     listeners(({ actions }) => ({

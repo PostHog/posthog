@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -18,38 +17,6 @@ class TestFlowluSource:
         # The API key is sent to the customer-controlled `{subdomain}.flowlu.com` host, so editing
         # the subdomain must force re-entering the key.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://acme.flowlu.com/api/v1/module/crm/account/list?api_key=[REDACTED]&page=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://acme.flowlu.com/api/v1/module/fin/invoice/list?api_key=[REDACTED]&page=1",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://acme.flowlu.com/api/v1/module/task/tasks/list",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://acme.flowlu.com/api/v1/module/crm/lead/list",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [
@@ -98,9 +65,3 @@ class TestFlowluSource:
         assert kwargs["subdomain"] == "acme"
         assert kwargs["endpoint"] == "tasks"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Flowlu schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

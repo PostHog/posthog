@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "Continuation cursor from the prior page.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this score definition.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Maximum versions to return.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

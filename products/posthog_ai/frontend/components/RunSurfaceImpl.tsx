@@ -3,8 +3,11 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { useThreadSkin } from '../hooks/useThreadSkin'
-import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
+import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
+import { findLiveRunStreamKey, isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
@@ -15,7 +18,7 @@ import { QuestionInput } from './QuestionInput'
 import { QuillRunSurfaceInputs } from './quill/QuillRunSurfaceInputs'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
-import { TurnFeedbackActions } from './TurnFeedbackActions'
+import { TurnTrailerActions } from './TurnTrailerActions'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -60,9 +63,11 @@ interface RunSurfaceContextValue {
     isScout: boolean
     floatingInputsHeight: number
     setFloatingInputsHeight: (height: number) => void
+    taskRuntime?: string | null
 }
 
 const FLOATING_INPUTS_GAP = 16
+const MAX_RETAINED_RUN_STREAMS = 3
 
 const RunSurfaceContext = createContext<RunSurfaceContextValue | null>(null)
 
@@ -77,6 +82,7 @@ function useRunSurfaceContext(): RunSurfaceContextValue {
 export interface RunSurfaceRootProps extends RunSurfaceProps {
     /** Custom composition of `RunSurface.*` slots. */
     children: ReactNode
+    retainAfterUnmount?: boolean
 }
 
 /**
@@ -92,6 +98,7 @@ function RunSurfaceRoot({
     conversationId,
     interaction = 'read-only',
     children,
+    retainAfterUnmount = false,
 }: RunSurfaceRootProps): JSX.Element {
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
@@ -99,10 +106,28 @@ function RunSurfaceRoot({
     const hasOptimisticClientStream = !!streamKey && streamKey !== runId
     const [floatingInputsHeight, setFloatingInputsHeight] = useState(0)
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
+    useEffect(() => {
+        if (
+            retainAfterUnmount &&
+            !replayOnly &&
+            runId &&
+            (logicKey === runId ||
+                isLogicRetained(RETAINED_RUN_STREAMS, logicKey) ||
+                findLiveRunStreamKey(runId) === logicKey)
+        ) {
+            retainMountedLogic(
+                RETAINED_RUN_STREAMS,
+                logicKey,
+                runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }),
+                MAX_RETAINED_RUN_STREAMS
+            )
+        }
+    }, [retainAfterUnmount, replayOnly, runId, logicKey, conversationId])
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -127,7 +152,7 @@ function RunSurfaceRoot({
         }
     }
 
-    if (task && isPiTaskRuntime(task.runtime)) {
+    if (task && isPiTaskRuntime(task.runtime) && !piAcpEnabled) {
         return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
@@ -145,6 +170,7 @@ function RunSurfaceRoot({
                     isScout,
                     floatingInputsHeight,
                     setFloatingInputsHeight,
+                    taskRuntime: task?.runtime,
                 }}
             >
                 <RunSurfaceBootstrap taskId={taskId} />
@@ -156,7 +182,7 @@ function RunSurfaceRoot({
 
 /** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
-    const { runId, interaction } = useRunSurfaceContext()
+    const { runId, interaction, taskRuntime } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
@@ -181,7 +207,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId, justCreatedRun: true })
+            bootstrapRun({ taskId, runId, justCreatedRun: true, taskRuntime, pagedHistory: true })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -189,8 +215,18 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId })
-    }, [taskId, runId, interaction, bootstrappedRunId, awaitingOptimisticAttach, currentProjectId, bootstrapRun, reset])
+        bootstrapRun({ taskId, runId, taskRuntime, pagedHistory: true })
+    }, [
+        taskId,
+        runId,
+        interaction,
+        taskRuntime,
+        bootstrappedRunId,
+        awaitingOptimisticAttach,
+        currentProjectId,
+        bootstrapRun,
+        reset,
+    ])
 
     return null
 }
@@ -212,7 +248,7 @@ function RunSurfaceThread({
 } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId, floatingInputsHeight } = useRunSurfaceContext()
     const skin = useThreadSkin()
-    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, logBootstrapLoading, runConnectionState, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
@@ -229,18 +265,12 @@ function RunSurfaceThread({
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
-                <TurnFeedbackActions
-                    sessionId={feedbackSessionId}
-                    turnIndex={trailer.turnIndex}
-                    run={feedbackRun}
-                    traceId={trailer.traceId}
-                    turnText={trailer.turnText}
-                    timestamp={trailer.timestamp}
-                />
+                <TurnTrailerActions trailer={trailer} sessionId={feedbackSessionId} run={feedbackRun} />
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
+    const showSkeleton =
+        (bootstrapLoading || (logBootstrapLoading && !runConnectionState)) && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }

@@ -12,12 +12,12 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Func, JSONField, Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import posthoganalytics
 from croniter import CroniterError, croniter
-from pydantic import JsonValue
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
@@ -27,20 +27,25 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
-from posthog.temporal.oauth import scout_mcp_scopes, scout_scope_posture
+from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes, scout_scope_posture
 
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
+    ORPHAN_RECENT_RUNS,
+    SCOUT_RUN_REAPED_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
+    TRIAL_ACTIVITY_TIMEOUT_S,
+    TRIAL_MAX_RUNTIME_S,
     TRIGGERED_BY_SCHEDULE,
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
@@ -51,30 +56,32 @@ from products.signals.backend.scout_harness.prompt import (
     SignalScoutRunSummary,
     build_run_prompt,
 )
+from products.signals.backend.scout_harness.run_gates import lane_has_live_run
 from products.signals.backend.scout_harness.skill_loader import (
     SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
-    resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
-from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import (
+    BackgroundBackoff,
+    github_read_access_for_team,
+    resolve_background_backoff,
+    withheld_skills_for_team,
+)
+from products.signals.backend.scout_harness.tool_catalogue import scout_tool_access_enabled
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
     load_trial_launch,
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
-from products.signals.backend.scout_harness.trial_state import (
-    SCOUT_TRIAL_METADATA_KEY,
-    SCOUT_TRIAL_STATE_KEY,
-    initial_trial_state,
-)
+from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
+from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
@@ -254,6 +261,8 @@ async def _arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -266,6 +275,10 @@ async def _arun_signals_scout(
     `run_note` is the one-off steering a person typed when triggering the run by hand. It renders
     its own prompt section and is stamped on the run row, so the run it steered says so in its own
     history; it is never carried into a later run.
+
+    `precheck_rows` are the rows the pre-check of a scheduled run found (`scout_harness/precheck.py`).
+    They render in their own prompt section as untrusted data. `precheck_query_source` says which
+    pre-check started the run, and is stamped on the run row.
     """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     trial = (
@@ -386,26 +399,10 @@ async def _arun_signals_scout(
     # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
     # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
     # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
-    user_id = (
-        trial.user_id
-        if trial is not None
-        else await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
-            team, skill.name, config
-        )
+    acting_user = await database_sync_to_async(resolve_scout_run_acting_user, thread_sensitive=False)(
+        team, skill.name, config, trial_user_id=trial.user_id if trial is not None else None
     )
-    if user_id is None:
-        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
-        if user_id is not None and _granted_write_scopes(config):
-            # The grant was approved for the person the runs act as. The team fallback is a member
-            # who never approved it, so this run holds only the fleet posture. Cleared in memory
-            # only: the runner never saves the config row, so the grant is back the moment the
-            # author's identity resolves again.
-            logger.info(
-                "signals_scout: withholding write access, acting user is the team fallback",
-                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
-            )
-            config.write_scopes = []
-    if user_id is None:
+    if acting_user is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
             extra={"team_id": team_id, "skill_name": skill.name},
@@ -420,6 +417,19 @@ async def _arun_signals_scout(
             skill_version=skill.version,
             skip_reason="no active user to act as for team",
         )
+    granted_write_scopes = _granted_write_scopes(config)
+    if acting_user.is_team_fallback and set(granted_write_scopes) - SCOUT_DEFAULT_WRITE_SCOPES:
+        # The grant was approved for the person the runs act as. The team fallback is a member
+        # who never approved it, so this run holds only the fleet posture and the default scopes
+        # the scout still holds. The fleet granted those, not a person, so the fallback bypasses
+        # no approval by keeping them. Cleared in memory only: the runner never saves the config
+        # row, so the grant is back the moment the author's identity resolves again.
+        logger.info(
+            "signals_scout: withholding write access, acting user is the team fallback",
+            extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
+        )
+        config.write_scopes = sorted(set(granted_write_scopes) & SCOUT_DEFAULT_WRITE_SCOPES)
+    user_id = acting_user.user_id
 
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
@@ -491,6 +501,12 @@ async def _arun_signals_scout(
     business_knowledge_maintained = await database_sync_to_async(
         _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
+    # Resolved here for the same reason, so every lifecycle event reports the same cadence.
+    backoff = (
+        await asyncio.to_thread(resolve_background_backoff)
+        if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
+        else None
+    )
     trial_status = tasks_facade.TaskRunStatus.FAILED.value
     try:
         last_message, task_run_id = await _spawn_and_run(
@@ -504,6 +520,7 @@ async def _arun_signals_scout(
             user_id=user_id,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
@@ -512,6 +529,8 @@ async def _arun_signals_scout(
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
         trial_status = tasks_facade.TaskRunStatus.COMPLETED.value
         runtime_s = time.monotonic() - started
@@ -531,6 +550,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=task_run_id,
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
@@ -615,6 +635,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=failed_task_run_id,
             status=tasks_facade.TaskRunStatus.FAILED.value,
@@ -654,8 +675,7 @@ async def _arun_signals_scout(
         # linked TaskRun (managed by MultiTurnSession), so we don't update anything
         # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
         # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
-        # `_has_running_run` until it transitions out — active recovery is a deferred
-        # follow-up (see `_self_heal_stale_runs`).
+        # `_has_running_run` until `_self_heal_stale_runs` reaps it past the stale cutoff.
         runtime_s = time.monotonic() - started
         logger.warning(
             "signals_scout: run cancelled mid-flight",
@@ -676,6 +696,7 @@ async def _arun_signals_scout(
             skill=skill,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=backoff,
             run_id=run_id,
             task_run_id=None,
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
@@ -708,6 +729,8 @@ async def arun_signals_scout(
     agent_runtime: AgentRuntime | None = None,
     trial_launch_id: str | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -721,6 +744,8 @@ async def arun_signals_scout(
             agent_runtime=agent_runtime,
             trial_launch_id=trial_launch_id,
             check_id=check_id,
+            precheck_rows=precheck_rows,
+            precheck_query_source=precheck_query_source,
         )
 
 
@@ -757,6 +782,20 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
+def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
+    """The team's report tags for the prompt, or none for a signal-channel scout.
+
+    A failed read is an empty list: the listing is optional steering, so an outage must not fail the run.
+    """
+    if not report_channel:
+        return []
+    try:
+        return scout_report_tags_in_use(team_id=team.id)
+    except Exception as error:
+        capture_exception(error)
+        return []
+
+
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
     """The extra write scopes this scout's next run actually holds.
 
@@ -776,6 +815,19 @@ def _write_scopes_for_run(config: SignalScoutConfig) -> object:
     what a malformed value grants. Coercing here would turn a stray JSON object into its keys.
     """
     return config.write_scopes if config.emit else []
+
+
+def _mcp_tool_allowlist_for_run(team: Team, config: SignalScoutConfig) -> list[str] | None:
+    """The tool list this run is narrowed to, or None to leave it on its token scopes alone.
+
+    Gated on the same flag that gates writing the list, so a list saved while a team had the flag
+    stops applying when the flag goes off. Read once per run: a config edit applies from the next run.
+    """
+    if config.allowed_mcp_tools is None or not scout_tool_access_enabled(team):
+        return None
+    if not isinstance(config.allowed_mcp_tools, list):
+        return []
+    return [tool for tool in config.allowed_mcp_tools if isinstance(tool, str)]
 
 
 def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
@@ -872,6 +924,7 @@ async def _spawn_and_run(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     model: str | None,
+    background_backoff: BackgroundBackoff | None = None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
@@ -879,6 +932,8 @@ async def _spawn_and_run(
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_rows: str | None = None,
+    precheck_query_source: str | None = None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
@@ -911,6 +966,12 @@ async def _spawn_and_run(
         "signals_scout_reports" if report_channel else "signals_scout",
         _write_scopes_for_run(config),
     )
+    # Resolved once, because the task stamp, the run row, and the prompt must all read the same list.
+    mcp_tool_allowlist = (
+        None
+        if trial is not None
+        else await database_sync_to_async(_mcp_tool_allowlist_for_run, thread_sensitive=False)(team, config)
+    )
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
@@ -934,9 +995,8 @@ async def _spawn_and_run(
         repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
         # `signals_scout` is the harness's own scope posture: project reads +
-        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`, plus a narrow
-        # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`, e.g.
-        # `notebook:write`) so a finding can produce a durable artifact. It reports
+        # INTERNAL_SCOPES + the scout's `signal_scout_internal:write`. User-facing writes,
+        # notebooks included, come only from the per-scout grant in `scope_posture`. It reports
         # `has_write_scopes=True` so the MCP server doesn't enable read-only-mode tool
         # filtering. Without that opt-out, the MCP layer would categorically strip every
         # tool annotated `readOnlyHint: false` — including the agent's own `remember`,
@@ -959,6 +1019,7 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
         # Codex-only, and independent of the model pin: which OpenAI queue the run's turns join.
         service_tier=service_tier,
+        sandbox_timeout_seconds=TRIAL_ACTIVITY_TIMEOUT_S + 60 if trial is not None else None,
     )
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
@@ -966,11 +1027,15 @@ async def _spawn_and_run(
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
+    report_tags_in_use = await database_sync_to_async(_report_tags_in_use, thread_sensitive=False)(
+        team, report_channel=report_channel
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
+        project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
@@ -985,6 +1050,7 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
         # The repositories the sandbox clones, so the prompt can point the agent at the checkout
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
@@ -994,6 +1060,8 @@ async def _spawn_and_run(
         # manual trigger carries a nudge a person typed alongside the scout's usual work.
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
+        precheck_rows=precheck_rows,
+        report_tags_in_use=report_tags_in_use,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1006,8 +1074,8 @@ async def _spawn_and_run(
         },
     )
 
-    def _create_bridge_row(task_run_id: UUID) -> dict[str, JsonValue] | None:
-        scout_run = _create_run_row(
+    def _create_bridge_row(task_run_id: UUID) -> None:
+        _create_run_row(
             run_id=run_id,
             task_run_id=task_run_id,
             team=team,
@@ -1019,11 +1087,14 @@ async def _spawn_and_run(
             service_tier=service_tier,
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
+            background_backoff=background_backoff,
             repositories=repositories,
             triggered_by=triggered_by,
             run_note=run_note,
             trial=trial,
             check_id=check_id,
+            precheck_query_source=precheck_query_source,
+            mcp_tool_allowlist=mcp_tool_allowlist,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1037,6 +1108,7 @@ async def _spawn_and_run(
                 skill=skill,
                 github_guidance=github_guidance,
                 business_knowledge_maintained=business_knowledge_maintained,
+                background_backoff=background_backoff,
                 run_id=run_id,
                 task_run_id=str(task_run_id),
                 triggered_by=triggered_by,
@@ -1045,12 +1117,6 @@ async def _spawn_and_run(
                 service_tier=service_tier,
             )
         )
-        if trial is not None:
-            return {
-                SCOUT_TRIAL_METADATA_KEY: (scout_run.metadata or {})[SCOUT_TRIAL_METADATA_KEY],
-                SCOUT_TRIAL_STATE_KEY: initial_trial_state(),
-            }
-        return None
 
     session, result = await MultiTurnSession.start(
         prompt=prompt,
@@ -1066,6 +1132,7 @@ async def _spawn_and_run(
         # coordinator-discovered scouts. The per-scout selection below picks which of those
         # team-shared servers this scout's runs mount. Empty selects none.
         mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+        mcp_tool_allowlist=mcp_tool_allowlist,
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. Team attribution rides along as `team_id`.
@@ -1076,11 +1143,8 @@ async def _spawn_and_run(
         ai_agent_name=skill.name,
         before_task_dispatch=_create_bridge_row,
         origin_key=f"scout-trial:{trial.id}" if trial is not None else None,
-        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
-        # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
-        # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
-        # ceiling and would let the activity die before salvage could return the written summary.
-        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
+        # Leave the activity's cleanup allowance after the scout's own timeout.
+        max_poll_seconds=TRIAL_MAX_RUNTIME_S if trial is not None else DEFAULT_MAX_RUNTIME_S,
         # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
         # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
         # failing the whole run. A failed run never finalizes, so its scan-position close-out is
@@ -1146,16 +1210,14 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
     # on `scout_config_id`: configs are `on_delete=SET_NULL`, so a config delete/recreate
     # mid-run would orphan the FK and silently defeat the dedupe in exactly the
     # config-churn case it should still cover.
-    return (
+    # A run older than `STALE_RUN_CUTOFF_S` is an orphan that `_self_heal_stale_runs` reaps just
+    # before this check, so it does not count.
+    lane_runs = (
         SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-        )
+        .filter(team_id=team_id, skill_name=skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
-        .exists()
     )
+    return lane_has_live_run(lane_runs)
 
 
 def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
@@ -1164,8 +1226,8 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     A scout run writes its own terminal `task_run.status` from inside the activity. If the
     worker / sandbox dies hard mid-run (SIGKILL, pod eviction, sandbox loss), that write
     never lands and the TaskRun is frozen at `QUEUED`/`IN_PROGRESS`. `_has_running_run`
-    then single-flights against that frozen row and skips every future dispatch for this
-    `(team, skill)` indefinitely — there is no other release. Nothing else reconciles it:
+    single-flights against that frozen row until `STALE_RUN_CUTOFF_S`, and the row stays
+    unreported unless this reap closes it. Nothing else reconciles it:
     Temporal has already torn the workflow down (the activity is killed at
     `WORKFLOW_HARD_CEILING_S` with `maximum_attempts=1`), and the Tasks cleanup path does
     not cover a crashed worker.
@@ -1175,17 +1237,39 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     slack means a run merely at the wall — about to fail or finish on its own — is never
     reaped out from under itself. Best-effort and silent: a failure to reap one row must
     never block the new run, so each is guarded independently.
+
+    A worker death also strands runs that no longer block the lane. Once the agent goes idle,
+    the Tasks inactivity timeout closes the TaskRun as `COMPLETED` or `FAILED`, often before
+    the next dispatch. The scout never ends its own session through that timeout, because
+    every path that survives signals completion, so that marker means the run lost its driver
+    and never emitted `signals_scout_run_finished`. Those runs are reported too, once each.
+
+    The reap reads only the lane's newest `ORPHAN_RECENT_RUNS` runs. This runs before every
+    dispatch, so an orphan is one of the newest runs when the next dispatch comes.
     """
-    cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    now = timezone.now()
+    cutoff = now - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    active_statuses = (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS)
+    # Read the IDs before the join, not as a subquery, so the join starts from these few runs and not
+    # from `posthog_task_run`.
+    recent_run_ids = list(
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, skill_name=skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:ORPHAN_RECENT_RUNS]
+    )
+    if not recent_run_ids:
+        return
+    closed_by_inactivity = Q(
+        task_run__status__in=(tasks_facade.TaskRunStatus.COMPLETED, tasks_facade.TaskRunStatus.FAILED),
+        **{f"task_run__state__{tasks_facade.TIMED_OUT_INACTIVITY_STATE_KEY}": True},
+    )
     stale_runs = list(
         SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__lt=cutoff,
-        )
-        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        .filter(team_id=team_id, id__in=recent_run_ids, task_run__created_at__lt=cutoff)
+        .filter(Q(task_run__status__in=active_statuses) | closed_by_inactivity)
+        .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
         .select_related("task_run")
     )
     if not stale_runs:
@@ -1193,7 +1277,6 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
-    now = timezone.now()
     for run in stale_runs:
         try:
             task_run = run.task_run
@@ -1201,17 +1284,20 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             # the conditional update below doesn't refresh it, so these stay the original values.
             status_before = task_run.status
             age_seconds = (now - task_run.created_at).total_seconds()
-            # Compare-and-set claim on the status transition. Two triggers for the same
-            # `(team, skill)` can reach this self-heal concurrently and load the same stale
-            # row; the conditional UPDATE lets exactly one win — the other matches zero rows
-            # once the first commits `FAILED`. Only the winner falls through to emit, so a
-            # single stranded run can't double-count in the worker-death / mass-stall signal.
-            claimed = tasks_facade.claim_and_fail_stale_run(
-                task_run.id,
-                "Scout run abandoned: no terminal status past the runtime ceiling "
-                "(worker/sandbox lost before finalize).",
-                error_type="stale_run_reaped",
-            )
+            # Compare-and-set claim, on the status transition for a live TaskRun and on the
+            # bridge row for a closed one. Two triggers for the same `(team, skill)` can reach
+            # this self-heal concurrently and load the same stale row; the conditional UPDATE
+            # lets exactly one win — the other matches zero rows. Only the winner falls through
+            # to emit, so a single stranded run can't double-count in the worker-death signal.
+            if status_before in active_statuses:
+                claimed = tasks_facade.claim_and_fail_stale_run(
+                    task_run.id,
+                    "Scout run abandoned: no terminal status past the runtime ceiling "
+                    "(worker/sandbox lost before finalize).",
+                    error_type="stale_run_reaped",
+                )
+            else:
+                claimed = _claim_finished_orphan(run_id=run.id, team_id=team_id)
             if not claimed:
                 continue
             logger.warning(
@@ -1242,6 +1328,31 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
 
 
+def _claim_finished_orphan(*, run_id: Any, team_id: int) -> bool:
+    """Compare-and-set claim on a run whose TaskRun is already terminal. Returns whether this caller won.
+
+    The TaskRun status cannot carry the claim here, so the bridge row does: the conditional
+    update stamps `SCOUT_RUN_REAPED_METADATA_KEY` only while it is absent, and the loser of a
+    concurrent reap matches zero rows.
+    """
+    stamp = Value({SCOUT_RUN_REAPED_METADATA_KEY: timezone.now().isoformat()}, output_field=JSONField())
+    return bool(
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, id=run_id)
+        .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
+        .update(
+            metadata=Func(
+                Coalesce(F("metadata"), Value({}, output_field=JSONField())),
+                stamp,
+                arg_joiner=" || ",
+                template="(%(expressions)s)",
+                output_field=JSONField(),
+            ),
+            updated_at=timezone.now(),
+        )
+    )
+
+
 def _create_run_row(
     *,
     run_id: Any,
@@ -1255,11 +1366,14 @@ def _create_run_row(
     service_tier: str | None = None,
     github_guidance: bool = False,
     business_knowledge_maintained: bool = False,
+    background_backoff: BackgroundBackoff | None = None,
     repositories: list[str] | None = None,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
     run_note: str | None = None,
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
+    precheck_query_source: str | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1309,6 +1423,7 @@ def _create_run_row(
         # hand-picked `team_ids` project.
         if config.background_band is not None:
             metadata["background_band"] = config.background_band
+        metadata.update(_background_backoff_props(config, background_backoff))
     # Dispatch-time snapshot of the structured-output contract. The prompt renders this exact
     # schema, so the record endpoint validates against the snapshot rather than the live config
     # value — a mid-run schema edit must not reject records that match what the run was shown.
@@ -1323,6 +1438,10 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # The tool list the run was narrowed to, stamped next to the write grant for the same reason.
+    # Omitted when the run was not narrowed, so absence reads as "every tool the scopes allow".
+    if mcp_tool_allowlist is not None:
+        metadata["allowed_mcp_tools"] = sorted(set(mcp_tool_allowlist))
     # Which tree the run was looking at, so a reader of its report can tell. Stamped rather than
     # read off the config, for the same reason as the write grant: the pin can be edited or
     # dropped afterwards, and this is the only record of what a past run actually cloned. Omitted
@@ -1350,6 +1469,10 @@ def _create_run_row(
     # `scout-report-check-list` read it to tie the check to this run.
     if check_id:
         metadata["check_id"] = check_id
+    # Which pre-check started this run (`config` or `skill_default`), so run outcomes can be split
+    # by it. Absent when no pre-check ran.
+    if precheck_query_source:
+        metadata["precheck_query_source"] = precheck_query_source
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run_id=task_run_id,
@@ -1358,6 +1481,7 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
         metadata=metadata,
+        trial_state=initial_trial_state() if trial is not None else None,
     )
 
 
@@ -1552,6 +1676,7 @@ def _capture_run_started(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     run_id: Any,
+    background_backoff: BackgroundBackoff | None = None,
     task_run_id: str,
     triggered_by: str,
     model: str | None = None,
@@ -1582,6 +1707,7 @@ def _capture_run_started(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,
         service_tier=service_tier,
@@ -1684,6 +1810,21 @@ def _capture_config_auto_paused(
         )
 
 
+def _background_backoff_props(config: SignalScoutConfig, backoff: BackgroundBackoff | None) -> dict[str, int]:
+    """The backoff level of a background config and the interval it sets to the next run.
+
+    Empty when the backoff is off or the config is not background-managed. The stamp before this
+    run already moved the level, so the values describe the cadence after this run.
+    """
+    if backoff is None or config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND or config.run_cron_schedule:
+        return {}
+    level = config.background_backoff_level or 0
+    return {
+        "background_backoff_level": level,
+        "background_effective_interval_minutes": backoff.effective_interval_minutes(config.run_interval_minutes, level),
+    }
+
+
 def _attach_run_shape_props(
     properties: dict[str, Any],
     *,
@@ -1695,6 +1836,7 @@ def _attach_run_shape_props(
     runtime_adapter: str | None,
     service_tier: str | None,
     triggered_by: str,
+    background_backoff: BackgroundBackoff | None = None,
 ) -> None:
     """Attach the dimensions that describe what this run was configured with, to both lifecycle
     events from one place so the started and finished streams can never drift apart.
@@ -1723,6 +1865,7 @@ def _attach_run_shape_props(
     properties["managed_by"] = config.managed_by
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND and config.background_band is not None:
         properties["background_band"] = config.background_band
+    properties.update(_background_backoff_props(config, background_backoff))
     if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
         properties["network_access"] = config.network_access
     if granted_write_scopes := _granted_write_scopes(config):
@@ -1745,6 +1888,7 @@ def _capture_run_finished(
     github_guidance: bool,
     business_knowledge_maintained: bool,
     run_id: Any,
+    background_backoff: BackgroundBackoff | None = None,
     task_run_id: str | None,
     status: str,
     runtime_s: float,
@@ -1792,6 +1936,7 @@ def _capture_run_finished(
         skill=skill,
         github_guidance=github_guidance,
         business_knowledge_maintained=business_knowledge_maintained,
+        background_backoff=background_backoff,
         model=model,
         runtime_adapter=runtime_adapter,
         service_tier=service_tier,

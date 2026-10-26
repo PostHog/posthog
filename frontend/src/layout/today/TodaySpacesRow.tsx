@@ -5,6 +5,9 @@ import { cn } from '@posthog/quill'
 import { TodayListItemDetail } from './todayListAppearance'
 import { TodayOverflowText } from './TodayOverflowText'
 import { TodayPaneOption } from './TodayPaneOption'
+import { useHoverIntent } from './useHoverIntent'
+
+const HOVER_INTENT_MS = 120
 
 // The label's right padding for the icon-sized slots that sit over the end of the row.
 const TRAILING_PADDING = ['', 'pr-8', 'pr-12', 'pr-16', 'pr-20'] as const
@@ -20,7 +23,6 @@ interface TodaySpacesRowProps {
     /** How many icon-sized slots `badge` takes, so the label truncates before them. */
     badgeCount?: 1 | 2 | 3
     unread?: boolean
-    weight?: 'regular' | 'medium'
     /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
     ticker?: boolean
     /** Part of a multi-session selection, so the row takes Desktop's selected tint. */
@@ -30,6 +32,8 @@ interface TodaySpacesRowProps {
     /** A second line under the label, like Desktop's list item appearance. Empty keeps the row on one line. */
     details?: TodayListItemDetail[]
     optionValue: string
+    /** Runs once when the pointer rests on the row, so the row can start loading what a click opens. */
+    onHoverIntent?: () => void
 }
 
 export function TodaySpacesRow({
@@ -41,19 +45,19 @@ export function TodaySpacesRow({
     badge,
     badgeCount = 1,
     unread = false,
-    weight = 'medium',
     ticker = false,
     selected = false,
     onClickCapture,
     details = [],
     optionValue,
+    onHoverIntent,
 }: TodaySpacesRowProps): JSX.Element {
     const [hovered, setHovered] = useState(false)
+    const hoverIntent = useHoverIntent(onHoverIntent, HOVER_INTENT_MS)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
     const badgeSlots = badge ? badgeCount : 0
     const showUnreadDot = unread && !active
     const rowClassName = cn(
-        weight === 'medium' && 'font-medium',
         // Desktop's two-line row: the second line outgrows the fixed row height, so padding stands in for it.
         details.length > 0 && 'h-auto py-1',
         // Like Desktop, the open row takes a stronger tint than the other selected rows.
@@ -82,11 +86,11 @@ export function TodaySpacesRow({
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
                 {ticker ? (
-                    <TodayOverflowText reveal={hovered || keyboardFocused} className={cn(unread && 'font-bold')}>
+                    <TodayOverflowText reveal={hovered || keyboardFocused} className={cn(unread && 'font-extrabold')}>
                         {label}
                     </TodayOverflowText>
                 ) : (
-                    <span className={cn('min-w-0 truncate', unread && 'font-bold')}>{label}</span>
+                    <span className={cn('min-w-0 truncate', unread && 'font-extrabold')}>{label}</span>
                 )}
                 {details.length > 0 && (
                     <span className="truncate text-xxs text-muted-foreground">
@@ -105,8 +109,22 @@ export function TodaySpacesRow({
     return (
         <div
             className="group/row relative flex min-w-0 items-center"
-            onPointerEnter={ticker ? () => setHovered(true) : undefined}
-            onPointerLeave={ticker ? () => setHovered(false) : undefined}
+            onPointerEnter={
+                ticker || onHoverIntent
+                    ? () => {
+                          setHovered(true)
+                          hoverIntent.start()
+                      }
+                    : undefined
+            }
+            onPointerLeave={
+                ticker || onHoverIntent
+                    ? () => {
+                          setHovered(false)
+                          hoverIntent.cancel()
+                      }
+                    : undefined
+            }
         >
             <TodayPaneOption
                 value={optionValue}

@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
 
@@ -26,7 +24,6 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 
 export function ModelsLineageTab(): JSX.Element {
     const searchInputRef = useRef<HTMLInputElement>(null)
-    const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
         nodes,
         nodesLoading,
@@ -162,11 +159,12 @@ export function ModelsLineageTab(): JSX.Element {
                     searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
-                    nodesDraggable={nodesDraggable}
-                    nodePositions={nodesDraggable ? nodePositions : undefined}
-                    nodeOpenUrl={nodesDraggable ? lineageNodeUrl : undefined}
-                    onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
-                    onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
+                    nodesDraggable
+                    nodePositions={nodePositions}
+                    nodeOpenUrl={lineageNodeUrl}
+                    selectable
+                    onNodeDragStop={(node, position) => nodeDragStopped(node.id, position)}
+                    onResetNodePositions={resetNodePositions}
                     showControls
                     showMinimap
                     loading={nodesLoading || edgesLoading}
@@ -178,7 +176,6 @@ export function ModelsLineageTab(): JSX.Element {
                         isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={nodesDraggable ? undefined : (node) => router.actions.push(lineageNodeUrl(node))}
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />
             </div>

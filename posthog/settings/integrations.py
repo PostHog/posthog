@@ -3,11 +3,15 @@ import os
 from posthog.settings.base_variables import BASE_DIR
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
-# Integration service. Both unset (the default) means credential reads fall back to the
-# local environment; see posthog/integration_secrets/client.py for the contract.
-INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
+# Credentials service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/credentials_service/client.py for the contract.
+CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
-INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
+
+# Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
+INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
+INTERNAL_FEEDBACK_SLACK_CHANNEL = get_from_env("INTERNAL_FEEDBACK_SLACK_CHANNEL", "C09G8Q32R6F")
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -23,6 +27,16 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 # keep the app importable and the OAuth auth method dormant until the client is provisioned.
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+
+# Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
+# ES256 JWT this app signs per token request with the private key whose public half was registered
+# in Apple Ads (see posthog/models/integration/apple_ads.py). Empty defaults keep the app importable
+# and the OAuth auth method dormant until the service provider registration is provisioned.
+APPLE_ADS_APP_CLIENT_ID = get_from_env("APPLE_ADS_APP_CLIENT_ID", "")
+APPLE_ADS_APP_TEAM_ID = get_from_env("APPLE_ADS_APP_TEAM_ID", "")
+APPLE_ADS_APP_KEY_ID = get_from_env("APPLE_ADS_APP_KEY_ID", "")
+# PEM body of the EC P-256 private key. Newlines may be escaped as literal \n.
+APPLE_ADS_APP_PRIVATE_KEY = get_from_env("APPLE_ADS_APP_PRIVATE_KEY", "")
 
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
@@ -155,8 +169,7 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 #   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
 #   account scope, so every member of their Stripe account can read it. It must not share an
 #   application with the orchestrator, because the provisioning namespace authorizes on application
-#   identity alone. Until this is set the two share one application and marketplace tokens can reach
-#   the provisioning endpoints.
+#   identity alone. Left unset, a new install gets no PostHog credential.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
@@ -172,20 +185,6 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 # Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
 CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
-
-# ElevenLabs (Max hands-free mode)
-# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
-# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
-ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
-ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
-# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
-# different feel without redeploying.
-ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
-# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
-# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
-# Override at the env level if you're on a paid tier and want the extra polish.
-ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
 
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —
@@ -259,13 +258,3 @@ POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV = get_from_env("POSTHOG_CONNECT_OAUTH_CL
 POSTHOG_CONNECT_BASE_URL_US = get_from_env("POSTHOG_CONNECT_BASE_URL_US", "https://us.posthog.com")
 POSTHOG_CONNECT_BASE_URL_EU = get_from_env("POSTHOG_CONNECT_BASE_URL_EU", "https://eu.posthog.com")
 POSTHOG_CONNECT_BASE_URL_DEV = get_from_env("POSTHOG_CONNECT_BASE_URL_DEV", "http://localhost:8000")
-
-# Legacy OAuth client credentials kept alive during an app or secret rotation.
-# Refreshes fall back to these when the primary credentials fail, so tokens issued
-# by a since-migrated app keep working until users reconnect.
-OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
-    "bing-ads": {
-        "client_id": BING_ADS_CLIENT_ID_FALLBACK,
-        "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
-    },
-}

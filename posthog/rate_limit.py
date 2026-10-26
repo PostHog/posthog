@@ -451,6 +451,12 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+# Each internal feedback post lands in a shared Slack channel, so cap it per user.
+class InternalFeedbackUserThrottle(UserRateThrottle):
+    scope = "internal_feedback_user"
+    rate = "60/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -690,6 +696,19 @@ class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThr
     rate = "100/hour"
 
 
+# The source maps examples scan reads the properties of every exception in the last 24 hours, and
+# browser sessions skip the default throttles. A team-wide bucket caps the project's total scans.
+# Each open of the examples dialog runs one scan, so these rates leave room for normal use.
+class ErrorTrackingSourceMapsExamplesBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingSourceMapsExamplesSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -772,6 +791,13 @@ class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_watch_feed_impressions"
+    rate = "120/minute"
+
+
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
 # the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
 # the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user
@@ -785,6 +811,21 @@ class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
 class ReplayVisionSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_search_sustained"
     rate = "300/hour"
+
+
+# Creating an export renders it, and an API-created export holds a web worker while the render
+# runs. The default Burst/Sustained throttles bucket per personal API key and skip session traffic,
+# so a script with several keys, or a burst from the UI, is not capped per project. A person
+# exports one asset per click, so these rates leave room for normal use and scripts while capping
+# a bulk script that starts hundreds of exports at once.
+class ExportCreateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_burst"
+    rate = "60/minute"
+
+
+class ExportCreateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "export_create_sustained"
+    rate = "600/hour"
 
 
 class _AIThrottleBase(UserRateThrottle):
@@ -813,45 +854,6 @@ class AIResearchBurstRateThrottle(_AIThrottleBase):
     scope = "ai_research_burst"
     rate = "3/minute"
     action_name = "ai research burst rate limited"
-
-
-# Hands-free throttles are split per-action so a burst on /token/ (e.g. a flapping
-# mobile network triggering the reconnect path) can't lock the user out of /synthesize/
-# and vice versa. Each action's burst/sustained bucket caps a different cost surface:
-# token mints bound Scribe (STT) spend; synthesize calls bound ElevenLabs TTS spend.
-class MaxHandsFreeTokenBurstRateThrottle(_AIThrottleBase):
-    # 10/min covers normal reconnects (network blip, tab refocus) and stays well below
-    # any plausible legitimate flow. Dev gets a far larger ceiling for the dev loop.
-    scope = "max_hands_free_token_burst"
-    rate = "1000/minute" if settings.DEBUG else "10/minute"
-    action_name = "max hands-free token burst rate limited"
-
-
-class MaxHandsFreeTokenSustainedRateThrottle(_AIThrottleBase):
-    # Each token grants ~15 min of Scribe usage. A 2-hour gym session is ~8 tokens at
-    # minimum plus reconnects, call it 15. 60/day covers several long sessions a day
-    # with headroom and bounds worst-case Scribe spend per compromised account.
-    scope = "max_hands_free_token_sustained"
-    rate = "10000/day" if settings.DEBUG else "60/day"
-    action_name = "max hands-free token sustained rate limited"
-
-
-class MaxHandsFreeSynthesizeBurstRateThrottle(_AIThrottleBase):
-    # TTS calls fire once per assistant turn so the burst rate has to keep pace with
-    # rapid back-and-forth. 20/min still well above any natural conversation cadence
-    # but tight enough to slow a runaway client looping on synthesize.
-    scope = "max_hands_free_synthesize_burst"
-    rate = "1000/minute" if settings.DEBUG else "20/minute"
-    action_name = "max hands-free synthesize burst rate limited"
-
-
-class MaxHandsFreeSynthesizeSustainedRateThrottle(_AIThrottleBase):
-    # Bounds TTS spend per account per day. 150 calls * 2000 chars max ~= 300k chars
-    # ceiling/day — comfortable for power users, hard cap on a compromised account's
-    # daily ElevenLabs bill until the broader char-budget kill switch lands.
-    scope = "max_hands_free_synthesize_sustained"
-    rate = "10000/day" if settings.DEBUG else "150/day"
-    action_name = "max hands-free synthesize sustained rate limited"
 
 
 class AIResearchSustainedRateThrottle(_AIThrottleBase):
@@ -1148,20 +1150,39 @@ class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
     """
-    Rate limiting for TOTP/backup code verification during 2FA login.
+    Rate limiting for TOTP and passkey verification during 2FA login.
     Uses the pending 2FA user ID from session to throttle per-user.
+    Backup codes count against TwoFactorBackupCodeThrottle instead, so a user who runs out of
+    authenticator attempts can still recover with a backup code.
     """
 
     scope = "two_factor"
     rate = "6/20minutes"
 
+    def applies_to(self, request) -> bool:
+        from posthog.helpers.two_factor_session import is_backup_code_attempt
+
+        token = request.data.get("token") if isinstance(request.data, dict) else None
+        return not is_backup_code_attempt(token)
+
     def get_cache_key(self, request, view):
+        if not self.applies_to(request):
+            return None
+
         user_id = request.session.get("user_authenticated_but_no_2fa")
         if user_id:
             ident = hashlib.sha256(str(user_id).encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
+
+
+class TwoFactorBackupCodeThrottle(TwoFactorThrottle):
+    scope = "two_factor_backup_code"
+    rate = "6/20minutes"
+
+    def applies_to(self, request) -> bool:
+        return not super().applies_to(request)
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
@@ -1682,6 +1703,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class ContextSelectionBurstThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_burst"
+    rate = "30/minute"
+
+
+class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_sustained"
+    rate = "300/hour"
 
 
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):

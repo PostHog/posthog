@@ -45,6 +45,7 @@ SLOW_TEAM_ID = 1
 DISCOVERED_TEAM_IDS = [SLOW_TEAM_ID, 2, 3, 4, 5]
 
 child_runs: list[dict[str, Any]] = []
+discovery_inputs: list[TeamDiscoveryInput | None] = []
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -54,10 +55,13 @@ class FakeTeamSummarizationWorkflow:
         started = workflow.now()
         await workflow.sleep(timedelta(minutes=10 if inputs.team_id == SLOW_TEAM_ID else 1))
         if not workflow.unsafe.is_replaying():
+            parent = workflow.info().parent
+            assert parent is not None
             child_runs.append(
                 {
                     "team_id": inputs.team_id,
                     "window": (inputs.window_start, inputs.window_end),
+                    "coordinator_run_id": parent.run_id,
                     "started": started,
                     "finished": workflow.now(),
                 }
@@ -69,6 +73,7 @@ class FakeTeamSummarizationWorkflow:
 
 @activity.defn(name="get_team_ids_for_llm_analytics")
 async def fake_team_discovery(inputs: TeamDiscoveryInput | None = None) -> list[int]:
+    discovery_inputs.append(inputs)
     return DISCOVERED_TEAM_IDS
 
 
@@ -271,6 +276,7 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_sliding_window_does_not_hold_teams_behind_a_slow_team(self):
         child_runs.clear()
+        discovery_inputs.clear()
         result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
 
         runs_by_team = {run["team_id"]: run for run in child_runs}
@@ -279,6 +285,34 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert sorted(runs_by_team) == sorted(DISCOVERED_TEAM_IDS)
         assert _max_overlap(child_runs) == 2
         assert all(run["finished"] <= runs_by_team[SLOW_TEAM_ID]["finished"] for run in child_runs)
+        windows = {run["window"] for run in child_runs}
+        assert len(windows) == 1
+        assert None not in next(iter(windows))
+        window_start, window_end = next(iter(windows))
+        assert discovery_inputs == [TeamDiscoveryInput(window_start=window_start, window_end=window_end)]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "inputs",
+        [
+            pytest.param(
+                BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2, continue_as_new_history_length=20),
+                id="history_length",
+            ),
+            pytest.param(
+                BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2, continue_as_new_history_size_bytes=1),
+                id="history_size",
+            ),
+        ],
+    )
+    async def test_continue_as_new_carries_remaining_teams_results_and_window(self, inputs):
+        child_runs.clear()
+        result = await _run_coordinator(inputs)
+
+        assert len({run["coordinator_run_id"] for run in child_runs}) > 1
+        assert sorted(run["team_id"] for run in child_runs) == sorted(DISCOVERED_TEAM_IDS)
+        assert result.teams_processed == len(DISCOVERED_TEAM_IDS)
+        assert result.total_summaries == len(DISCOVERED_TEAM_IDS)
         windows = {run["window"] for run in child_runs}
         assert len(windows) == 1
         assert None not in next(iter(windows))

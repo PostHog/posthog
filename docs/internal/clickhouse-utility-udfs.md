@@ -12,7 +12,7 @@ Invalid scalar and array `$feature_flags` values are replaced with an empty map 
 map values from failing insertion into the typed JSON column while preserving unrelated properties.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
-The utility module and CI use Go 1.27.1, declared in `clickhouse-udfs/util/go.mod`.
+The utility module and CI use Go 1.27.3, declared in `clickhouse-udfs/util/go.mod`.
 Rebuild all utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
 Changes to `posthog/user_scripts` no longer dispatch the separate UDF publishing workflow on pushes to master.
 
@@ -112,8 +112,11 @@ Queries on `events_json` derive `$active_feature_flags` from the `$feature_flags
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
 
-On native events, HogQL `JSONExtract*` calls with `$feature_flags` as their first property key read the same restricted-property-aware map as dotted `$feature_flags` access.
-The original extractor still determines the return type and missing-value default.
+A HogQL JSON function on `events_json` whose first key is `$feature/<key>`, `$active_feature_flags` or `$feature_flags` reads the flags map directly instead of the rebuilt document, also when the document is `toString(properties)`.
+The result is the same as reading the rebuilt document, because the value is serialized the way the SDK sent it: a boolean flag as JSON `true` or `false`, a variant as a JSON string, with the sentinels mapped back.
+The original function still determines the return type, the missing-value default and any deeper keys.
+Key listings of the whole document, `properties` selected through a subquery, and `JSON_VALUE` (whose second argument is a JSONPath, not a key) keep reading the rebuilt document.
+A JSON function with a key computed per row fails the query when the key names `$feature/<key>` or `$active_feature_flags`, because no stored document holds those keys.
 The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner
@@ -228,6 +231,7 @@ The worker keeps the parsed filter for the most recent key array and parses it a
 Both functions use the `json_drop_keys_udf` executable. The pool entry point uses `--row-binary` with chunk headers.
 RowBinary transport lets the JSON contain raw newlines and tabs.
 Malformed JSON, truncated chunks, a JSON value above 1 GiB, more than 65,536 keys, and a key above 64 KiB fail the query.
+Both functions return an empty string for an empty input value, which legacy events JSON columns can hold.
 
 With 1,000,000 small synthetic rows, `max_threads = 1`, and ClickHouse 26.6.2.158 on an Apple M4 Pro, best of three runs, recorded September 24, 2026:
 

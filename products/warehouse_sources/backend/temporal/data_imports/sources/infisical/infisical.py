@@ -17,6 +17,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
+    unreachable_vendor_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.infisical.settings import (
     INFISICAL_ENDPOINTS,
@@ -443,6 +446,8 @@ def validate_credentials(
         return False, str(exc)
     except InfisicalHostNotAllowedError:
         return False, HOST_NOT_ALLOWED_ERROR
+    except InfisicalRetryableError:
+        return False, unreachable_vendor_message("Infisical")
     except requests.RequestException as exc:
         return False, str(exc)
 
@@ -457,7 +462,7 @@ def validate_credentials(
     # they iterate instead.
     if config.fan_out_over == "groups":
         path = "/api/v1/groups"
-    elif config.fan_out_over == "projects":
+    elif config.fan_out_over in ("projects", "environments"):
         path = "/api/v1/projects"
     else:
         path = _format_path(config.path, organization_id.strip())
@@ -473,6 +478,8 @@ def validate_credentials(
         return False, str(exc)
     except InfisicalHostNotAllowedError:
         return False, HOST_NOT_ALLOWED_ERROR
+    except InfisicalRetryableError:
+        return False, unreachable_vendor_message("Infisical")
     except requests.RequestException as exc:
         return False, str(exc)
 
@@ -532,6 +539,8 @@ def _get_audit_log_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, "endDate": window_end}
@@ -581,6 +590,8 @@ def _get_offset_paginated_rows(
 
     pagination_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     for page in range(MAX_PAGES):
+        # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
+        resumable_source_manager.safe_point()
         _check_pagination_budget(pagination_deadline, config.name)
 
         params: dict[str, Any] = {"limit": config.page_limit, "offset": offset, **config.extra_params}
@@ -612,8 +623,10 @@ def _list_org_projects(client: InfisicalClient, organization_id: str) -> list[di
     return [p for p in projects if p.get("orgId") == organization_id]
 
 
-def _extract_rows(body: Any, data_key: str | None) -> list[dict[str, Any]]:
+def _extract_rows(body: Any, data_key: str | None, single_object: bool = False) -> list[dict[str, Any]]:
     rows = body if data_key is None else (body.get(data_key) if isinstance(body, dict) else None)
+    if single_object and isinstance(rows, dict):
+        return [rows]
     return rows if isinstance(rows, list) else []
 
 
@@ -645,7 +658,7 @@ def _get_fan_out_child_pages(
 ) -> Iterator[list[dict[str, Any]]]:
     if not config.paginated:
         _check_fan_out_budget(fan_out_deadline, config.name)
-        rows = _extract_rows(client.get(path, params).json(), config.data_key)
+        rows = _extract_rows(client.get(path, params).json(), config.data_key, config.single_object)
         if rows:
             yield rows
         return
@@ -677,6 +690,15 @@ def _get_fan_out_rows(
     if config.fan_out_over == "groups":
         parents = _list_org_groups(client, organization_id)
         placeholder = "{group_id}"
+    elif config.fan_out_over == "environments":
+        parents = [
+            {**env, "projectId": project["id"]}
+            for project in _list_org_projects(client, organization_id)
+            if project.get("id")
+            for env in project.get("environments") or []
+            if isinstance(env, dict)
+        ]
+        placeholder = "{environment_id}"
     else:
         parents = _list_org_projects(client, organization_id)
         if config.fan_out_project_type:
@@ -709,6 +731,8 @@ def _get_fan_out_rows(
             continue
 
         path = config.path.replace(placeholder, quote(str(parent_id), safe=""))
+        if config.fan_out_over == "environments":
+            path = path.replace("{project_id}", quote(str(parent["projectId"]), safe=""))
         params: dict[str, Any] = {config.parent_id_param: parent_id} if config.parent_id_param else {}
         yielded = False
         try:

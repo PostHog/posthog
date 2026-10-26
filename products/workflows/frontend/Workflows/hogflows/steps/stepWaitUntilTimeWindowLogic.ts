@@ -119,6 +119,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -192,6 +195,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -257,6 +265,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -391,6 +400,16 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     ) => {
@@ -416,6 +435,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -445,6 +467,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
+              }
+            | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
               }
             | {
                   condition: {
@@ -570,6 +597,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -688,6 +716,16 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     } // workflowLogic

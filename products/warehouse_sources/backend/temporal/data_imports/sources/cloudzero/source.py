@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,6 +49,8 @@ def _parse_group_by(group_by: str | None) -> list[str]:
 
 @SourceRegistry.register
 class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConfig]):
+    codebase_detection = detect(env=("^CLOUDZERO_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v2",)
     default_version = "v2"
@@ -149,7 +152,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/cloudzero",
             iconPath="/static/services/cloudzero.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cloud cost", "finops", "billing"],
             fields=cast(
                 list[FieldType],

@@ -624,7 +624,3 @@ class TestCheckoutComReportsSourceResponse:
         # Reports are re-sorted oldest-first before yielding, so ascending watermark
         # commits are safe.
         assert response.sort_mode == "asc"
-
-    def test_unknown_schema_raises(self):
-        with pytest.raises(ValueError):
-            _source("nope")

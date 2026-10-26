@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, ExchangeRatesApiResumeConfig]):
+    codebase_detection = detect(env=("^(EXCHANGE_RATES_API|EXCHANGERATESAPI)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -46,7 +49,7 @@ class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, Excha
             name=ExternalDataSourceType.EXCHANGERATESAPI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Exchange Rates API",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Exchange Rates API access key to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Create a key in your [exchangeratesapi.io dashboard](https://exchangeratesapi.io/dashboard).

@@ -1,3 +1,4 @@
+import json
 import importlib
 import threading
 from datetime import datetime, timedelta
@@ -7,8 +8,8 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
-from django.test import TestCase, TransactionTestCase
+from django.db import close_old_connections, transaction
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -51,7 +52,7 @@ FACADE_MODULES = [
 ]
 
 
-class TestFacadeImports(TestCase):
+class TestFacadeImports(SimpleTestCase):
     @parameterized.expand([(m,) for m in FACADE_MODULES])
     def test_module_imports_and_all_symbols_resolve(self, module_path):
         module = importlib.import_module(module_path)
@@ -203,6 +204,50 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.assertEqual(self.task.created_by_id, self.recipient.id)
 
 
+class TestUpsertInternalSandboxEnvConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_concurrent_upsert_reuses_the_row_another_caller_created(self) -> None:
+        results: list[UUID] = []
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def upsert() -> None:
+            close_old_connections()
+            try:
+                results.append(
+                    facade.upsert_internal_sandbox_env(
+                        self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+                    )
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+                close_old_connections()
+
+        with transaction.atomic():
+            first_id = facade.upsert_internal_sandbox_env(
+                self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+            )
+            thread = threading.Thread(target=upsert)
+            thread.start()
+            self.assertFalse(finished.wait(timeout=1))
+        thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [first_id])
+        self.assertEqual(
+            list(
+                SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").values_list("id", flat=True)
+            ),
+            [first_id],
+        )
+
+
 class TestBootstrapTaskRun(TestCase):
     def test_invalid_cloud_origin_returns_validation_error(self) -> None:
         organization = Organization.objects.create(name="Legacy task org")
@@ -286,9 +331,8 @@ class TestFacadeReadsAndMappers(TestCase):
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
-                "scout_trial": {"id": "private-trial"},
-                "scout_trial_private": {"reports": [{"title": "Saved candidate"}]},
-                "posthog_mcp_scopes": "signals_scout_experiment",
+                "unknown_server_context": {"title": "Saved context"},
+                "posthog_mcp_scopes": "read_only",
                 "task_summary": "Private workflow context",
                 "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["request-1"]}}},
                 "compute_cost": 2,
@@ -310,8 +354,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert ("store_skills" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
-        assert "scout_trial" not in detail.state
-        assert "scout_trial_private" not in detail.state
+        assert "unknown_server_context" not in detail.state
         assert "posthog_mcp_scopes" not in detail.state
         assert {"token_cost", "compute_cost", "token_cost_incomplete", "unprocessed_request_ids"}.isdisjoint(
             detail.state
@@ -1888,7 +1931,50 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
-class TestAppendLogAgentActivity(TestCase):
+def _tool_update(tool_response: object) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "t1",
+                    "rawOutput": "out",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": tool_response}},
+                }
+            },
+        },
+    }
+
+
+class TestThreadViewOfLogContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("output_copy_dropped", {"stdout": "x" * 500, "stderr": ""}, None),
+            (
+                "denial_fields_kept",
+                {"decisionReason": "Denied", "message": "No", "stdout": "x"},
+                {"decisionReason": "Denied", "message": "No"},
+            ),
+            ("non_object_dropped", "plain text", None),
+        ]
+    )
+    def test_reduces_the_tool_response_copy(self, _name: str, tool_response: object, expected: object) -> None:
+        other = {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}}
+        content = "\n".join([json.dumps(other), json.dumps(_tool_update(tool_response)), "not json", ""])
+
+        lines = facade.thread_view_of_log_content(content).split("\n")
+
+        self.assertEqual(lines[0], json.dumps(other))
+        self.assertEqual(lines[2:], ["not json", ""])
+        update = json.loads(lines[1])["notification"]["params"]["update"]
+        self.assertEqual(update["rawOutput"], "out")
+        self.assertEqual(update["_meta"]["claudeCode"].get("toolResponse"), expected)
+        self.assertEqual(update["_meta"]["claudeCode"]["toolName"], "Bash")
+
+
+class TestAppendLogAgentActivity(SimpleTestCase):
     # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
     # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
     # timer on every write, so a run whose agent went silent could never time out.

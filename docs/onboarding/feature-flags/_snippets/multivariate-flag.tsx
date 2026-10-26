@@ -83,6 +83,17 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
                 // Do something differently for this user
             }
         `,
+        dotnet: dedent`
+            var flags = await posthog.EvaluateFlagsAsync("distinct_id_of_your_user");
+            var enabledVariant = flags.GetFlag("flag-key")?.VariantKey;
+
+            if (enabledVariant == "variant-key") // replace "variant-key" with the key of your variant
+            {
+                // Do something differently for this user
+                // Optional: fetch the payload
+                var matchedFlagPayload = flags.GetFlagPayload("flag-key");
+            }
+        `,
     }
 
     const langMap: Record<string, string> = {
@@ -93,6 +104,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
         php: 'php',
         ruby: 'ruby',
         go: 'go',
+        dotnet: 'csharp',
     }
 
     return <CodeBlock language={langMap[language] || 'javascript'} code={snippets[language] || snippets.javascript} />

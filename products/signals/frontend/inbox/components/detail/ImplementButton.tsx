@@ -1,20 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconLogomark, IconPullRequest } from '@posthog/icons'
+import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
-import {
-    buildClaudeCodeDeepLink,
-    buildCodexDeepLink,
-    buildCursorDeepLink,
-    buildPostHogCodeDeepLink,
-} from 'lib/components/AgentPromptButton'
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
-import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from 'lib/components/AgentPromptButton/AgentLogo'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -22,47 +16,16 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { ImplementationSlotClaim, inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
+import { IMPLEMENTATION_AGENTS } from './implementationAgents'
 
 const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
 
-const IMPLEMENTATION_AGENTS: {
-    key: AgentPromptDestination
-    name: string
-    icon: JSX.Element
-    buildDeepLink: (prompt: string) => string
-}[] = [
-    {
-        key: 'posthog-code',
-        name: 'PostHog Desktop',
-        icon: <IconLogomark />,
-        buildDeepLink: buildPostHogCodeDeepLink,
-    },
-    {
-        key: 'claude-code',
-        name: 'Claude Code',
-        icon: <AgentLogo logo={claudeLogo} />,
-        buildDeepLink: buildClaudeCodeDeepLink,
-    },
-    {
-        key: 'cursor',
-        name: 'Cursor',
-        icon: <AgentLogo logo={cursorLogo} logoClassName="dark:invert" />,
-        buildDeepLink: buildCursorDeepLink,
-    },
-    {
-        key: 'codex',
-        name: 'Codex',
-        icon: <AgentLogo logo={openaiLogo} />,
-        buildDeepLink: buildCodexDeepLink,
-    },
-]
-
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { implementationSlotClaim, reportTaskToOpen } = useValues(
+    const { implementationSlotClaim, reportTaskToOpen, reportClaimant, isClaimedByMe } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
@@ -72,10 +35,11 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     const disabledReason =
         createPrDisabledReason ??
         (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
-        (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined)
+        (implementationSlotClaim ? SLOT_CLAIM_DISABLED_REASON[implementationSlotClaim] : undefined) ??
+        (reportClaimant && !isClaimedByMe ? `${fullNameOrEmail(reportClaimant)} is working on this report.` : undefined)
 
     const submit = (note: string): void => {
-        if (isCreatingPr || isDiscussing || implementationSlotClaim) {
+        if (isCreatingPr || isDiscussing || implementationSlotClaim || (reportClaimant && !isClaimedByMe)) {
             return
         }
         if (createPrDisabledReason) {
@@ -182,10 +146,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                                         key: agent.key,
                                                         label: agent.name,
                                                         icon: agent.icon,
-                                                        onClick: () =>
-                                                            runImplementationPrompt(agent.key, (prompt) => {
-                                                                window.open(agent.buildDeepLink(prompt), '_blank')
-                                                            }),
+                                                        onClick: () => runImplementationPrompt(agent.key, agent.open),
                                                     }))}
                                                 />
                                             ),

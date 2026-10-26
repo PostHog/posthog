@@ -14,8 +14,23 @@ DEFAULT_LOOKBACK_MONTHS = 24
 # - None: no date params (small reference lists).
 WindowMode = Optional[Literal["month", "full"]]
 
+# Parent lists a fan-out endpoint iterates. Each parent's id is passed as `JellyfishFanOut.param`.
+# - "work_categories": slugs from `delivery/work_categories`.
+# - "engineers": person ids from `people/list_engineers`.
+# - "teams": team ids from the whole `teams/list_teams` tree.
+# - "deliverables": deliverable ids from `delivery/work_category_contents` in every work category.
+FanOutParent = Literal["work_categories", "engineers", "teams", "deliverables"]
 
-@dataclass
+
+@dataclass(frozen=True)
+class JellyfishFanOut:
+    parent: FanOutParent
+    # Query param the parent id goes in. Rows also get it injected under this name, so each row
+    # keeps the entity it was exported for.
+    param: str
+
+
+@dataclass(frozen=True)
 class JellyfishEndpointConfig:
     name: str
     path: str  # relative to https://app.jellyfish.co/endpoints/export/v0/
@@ -25,9 +40,8 @@ class JellyfishEndpointConfig:
     # Top-level response key wrapping the row list, when known (e.g. `deliverables`). The row
     # extractor falls back to auto-detecting a single list-of-dicts value when this is unset.
     data_key: str | None = None
-    # When set, the endpoint is called once per work category: slugs are listed from
-    # `delivery/work_categories` and passed via this query param.
-    fan_out_slug_param: str | None = None
+    # When set, the endpoint is called once per parent entity (see `FanOutParent`).
+    fan_out: JellyfishFanOut | None = None
     primary_keys: list[str] | None = None
     # Only month-windowed endpoints partition — on the injected, stable `window_start_date`.
     partition_key: str | None = None
@@ -36,8 +50,8 @@ class JellyfishEndpointConfig:
 # The endpoints a Jellyfish user actually wants in a warehouse, cross-referenced against the
 # official Jellyfish-AI/jellyfish-mcp wrapper (no Airbyte/Fivetran connector exists): reference
 # lists (engineers, teams, work categories), R&D allocation breakdowns, delivery deliverables, and
-# company-level metrics. Endpoints requiring per-entity ids (person/team metrics, scope history)
-# are deliberately left out of v1 — they need fan-out over volatile id lists.
+# company-level metrics. Endpoints that require a per-entity id (person/team metrics, work
+# category allocations, deliverable scope history) fan out over the matching parent list.
 JELLYFISH_ENDPOINTS: dict[str, JellyfishEndpointConfig] = {
     "engineers": JellyfishEndpointConfig(
         name="engineers",
@@ -94,7 +108,51 @@ JELLYFISH_ENDPOINTS: dict[str, JellyfishEndpointConfig] = {
         path="delivery/work_category_contents",
         window_mode="full",
         data_key="deliverables",
-        fan_out_slug_param="work_category_slug",
+        fan_out=JellyfishFanOut(parent="work_categories", param="work_category_slug"),
+    ),
+    "allocations_by_work_category": JellyfishEndpointConfig(
+        name="allocations_by_work_category",
+        path="allocations/details/work_category",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="work_categories", param="work_category_slug"),
+        partition_key="window_start_date",
+    ),
+    "allocations_by_work_category_person": JellyfishEndpointConfig(
+        name="allocations_by_work_category_person",
+        path="allocations/details/work_category/by_person",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="work_categories", param="work_category_slug"),
+        partition_key="window_start_date",
+    ),
+    "allocations_by_work_category_team": JellyfishEndpointConfig(
+        name="allocations_by_work_category_team",
+        path="allocations/details/work_category/by_team",
+        params={"team_hierarchy_level": 1},
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="work_categories", param="work_category_slug"),
+        partition_key="window_start_date",
+    ),
+    "person_metrics": JellyfishEndpointConfig(
+        name="person_metrics",
+        path="metrics/person_metrics",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="engineers", param="person_id"),
+        partition_key="window_start_date",
+    ),
+    "team_metrics": JellyfishEndpointConfig(
+        name="team_metrics",
+        path="metrics/team_metrics",
+        window_mode="month",
+        fan_out=JellyfishFanOut(parent="teams", param="team_id"),
+        partition_key="window_start_date",
+    ),
+    "deliverable_scope_and_effort_history": JellyfishEndpointConfig(
+        name="deliverable_scope_and_effort_history",
+        path="delivery/scope_and_effort_history",
+        # One wide window per deliverable; `unit=week` returns one row per week of history.
+        params={"unit": "week"},
+        window_mode="full",
+        fan_out=JellyfishFanOut(parent="deliverables", param="deliverable_id"),
     ),
 }
 

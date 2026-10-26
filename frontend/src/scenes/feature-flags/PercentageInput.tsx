@@ -6,11 +6,13 @@ import { useEffect, useRef, useState } from 'react'
 export function PercentageInput({
     value,
     onChange,
+    id,
     className,
     ...rest
 }: {
     value: number
     onChange: (value: number) => void
+    id?: string
     step?: number
     className?: string
     'data-attr'?: string
@@ -28,6 +30,7 @@ export function PercentageInput({
     return (
         <span className="LemonInput input-like LemonInput--type-number LemonInput--medium LemonInput--full-width">
             <input
+                id={id}
                 className={`LemonInput__input ${className ?? ''}`}
                 type="text"
                 inputMode="decimal"

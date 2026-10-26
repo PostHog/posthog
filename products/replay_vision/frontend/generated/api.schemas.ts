@@ -688,6 +688,14 @@ export interface ScannerResultApi {
     session_duration_s?: number | null
 }
 
+export type PromptValenceEnumApi = (typeof PromptValenceEnumApi)[keyof typeof PromptValenceEnumApi]
+
+export const PromptValenceEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+    Neutral: 'neutral',
+} as const
+
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
@@ -718,7 +726,6 @@ export interface ReplayObservationLabelApi {
 
 /**
  * * `thumbnail` - Thumbnail
- * * `clip` - Clip
  * * `chapter` - Chapter
  */
 export type ReplayObservationMediaKindEnumApi =
@@ -726,38 +733,26 @@ export type ReplayObservationMediaKindEnumApi =
 
 export const ReplayObservationMediaKindEnumApi = {
     Thumbnail: 'thumbnail',
-    Clip: 'clip',
     Chapter: 'chapter',
 } as const
 
 /**
- * One thumbnail or clip illustrating an observation.
+ * One frame illustrating an observation.
  */
 export interface ReplayObservationMediaApi {
     /** Id of this media entry. */
     readonly id: string
-    /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
+    /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter.
      *
      * * `thumbnail` - Thumbnail
-     * * `clip` - Clip
      * * `chapter` - Chapter */
     readonly kind: ReplayObservationMediaKindEnumApi
     /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
     readonly position: number
     /** Export asset holding the bytes; fetch it from the export content endpoint. */
     readonly asset_id: number
-    /**
-     * One sentence saying what the clip shows. Null for thumbnails.
-     * @nullable
-     */
-    readonly description: string | null
     /** Where this media starts in the analysis video, in milliseconds. */
     readonly video_start_ms: number
-    /**
-     * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-     * @nullable
-     */
-    readonly video_end_ms: number | null
 }
 
 export interface ReplayObservationApi {
@@ -792,6 +787,8 @@ export interface ReplayObservationApi {
      * @nullable
      */
     readonly prompt_question: string | null
+    /** For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned. */
+    readonly prompt_valence: PromptValenceEnumApi | null
     /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
      *
      * * `schedule` - Schedule
@@ -830,7 +827,7 @@ export interface ReplayObservationApi {
     readonly label: ReplayObservationLabelApi | null
     /** Whether the calling user has opened this observation. */
     readonly viewed: boolean
-    /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+    /** Frames illustrating this observation, in order. Empty until the media render finishes. */
     readonly media: readonly ReplayObservationMediaApi[]
     /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
     readonly summary_line: string
@@ -856,6 +853,34 @@ export interface PaginatedReplayObservationListApi {
 export interface CreateTaskFromObservationResponseApi {
     /** ID of the PostHog Task holding this observation's finding, created now (201) or by an earlier call (200). */
     task_id: string
+}
+
+/**
+ * * `not_a_real_problem` - Not a real problem
+ * * `already_known` - Already known
+ * * `not_my_area` - Not my area
+ * * `other` - Other
+ */
+export type FeedDismissalReasonEnumApi = (typeof FeedDismissalReasonEnumApi)[keyof typeof FeedDismissalReasonEnumApi]
+
+export const FeedDismissalReasonEnumApi = {
+    NotARealProblem: 'not_a_real_problem',
+    AlreadyKnown: 'already_known',
+    NotMyArea: 'not_my_area',
+    Other: 'other',
+} as const
+
+/**
+ * Why the calling user marked an observation not useful in What to watch.
+ */
+export interface ObservationFeedDismissalApi {
+    /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+     *
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other */
+    reason?: FeedDismissalReasonEnumApi | null
 }
 
 /**
@@ -969,6 +994,200 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
+ * * `summarize_recording` - Summarize recording
+ */
+export type BuiltInScanKeyEnumApi = (typeof BuiltInScanKeyEnumApi)[keyof typeof BuiltInScanKeyEnumApi]
+
+export const BuiltInScanKeyEnumApi = {
+    SummarizeRecording: 'summarize_recording',
+} as const
+
+/**
+ * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini38Flash: 'gemini-3.8-flash',
+} as const
+
+/**
+ * A question asked inline, without saving a scanner first.
+ */
+export interface InlineScanConfigApi {
+    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+     *
+     * * `summarize_recording` - Summarize recording */
+    built_in?: BuiltInScanKeyEnumApi
+    /**
+     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
+     * @maxLength 20000
+     */
+    prompt?: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type?: ScannerTypeEnumApi
+    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+    scanner_config?: unknown
+    /** Model to scan with. Determines what each observation costs in credits.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model?: ScannerModelEnumApi
+}
+
+/**
+ * Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.
+ */
+export interface CreateObservationRequestApi {
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+    /** A saved scanner to apply to the sessions. Pass this or `inline`, not both. */
+    scanner_id?: string
+    /** A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both. */
+    inline?: InlineScanConfigApi
+    /**
+     * Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.
+     * @maxLength 200
+     */
+    idempotency_key?: string
+    /**
+     * Your own id for this request, such as a ticket or job id. Returned unchanged.
+     * @maxLength 200
+     */
+    reference?: string
+    /** Hold the scans until every session has been quiet for 35 minutes, so each one is scanned whole. Use it when the sessions may still be recording. A scan of a live session sees only part of it, and its observation can't be replaced later. Sessions still active after 6 hours are scanned as they are. */
+    wait_for_session_end?: boolean
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ */
+export type ObservationRequestStatusEnumApi =
+    (typeof ObservationRequestStatusEnumApi)[keyof typeof ObservationRequestStatusEnumApi]
+
+export const ObservationRequestStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+} as const
+
+/**
+ * * `started` - Started
+ * * `already_running` - Already running
+ * * `already_scanned` - Already scanned
+ * * `skipped_limit` - Skipped, in-flight limit reached
+ * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+ * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+ * * `failed` - Failed to start
+ */
+export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
+
+export const ScanOutcomeEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+    AlreadyScanned: 'already_scanned',
+    SkippedLimit: 'skipped_limit',
+    SkippedQuota: 'skipped_quota',
+    SkippedScannerLimit: 'skipped_scanner_limit',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `succeeded` - Succeeded
+ * * `failed` - Failed
+ * * `ineligible` - Ineligible
+ * * `skipped` - Skipped
+ * * `lost` - Lost
+ */
+export type RequestSessionStateEnumApi = (typeof RequestSessionStateEnumApi)[keyof typeof RequestSessionStateEnumApi]
+
+export const RequestSessionStateEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Ineligible: 'ineligible',
+    Skipped: 'skipped',
+    Lost: 'lost',
+} as const
+
+/**
+ * One session of a request: how it started and where it stands now.
+ */
+export interface ObservationRequestSessionApi {
+    /** The session recording this outcome is for. */
+    session_id: string
+    /** How the session's scan started, with the same values as a bulk scan trigger. Null while the request still waits for the session to end, or before its scan has started.
+     *
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `already_scanned` - Already scanned
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+     * * `failed` - Failed to start */
+    scan_outcome: ScanOutcomeEnumApi | null
+    /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     * * `skipped` - Skipped
+     * * `lost` - Lost */
+    state: RequestSessionStateEnumApi
+    /**
+     * The observation for this session, once one exists. Null before that.
+     * @nullable
+     */
+    readonly observation_id: string | null
+    /** The scanner's answer for this session. Null until the session succeeds. */
+    readonly scanner_result: ScannerResultApi | null
+}
+
+/**
+ * A scan request and the current state of each of its sessions.
+ */
+export interface ObservationRequestApi {
+    /** Request ID. Poll `GET /vision/requests/{id}/` with it. */
+    id: string
+    /** 'completed' once every session has settled, whether or not it produced a result.
+     *
+     * * `running` - Running
+     * * `completed` - Completed */
+    status: ObservationRequestStatusEnumApi
+    /**
+     * The scanner the sessions were scanned with. For an inline question this is a hidden scanner, shared by every request that asks the same question. Null when nothing could start.
+     * @nullable
+     */
+    scanner_id: string | null
+    /** The `reference` sent with the request. */
+    reference: string
+    /** When the request was made. */
+    created_at: string
+    /** One entry per session, in request order. */
+    sessions: ObservationRequestSessionApi[]
+}
+
+/**
  * * `ai` - AI draft
  * * `template` - Template
  * * `scratch` - From scratch
@@ -1002,19 +1221,6 @@ export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeo
 
 export const ScannerProviderEnumApi = {
     Google: 'google',
-} as const
-
-/**
- * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.8-flash` - Gemini 3.8 Flash
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini35FlashLite: 'gemini-3.5-flash-lite',
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini38Flash: 'gemini-3.8-flash',
 } as const
 
 /**
@@ -1102,6 +1308,8 @@ export interface ReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -1141,12 +1349,21 @@ export interface ReplayScannerApi {
     readonly credits_this_month: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit: number
-    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    /** True when the organization's free credits bind this `free_only` scanner rather than its own `credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against its free credits. */
+    readonly limit_from_free_credits: boolean
+    /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
     readonly limit_reached: boolean
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor: number
+    /**
+     * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+     * @nullable
+     */
+    readonly dashboard_id: number | null
+    /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+    readonly dashboard_suggested: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -1235,6 +1452,8 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     credit_limit?: number | null
+    /** Run only while the organization has free credits left this billing period, so the scanner never adds spend. */
+    free_only?: boolean
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -1274,12 +1493,21 @@ export interface PatchedReplayScannerApi {
     readonly credits_this_month?: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month?: number
-    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit?: number
-    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    /** True when the organization's free credits bind this `free_only` scanner rather than its own `credit_limit`. `credits_used_against_limit` is then the organization's usage, measured against its free credits. */
+    readonly limit_from_free_credits?: boolean
+    /** Whether this scanner has stopped because of its own credit limit, or, for a `free_only` scanner, because the organization has used its free credits. True when the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set and `free_only` is false. */
     readonly limit_reached?: boolean
     /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
     readonly sweep_throttle_factor?: number
+    /**
+     * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+     * @nullable
+     */
+    readonly dashboard_id?: number | null
+    /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+    readonly dashboard_suggested?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1367,27 +1595,6 @@ export interface BulkObserveRequestApi {
 }
 
 /**
- * * `started` - Started
- * * `already_running` - Already running
- * * `already_scanned` - Already scanned
- * * `skipped_limit` - Skipped, in-flight limit reached
- * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
- * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
- * * `failed` - Failed to start
- */
-export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
-
-export const ScanOutcomeEnumApi = {
-    Started: 'started',
-    AlreadyRunning: 'already_running',
-    AlreadyScanned: 'already_scanned',
-    SkippedLimit: 'skipped_limit',
-    SkippedQuota: 'skipped_quota',
-    SkippedScannerLimit: 'skipped_scanner_limit',
-    Failed: 'failed',
-} as const
-
-/**
  * Per-session outcome of a bulk scan trigger.
  */
 export interface BulkObserveResultApi {
@@ -1413,6 +1620,15 @@ export interface BulkObserveResponseApi {
     started: number
     /** Per-session outcomes, in request order (deduplicated). */
     results: BulkObserveResultApi[]
+}
+
+export interface ScannerDashboardResponseApi {
+    /** Id of the scanner's dashboard. */
+    dashboard_id: number
+    /** Name of the dashboard. */
+    name: string
+    /** True when this call created the dashboard. False when the scanner already had one, which is returned instead. */
+    created: boolean
 }
 
 /**
@@ -1818,6 +2034,17 @@ export interface ScoutReportApi {
     charts: ReportChartApi[]
 }
 
+/**
+ * * `read_only` - Read only
+ * * `support_notes` - Support notes
+ */
+export type ToolPresetEnumApi = (typeof ToolPresetEnumApi)[keyof typeof ToolPresetEnumApi]
+
+export const ToolPresetEnumApi = {
+    ReadOnly: 'read_only',
+    SupportNotes: 'support_notes',
+} as const
+
 export interface SignalScoutSlackDestinationApi {
     /**
      * ID of the Slack integration whose bot posts this scout's findings and reports.
@@ -1853,6 +2080,8 @@ export interface SignalScoutOutputDestinationsApi {
     slack?: SignalScoutSlackDestinationApi | null
     /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
     webhook?: SignalScoutWebhookDestinationApi | null
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+    inbox?: boolean
 }
 
 /**
@@ -1905,10 +2134,28 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     write_scopes?: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    allowed_mcp_tools?: string[] | null
+    /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+     *
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
+    tool_preset?: ToolPresetEnumApi
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -1963,6 +2210,8 @@ export interface ScannerScoutCreateApi {
     body: string
     /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
     config?: SignalScoutConfigOptionsApi
+    /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
+    variant_analysis?: boolean
 }
 
 /**
@@ -2061,6 +2310,29 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+export type ScoutPrecheckQuerySourceEnumApi =
+    (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
+
+export const ScoutPrecheckQuerySourceEnumApi = {
+    Config: 'config',
+    SkillDefault: 'skill_default',
+    Off: 'off',
+} as const
+
+/**
+ * * `run` - Run
+ * * `skip` - Skip
+ * * `error` - Error
+ */
+export type SignalScoutConfigPrecheckOutcomeEnumApi =
+    (typeof SignalScoutConfigPrecheckOutcomeEnumApi)[keyof typeof SignalScoutConfigPrecheckOutcomeEnumApi]
+
+export const SignalScoutConfigPrecheckOutcomeEnumApi = {
+    Run: 'run',
+    Skip: 'skip',
+    Error: 'error',
+} as const
+
 /**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
@@ -2156,10 +2428,52 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 14
      */
     readonly write_scopes: readonly string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    readonly lifecycle_locked: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    readonly allowed_mcp_tools: readonly string[] | null
+    /**
+     * Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.
+     * @nullable
+     */
+    readonly tool_preset: string | null
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @nullable
+     */
+    readonly precheck_query: string | null
+    /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+    readonly precheck_disabled: boolean
+    /**
+     * The pre-check query the next scheduled run uses: `precheck_query`, or the default the scout's skill ships. Null when no pre-check runs.
+     * @nullable
+     */
+    readonly effective_precheck_query: string | null
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
+    /**
+     * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_at: string | null
+    /** The outcome of the latest scheduled pre-check: `run` (the query found something new), `skip` (nothing new, so the run did not start), or `error` (the query failed and the run started). Null if no pre-check has run.
+     *
+     * * `run` - Run
+     * * `skip` - Skip
+     * * `error` - Error */
+    readonly last_precheck_outcome: SignalScoutConfigPrecheckOutcomeEnumApi | null
+    /**
+     * How many rows the latest scheduled pre-check returned, at most 50. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_row_count: number | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -2247,6 +2561,22 @@ export interface VariantsWindowApi {
     last_observation_at: string | null
 }
 
+export interface VariantAnalysisLineApi {
+    /** A short label for the theme, shared across variants. */
+    theme: string
+    /** How the theme shows up for this variant. */
+    statement: string
+    /** How many of this variant's summaries the analysis read show the theme, as the scout counted them. */
+    count: number
+    /**
+     * How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.
+     * @nullable
+     */
+    read: number | null
+    /** Observations of this variant the scout cited for the theme. Ids it can't back are dropped. */
+    example_observation_ids: string[]
+}
+
 export interface VariantReadoutApi {
     /** The variant key. */
     key: string
@@ -2264,8 +2594,58 @@ export interface VariantReadoutApi {
      * @nullable
      */
     sampling_rate: number | null
+    /**
+     * Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.
+     * @nullable
+     */
+    analysis_observations: number | null
+    /**
+     * This variant's most notable themes from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    digest: VariantAnalysisLineApi[] | null
     /** This variant's most recent observations, newest first. */
     latest_observations: ReplayObservationApi[]
+}
+
+/**
+ * Summaries the analysis read that show the theme, per variant key, as the scout counted them.
+ */
+export type VariantAnalysisDifferenceApiCounts = { [key: string]: number }
+
+/**
+ * Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.
+ */
+export type VariantAnalysisDifferenceApiRead = { [key: string]: number }
+
+export interface VariantAnalysisDifferenceApi {
+    /** The theme the difference rests on. */
+    theme: string
+    /** What differs between the variants. */
+    statement: string
+    /** Summaries the analysis read that show the theme, per variant key, as the scout counted them. */
+    counts: VariantAnalysisDifferenceApiCounts
+    /** Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them. */
+    read: VariantAnalysisDifferenceApiRead
+}
+
+export interface VariantsAnalysisStateApi {
+    /** The variant analysis scout's config id. */
+    scout_config_id: string
+    /** Whether the scout runs on its schedule. */
+    scout_enabled: boolean
+    /**
+     * When the run behind the newest analysis started; null before its first run.
+     * @nullable
+     */
+    recorded_at: string | null
+    /**
+     * The scanner version the newest analysis covered.
+     * @nullable
+     */
+    scanner_version: number | null
+    /** Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run. */
+    current: boolean
 }
 
 export interface ExperimentVariantsReadoutApi {
@@ -2275,8 +2655,15 @@ export interface ExperimentVariantsReadoutApi {
     window: VariantsWindowApi
     /** One entry per watched variant, plus any variant still holding observations. */
     variants: VariantReadoutApi[]
+    /**
+     * What differs between variants, from the variant analysis. Null without a current analysis.
+     * @nullable
+     */
+    differences: VariantAnalysisDifferenceApi[] | null
     /** Succeeded observations with no attributed variant. */
     unattributed_count: number
+    /** The scanner's variant analysis scout and its newest run; null when none is set up. */
+    analysis: VariantsAnalysisStateApi | null
 }
 
 /**
@@ -2297,11 +2684,19 @@ export interface DraftScannerRequestApi {
      */
     goal: string
     /**
-     * Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+     * Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.
      * @minimum 1
      * @maximum 100000000
      */
     monthly_credit_budget?: number
+    /** Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`. */
+    free_only?: boolean
+    /**
+     * A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    experiment_id?: number
 }
 
 /**
@@ -2326,35 +2721,50 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
-    /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+    /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
      *
      * * `focused` - Focused
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive */
     sampling_mode: SamplingModeEnumApi | null
     /**
-     * Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * The random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
      * @nullable
      */
     sampling_rate: number | null
-    /** Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.
+    /** The observation model the draft chose for the goal, by how much judgment it needs.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model: ScannerModelEnumApi | null
     /**
-     * Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.
+     * The monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null for a free-only draft.
      * @nullable
      */
     credit_limit: number | null
-    /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
-    experiment_targeting: ScannerExperimentTargetingApi | null
+    /** Whether the draft runs only on the organization's free monthly credits. Pass it on to create. */
+    free_only: boolean
     /**
-     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * Recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable
      */
     estimated_monthly_observations: number | null
+}
+
+export interface EstimateExperimentScopeApi {
+    /**
+     * The experiment an experiment scanner watches.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * The variant keys it watches. Null or omitted means every variant.
+     * @minItems 1
+     * @nullable
+     * @items.maxLength 400
+     */
+    variants?: string[] | null
 }
 
 /**
@@ -2388,6 +2798,8 @@ export interface EstimateRequestApi {
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`. */
+    experiment?: EstimateExperimentScopeApi | null
 }
 
 /**
@@ -2408,26 +2820,26 @@ export interface EstimateResponseApi {
     other_enabled_scanners_monthly_credits: number
     /** Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total. */
     active_backfill_credits: number
+    /** The monthly credit rate the organization's free credits still cover for one more free-only scanner, after the other free-only scanners and backfills. The forecast caps a free-only scanner at this rate, because free-only scanners share one pool. */
+    free_only_monthly_credits_left: number
     /** Sampling rate applied to the projection. Echoed from the request. */
     sampling_rate: number
 }
 
 /**
- * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
+ * Body of POST /vision/scanners/inline_scan/ - a prompt or built-in scan plus the sessions to point it at.
  */
 export interface InlineScanRequestApi {
+    /** Run a scan PostHog defines instead of your own prompt. `summarize_recording` is the AI summary the Summarize button in the replay player runs, so its results are shared with that button. Leave out `prompt`, `scanner_type` and `scanner_config` when this is set.
+     *
+     * * `summarize_recording` - Summarize recording */
+    built_in?: BuiltInScanKeyEnumApi
     /**
-     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
-     * @maxItems 200
-     * @items.maxLength 128
-     */
-    session_ids: string[]
-    /**
-     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries. Required unless `built_in` is set.
      * @maxLength 20000
      */
-    prompt: string
-    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
+    prompt?: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` for a summary in your own words; use `built_in: summarize_recording` for the Summarize button's summary. An inline scan is keyed by its whole config, so asking the same question again reuses its answers.
      *
      * * `monitor` - Monitor
      * * `classifier` - Classifier
@@ -2443,6 +2855,12 @@ export interface InlineScanRequestApi {
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
 }
 
 /**
@@ -2566,6 +2984,7 @@ export interface SuggestTagsResponseApi {
  * * `novel_summary` - Novel Summary
  * * `friction` - Friction
  * * `jev_watchable` - Jev Watchable
+ * * `embedding_pick` - Embedding Pick
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
  */
@@ -2581,6 +3000,7 @@ export const WatchFeedReasonEnumApi = {
     NovelSummary: 'novel_summary',
     Friction: 'friction',
     JevWatchable: 'jev_watchable',
+    EmbeddingPick: 'embedding_pick',
     UnviewedRecent: 'unviewed_recent',
     Recent: 'recent',
 } as const
@@ -2596,10 +3016,52 @@ export interface WatchFeedSignalApi {
 }
 
 /**
+ * * `visible_error` - Error on screen
+ * * `silent_failure` - Action silently failed
+ * * `unresponsive` - Clicks went nowhere
+ * * `slow_or_stuck` - Slow or stuck
+ * * `blocked` - Blocked
+ * * `cant_find` - Couldn't find it
+ * * `confused` - Confused
+ * * `workaround` - Took a workaround
+ * * `abandoned` - Gave up
+ * * `churn_signal` - Churn signal
+ * * `success` - Worked well
+ */
+export type JevWatchReasonEnumApi = (typeof JevWatchReasonEnumApi)[keyof typeof JevWatchReasonEnumApi]
+
+export const JevWatchReasonEnumApi = {
+    VisibleError: 'visible_error',
+    SilentFailure: 'silent_failure',
+    Unresponsive: 'unresponsive',
+    SlowOrStuck: 'slow_or_stuck',
+    Blocked: 'blocked',
+    CantFind: 'cant_find',
+    Confused: 'confused',
+    Workaround: 'workaround',
+    Abandoned: 'abandoned',
+    ChurnSignal: 'churn_signal',
+    Success: 'success',
+} as const
+
+/**
+ * * `failure` - Failure
+ * * `struggle` - Struggle
+ * * `revenue` - Revenue
+ */
+export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
+
+export const WatchFeedCategoryEnumApi = {
+    Failure: 'failure',
+    Struggle: 'struggle',
+    Revenue: 'revenue',
+} as const
+
+/**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
@@ -2610,6 +3072,7 @@ export interface WatchFeedReasonApi {
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
      * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent */
     kind: WatchFeedReasonEnumApi
@@ -2647,6 +3110,20 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     notability_reason?: string | null
+    /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
+     *
+     * * `visible_error` - Error on screen
+     * * `silent_failure` - Action silently failed
+     * * `unresponsive` - Clicks went nowhere
+     * * `slow_or_stuck` - Slow or stuck
+     * * `blocked` - Blocked
+     * * `cant_find` - Couldn't find it
+     * * `confused` - Confused
+     * * `workaround` - Took a workaround
+     * * `abandoned` - Gave up
+     * * `churn_signal` - Churn signal
+     * * `success` - Worked well */
+    watch_reason?: JevWatchReasonEnumApi
     /**
      * The observation's score, for `outlier_score`.
      * @nullable
@@ -2667,6 +3144,22 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     tag_share?: number | null
+    /** What the session reads like, for `embedding_pick`.
+     *
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue */
+    watch_category?: WatchFeedCategoryEnumApi
+    /**
+     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+     * @nullable
+     */
+    similar_count?: number | null
+    /**
+     * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+     * @nullable
+     */
+    affected_people?: number | null
 }
 
 /**
@@ -2680,11 +3173,53 @@ export interface WatchFeedItemApi {
 }
 
 /**
+ * * `weighted-score` - Weighted Score
+ * * `jev` - Jev
+ * * `embedding` - Embedding
+ */
+export type WatchFeedRankerEnumApi = (typeof WatchFeedRankerEnumApi)[keyof typeof WatchFeedRankerEnumApi]
+
+export const WatchFeedRankerEnumApi = {
+    WeightedScore: 'weighted-score',
+    Jev: 'jev',
+    Embedding: 'embedding',
+} as const
+
+/**
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
+    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+    has_more: boolean
+    /** The time this feed ranks as of. Send it back with later pages. */
+    as_of: string
+    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+     *
+     * * `weighted-score` - Weighted Score
+     * * `jev` - Jev
+     * * `embedding` - Embedding */
+    ranker: WatchFeedRankerEnumApi
+    /**
+     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+     * @nullable
+     */
+    ranker_variant: string | null
+}
+
+/**
+ * Body of POST /vision/scanners/watch_feed_impressions/.
+ */
+export interface WatchFeedImpressionsApi {
+    /** The client's id for the feed load that showed these cards. One load counts each card once. */
+    feed_load_id: string
+    /**
+     * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    observation_ids: string[]
 }
 
 export type VisionAlertsListParams = {
@@ -3221,6 +3756,15 @@ export type VisionScannersObservationsStatsRetrieveParams = {
 
 export type VisionScannersWatchFeedRetrieveParams = {
     /**
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
+     */
+    as_of?: string
+    /**
+     * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
+     * @minLength 1
+     */
+    created_by?: string
+    /**
      * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
      * @minLength 1
      */
@@ -3231,11 +3775,17 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number
+    /**
+     * How many ranked items to skip. Send `as_of` with every page after the first.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1

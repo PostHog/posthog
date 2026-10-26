@@ -5,7 +5,7 @@ import { ReactNode, RefObject, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
-    IconChevronRight,
+    IconChevronDown,
     IconEllipsis,
     IconFolderPlus,
     IconHome,
@@ -18,13 +18,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import {
-    LemonTree,
-    LemonTreeRef,
-    LemonTreeSelectMode,
-    LemonTreeSize,
-    TreeDataItem,
-} from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -40,6 +34,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { getSidebarProduct } from './defaultTree'
 import { isHomeFolder, withHomeFolderEmptyState } from './homeFolderUtils'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
@@ -47,6 +42,13 @@ import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortMenuItems } from './TreeSortMenuItems'
 import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop } from './utils'
+
+// Product menus that open on a create action or a picker show a matching hint instead of the ellipsis
+const PRODUCT_MENU_BUTTON_ICONS: Record<string, JSX.Element> = {
+    'Product analytics': <IconPlusSmall className="text-tertiary" />,
+    Dashboards: <IconPlusSmall className="text-tertiary" />,
+    'Session replay': <IconChevronDown className="text-tertiary" />,
+}
 
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
@@ -61,12 +63,6 @@ interface ProjectTreeBaseProps {
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
     disableScroll?: boolean
-    /** Override the select mode from the internal logic */
-    selectModeOverride?: LemonTreeSelectMode
-    /** Override the checked items from the internal logic */
-    checkedItemsOverride?: Record<string, boolean>
-    /** Override the onItemChecked handler from the internal logic */
-    onItemCheckedOverride?: (id: string, checked: boolean) => void
     /**
      * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
@@ -91,7 +87,6 @@ export type ProjectTreeProps = ProjectTreeBaseProps &
           }
     )
 
-export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
@@ -106,9 +101,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
-        selectModeOverride,
-        checkedItemsOverride,
-        onItemCheckedOverride,
         onItemClicked,
         isActiveInPanel,
     } = props
@@ -130,7 +122,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         scrollTargetId,
         editingItemId,
         sortMethod: projectSortMethod,
-        selectMode: projectTreeSelectMode,
+        selectMode,
         sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
@@ -142,16 +134,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        onItemChecked: projectTreeOnItemChecked,
+        onItemChecked,
         moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
         setSelectMode,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
-
-    const selectMode = selectModeOverride ?? projectTreeSelectMode
-    const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -166,18 +155,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const showFilterDropdown = root === 'project://'
     const showSortMenuItems = root === 'project://'
 
-    let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
-
-    // Apply checked items override for external control (e.g. product selection)
-    if (checkedItemsOverride) {
-        const applyChecked = (items: TreeDataItem[]): TreeDataItem[] =>
-            items.map((item) => ({
-                ...item,
-                checked: checkedItemsOverride[item.id] ?? false,
-                children: item.children ? applyChecked(item.children) : undefined,
-            }))
-        treeData = applyChecked(treeData)
-    }
+    const treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
     if (fullFileSystemFiltered.length <= 5) {
         if (
@@ -445,24 +423,20 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 const showDropdownMenu =
-                    root === 'products://' ||
-                    root === 'custom-products://' ||
-                    (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
+                    root === 'products://' || (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
-                if (showDropdownMenu) {
-                    if (item.name === 'Product analytics') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconPlusSmall className="text-tertiary" />
-                            </ButtonPrimitive>
-                        )
-                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
-                        return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
-                            </ButtonPrimitive>
-                        )
-                    }
+                const menuButtonIcon = showDropdownMenu ? PRODUCT_MENU_BUTTON_ICONS[item.name] : undefined
+                if (menuButtonIcon) {
+                    return (
+                        <ButtonPrimitive
+                            iconOnly
+                            isSideActionRight
+                            className="z-2 -outline-offset-2"
+                            data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}-menu-button`}
+                        >
+                            {menuButtonIcon}
+                        </ButtonPrimitive>
+                    )
                 }
             }}
             emptySpaceContextMenu={() => {
@@ -487,12 +461,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (
-                    root === 'products://' ||
-                    root === 'data://' ||
-                    root === 'persons://' ||
-                    root === 'custom-products://'
-                ) {
+                if (root === 'products://' || root === 'data://' || root === 'persons://') {
                     const key = item.record?.sceneKey
 
                     return (
@@ -518,7 +487,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     return <>Create a new {nameNode}</>
                 }
 
-                if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                if (root === 'project://' || root === 'shortcuts://') {
                     const key = item.record?.sceneKey
                     const description = sceneConfigurations[key]?.description
                     if (description) {
@@ -553,7 +522,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
                 // A shortcut's created_at is when it was starred, not when the item was created.
                 const isNew =
-                    root !== 'custom-products://' &&
                     root !== 'shortcuts://' &&
                     item.record?.created_at &&
                     dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3

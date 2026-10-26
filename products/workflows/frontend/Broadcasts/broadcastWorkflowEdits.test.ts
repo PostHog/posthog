@@ -83,10 +83,18 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
     })
 
-    it('saves the audience and email into the existing steps without replacing them', () => {
+    it.each([
+        ['a workflow shaped like a broadcast', null],
+        ['a workflow moved to broadcasts', 'broadcasts'],
+    ])('saves the audience and email of %s into the existing steps without replacing them', (_, originProduct) => {
+        const condition = { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] }
         const existing = {
-            origin_product: null,
-            actions: [trigger({ properties: [], cohort_hint: 'kept' }), email(), exit],
+            origin_product: originProduct,
+            actions: [
+                trigger({ properties: [], cohort_hint: 'kept', filter_test_accounts: true }),
+                { ...email(), filters: condition },
+                exit,
+            ],
             edges,
         } as unknown as HogFlowApi
 
@@ -110,7 +118,9 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         expect(payload.actions[0].config.filters).toEqual({
             properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
             cohort_hint: 'kept',
+            filter_test_accounts: true,
         })
+        expect(payload.actions[1].filters).toEqual(condition)
         expect(payload.actions[1].on_error).toBe('continue')
         expect(payload.actions[1].config.inputs.extra).toEqual({ value: 1 })
         expect(payload.actions[1].config.inputs.email.value.subject).toBe('New subject')
@@ -119,7 +129,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     it.each([
         ['a new broadcast', null],
         ['a workflow shaped like a broadcast', { origin_product: null, actions: [trigger(), email(), exit], edges }],
-    ])('saves the message category and tracking onto the email step of %s', (_, existing) => {
+    ])('saves the message category, tracking and UTM tags onto the email step of %s', (_, existing) => {
         const payload = buildBroadcastPayload({
             name: 'Newsletter',
             audienceProperties: [],
@@ -127,7 +137,13 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             conversion: DEFAULT_BROADCAST_CONVERSION,
             email: DEFAULT_BROADCAST_EMAIL,
             emailRateLimit: null,
-            emailSettings: { messageCategoryId: 'cat-1', messageCategoryType: 'marketing', trackingEnabled: false },
+            emailSettings: {
+                messageCategoryId: 'cat-1',
+                messageCategoryType: 'marketing',
+                trackingEnabled: false,
+                utmTagsEnabled: true,
+                utmParams: { utm_campaign: '{{ person.properties.plan }}' },
+            },
             broadcast: existing as unknown as HogFlowApi | null,
         })
 
@@ -136,6 +152,8 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             message_category_id: 'cat-1',
             message_category_type: 'marketing',
             tracking_enabled: false,
+            utm_tags_enabled: true,
+            utm_params: { utm_campaign: '{{ person.properties.plan }}' },
         })
     })
 })

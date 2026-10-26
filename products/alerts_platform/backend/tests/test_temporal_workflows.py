@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -18,7 +19,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
 from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
@@ -35,8 +36,10 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
+    AlertDeliveryRequest,
     AlertDemand,
     DemandDiscoveryInputs,
     OrchestrateInputs,
@@ -45,6 +48,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
+    DELIVERY_EXECUTION_TIMEOUT,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
@@ -54,8 +58,12 @@ from products.alerts_platform.backend.facade.temporal import (
 )
 from products.alerts_platform.backend.logic import demand
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal import postgres
+from products.alerts_platform.backend.temporal import (
+    postgres,
+    workflows as alert_workflows,
+)
 from products.alerts_platform.backend.temporal.workflows import (
+    THREAD_BUSY,
     AlertsPlatformEvaluateWorkflow,
     AlertsPlatformInputs,
     AlertsPlatformOrchestrateWorkflow,
@@ -79,11 +87,15 @@ def sdk_metrics() -> MetricBuffer:
     return MetricBuffer(10000)
 
 
-@pytest_asyncio.fixture(scope="module")
-async def environment(
-    sdk_metrics: MetricBuffer, span_exporter: InMemorySpanExporter
-) -> AsyncIterator[WorkflowEnvironment]:
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=sdk_metrics))
+@pytest.fixture(scope="module")
+def runtime(sdk_metrics: MetricBuffer) -> Runtime:
+    return Runtime(telemetry=TelemetryConfig(metrics=sdk_metrics))
+
+
+# One server per test: once a parent closes with an abandoned child, the time-skipping test server
+# stops skipping time, and every later test on that server waits out its timers in real time.
+@pytest_asyncio.fixture
+async def environment(runtime: Runtime, span_exporter: InMemorySpanExporter) -> AsyncIterator[WorkflowEnvironment]:
     async with await WorkflowEnvironment.start_time_skipping(
         runtime=runtime, plugins=[OpenTelemetryPlugin(add_temporal_spans=True)]
     ) as env:
@@ -317,11 +329,115 @@ async def test_delivery_survives_parent_closure(
         assert await child.result() is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("frees_after", [PENDING_CLAIM_TTL, None])
+async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
+    environment: WorkflowEnvironment, frees_after: dt.timedelta | None
+) -> None:
+    attempts: list[dt.datetime] = []
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def held_thread(request: AlertDeliveryRequest) -> None:
+        scheduled = activity.info().current_attempt_scheduled_time
+        attempts.append(scheduled)
+        if frees_after is None or scheduled - attempts[0] < frees_after:
+            raise ApplicationError("thread held", type=THREAD_BUSY, non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[held_thread],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+        )
+        if frees_after is None:
+            with pytest.raises(WorkflowFailureError) as failure:
+                await handle.result()
+            assert isinstance(failure.value.cause, ActivityError)
+        else:
+            assert await handle.result() is None
+
+    assert attempts[-1] - attempts[0] >= PENDING_CLAIM_TTL
+
+
+@pytest.mark.asyncio
+async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
+    environment: WorkflowEnvironment,
+) -> None:
+    steps: list[str] = []
+
+    @activity.defn(name="alerts_platform_emit_transitions_activity")
+    async def emit(request: AlertDeliveryRequest) -> None:
+        steps.append(f"emit {request.part}")
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def deliver(request: AlertDeliveryRequest) -> None:
+        steps.append(f"send {request.part}")
+        if request.part == 0:
+            raise ApplicationError("channel refused", non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[deliver, emit],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+                parts=3,
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT * 3,
+        )
+        with pytest.raises(WorkflowFailureError) as failure:
+            await handle.result()
+
+    assert isinstance(failure.value.cause, ActivityError)
+    assert steps == ["send 0", "send 1", "send 2"]
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_that_emitted_transition_events_before_the_removal_still_replays() -> None:
+    history = WorkflowHistory.from_json(
+        "alerts-deliver-preview-cfg-1:eval-1",
+        (Path(__file__).parent / "histories" / "split_delivery_with_transition_events.json").read_text(),
+    )
+    await Replayer(workflows=DELIVERY_WORKFLOWS, workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(history)
+
+
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
-    environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
+    environment: WorkflowEnvironment,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    timeout_type: TimeoutType,
 ) -> None:
     caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=5))
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=15))
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
@@ -352,7 +468,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
                 pass
         if timeout_type == TimeoutType.SCHEDULE_TO_CLOSE:
             # Separate the close deadlines instead of racing schedule-to-start at the same deadline.
-            await environment.sleep(25)
+            await environment.sleep(12)
         async with Worker(
             client,
             task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
@@ -429,17 +545,17 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
 
 
 class TestDemandDiscovery(APIBaseTest):
-    def _configuration(self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert"):
+    def _configuration(
+        self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert", check_status: str = "ok"
+    ):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=self.team,
                 name=name,
                 enabled=enabled,
+                check_status=check_status,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=1,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=5,
                 next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
             )
@@ -451,14 +567,11 @@ class TestDemandDiscovery(APIBaseTest):
     def _key(self, minutes_ago: int) -> AlertBatchKey:
         return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
 
-    def _alert(
-        self, configuration, *, state: str, snooze_until: dt.datetime | None = None, grouping_key: str = ""
-    ) -> None:
+    def _alert(self, configuration, *, state: str, snooze_until: dt.datetime | None = None) -> None:
         with team_scope(self.team.id):
             PlatformAlert.objects.create(
                 team=self.team,
                 configuration=configuration,
-                grouping_key=grouping_key,
                 state=state,
                 snooze_until=snooze_until,
             )
@@ -467,19 +580,15 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="due")
         self._configuration(minutes_ago=-1, name="not yet due")
         self._configuration(minutes_ago=1, enabled=False, name="disabled")
-        self._alert(self._configuration(minutes_ago=2, name="broken"), state=PlatformAlert.State.BROKEN)
+        self._configuration(minutes_ago=2, name="broken", check_status="broken")
         # Excluding a muted alert here would stop its state tracking reality for the whole snooze.
         self._alert(
             self._configuration(minutes_ago=3, name="snoozed"),
             state=PlatformAlert.State.NOT_FIRING,
             snooze_until=self.tick + dt.timedelta(hours=1),
         )
-        # Two rows on one configuration, neither suppressing on its own. Written as a lookup across
-        # the relation instead of one correlated subquery, the empty group and the broken state match
-        # different rows and this configuration silently stops being checked.
-        grouped = self._configuration(minutes_ago=4, name="broken in one group only")
-        self._alert(grouped, state=PlatformAlert.State.NOT_FIRING)
-        self._alert(grouped, state=PlatformAlert.State.BROKEN, grouping_key="/api/checkout")
+        # An errored check retries, so only BROKEN holds a configuration back.
+        self._configuration(minutes_ago=4, name="errored", check_status="errored")
 
         discovered = demand.discover_demand(self.tick.isoformat())
 
@@ -499,7 +608,7 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="newer")
         self._configuration(minutes_ago=5, name="oldest")
 
-        bounded = demand.discover_demand(self.tick.isoformat(), limit_per_source=1)
+        bounded = demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 1})
 
         # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
         assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
@@ -526,7 +635,21 @@ class TestDemandDiscovery(APIBaseTest):
 
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
-            demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
+            demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
+
+
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -576,21 +699,30 @@ def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> No
     assert AlertsPlatformSourceDispatchWorkflow in registered
 
 
-def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
+def test_every_source_evaluation_binding_names_a_workflow_registered_on_its_queue() -> None:
     import temporalio.workflow  # noqa: PLC0415 — read after the registry
 
     # The registry imports every product's workflows, so it stays off this module's import path.
-    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT  # noqa: PLC0415
+    from posthog.management.commands.start_temporal_worker import ACTIVITIES_DICT, WORKFLOWS_DICT  # noqa: PLC0415
 
+    from products.alerts_platform.backend.temporal.outcomes import (  # noqa: PLC0415 — read after the registry
+        alerts_platform_record_outcomes_activity,
+    )
     from products.alerts_platform.backend.temporal.sources import (  # noqa: PLC0415 — read after the registry
-        SOURCE_EVALUATION_WORKFLOWS,
+        SOURCE_BINDINGS,
     )
 
-    definitions = (
-        temporalio.workflow._Definition.from_class(registered_workflow)
-        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE]
-    )
-    registered = {definition.name for definition in definitions if definition is not None}
-    # A binding naming a workflow no evaluation worker registers leaves every dispatch for
-    # that source queued until it times out.
-    assert set(SOURCE_EVALUATION_WORKFLOWS.values()) <= registered
+    def registered_on(task_queue: str) -> set[str | None]:
+        definitions = (temporalio.workflow._Definition.from_class(w) for w in WORKFLOWS_DICT[task_queue])
+        return {definition.name for definition in definitions if definition is not None}
+
+    # A binding naming a workflow its queue's worker does not register leaves every dispatch for
+    # that source queued until it times out. The source's workflow records its outcomes on the
+    # same queue, so a queue without that activity evaluates every check and records none.
+    unregistered = {
+        source: binding.task_queue
+        for source, binding in SOURCE_BINDINGS.items()
+        if binding.workflow not in registered_on(binding.task_queue)
+        or alerts_platform_record_outcomes_activity not in ACTIVITIES_DICT[binding.task_queue]
+    }
+    assert unregistered == {}

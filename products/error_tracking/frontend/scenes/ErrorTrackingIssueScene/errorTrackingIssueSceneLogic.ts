@@ -67,6 +67,7 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../qu
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import { linkedReportsLogic } from './linkedReportsLogic'
+import { issueAffectedBroadcastLogic } from './ScenePanel/issueAffectedBroadcastLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -784,6 +785,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         issue_id: props.id,
                         destination: response.integration.kind,
                         stacktrace_included: includeStacktrace,
+                        assignee_set: !!config.assignee,
                     })
                     const externalIssues = values.issue.external_issues ?? []
                     return { ...values.issue, external_issues: [...externalIssues, response] }
@@ -977,7 +979,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
 
-        // A real issue id is a UUID. The catch-all `/error_tracking/:id` route can capture a
+        // A real issue id is a UUID. The catch-all `/error-tracking/:id` route can capture a
         // legacy settings slug (e.g. `symbol_sets`), so the scene checks this to show a
         // not-found state instead of firing loaders that fail with "issue_id must be a valid UUID".
         issueIdValid: [(_, p) => [p.id], (id: string) => isUUIDLike(id)],
@@ -1099,8 +1101,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName, issueId }) => {
-                if (mutationName === 'createIssueCohort' && issueId === props.id) {
-                    actions.loadIssue()
+                if (
+                    mutationName === 'updateIssueStatus' &&
+                    issueId === props.id &&
+                    values.issue?.status === 'resolved'
+                ) {
+                    issueAffectedBroadcastLogic
+                        .findMounted({ issueId: props.id, issueName: values.issue.name })
+                        ?.actions.offerAfterResolve()
                 }
             },
         }
@@ -1125,7 +1133,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking/:id': (_, params) => {
+            '**/error-tracking/:id': (_, params) => {
                 if (values.listDateRange == null) {
                     actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
                 }

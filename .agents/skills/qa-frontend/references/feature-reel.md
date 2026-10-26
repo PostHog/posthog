@@ -1,27 +1,38 @@
 # Feature reel
 
 A feature reel is a short animated WebP of one UI flow, for a PR description.
-Use it when one still cannot show the change, for example a menu that opens on right-click, or a flow across two screens.
-When one still can show the change, take the still instead (see "Screenshots" in `/writing-pr-descriptions`).
+It is for a new action and its effect, when a screenshot of the end state hides the action, for example a menu that opens on right-click.
+When the user asked for this reel, make it.
+Otherwise, read `references/screenshots-and-reels.md` in `/writing-pr-descriptions` first. It has the test and worked examples.
+When a screenshot can show the change, take the screenshot and stop here.
 
-The reel is made from Storybook stills, not from a screen recording.
+The reel is made from stills, not from a screen recording.
 The camera zooms to the target of each step, a cursor glides there and clicks, and the next state fades in.
 The motion is a pure function of the stills, so it is the same on every run, and the reel stays sharp on high-density screens.
 The scripts need only the repo's Playwright and Pillow. Do not install ffmpeg or other packages for this mode.
 
 Run every command below from the root of the PostHog checkout.
 
-## 1. Start Storybook
+## 1. Pick the source
 
+Use a Storybook story when one shows the start of the flow, or when a scratch story can.
 Reuse a Storybook that runs. Otherwise, start one with `pnpm storybook` (port 6006).
 Story ids are in `http://localhost:6006/index.json`.
 On a cold dev server the first load of a story can take minutes, because Vite compiles each lazy chunk on its first request.
 `reel-capture.mjs` waits up to five minutes for it.
 
+Use the running app when the local stack is up and the flow needs real routing or data that a story does not mock.
+Set `"testWorkspace": true` in the shot list.
+`reel-capture.mjs` then creates a new workspace with generated demo data through `/api/setup_test/organization_with_team/`, logs in to it, and puts its id where the `url` says `{team_id}`.
+This works only on a local dev stack, because that endpoint needs `DEBUG`.
+Never capture the developer's own workspace: its data can hold names that must not be public.
+
 ## 2. Write the shot list
 
-Start from a story that shows the first state of the flow, usually a story without a `play` function.
-When no story shows that state, write a scratch story and keep it out of the commit.
+Start in the state just before the new interaction, and make every step show something the PR changed.
+When the PR adds a right-click menu to session rows, start on the list. Do not click through the sidebar to get there.
+For Storybook, that is usually a story without a `play` function. When no story shows that state, write a scratch story and keep it out of the commit.
+For the running app, that is a `url` that opens the right screen.
 
 Write each step of the flow as one entry in `steps`.
 The `play` function of the story that shows the end state is often the best source: one `userEvent` or `fireEvent` call becomes one step.
@@ -48,7 +59,8 @@ The reel drives the steps itself, because a `play` function cannot be paused bet
 
 | Field             | Meaning                                                                                                                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `url`             | The iframe URL of the story: `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story`                                                                                               |
+| `url`             | The iframe URL of the story: `http://localhost:6006/iframe.html?id=<story-id>&viewMode=story`. With `testWorkspace`, an app URL such as `http://localhost:8010/project/{team_id}/replay`    |
+| `testWorkspace`   | Optional. `true` creates a demo workspace on the local stack and logs in to it before the first load                                                                                        |
 | `viewport`        | Size in CSS pixels. The default is 1280×800                                                                                                                                                 |
 | `steps[].caption` | Text on screen while the cursor moves to the target                                                                                                                                         |
 | `steps[].action`  | `click`, `rightclick` or `hover`                                                                                                                                                            |
@@ -58,7 +70,7 @@ The reel drives the steps itself, because a `play` function cannot be paused bet
 | `steps[].focus`   | Optional target that the last step shows, such as a menu. The camera frames it in the final shot. Earlier steps ignore it                                                                   |
 | `finalCaption`    | Text on screen at the end                                                                                                                                                                   |
 
-Keep a reel to two to four steps. Each step adds about 1.4 seconds.
+Keep a reel to one to four steps. Each step adds about 1.4 seconds.
 Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence case, a few words, no em dashes.
 
 ## 3. Capture, render and encode
@@ -82,12 +94,15 @@ A two-step reel is about 3 MB and a three-step reel about 5 MB. The upload limit
 
 ## 4. Add it to the PR
 
-The upload gate in `references/safety-rules.md` applies: show the developer the reel and get approval before the upload.
-Storybook renders mock data, but a scratch story or a caption can still carry names that must not be public.
+Before the upload, read the first frame, one frame at each step, and the last frame.
+Look for names, emails, tokens, and internal text in the pixels and in the captions.
+
+- A reel from Storybook stills follows the screenshot rule in `/writing-pr-descriptions`: when the frames are clean, upload it without a separate approval. Storybook renders mock data, but a scratch story or a caption can still carry names that must not be public.
+- A reel from the running app follows the upload gate in `references/safety-rules.md`: show the developer the reel and get approval before the upload, also for a test workspace.
 
 ```bash
-# --yes only after the developer approves this exact file
+# --yes only after the check above, and for a running-app reel only after the developer approves this exact file
 hogli pr:upload-image --yes --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
 ```
 
-Paste the markdown line that the command prints as the "after" of the change. For the "before", follow "Screenshots" in `/writing-pr-descriptions`.
+Paste the markdown line that the command prints as the "after" of the change. For the "before", follow `references/screenshots-and-reels.md` in `/writing-pr-descriptions`.

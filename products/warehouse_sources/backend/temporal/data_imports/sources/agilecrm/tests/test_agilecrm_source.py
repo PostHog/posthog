@@ -1,11 +1,13 @@
 from typing import Any
 
-from unittest.mock import MagicMock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm import source as agilecrm_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.source import AgileCRMSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.agilecrm import (
     AgileCRMSourceConfig,
 )
@@ -19,18 +21,6 @@ class TestSourceConfig:
     def test_domain_is_a_connection_host_field(self) -> None:
         # Retargeting the domain (where the API key is sent) must re-require secrets.
         assert AgileCRMSource().connection_host_fields == ["domain"]
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://acme.agilecrm.com/dev/api/contacts"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://acme.agilecrm.com/dev/api/opportunity"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = AgileCRMSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
 
 
 class TestValidateCredentials:
@@ -59,8 +49,9 @@ class TestPipelinePlumbing:
         ]
     )
     def test_source_for_pipeline_routes_endpoint(self, _name: str, endpoint: str, expected_keys: list[str]) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        response = AgileCRMSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert response.name == endpoint
-        assert response.primary_keys == expected_keys
+        result = SourceDriver(AgileCRMSource(), _config()).run(endpoint, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_keys

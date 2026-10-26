@@ -21,7 +21,11 @@ export class HogFlowFunctionsService {
         private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
 
-    async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
+    async buildHogFunction(
+        hogFlow: HogFlow,
+        configuration: Action['config'],
+        actionName?: string
+    ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
 
         if (!template) {
@@ -49,6 +53,8 @@ export class HogFlowFunctionsService {
             // send choke point, where only the synthetic hog function is in scope.
             metadata: {
                 ...config,
+                hog_flow_name: hogFlow.name,
+                hog_flow_action_name: actionName ?? null,
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
@@ -104,7 +110,8 @@ export class HogFlowFunctionsService {
             // Include workflow-level variables
             variables: invocation.state.variables,
             source: {
-                name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
+                id: invocation.hogFlow.id,
+                name: invocation.hogFlow.name || `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
             },
             project: {

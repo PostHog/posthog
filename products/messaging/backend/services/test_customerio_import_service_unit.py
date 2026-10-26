@@ -13,7 +13,7 @@ class TestCustomerIOImportServiceUnit(SimpleTestCase):
         self.team = MagicMock()
         self.user = MagicMock()
         self.api_key = "test-api-key"
-        self.service = CustomerIOImportService(self.team, self.api_key, self.user)
+        self.service = CustomerIOImportService(self.team.id, self.api_key, self.user.id)
 
     @parameterized.expand(
         [
@@ -113,7 +113,7 @@ class TestCustomerIOImportServiceUnit(SimpleTestCase):
 
     def test_api_import_without_api_key(self):
         """Test API import fails when API key is None"""
-        service = CustomerIOImportService(self.team, api_key=None, user=self.user)
+        service = CustomerIOImportService(self.team.id, api_key=None, created_by_id=self.user.id)
 
         # Run import without API key
         result = service.import_api_data()

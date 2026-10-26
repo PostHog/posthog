@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from posthog.schema_enums import NodeKind, ProductKey
 
@@ -50,10 +50,12 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_CATALOG = "data_catalog"
+    DATA_MODELING = "data_modeling"
     DATA_QUALITY = "data_quality"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
@@ -86,6 +88,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TODAY = "today"
     TRACING = "tracing"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -108,6 +111,7 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
@@ -146,6 +150,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
@@ -214,6 +219,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_AGENT_ANALYTICS_QUERY
+            | NodeKind.WEB_PAGE_DIRECTORY_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -235,7 +241,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -284,6 +290,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
@@ -324,8 +331,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -337,6 +342,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
             | NodeKind.DATA_VISUALIZATION_NODE
+            | NodeKind.BI_VISUALIZATION_NODE
             | NodeKind.SAVED_INSIGHT_NODE
             | NodeKind.INSIGHT_VIZ_NODE
         ):
@@ -389,6 +395,13 @@ class DagsterTags(BaseModel):
     asset_key: Optional[str] = None
 
 
+_PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(member.value for member in ProductKey)
+
+
+def is_known_product_tag(value: str) -> bool:
+    return value in _PRODUCT_TAG_VALUES
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -419,6 +432,9 @@ class QueryTags(BaseModel):
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
+    # The user for a query that names none. sync_execute's product routes (MAX_AI, ENDPOINTS, BILLING,
+    # temporal LLM analytics) take precedence over it.
+    ch_user: Optional[str] = None  # enum connection.ClickHouseUser
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
@@ -507,6 +523,11 @@ class QueryTags(BaseModel):
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
+    # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",
+    # "session_property_math", "group_math", "unsupported_math", "retention_window", or "ratio_flag_off".
+    # None/absent when the metric-events side is precomputable.
+    experiment_metric_events_skip_reason: Optional[str] = None
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
     # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
@@ -532,6 +553,7 @@ class QueryTags(BaseModel):
 
     # data quality
     data_quality_check_id: Optional[str] = None
+    data_quality_run_id: Optional[str] = None
     data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
     data_quality_subject_type: Optional[str] = None  # table or view
     data_quality_subject_id: Optional[str] = None
@@ -541,6 +563,9 @@ class QueryTags(BaseModel):
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
     saved_query_ids: Optional[list[str]] = None
+    warehouse_table_ids: Optional[list[str]] = None
+    directly_read_ids: Optional[list[str]] = None
+    materialized_saved_query_id: Optional[str] = None
 
     trend_volume_type: Optional[str] = None
 
@@ -594,6 +619,16 @@ class QueryTags(BaseModel):
     service_name: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
+
+    @field_validator("ch_user")
+    @classmethod
+    def _known_ch_user(cls, value: str | None) -> str | None:
+        # Rejected where the tag is set, so a bad value never reaches sync_execute.
+        from posthog.clickhouse.client.connection import (
+            ClickHouseUser,  # noqa: PLC0415 — connection imports this module via posthog.utils
+        )
+
+        return None if value is None else ClickHouseUser(value).value
 
     def update(self, **kwargs):
         for field, value in kwargs.items():

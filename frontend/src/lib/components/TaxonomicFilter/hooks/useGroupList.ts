@@ -105,7 +105,14 @@ export interface UseGroupListResult {
     isFetching: boolean
     needsMoreSearchCharacters: boolean
     hasRemoteDataSource: boolean
+    /** The last error from the active remote source for the current query. Can be truthy
+     *  even when `items` is non-empty (a cached page still has rows while a later search
+     *  fails), so use `showErrorState` when "nothing usable to fall back on" is what matters. */
+    error: unknown
     showEmptyState: boolean
+    /** A fetch that failed for the current query. Kept separate from `showEmptyState` so a
+     *  timeout or a 5xx doesn't read as "this project has no matching properties". */
+    showErrorState: boolean
     showLoadingState: boolean
     showNonCapturedEventOption: boolean
 
@@ -113,7 +120,9 @@ export interface UseGroupListResult {
     isExpanded: boolean
     expand: () => void
 
-    refetch: () => void
+    /** Retries the failed fetch. Resolves once the retry settles, so a caller can
+     *  disable its retry button for the duration. */
+    refetch: () => Promise<unknown>
 }
 
 const DEFAULT_LIMIT = 100
@@ -203,7 +212,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const trimmedSearch = searchQuery.trim()
     const needsMoreSearchCharacters = minSearchQueryLength > 0 && trimmedSearch.length < minSearchQueryLength
 
-    const remoteEnabled = hasRemoteDataSource && !needsMoreSearchCharacters
+    const remoteEnabled =
+        hasRemoteDataSource && !needsMoreSearchCharacters && group.shouldSearch?.(searchQuery) !== false
 
     // `clientFilterFirstPage` groups (e.g. Cohorts) pin the remote query to
     // the empty-search first page and let local Fuse handle keystroke
@@ -483,12 +493,21 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         return realResults.length === 0
     }, [allowNonCapturedEvents, group.type, group.excludedProperties, trimmedSearch, isLoading, items])
 
+    // A fetch that failed for the *current* query with nothing usable to fall back on.
+    // Mirrors legacy infiniteListLogic's `showErrorState`. When the server search is the
+    // active source (dataset bigger than one cached page), its failure is what must
+    // surface — the cached first page already succeeded, so `remote.error` stays unset
+    // and a failed search would otherwise read as "no results".
+    const error = serverSearchEnabled ? serverSearch.error : remote.error
+    const showErrorState = remoteEnabled && !!error && items.length === 0 && !isLoading
+
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
     // page, and we don't want to flash an empty state during that window.
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
-        needsMoreSearchCharacters
+        !showErrorState &&
+        ((items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+            needsMoreSearchCharacters)
 
     const showLoadingState = isLoading && items.length === 0
 
@@ -531,17 +550,20 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         isFetching,
         needsMoreSearchCharacters,
         hasRemoteDataSource,
+        error,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         showNonCapturedEventOption,
         isExpandable,
         isExpanded,
         expand,
         refetch: () => {
-            remote.refetch()
+            const pending = [serverSearchEnabled ? serverSearch.refetch() : remote.refetch()]
             if (remoteEnabled && group.scopedEndpoint && !isExpanded) {
-                expandedCount.refetch()
+                pending.push(expandedCount.refetch())
             }
+            return Promise.all(pending)
         },
     }
 }

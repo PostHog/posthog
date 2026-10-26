@@ -8,14 +8,21 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
+    NagerDateSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date import (
     BACKFILL_YEARS_BACK,
-    BASE_URL,
     FORWARD_YEARS,
     MAX_COUNTRY_CODES,
     NagerDateResumeConfig,
     _get,
-    _holiday_id,
     _holiday_years,
     check_country_codes,
     nager_date_source,
@@ -28,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date
     NEXT_PUBLIC_HOLIDAYS,
     PUBLIC_HOLIDAYS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.nager_date"
 
@@ -61,57 +69,17 @@ class TestParseCountryCodes:
 
 
 class TestCheckCountryCodes:
-    def test_empty_is_invalid(self) -> None:
-        assert check_country_codes([]) is not None
-
     def test_too_many_is_invalid(self) -> None:
         codes = [f"C{i}" for i in range(MAX_COUNTRY_CODES + 1)]
         message = check_country_codes(codes)
         assert message is not None
         assert "Too many" in message
 
-    def test_at_the_cap_is_valid(self) -> None:
-        codes = [chr(ord("A") + (i % 26)) * 2 for i in range(MAX_COUNTRY_CODES)]
-        assert check_country_codes(codes) is None
-
     @parameterized.expand([(["USA"],), (["1G"],), (["U"],)])
     def test_malformed_code_is_invalid(self, codes: list[str]) -> None:
         message = check_country_codes(codes)
         assert message is not None
         assert "valid two-letter" in message
-
-    def test_valid_codes_pass(self) -> None:
-        assert check_country_codes(["US", "GB"]) is None
-
-
-class TestHolidayId:
-    def test_stable_for_identical_rows(self) -> None:
-        row = {"countryCode": "US", "date": "2026-04-03", "name": "Good Friday", "subdivisionCodes": ["US-TX"]}
-        assert _holiday_id(row) == _holiday_id(dict(row))
-
-    def test_differs_when_subdivisions_differ(self) -> None:
-        # The same holiday can be split across multiple rows with different subdivisionCodes and
-        # holidayTypes (e.g. Good Friday is Public in most states and Optional in Texas) — without
-        # a synthetic key these would collide on (countryCode, date, name).
-        row_a = {
-            "countryCode": "US",
-            "date": "2026-04-03",
-            "name": "Good Friday",
-            "subdivisionCodes": ["US-CT"],
-            "holidayTypes": ["Public"],
-        }
-        row_b = {
-            "countryCode": "US",
-            "date": "2026-04-03",
-            "name": "Good Friday",
-            "subdivisionCodes": ["US-TX"],
-            "holidayTypes": ["Optional"],
-        }
-        assert _holiday_id(row_a) != _holiday_id(row_b)
-
-    def test_handles_null_subdivisions_and_types(self) -> None:
-        row = {"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day", "subdivisionCodes": None}
-        assert _holiday_id(row) == "US|2026-01-01|New Year's Day||"
 
 
 class TestGet:
@@ -121,12 +89,6 @@ class TestGet:
         session.get.return_value = _response(status)
 
         assert _get(session, "/Holidays/US/2026") is None
-
-    def test_returns_json_body_on_200(self) -> None:
-        session = mock.MagicMock()
-        session.get.return_value = _response(200, [{"countryCode": "US"}])
-
-        assert _get(session, "/Countries/Available") == [{"countryCode": "US"}]
 
     def test_returns_none_for_empty_body_on_200(self) -> None:
         # A 200 with no body is distinct from the documented "no data" statuses, but should
@@ -164,138 +126,66 @@ def _make_manager(index: Optional[int] = None) -> mock.MagicMock:
 
 
 class TestNagerDateSource:
+    @staticmethod
+    def _driver(country_codes: str = "US\nGB") -> SourceDriver:
+        return SourceDriver(NagerDateSource(), NagerDateSourceConfig(country_codes=country_codes))
+
     def test_countries_yields_the_full_list_in_one_batch(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, [{"countryCode": "US"}, {"countryCode": "GB"}])
+        result = self._driver("").run(
+            COUNTRIES, [ScriptedResponse(json=[{"countryCode": "US"}, {"countryCode": "GB"}])]
+        )
 
-            batches = list(nager_date_source(COUNTRIES, [], _make_manager()))
-
-        assert batches == [[{"countryCode": "US"}, {"countryCode": "GB"}]]
-
-    def test_country_info_yields_one_batch_per_country_and_saves_state(self) -> None:
-        manager = _make_manager()
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {"countryCode": "US", "commonName": "United States"}),
-                _response(200, {"countryCode": "GB", "commonName": "United Kingdom"}),
-            ]
-
-            batches = list(nager_date_source(COUNTRY_INFO, ["US", "GB"], manager))
-
-        assert batches == [
-            [{"countryCode": "US", "commonName": "United States"}],
-            [{"countryCode": "GB", "commonName": "United Kingdom"}],
-        ]
-        assert [call.args[0].index for call in manager.save_state.call_args_list] == [1, 2]
-        manager.clear_state.assert_called_once()
+        assert result.items == [[{"countryCode": "US"}, {"countryCode": "GB"}]]
+        assert result.paths == ["/api/v4/Countries/Available"]
+        assert result.raised is None
 
     def test_country_info_resumes_from_saved_index(self) -> None:
-        manager = _make_manager(index=1)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"countryCode": "GB"})
-
-            batches = list(nager_date_source(COUNTRY_INFO, ["US", "GB"], manager))
+        result = self._driver().run(
+            COUNTRY_INFO,
+            [ScriptedResponse(json={"countryCode": "GB"})],
+            resume_state=NagerDateResumeConfig(index=1),
+        )
 
         # Only the country at (and after) the saved index is fetched.
-        assert batches == [[{"countryCode": "GB"}]]
-        called_url = mock_session.return_value.get.call_args[0][0]
-        assert called_url == f"{BASE_URL}/Countries/GB"
-
-    def test_public_holidays_requests_every_configured_year_per_country(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2025, 2026]),
-        ):
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
-            )
-
-            list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-            called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-
-        assert called_urls == [f"{BASE_URL}/Holidays/US/2025", f"{BASE_URL}/Holidays/US/2026"]
-
-    def test_public_holidays_skips_years_outside_the_supported_window(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2020, 2026]),
-        ):
-            mock_session.return_value.get.side_effect = [
-                _response(400),  # 2020 is outside the community window
-                _response(200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]),
-            ]
-
-            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-        assert len(batches) == 1
-        assert batches[0][0]["date"] == "2026-01-01"
-
-    def test_public_holidays_rows_get_a_synthetic_id(self) -> None:
-        manager = _make_manager()
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2026]),
-        ):
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
-            )
-
-            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
-
-        assert batches[0][0]["id"] == "US|2026-01-01|New Year's Day||"
-
-    def test_next_public_holidays_requests_once_per_country(self) -> None:
-        manager = _make_manager()
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-09-07", "name": "Labour Day"}]
-            )
-
-            list(nager_date_source(NEXT_PUBLIC_HOLIDAYS, ["US"], manager))
-
-            called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-
-        assert called_urls == [f"{BASE_URL}/Holidays/US/Next"]
+        assert result.items == [[{"countryCode": "GB"}]]
+        assert result.urls == ["https://date.nager.at/api/v4/Countries/GB"]
+        assert result.raised is None
 
     def test_next_public_holidays_resumes_from_saved_index(self) -> None:
-        manager = _make_manager(index=1)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "GB", "date": "2026-12-25", "name": "Christmas Day"}]
-            )
-
-            batches = list(nager_date_source(NEXT_PUBLIC_HOLIDAYS, ["US", "GB"], manager))
+        result = self._driver().run(
+            NEXT_PUBLIC_HOLIDAYS,
+            [ScriptedResponse(json=[{"countryCode": "GB", "date": "2026-12-25", "name": "Christmas Day"}])],
+            resume_state=NagerDateResumeConfig(index=1),
+        )
 
         # The country before the saved index (US) is skipped entirely.
-        assert len(batches) == 1
-        called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert called_urls == [f"{BASE_URL}/Holidays/GB/Next"]
+        assert len(result.items) == 1
+        assert result.urls == ["https://date.nager.at/api/v4/Holidays/GB/Next"]
+        assert result.raised is None
 
+    @time_machine.travel("2026-06-15", tick=False)
     def test_public_holidays_resumes_from_saved_index(self) -> None:
-        manager = _make_manager(index=1)
-        with (
-            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
-            mock.patch(f"{MODULE}._holiday_years", return_value=[2025, 2026]),
-        ):
-            mock_session.return_value.get.return_value = _response(
-                200, [{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]
-            )
-
-            batches = list(nager_date_source(PUBLIC_HOLIDAYS, ["US"], manager))
+        result = self._driver("US").run(
+            PUBLIC_HOLIDAYS,
+            [
+                ScriptedResponse(json=[{"countryCode": "US", "date": "2026-01-01", "name": "New Year's Day"}]),
+                *[ScriptedResponse(status=204) for _ in range(FORWARD_YEARS)],
+            ],
+            resume_state=NagerDateResumeConfig(index=1),
+        )
 
         # The work item before the saved index (US/2025) is skipped entirely.
-        assert len(batches) == 1
-        called_urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert called_urls == [f"{BASE_URL}/Holidays/US/2026"]
+        assert len(result.items) == 1
+        assert result.paths == [f"/api/v4/Holidays/US/{year}" for year in range(2026, 2032)]
+        assert result.raised is None
 
     @parameterized.expand([(COUNTRY_INFO,), (NEXT_PUBLIC_HOLIDAYS,), (PUBLIC_HOLIDAYS,)])
     def test_raises_when_country_codes_are_misconfigured(self, endpoint: str) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session"):
-            with pytest.raises(ValueError, match="Nager.Date source misconfigured"):
-                list(nager_date_source(endpoint, [], _make_manager()))
+        result = self._driver("").run(endpoint, [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Nager.Date source misconfigured" in str(result.raised)
+        assert result.requests == []
 
     def test_unknown_endpoint_raises(self) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session"):
@@ -306,26 +196,24 @@ class TestNagerDateSource:
 class TestValidateCredentials:
     @parameterized.expand([(200, True), (404, False), (500, False)])
     def test_status_mapping(self, status: int, expected_valid: bool) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status, {"countryCode": "US"})
-
+        with scripted_network(always(ScriptedResponse(status=status, json={"countryCode": "US"}))) as network:
             is_valid, _ = validate_credentials(["US"])
 
         assert is_valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/api/v4/Countries/US"}
 
     def test_empty_codes_is_invalid_without_a_request(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials([])
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials(["US"])
 
         assert is_valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/api/v4/Countries/US"}

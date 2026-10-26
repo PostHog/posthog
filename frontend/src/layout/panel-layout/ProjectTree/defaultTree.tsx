@@ -1,7 +1,6 @@
 import React, { CSSProperties } from 'react'
 
 import {
-    IconAIGateway,
     IconApp,
     IconApps,
     IconArrowUpRight,
@@ -46,7 +45,9 @@ import {
     IconMegaphone,
     IconMessage,
     IconNotebook,
+    IconPalette,
     IconNotification,
+    IconPageChart,
     IconPencil,
     IconPeople,
     IconPerson,
@@ -65,6 +66,7 @@ import {
     IconSend,
     IconServer,
     IconShuffle,
+    IconSignal,
     IconSpotlight,
     IconStack,
     IconStar,
@@ -81,7 +83,7 @@ import {
 } from '@posthog/icons'
 
 import {
-    IconBracketsChart,
+    IconSQL,
     IconInsightFunnels,
     IconInsightLifecycle,
     IconInsightRetention,
@@ -111,13 +113,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
     },
+    canvas: {
+        icon: <IconPalette />,
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+    },
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
-    },
-    ai_gateway: {
-        icon: <IconAIGateway />,
-        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
@@ -153,6 +155,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     endpoints: {
         icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
+    },
+    business_intelligence: {
+        icon: <IconPageChart />,
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -313,7 +322,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconBracketsChart />,
+        icon: <IconSQL />,
     },
     team_activity: {
         icon: <IconNotification />,
@@ -399,6 +408,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     stamphog: {
         icon: <IconStamphog />,
     },
+    uptime_monitoring: {
+        icon: <IconSignal />,
+    },
     exports: {
         icon: <IconDownload />,
     },
@@ -482,7 +494,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
 }
 
-const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
+export const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
     // Manifest color takes precedence
     const fileSystemColor = (fileSystemTypes as unknown as Record<string, { iconColor?: FileSystemIconColor }>)[
         type as keyof typeof fileSystemTypes
@@ -527,7 +539,7 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
 export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
     if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
         const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
-        if (insightIconType in iconTypes) {
+        if (insightIconType in iconTypes || insightIconType in fileSystemTypes) {
             return insightIconType
         }
     }
@@ -641,11 +653,6 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
-
-export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
-    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
-        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

@@ -30,6 +30,7 @@ from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_NOT_CALLED_RECENTLY,
     LIVE_GATE_FLAG,
     StaleFeatureFlagsCheck,
+    _live_gate_answer,
 )
 from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
 from products.product_tours.backend.models import ProductTour
@@ -353,6 +354,32 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # Never called, so the evidence is the configuration. The SQL still accepts the 100%
+            # variant under the blanket condition, and only the checker keeps this flag out.
+            (
+                "never_called_with_targeted_variant_override_first",
+                {
+                    **stale_by_config(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                None,
+                False,
+            ),
             # The same two conditions the other way round. The matcher stops at the blanket one, so
             # the override below it is unreachable and the flag really does serve one variant.
             (
@@ -592,6 +619,35 @@ class TestStaleFlagsDetect(BaseTest):
                     "winning_variant": "control",
                 },
             ),
+            # A usage-stale row is not filtered on the checker's full-rollout verdict, so a flag the
+            # checker calls partial still reports here, with the missing calls as its evidence.
+            (
+                "cold_multivariate_with_disagreeing_paths_is_partial",
+                {
+                    "last_called_at": timezone.now() - timedelta(days=45),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                {
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
+                    "rollout_state": ROLLOUT_PARTIAL,
+                    "winning_variant": None,
+                },
+            ),
             # The matcher ignores the override and serves the distribution, so the payload must
             # name `control` and not the key the condition carries.
             (
@@ -690,13 +746,25 @@ class TestStaleFlagsDetect(BaseTest):
             patch("posthoganalytics.disabled", sdk["disabled"]),
             patch("posthoganalytics.feature_flag_definitions", return_value=definitions),
             patch(LIVE_GATE_TARGET) as flag_read,
+            capture_logs() as logs,
         ):
             assert StaleFeatureFlagsCheck.eligible_team_ids([self.team.id]) == []
 
         flag_read.assert_not_called()
+        # A batch skipped here never reaches the framework's logging, so this warning is the only
+        # trace of a worker that lost its definitions.
+        assert [log["event"] for log in logs if log["log_level"] == "warning"] == [
+            "stale_feature_flags_live_gate_unreadable"
+        ]
 
-    def test_a_team_the_gate_drops_keeps_its_open_issues(self) -> None:
-        self._create_flag("already-reported", **stale_by_usage())
+    @patch("posthog.temporal.health_checks.processing.emit_health_check_alert")
+    def test_a_team_the_gate_drops_keeps_its_open_issues(self, _mock_alert) -> None:
+        enabled = Team.objects.create(organization=self.organization, name="enabled")
+        FeatureFlag.objects.create(team=enabled, key="stale", created_by=self.user, active=True, **stale_by_usage())
+        # The dropped team holds no stale flag, so an ungated run would read it as healthy and
+        # resolve this row. Sharing the batch with an enabled team is the production shape: the
+        # narrowed list has to reach detection and the healthy-team subtraction, not the early
+        # return an empty batch takes.
         HealthIssue.objects.create(
             team=self.team,
             kind="stale_feature_flags",
@@ -706,13 +774,14 @@ class TestStaleFlagsDetect(BaseTest):
             status=HealthIssue.Status.ACTIVE,
         )
 
-        # This is what the hook buys: the framework reads a team missing from a detector's
-        # result as healthy and resolves it, but a team removed before detection is not in the
-        # run at all. Every unreadable-gate case lands here, so none of them needs a guard.
-        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
-            _process_batch_detection([self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
+        with (
+            _sdk_holding_the_gate(),
+            patch(LIVE_GATE_TARGET, side_effect=lambda _k, distinct_id, **_kw: distinct_id == f"team-{enabled.id}"),
+        ):
+            _process_batch_detection([enabled.id, self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
 
-        assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
+        assert HealthIssue.objects.get(unique_hash="already-open").status == HealthIssue.Status.ACTIVE
+        assert HealthIssue.objects.filter(team=enabled, status=HealthIssue.Status.ACTIVE).count() == 1
 
     def test_the_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
         self._create_flag("enabled-but-gated", **stale_by_usage())
@@ -819,8 +888,8 @@ class TestStaleFlagsDetect(BaseTest):
         flag_b = self._create_flag("lifecycle-b", **stale_by_usage())
         check = StaleFeatureFlagsCheck()
 
-        def run() -> None:
-            with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=True):
+        def run(gate_answer: bool = True) -> None:
+            with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=gate_answer):
                 _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
 
         def active_issues():
@@ -856,8 +925,10 @@ class TestStaleFlagsDetect(BaseTest):
         assert issue_a.status == HealthIssue.Status.RESOLVED
         assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
 
-        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
-            _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
+        # Flag A stops being stale, but the gate is off, so its issue stays open.
+        flag_a.last_called_at = timezone.now()
+        flag_a.save()
+        run(gate_answer=False)
         assert active_issues().count() == 2
 
 
@@ -914,7 +985,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         assert "PostHog has not received a call for this flag in 45 days" in content.summary
         assert "fully rolled out" in content.summary
         assert "Review code references" in content.summary
-        assert content.link == "/feature_flags/42"
+        assert content.link == "/feature-flags/42"
 
     def test_render_alert_truncates_flag_key(self) -> None:
         content = StaleFeatureFlagsCheck.render_alert(
@@ -943,7 +1014,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         )
         assert "no usage data" in content.summary
         assert "serves a fixed result" in content.summary
-        assert content.link == "/feature_flags/7"
+        assert content.link == "/feature-flags/7"
 
     def test_render_alert_for_effectively_full_rollout_evidence(self) -> None:
         content = StaleFeatureFlagsCheck.render_alert(
@@ -962,7 +1033,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         # days_since_evidence is the flag's age on this class, so it must not be narrated as a
         # gap since the last call.
         assert "200" not in content.summary
-        assert content.link == "/feature_flags/11"
+        assert content.link == "/feature-flags/11"
 
     def test_render_signal_returns_none(self) -> None:
         issue = self._issue({"flag_id": 42, "flag_key": "checkout-v2"})
@@ -1010,15 +1081,10 @@ class TestLiveGateAgainstRealLocalEvaluation(SimpleTestCase):
         }
 
     def _answer_for(self, client: Client, team_id: int) -> Any:
-        region = "DEV"
-        return client.get_feature_flag(
-            LIVE_GATE_FLAG,
-            f"team-{team_id}",
-            groups={"project": f"{region}:{team_id}"},
-            group_properties={"project": {"id": str(team_id), "region": region}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        # `get_feature_flag_or_none` resolves the module function at call time, so the
+        # standalone client stands in for the global one and the gate sends what production sends.
+        with patch("posthoganalytics.get_feature_flag", client.get_feature_flag):
+            return _live_gate_answer(team_id)
 
     def test_a_project_and_region_condition_matches_only_that_project(self) -> None:
         client = self._client_holding([self._gate_flag(region="DEV", team_id=2)])
@@ -1046,4 +1112,9 @@ class TestLiveGateAgainstRealLocalEvaluation(SimpleTestCase):
     def test_an_absent_gate_answers_none(self) -> None:
         client = self._client_holding([{"id": 9, "key": "some-other-flag", "active": True, "filters": {}}])
 
-        assert self._answer_for(client, 2) is None
+        with capture_logs() as logs:
+            assert self._answer_for(client, 2) is None
+
+        # `get_feature_flag_or_none` also answers None after an exception, so the log is what
+        # separates a missing flag from a read that failed.
+        assert [log for log in logs if log["event"] == "get_feature_flag_failed"] == []

@@ -1075,42 +1075,41 @@ describe("AuthProxyService gateway sessions", () => {
     expect(JSON.parse(headers["X-PostHog-Properties"]).team_id).toBe(1002);
   });
 
-  it("stays on the legacy gateway when the source falls back mid-session", async () => {
-    authFetch.mockResolvedValue(new Response("legacy"));
+  it("answers a refusal mid-session without reaching the legacy gateway", async () => {
     goFetch.mockResolvedValue(new Response("ok"));
     const proxyUrl = await session();
     await fetch(`${proxyUrl}/v1/messages`, { method: "POST", body: "{}" });
     goFetch.mockClear();
     source.getRoute.mockResolvedValue({
-      mode: "legacy",
+      mode: "blocked",
       reason: "not_rolled_out",
+      detail: "PostHog AI isn't available for this project right now.",
+      status: 403,
     });
 
     const res = await fetch(`${proxyUrl}/v1/messages`, {
       method: "POST",
-      headers: {
-        authorization: "Bearer posthog-code-auth-proxy",
-        "x-api-key": "posthog-code-auth-proxy",
-      },
       body: "{}",
     });
 
-    expect(await res.text()).toBe("legacy");
-    await fetch(`${proxyUrl}/v1/messages`, { method: "POST", body: "{}" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: {
+        type: "permission_error",
+        code: "not_rolled_out",
+        message: "PostHog AI isn't available for this project right now.",
+      },
+    });
     expect(goFetch).not.toHaveBeenCalled();
-    const [url, init] = authFetch.mock.calls[0];
-    expect(url).toBe("https://gateway.us.posthog.com/posthog_code/v1/messages");
-    expect(init.headers["x-posthog-project-id"]).toBe("42");
-    expect(init.headers.authorization).toBeUndefined();
-    expect(init.headers["x-api-key"]).toBeUndefined();
-    const switched = logs.filter(
-      ([, message]) => message === "Gateway session switched gateway",
+    expect(authFetch).not.toHaveBeenCalled();
+    const changed = logs.filter(
+      ([, message]) => message === "Gateway session route changed",
     );
-    expect(switched).toEqual([
+    expect(changed).toEqual([
       [
         "info",
-        "Gateway session switched gateway",
-        { projectId: 42, from: "go", to: "legacy", reason: "not_rolled_out" },
+        "Gateway session route changed",
+        { projectId: 42, from: "go", to: "blocked", reason: "not_rolled_out" },
       ],
     ]);
   });
@@ -1148,6 +1147,7 @@ describe("AuthProxyService gateway sessions", () => {
       mode: "blocked",
       reason: "credit_bucket_exhausted",
       detail: "Your organization has reached its PostHog Desktop usage limit",
+      status: 402,
     });
 
     const res = await fetch(`${proxyUrl}/v1/messages`, {
@@ -1172,6 +1172,7 @@ describe("AuthProxyService gateway sessions", () => {
       mode: "blocked",
       reason: "credit_bucket_exhausted",
       detail: "limit",
+      status: 402,
     });
 
     const res = await fetch(`${proxyUrl}/v1/models`);
@@ -1182,33 +1183,49 @@ describe("AuthProxyService gateway sessions", () => {
     );
   });
 
-  it("falls back to the legacy gateway when the source fails", async () => {
-    authFetch.mockResolvedValue(new Response("legacy"));
-    source.getRoute.mockRejectedValue(new Error("boom"));
-    const proxyUrl = await session();
-
-    const res = await fetch(`${proxyUrl}/v1/messages`, {
-      method: "POST",
-      body: "{}",
+  const blocked = (reason: string, status: 401 | 402 | 403 | 429 | 503) => () =>
+    Promise.resolve({
+      mode: "blocked" as const,
+      reason,
+      detail: reason,
+      status,
     });
 
-    expect(await res.text()).toBe("legacy");
-    expect(goFetch).not.toHaveBeenCalled();
-  });
+  it.each([
+    [
+      "a failing source",
+      () => Promise.reject(new Error("boom")),
+      503,
+      "api_error",
+    ],
+    ["a sign-out", blocked("signed_out", 401), 401, "authentication_error"],
+    [
+      "an empty bucket",
+      blocked("credit_bucket_exhausted", 402),
+      402,
+      "billing_error",
+    ],
+    ["an access refusal", blocked("blocked", 403), 403, "permission_error"],
+    ["a mint throttle", blocked("throttled", 429), 429, "rate_limit_error"],
+  ])(
+    "answers %s with a refusal, never the legacy gateway",
+    async (_label, getRoute, status, type) => {
+      const proxyUrl = await session();
+      source.getRoute.mockImplementation(getRoute);
 
-  it("keeps serving a session target after sign-out, on the legacy route", async () => {
-    authFetch.mockResolvedValue(new Response("legacy"));
-    const proxyUrl = await session();
-    source.getRoute.mockResolvedValue({ mode: "legacy", reason: "signed_out" });
+      const res = await fetch(`${proxyUrl}/v1/messages`, {
+        method: "POST",
+        body: "{}",
+      });
 
-    const res = await fetch(`${proxyUrl}/v1/messages`, {
-      method: "POST",
-      body: "{}",
-    });
-
-    expect(await res.text()).toBe("legacy");
-    expect(goFetch).not.toHaveBeenCalled();
-  });
+      expect(res.status).toBe(status);
+      expect(
+        ((await res.json()) as { error: { type: string } }).error.type,
+      ).toBe(type);
+      expect(goFetch).not.toHaveBeenCalled();
+      expect(authFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("never logs the path token or the query string of a Go request", async () => {
     goFetch.mockResolvedValue(new Response("ok"));
@@ -1278,15 +1295,17 @@ describe("AuthProxyService gateway sessions", () => {
     expect(res.headers["x-kept"]).toBe("1");
   });
 
-  it("strips Connection-named headers on the legacy fallback", async () => {
+  it("strips Connection-named headers on the legacy models listing", async () => {
     authFetch.mockResolvedValue(new Response("legacy"));
     source.getRoute.mockResolvedValue({
-      mode: "legacy",
-      reason: "not_rolled_out",
+      mode: "blocked",
+      reason: "credit_bucket_exhausted",
+      detail: "limit",
+      status: 402,
     });
     const proxyUrl = await session();
 
-    await rawPost(`${proxyUrl}/v1/messages`, {
+    await rawPost(`${proxyUrl}/v1/models`, {
       connection: "close, x-hop",
       "x-hop": "1",
       "x-kept": "1",
@@ -1297,7 +1316,7 @@ describe("AuthProxyService gateway sessions", () => {
     expect(init.headers["x-kept"]).toBe("1");
   });
 
-  it("refuses an upstream redirect on the legacy fallback", async () => {
+  it("refuses an upstream redirect on the legacy models listing", async () => {
     authFetch.mockResolvedValue(
       new Response(null, {
         status: 302,
@@ -1305,16 +1324,14 @@ describe("AuthProxyService gateway sessions", () => {
       }),
     );
     source.getRoute.mockResolvedValue({
-      mode: "legacy",
-      reason: "not_rolled_out",
+      mode: "blocked",
+      reason: "credit_bucket_exhausted",
+      detail: "limit",
+      status: 402,
     });
     const proxyUrl = await session();
 
-    const res = await fetch(`${proxyUrl}/v1/messages`, {
-      method: "POST",
-      body: "{}",
-      redirect: "manual",
-    });
+    const res = await fetch(`${proxyUrl}/v1/models`, { redirect: "manual" });
 
     expect(res.status).toBe(502);
     expect(res.headers.get("location")).toBeNull();

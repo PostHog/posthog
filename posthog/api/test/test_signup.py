@@ -704,13 +704,15 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Team.objects.count(), team_count)
 
     def test_cant_sign_up_with_weak_passwords(self):
+        next_step = "Try a longer password that isn't a common word or pattern."
         cases = [
-            ["password", "Add another word or two. Uncommon words are better."],
+            ["password", f"This is a top-10 common password. {next_step}"],
             [
                 "test test test",
-                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
+                f'Repeats like "abcabcabc" are only slightly harder to guess than "abc". {next_step}',
             ],
-            ["12345678", "Add another word or two. Uncommon words are better."],
+            ["12345678", f"This is a top-10 common password. {next_step}"],
+            ["correcthorse", f"This password is too easy to guess. {next_step}"],
         ]
 
         for password, detail in cases:
@@ -841,14 +843,37 @@ class TestSignupAPI(APIBaseTest):
                 response, "/login?error_code=no_new_organizations"
             )  # show the user an error; operation not permitted
 
+    @parameterized.expand(
+        [
+            (
+                "without_next",
+                {},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
+                "same-origin",
+            ),
+            (
+                "with_vercel_connect_next",
+                {"next": "/connect/vercel/link?session=abc"},
+                "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com&next=%2Fconnect%2Fvercel%2Flink%3Fsession%3Dabc",
+                "unsafe-none",
+            ),
+        ]
+    )
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
-    def test_api_social_login_to_create_organization(self, mock_request):
+    def test_api_social_login_to_create_organization(
+        self,
+        _name: str,
+        begin_params: dict[str, str],
+        expected_location: str,
+        expected_coop: str,
+        mock_request: mock.MagicMock,
+    ) -> None:
         with self.settings(
             SOCIAL_AUTH_GITHUB_KEY="github_123",
             SOCIAL_AUTH_GITHUB_SECRET="github_secret",
         ):
-            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}), begin_params)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         session = self.client.session
@@ -864,10 +889,8 @@ class TestSignupAPI(APIBaseTest):
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response,
-            "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
-        )  # page where user will create a new org
+        self.assertRedirects(response, expected_location)  # page where user will create a new org
+        self.assertEqual(response["Cross-Origin-Opener-Policy"], expected_coop)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1602,21 +1625,60 @@ class TestSignupAPI(APIBaseTest):
         )
         mock_email_verifier.assert_called_once_with(user)
 
+    @parameterized.expand(
+        [
+            ("plain_signup", "plain", True, True),
+            ("social_signup", "social", True, True),
+            ("invite_signup", "invite", True, False),
+            ("delegated_invite_signup", "delegated_invite", False, False),
+        ]
+    )
+    @patch("posthoganalytics.group_identify")
     @patch("posthoganalytics.capture")
-    def test_api_sign_up_reports_the_pending_oauth_connection(self, mock_capture):
+    def test_api_sign_up_reports_the_pending_oauth_connection(
+        self,
+        _name: str,
+        signup_path: str,
+        expect_onboarding_skip: bool,
+        expect_project_marked: bool,
+        mock_capture,
+        mock_group_identify,
+    ):
+        email = "oauth-signup@posthog.com"
         self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
             client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
         ).to_cookie_value()
 
-        response = self.client.post(
-            "/api/signup/",
-            {
-                "first_name": "Jane",
-                "email": "oauth-signup@posthog.com",
-                "password": VALID_TEST_PASSWORD,
-                "role_at_organization": "product",
-            },
-        )
+        invite_organization: Optional[Organization] = None
+        if signup_path == "plain":
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "Jane",
+                    "email": email,
+                    "password": VALID_TEST_PASSWORD,
+                    "role_at_organization": "product",
+                },
+            )
+        elif signup_path == "social":
+            session = self.client.session
+            session["backend"] = "google-oauth2"
+            session["email"] = email
+            session.save()
+            response = self.client.post(
+                "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org"}
+            )
+        else:
+            invite_organization = Organization.objects.create(name="Invited Org")
+            Team.objects.create(organization=invite_organization)
+            invite = OrganizationInvite.objects.create(
+                target_email=email,
+                organization=invite_organization,
+                is_setup_delegation=signup_path == "delegated_invite",
+            )
+            response = self.client.post(
+                f"/api/signup/{invite.id}/", {"first_name": "Jane", "password": VALID_TEST_PASSWORD}
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
@@ -1624,6 +1686,36 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(properties["signup_oauth_client_name"], "Claude")
         self.assertEqual(properties["signup_oauth_client_id"], "https://claude.example.com/.well-known/oauth-client")
         self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
+
+        user = User.objects.get(email=email)
+        if expect_onboarding_skip:
+            self.assertIsNotNone(user.onboarding_skipped_at)
+            self.assertEqual(user.onboarding_skipped_reason, "connector")
+            expected_organization = invite_organization or user.organization
+            assert expected_organization is not None
+            self.assertEqual(user.onboarding_skipped_organization_id, expected_organization.id)
+        else:
+            self.assertIsNone(user.onboarding_skipped_at)
+            self.assertIsNone(user.onboarding_skipped_reason)
+
+        project_calls = [c for c in mock_group_identify.call_args_list if c.args[0] == "project"]
+        if expect_project_marked:
+            assert user.team is not None
+            self.assertEqual(
+                project_calls,
+                [
+                    mock.call(
+                        "project",
+                        str(user.team.uuid),
+                        properties={
+                            "created_via_oauth_client": "Claude",
+                            "created_via_oauth_client_id": "https://claude.example.com/.well-known/oauth-client",
+                        },
+                    )
+                ],
+            )
+        else:
+            self.assertEqual(project_calls, [])
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
@@ -3012,6 +3104,23 @@ class TestInviteSignupAPI(APIBaseTest):
             1,
         )
 
+    def test_api_social_sign_up_accepts_a_blank_role(self):
+        Organization.objects.all().delete()  # Can only create organizations in fresh instances
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "blank_role@posthog.com"})
+        session.save()
+
+        response = self.client.post(
+            "/api/social_signup",
+            {
+                "organization_name": "Org blank role",
+                "first_name": "Max",
+                "role_at_organization": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
@@ -3144,7 +3253,9 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
         nonexistent_id = str(uuid.uuid4())
-        result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
+        result = process_social_invite_signup(
+            mock.MagicMock(), nonexistent_id, "test@example.com", "Test User", backend=mock.MagicMock()
+        )
         self.assertIsNone(result)
 
     @pytest.mark.skip_on_multitenancy
@@ -3544,3 +3655,16 @@ class TestSAMLInviteLookup(APIBaseTest):
 
     def test_unknown_identifier_returns_nothing(self):
         assert lookup_invite_for_saml("joiner@example.com", "not-an-identifier") is None
+
+    @parameterized.expand([("expired", INVITE_DAYS_VALIDITY + 5), ("still_valid", 0)])
+    def test_reports_no_invite_for_someone_who_is_already_a_member(self, _name, days_old):
+        identifier = self._saml_identifier_for("member.example.com")
+        member = User.objects.create_and_join(
+            organization=self.organization, email="member@member.example.com", password=None
+        )
+        invite = OrganizationInvite.objects.create(organization=self.organization, target_email=member.email)
+        if days_old:
+            invite.created_at = timezone.now() - timedelta(days=days_old)
+            invite.save(update_fields=["created_at"])
+
+        assert lookup_invite_for_saml(member.email, identifier) is None

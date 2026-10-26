@@ -18,6 +18,7 @@ from temporalio.client import (
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from .coordinator import REFRESH_COORDINATOR_WORKFLOW_V2
 from .learning.constants import LEARNING_COORDINATOR_INTERVAL_MINUTES
 from .learning.schemas import LearningCoordinatorInput
 
@@ -31,7 +32,7 @@ async def create_business_knowledge_refresh_coordinator_schedule(client: Client)
     """Create or update the single global coordinator schedule (idempotent)."""
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            "business-knowledge-refresh-coordinator",
+            REFRESH_COORDINATOR_WORKFLOW_V2,
             id=SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),

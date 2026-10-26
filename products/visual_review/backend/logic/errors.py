@@ -25,6 +25,12 @@ class GitHubIntegrationNotFoundError(Exception):
     pass
 
 
+class LiftCommitUnknownError(Exception):
+    """GitHub cannot name the default branch head, so a quarantine lift cannot be scoped to a commit."""
+
+    pass
+
+
 class GitHubCommitError(Exception):
     """Failed to commit to GitHub."""
 

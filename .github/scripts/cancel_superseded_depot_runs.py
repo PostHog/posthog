@@ -7,6 +7,9 @@ A run cancels the older runs it sees, and cancels itself when it sees a newer on
 whose workflow Depot creates last settles each pair.
 See "Superseded runs" in .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 
+.depot/workflows/cancel-closed-merge-queue-runs.yml also runs this script when a merge queue batch
+closes. That run belongs to the pull request's newest event, so it cancels every older run.
+
 Standard library only: the job runs this with the runner's python3 before any install.
 """
 
@@ -18,6 +21,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 WORKFLOW_PATH = "ci-backend.yml"
 ACTIVE = ("queued", "running")
@@ -61,17 +65,18 @@ def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs:
     ]
 
 
-def depot(*args: str) -> list[dict[str, str]]:
+def depot(*args: str) -> Any:
+    # stderr passes through, so a failed call explains itself in the job log.
     result = subprocess.run(
-        ["depot", "ci", *args], check=True, capture_output=True, text=True, timeout=CLI_TIMEOUT_SECONDS
+        ["depot", "ci", *args], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
     )
-    # `depot ci run list` prints `null` when nothing matches.
-    return json.loads(result.stdout) or []
+    return json.loads(result.stdout)
 
 
 def list_pr(noun: str, repo: str, pr_number: str, statuses: Sequence[str]) -> list[dict[str, str]]:
     scope = ["--repo", repo, "--pr", pr_number, "--trigger", "pull_request", "-n", "200", "-o", "json"]
-    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status)))
+    # `depot ci run list` prints `null` when nothing matches.
+    return depot(noun, "list", *scope, *(flag for status in statuses for flag in ("--status", status))) or []
 
 
 def main() -> int:
@@ -92,8 +97,10 @@ def main() -> int:
         ]
         targets = superseded(match[1], workflows, runs)
     except (subprocess.SubprocessError, KeyError, ValueError) as error:
-        sys.stdout.write(f"::warning::Could not read this PR's Depot runs, so no run was cancelled: {error!r}\n")
-        return 0
+        # A missed cancel leaves a stuck run alive, so the step fails where people see it. Both
+        # callers set continue-on-error, so the failure does not block the pull request.
+        sys.stdout.write(f"::error::Could not read this PR's Depot runs, so no run was cancelled: {error!r}\n")
+        return 1
     for workflow in targets:
         sys.stdout.write(f"Cancelling superseded run {workflow.run_id} (workflow {workflow.workflow_id})\n")
         try:

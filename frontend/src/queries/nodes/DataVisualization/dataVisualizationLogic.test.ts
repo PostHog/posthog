@@ -1,10 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { queryExportContext } from '~/queries/query'
+import { ConditionalFormattingRule, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
+
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import {
     AxisSeriesSettings,
     DataVisualizationLogicProps,
@@ -15,7 +20,7 @@ import {
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
 
-const defaultQuery: DataVisualizationNode = {
+const defaultQuery: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -50,6 +55,167 @@ describe('dataVisualizationLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('shows grouped BI categories as bars and toggles color without dropping groups or explicit chart choices', () => {
+        logic.unmount()
+        const field = { source: { table: 'events' }, type: 'string' as const }
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: field.source,
+            rows: [{ ...field, id: 'event', name: 'event', expression: 'event' }],
+            columns: [{ ...field, id: 'browser', name: 'browser', expression: 'properties.browser' }],
+        }
+        const generated = buildBIQuery(config)!.node
+        const query: VisualizationNode = { ...generated, kind: NodeKind.BIVisualizationNode, config }
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query,
+            dataNodeCollectionId,
+            cachedResults: {
+                columns: ['bi_row_event', 'bi_column_browser', 'count'],
+                types: [
+                    ['bi_row_event', 'String'],
+                    ['bi_column_browser', 'String'],
+                    ['count', 'Int64'],
+                ],
+                results: [
+                    ['signup', 'Safari', 10],
+                    ['purchase', 'Safari', 20],
+                ],
+            },
+        })
+        logic.mount()
+        const breakdown = seriesBreakdownLogic({ key: testKey })
+        breakdown.mount()
+        try {
+            expect(logic.values.effectiveVisualizationType).toBe(ChartDisplayType.ActionsBar)
+            expect(logic.values.autoVisualizationType).toBe(ChartDisplayType.ActionsBar)
+            const data = breakdown.values.seriesBreakdownData.seriesData.map((series) => series.data)
+            logic.actions._setQuery({ ...query, config: { ...config, colorBy: null } })
+            expect(breakdown.values.seriesBreakdownData.seriesData.map((series) => series.data)).toEqual(data)
+            const colors = breakdown.values.seriesBreakdownData.seriesData.map(
+                (series) => series.settings?.display?.color
+            )
+            expect(colors).toHaveLength(2)
+            expect(colors[0]).toBeTruthy()
+            expect(new Set(colors).size).toBe(1)
+            logic.actions._setQuery({
+                ...query,
+                display: ChartDisplayType.ActionsTable,
+                config: { ...config, chartType: ChartDisplayType.ActionsTable },
+            })
+            expect(logic.values.effectiveVisualizationType).toBe(ChartDisplayType.ActionsTable)
+            expect(
+                breakdown.values.seriesBreakdownData.seriesData.every(
+                    (series) => series.settings?.display?.color === undefined
+                )
+            ).toBe(true)
+        } finally {
+            breakdown.unmount()
+        }
+    })
+
+    it.each([true, false])(
+        'applies aliases only to BI=%s display cells while retaining raw sort, drill and export values',
+        (bi) => {
+            logic.unmount()
+            const field = {
+                id: 'event',
+                name: 'Event',
+                expression: 'event',
+                type: 'string' as const,
+                source: { table: 'events' },
+            }
+            const config = {
+                ...DEFAULT_BI_CONFIG,
+                source: field.source,
+                rows: [field],
+                memberAliases: [
+                    {
+                        field,
+                        aliases: [
+                            { value: '$pageview', label: 'Same' },
+                            { value: 'Pageview', label: 'Same' },
+                            { value: '', label: 'Blank' },
+                            { value: null, label: 'Missing' },
+                        ],
+                    },
+                ],
+            }
+            const generated = buildBIQuery(config)!.node
+            const query: VisualizationNode = bi
+                ? { ...generated, kind: NodeKind.BIVisualizationNode, config }
+                : generated
+            const results = [
+                ['$pageview', 4],
+                ['Pageview', 5],
+                ['', 1],
+                [null, 2],
+            ]
+            logic = dataVisualizationLogic({
+                key: testKey,
+                query,
+                dataNodeCollectionId,
+                cachedResults: {
+                    columns: ['event', 'count'],
+                    types: [
+                        ['event', 'String'],
+                        ['count', 'Int64'],
+                    ],
+                    results,
+                },
+            })
+            logic.mount()
+            expect(logic.values.tableResults.map((_, row) => logic.values.getSourceTableCell(row, 0).value)).toEqual(
+                results.map((row) => row[0])
+            )
+            expect(
+                logic.values.tableResults
+                    .slice(0, 2)
+                    .map((_, row) => logic.values.getSourceTableCell(row, 0).formattedValue)
+            ).toEqual(bi ? ['Same', 'Same'] : ['$pageview', 'Pageview'])
+            expect(logic.values.xData?.data.slice(0, 2)).toEqual(
+                bi ? ['$pageview', 'Pageview'] : ['Pageview', 'Pageview']
+            )
+            expect(queryExportContext(query)).toMatchObject({ source: { query: generated.source.query } })
+            expect(results[0][0]).toBe('$pageview')
+        }
+    )
+
+    test.each([
+        [true, 0, false],
+        [true, 99, false],
+        [true, 100, false],
+        [true, 101, true],
+        [false, 101, false],
+    ])('caps BI=%s results with %i rows before building chart series', (bi, rowCount, hasMore) => {
+        logic.unmount()
+        const config = { ...DEFAULT_BI_CONFIG, source: { table: 'events' }, limit: 100 as const }
+        const source = buildBIQuery(config)!.node.source
+        const query: VisualizationNode = bi
+            ? { kind: NodeKind.BIVisualizationNode, config, source, display: ChartDisplayType.ActionsBar }
+            : { ...defaultQuery, source, display: ChartDisplayType.ActionsBar }
+        const response = {
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'Int64'],
+            ],
+            results: Array.from({ length: rowCount }, (_, index) => [`row-${index}`, index]),
+        }
+        logic = dataVisualizationLogic({ key: testKey, query, dataNodeCollectionId, cachedResults: response })
+        logic.mount()
+
+        const expectedRows = bi ? Math.min(rowCount, 100) : rowCount
+        expect(logic.values.response).toMatchObject({ results: response.results.slice(0, expectedRows) })
+        expect(logic.values.xData?.data).toHaveLength(expectedRows)
+        expect(logic.values.yData?.[0].data).toHaveLength(expectedRows)
+        expect(logic.values.hasMoreData).toBe(hasMore)
+        expect(getBIVisualizationSource(query).query).toMatch(new RegExp(`LIMIT ${bi ? 101 : 100}$`))
+        expect(query.source.query).toMatch(/LIMIT 100$/)
+        expect(queryExportContext(query)).toMatchObject({ source: { query: source.query } })
+        expect(response.results).toHaveLength(rowCount)
     })
 
     test.each([
@@ -514,6 +680,56 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsProportionBar, ChartDisplayType.ActionsPie])(
+        'gives a numeric x-axis back to the values when %s draws one part per column',
+        async (displayType) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['signups', 'logins', 'purchases'],
+                types: [
+                    ['signups', 'Int64'],
+                    ['logins', 'Int64'],
+                    ['purchases', 'Int64'],
+                ],
+                results: [[1, 2, 3]],
+            })
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+            await expectLogic(logic).toMatchValues({ selectedXAxis: 'signups' })
+
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                selectedXAxis: null,
+                selectedYAxis: [
+                    expect.objectContaining({ name: 'signups' }),
+                    expect.objectContaining({ name: 'logins' }),
+                    expect.objectContaining({ name: 'purchases' }),
+                ],
+            })
+        }
+    )
+
+    it('keeps the x-axis a series breakdown needs when a part-of-whole chart is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['week', 'signups', 'logins', 'country'],
+            types: [
+                ['week', 'Int64'],
+                ['signups', 'Int64'],
+                ['logins', 'Int64'],
+                ['country', 'String'],
+            ],
+            results: [[1, 2, 3, 'US']],
+        })
+        logic.actions.updateChartSettings({
+            xAxis: { column: 'week' },
+            yAxis: [{ column: 'signups' }, { column: 'logins' }],
+            seriesBreakdownColumn: 'country',
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsProportionBar)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'week' })
+    })
+
     it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],
@@ -593,6 +809,78 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsLineGraph, ChartDisplayType.Metric])(
+        'restores numeric series when switching from a table to %s and back',
+        async (display) => {
+            const response = {
+                columns: ['day', 'value'],
+                types: [
+                    ['day', 'Date'],
+                    ['value', 'Float64'],
+                ],
+                results: [
+                    ['2026-01-01', 2],
+                    ['2026-01-02', 4],
+                ],
+            }
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse(
+                response
+            )
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+
+            logic.actions.setVisualizationType(display)
+            await expectLogic(logic).toMatchValues({
+                yData: [expect.objectContaining({ data: [2, 4] })],
+            })
+
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+            expect(logic.values.getTableCell(0, 1).value).toBe(2)
+            expect(logic.values.tableResults).toEqual(response.results)
+        }
+    )
+
+    it.each([false, true])(
+        'prepares only requested cells with transpose=%s and uses updated formatting',
+        (transpose) => {
+            logic.actions._setQuery({
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { transpose, columns: [{ column: 'value' }] },
+            })
+            const visibleValue = jest.fn(() => 7)
+            const hiddenValue = jest.fn(() => {
+                throw new Error('An unused cell was read')
+            })
+            const row = [7, 8]
+            Object.defineProperty(row, 0, { get: visibleValue })
+            Object.defineProperty(row, 1, { get: hiddenValue })
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['value', 'other'],
+                types: [
+                    ['value', 'Int64'],
+                    ['other', 'Int64'],
+                ],
+                results: [row],
+            })
+
+            expect(logic.values.tableRows).toHaveLength(transpose ? 2 : 1)
+            expect(logic.values.tabularColumns).toHaveLength(2)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+            expect(visibleValue).not.toHaveBeenCalled()
+            expect(hiddenValue).not.toHaveBeenCalled()
+            const columnIndex = transpose ? 1 : 0
+            expect(logic.values.getTableCell(0, columnIndex).formattedValue).toBe('7')
+            expect(visibleValue).toHaveBeenCalledTimes(1)
+            expect(hiddenValue).not.toHaveBeenCalled()
+
+            logic.actions.updateSeries('value', { formatting: { prefix: 'USD ' } })
+            expect(logic.values.getTableCell(0, columnIndex).formattedValue).toBe('USD 7')
+            expect(hiddenValue).not.toHaveBeenCalled()
+        }
+    )
+
     it('transposes table results without changing the query source', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['region', 'value'],
@@ -611,51 +899,55 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             isTransposed: true,
             isPinningEnabled: false,
-            tabularData: [
-                [
-                    {
-                        value: 'region',
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                        isTransposedHeader: true,
-                    },
-                    {
-                        value: 'US',
-                        formattedValue: 'US',
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                    },
-                    {
-                        value: 'EU',
-                        formattedValue: 'EU',
-                        type: 'STRING',
-                        sourceColumnName: 'region',
-                    },
-                ],
-                [
-                    {
-                        value: 'value',
-                        formattedValue: null,
-                        type: 'STRING',
-                        sourceColumnName: 'value',
-                        isTransposedHeader: true,
-                    },
-                    {
-                        value: 10,
-                        formattedValue: '10',
-                        type: 'INTEGER',
-                        sourceColumnName: 'value',
-                    },
-                    {
-                        value: 20,
-                        formattedValue: '20',
-                        type: 'INTEGER',
-                        sourceColumnName: 'value',
-                    },
-                ],
-            ],
         })
+        expect(
+            logic.values.tableRows.map((row) =>
+                logic.values.tabularColumns.map((_, column) => logic.values.getTableCell(row.rowIndex, column))
+            )
+        ).toEqual([
+            [
+                {
+                    value: 'region',
+                    formattedValue: null,
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                    isTransposedHeader: true,
+                },
+                {
+                    value: 'US',
+                    formattedValue: 'US',
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                },
+                {
+                    value: 'EU',
+                    formattedValue: 'EU',
+                    type: 'STRING',
+                    sourceColumnName: 'region',
+                },
+            ],
+            [
+                {
+                    value: 'value',
+                    formattedValue: null,
+                    type: 'STRING',
+                    sourceColumnName: 'value',
+                    isTransposedHeader: true,
+                },
+                {
+                    value: 10,
+                    formattedValue: '10',
+                    type: 'INTEGER',
+                    sourceColumnName: 'value',
+                },
+                {
+                    value: 20,
+                    formattedValue: '20',
+                    type: 'INTEGER',
+                    sourceColumnName: 'value',
+                },
+            ],
+        ])
 
         expect(logic.values.query.source).toEqual(defaultQuery.source)
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
@@ -729,7 +1021,7 @@ describe('dataVisualizationLogic', () => {
     })
 
     it('does not mutate the original query when updating y-axis formatting', async () => {
-        const queryWithAxisSettings: DataVisualizationNode = {
+        const queryWithAxisSettings: VisualizationNode = {
             ...defaultQuery,
             chartSettings: {
                 yAxis: [
@@ -834,12 +1126,17 @@ describe('dataVisualizationLogic', () => {
             results: [[12.345]],
         })
 
-        await expectLogic(logic).toMatchValues({
-            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
-        })
+        expect(logic.values.getTableCell(0, 0)).toMatchObject({ value: 12.345, formattedValue: '12.3' })
     })
 
     it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'pads currency decimal places',
+            12.5,
+            { formatting: { style: 'number', prefix: '$', decimalPlaces: 2 } },
+            '$12.50',
+        ],
+        ['pads percentage decimal places', 25, { formatting: { style: 'percent', decimalPlaces: 1 } }, '25.0%'],
         [
             'formats zero decimal places under the none style',
             42.195,

@@ -15,8 +15,9 @@ logger = structlog.get_logger(__name__)
 
 PROMPT_LABEL = "production"
 PROMPT_REFRESH_SECONDS = 60
-DEFAULT_SYSTEM_ONE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-ALLOWED_SYSTEM_ONE_MODELS = {DEFAULT_SYSTEM_ONE_MODEL, "posthog/hogference/jeeves-0.1"}
+JEEVES_MODEL = "posthog/hogference/jeeves-0.1"
+DEFAULT_SYSTEM_ONE_MODEL = JEEVES_MODEL
+ALLOWED_SYSTEM_ONE_MODELS = {JEEVES_MODEL}
 SAFETY_RESPONSE_FIELDS = {
     "signals-signal-safety-system-one": ("safe", "threat_type", "explanation"),
     "signals-report-safety-system-one": ("choice", "explanation"),
@@ -170,20 +171,3 @@ _CACHE = _PromptCache()
 
 def current_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> SystemOnePrompt:
     return _CACHE.current(fallback, version=version)
-
-
-def model_experiment_prompt(primary: SystemOnePrompt, version: int, model: str) -> SystemOnePrompt | None:
-    if primary.source == "managed" and primary.version == version and primary.model == model:
-        return primary
-    fallback = bundled_prompt(primary.name, primary.policy, primary.question, primary.threshold)
-    candidate = current_prompt(fallback, version=version)
-    if (
-        candidate.source != "managed"
-        or candidate.version != version
-        or candidate.model != model
-        or candidate.policy != primary.policy
-        or candidate.question != primary.question
-        or candidate.threshold != primary.threshold
-    ):
-        return None
-    return candidate
