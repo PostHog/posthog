@@ -2421,6 +2421,10 @@ class TestDevboxSetupGate:
 
 
 class TestStartExistingWorkspace:
+    @pytest.fixture(autouse=True)
+    def _no_sync(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [])
+
     @pytest.mark.parametrize(
         "outdated, expected", [(False, ["start"]), (True, ["update"])], ids=["current", "outdated"]
     )
@@ -2446,6 +2450,80 @@ class TestStartExistingWorkspace:
             devbox_cli._start_existing_workspace(
                 "devbox-test-user", {"latest_build": {"status": "stopped"}}, start_app=True, verbose=False
             )
+
+    @pytest.mark.parametrize(
+        "status, paused, expected",
+        [
+            ("stopped", True, ["start", "resume"]),
+            ("stopped", False, ["start"]),
+            ("running", True, []),
+        ],
+        ids=["stopped-paused", "stopped-unpaused", "running-paused"],
+    )
+    def test_resumes_the_sync_devbox_stop_paused_once_the_box_started(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, paused: bool, expected: list[str]
+    ) -> None:
+        # devbox:stop pauses the sync; starting the box is what brings it back.
+        # A box that was running already is left as it is: its pause is the user's.
+        calls: list[str] = []
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: calls.append("start"))
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [{"name": "ph-x", "paused": paused}])
+        monkeypatch.setattr(devbox_mutagen, "sync_resume", lambda selector: calls.append("resume"))
+
+        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": status}}, verbose=False)
+
+        assert calls == expected
+
+
+class TestDevboxStop:
+    @pytest.fixture(autouse=True)
+    def _stubs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+
+    @pytest.mark.parametrize(
+        "status, expected",
+        [("running", ["pause", "stop"]), ("stopped", ["pause"])],
+        ids=["running", "already-stopped"],
+    )
+    def test_pauses_the_sync_before_the_box_stops(
+        self, monkeypatch: pytest.MonkeyPatch, status: str, expected: list[str]
+    ) -> None:
+        # A live sync redials a stopped box forever. A box Coder stopped on its
+        # schedule has the same live sync, so it is paused too.
+        calls: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": status}},
+        )
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [{"name": "ph-x", "paused": False}])
+        monkeypatch.setattr(devbox_mutagen, "sync_pause", lambda selector: calls.append("pause"))
+        monkeypatch.setattr(devbox_cli, "stop_workspace", lambda name, verbose=False: calls.append("stop"))
+
+        result = runner.invoke(cli, ["devbox:stop"])
+
+        assert result.exit_code == 0, result.output
+        assert calls == expected
+        assert "Paused the sync" in result.output
+
+    def test_stops_a_box_without_a_sync(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda **kw: [])
+        monkeypatch.setattr(devbox_mutagen, "sync_pause", lambda selector: calls.append("pause"))
+        monkeypatch.setattr(devbox_cli, "stop_workspace", lambda name, verbose=False: calls.append("stop"))
+
+        result = runner.invoke(cli, ["devbox:stop"])
+
+        assert result.exit_code == 0, result.output
+        assert calls == ["stop"]
+        assert "Paused the sync" not in result.output
 
 
 class TestDevboxList:
@@ -3687,6 +3765,37 @@ class TestKeepaliveShim:
         else:
             # Non-devbox ssh must pass through byte-for-byte, keepalive included.
             assert forwarded == incoming
+
+    @pytest.mark.parametrize(
+        "target, disabled",
+        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-disabled", "non-devbox-host-untouched"],
+    )
+    def test_shim_disables_coder_autostart_only_for_devbox_hosts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, disabled: bool
+    ) -> None:
+        # mutagen redials a lost session forever. Through the `coder ssh`
+        # ProxyCommand, each redial to a stopped box would start it, with a
+        # template dry run per attempt; the env var reaches that ProxyCommand.
+        shim_dir = tmp_path / "shim"
+        log = tmp_path / "env.log"
+        fake = tmp_path / "fakessh"
+        fake.write_text(
+            "#!/usr/bin/env bash\nprintf '%s' \"${CODER_SSH_DISABLE_AUTOSTART-unset}\" > '" + str(log) + "'\n"
+        )
+        fake.chmod(0o755)
+
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: str(fake))
+        devbox_mutagen.ensure_ssh_shim()
+
+        env = {k: v for k, v in os.environ.items() if k != "CODER_SSH_DISABLE_AUTOSTART"}
+        result = subprocess.run(
+            [str(shim_dir / "ssh"), "-oServerAliveCountMax=1", target, "true"], capture_output=True, text=True, env=env
+        )
+
+        assert result.returncode == 0
+        assert log.read_text() == ("true" if disabled else "unset")
 
     def test_ensure_ssh_shim_writes_both_executables_and_is_idempotent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
