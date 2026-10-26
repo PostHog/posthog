@@ -459,8 +459,8 @@ class TestFinalAuthoredAgentChecks(BaseTest):
         evaluation.refresh_from_db()
         assert evaluation.task_run_id is None
 
-    @parameterized.expand([("query",), ("eligibility_query",)])
-    def test_agent_only_attempt_checks_permissions_on_all_attached_plans(self, field: str) -> None:
+    @parameterized.expand([(field, reopened) for field in ("query", "eligibility_query") for reopened in (False, True)])
+    def test_agent_only_attempt_checks_permissions_on_all_attached_plans(self, field: str, reopened: bool) -> None:
         evaluation = self.claim()
         self.bind(evaluation)
         evaluation.refresh_from_db()
@@ -473,6 +473,9 @@ class TestFinalAuthoredAgentChecks(BaseTest):
             type="impact_measurement_plan",
             content=json.dumps(plan),
         )
+        if reopened:
+            self.report.refresh_from_db()
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.READY))
         with patch(
             "products.signals.backend.report_metric_access.ReportMetricAccessPolicy._may_read_resource_id",
             return_value=False,

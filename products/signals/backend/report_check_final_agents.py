@@ -121,7 +121,7 @@ def _queries_for_attempt(
 ) -> list[dict[str, object]]:
     attempt = current_monitoring_attempt(report)
     if attempt is None:
-        return []
+        raise InvalidMonitoringResult("The Monitoring attempt is no longer available.")
     queries: list[dict[str, object]] = []
     for check in SignalReportCheck.objects.for_team(report.team_id).filter(
         report_id=report.id, id__in=attempt.check_versions, kind=SignalReportCheck.Kind.METRIC_THRESHOLD
