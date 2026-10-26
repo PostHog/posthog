@@ -61,7 +61,7 @@ def accessible_experiment_ids(
 
 def readable_experiment_ids(access: UserAccessControl, team_id: int) -> set[int]:
     """Every experiment the caller may view in the team, the set `accessible_observations` gates rows on."""
-    return _accessible_experiment_ids(access, team_id, None)
+    return accessible_experiment_ids(access, team_id, None)
 
 
 def is_experiment_accessible(access: UserAccessControl | None, team_id: int, experiment_id: int) -> bool:
