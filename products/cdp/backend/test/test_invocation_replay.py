@@ -269,13 +269,17 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         _insert(function, [_row("a1", "failed"), _row("a2", "failed", 5), _recovered()])
         criteria = _criteria()
         plan = plan_replay(criteria)
+        reviewed = plan_replay(_criteria(window_end=IN_WINDOW + timedelta(minutes=1)))
 
-        run_invocation_replay(criteria.to_payload(), "0000000000000000", "test")
-        assert (get_replay_state("0000000000000000") or {})["status"] == "refused"
+        claim = claim_replay(reviewed, actor="test")
+        assert claim
+        run_invocation_replay(_criteria().to_payload(), reviewed.fingerprint, "test", claim)
+        assert (get_replay_state(reviewed.fingerprint) or {})["status"] == "refused"
         rerun.assert_not_called()
 
-        assert claim_replay(plan, actor="test")
-        run_invocation_replay(criteria.to_payload(), plan.fingerprint, "test")
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        run_invocation_replay(criteria.to_payload(), plan.fingerprint, "test", claim)
 
         sent = [call.kwargs["payload"]["filter"]["invocation_ids"] for call in rerun.call_args_list]
         assert sent == [[_invocation_id("a1")], [_invocation_id("a2")]]
@@ -324,18 +328,19 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
         criteria = _criteria()
         plan = plan_replay(criteria)
-        assert claim_replay(plan, actor="first")
+        claim = claim_replay(plan, actor="first")
+        assert claim
 
         with patch(
             "products.cdp.backend.tasks.invocation_replay.plan_replay",
             side_effect=outcome if stage == "plan" else plan_replay,
         ):
             try:
-                run_invocation_replay(criteria.to_payload(), plan.fingerprint, "first")
+                run_invocation_replay(criteria.to_payload(), plan.fingerprint, "first", claim)
             except BaseException as raised:
                 assert raised is outcome
 
-        assert claim_replay(plan, actor="second") is can_resend
+        assert (claim_replay(plan, actor="second") is not None) is can_resend
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_an_overlapping_plan_waits_until_the_first_surely_queued_nothing(self, rerun: MagicMock) -> None:
@@ -354,15 +359,25 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
 
         assert claim_replay(overlapping, actor="second")
 
-    def test_staff_can_release_a_send_only_once_its_worker_stopped_reporting(self) -> None:
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_staff_can_release_a_send_only_once_its_worker_stopped_reporting(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
         _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
-        plan = plan_replay(_criteria())
+        criteria = _criteria()
+        plan = plan_replay(criteria)
         with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
-            assert claim_replay(plan, actor="first")
+            stalled = claim_replay(plan, actor="first")
+            assert stalled
             assert not release_replay_claim(plan.fingerprint, actor="staff")
         with time_machine.travel("2026-10-23T08:20:00Z", tick=False):
             assert release_replay_claim(plan.fingerprint, actor="staff")
-            assert claim_replay(plan, actor="second")
+            resend = claim_replay(plan, actor="second")
+            assert resend
+
+            # The stalled task can still start late. Only the resend sends, and only once.
+            for claim in (stalled, resend, resend):
+                run_invocation_replay(criteria.to_payload(), plan.fingerprint, "staff", claim)
+        assert rerun.call_count == 1
 
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):

@@ -281,13 +281,13 @@ class HogFunctionAdmin(admin.ModelAdmin):
         except ReplayOverlapError as error:
             messages.error(request, f"{error} Nothing was sent.")
             return respond("details")
-        if not claimed:
+        if claimed is None:
             messages.warning(request, "This plan was already sent, so it was not sent again.")
         else:
             # The send runs in a task, because a plan can need hundreds of requests and
             # the admin request would time out before they finish.
             try:
-                run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor)
+                run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor, claimed)
             except Exception as error:
                 capture_exception(error)
                 mark_replay_failed(plan.fingerprint, "The replay task could not be queued, so nothing was sent.")

@@ -16,6 +16,7 @@ The rerun worker also re-checks each invocation's latest status before it
 enqueues it.
 """
 
+import uuid
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -603,13 +604,14 @@ def _release_functions(fingerprint: str, function_ids: list[str]) -> None:
             replay_cache.delete(_function_reservation_key(function_id))
 
 
-def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
-    """Reserve the plan for one send. Returns False when this exact plan was already claimed.
+def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
+    """Reserve the plan for one send. Returns the claim token, or None when this exact plan was already claimed.
 
     Raises ReplayOverlapError when another recent plan reserved one of the same destinations.
     """
-    if not replay_cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
-        return False
+    claim = uuid.uuid4().hex
+    if not replay_cache.add(_claim_key(plan.fingerprint), claim, timeout=REPLAY_STATE_TTL_SECONDS):
+        return None
     # Two plans from different filters can share runs. Their rerun jobs would then
     # queue those runs twice, because the rerun worker does not reserve a run before
     # it queues it. The reservation lasts until the send ends, and then for
@@ -640,7 +642,18 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
         },
         timeout=REPLAY_STATE_TTL_SECONDS,
     )
-    return True
+    return claim
+
+
+def start_claimed_send(fingerprint: str, claim: str) -> bool:
+    """True once per claim, and only while the claim still holds the plan.
+
+    A task can start after staff released its plan as stalled and sent it again.
+    That task holds the old claim and must send nothing, or the runs go out twice.
+    """
+    if replay_cache.get(_claim_key(fingerprint)) != claim:
+        return False
+    return bool(replay_cache.add(f"{_claim_key(fingerprint)}:started:{claim}", 1, timeout=REPLAY_STATE_TTL_SECONDS))
 
 
 def _release_claim(fingerprint: str) -> None:

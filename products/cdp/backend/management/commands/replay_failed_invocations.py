@@ -136,7 +136,7 @@ class Command(BaseCommand):
             claimed = claim_replay(plan, actor="management_command")
         except ReplayOverlapError as error:
             raise CommandError(f"{error} Nothing was sent.") from error
-        if not claimed:
+        if claimed is None:
             raise CommandError("This plan was already sent, so nothing was sent again.")
         results = execute_replay(plan, actor="management_command")
         for result in results:

@@ -12,6 +12,7 @@ from products.cdp.backend.services.invocation_replay import (
     mark_replay_failed,
     mark_replay_refused,
     plan_replay,
+    start_claimed_send,
 )
 
 logger = get_logger(__name__)
@@ -19,7 +20,10 @@ logger = get_logger(__name__)
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 @skip_team_scope_audit
-def run_invocation_replay(criteria: dict[str, Any], fingerprint: str, actor: str) -> None:
+def run_invocation_replay(criteria: dict[str, Any], fingerprint: str, actor: str, claim: str) -> None:
+    if not start_claimed_send(fingerprint, claim):
+        logger.warning("invocation_replay_claim_superseded", fingerprint=fingerprint)
+        return
     # The plan is computed again here because only the criteria cross the queue.
     # Between the review and this task the runs can change, and then the task
     # must send nothing rather than a set nobody reviewed.
