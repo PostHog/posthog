@@ -47,7 +47,6 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedWarehouseColumnStatisticsListApi,
-    PaginatedWarehouseMigrationListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
@@ -70,7 +69,6 @@ import type {
     WarehouseMigrationCreateApi,
     WarehouseMigrationItemApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
-    WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
 } from './api.schemas'
 
@@ -1539,20 +1537,8 @@ export const warehouseColumnStatisticsRetrieve = async (
     })
 }
 
-export const getWarehouseMigrationsListUrl = (projectId: string, params?: WarehouseMigrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/warehouse_migrations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/warehouse_migrations/`
+export const getWarehouseMigrationsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/`
 }
 
 /**
@@ -1560,10 +1546,9 @@ export const getWarehouseMigrationsListUrl = (projectId: string, params?: Wareho
  */
 export const warehouseMigrationsList = async (
     projectId: string,
-    params?: WarehouseMigrationsListParams,
     options?: RequestInit
-): Promise<PaginatedWarehouseMigrationListApi> => {
-    return apiMutator<PaginatedWarehouseMigrationListApi>(getWarehouseMigrationsListUrl(projectId, params), {
+): Promise<WarehouseMigrationApi[]> => {
+    return apiMutator<WarehouseMigrationApi[]>(getWarehouseMigrationsListUrl(projectId), {
         ...options,
         method: 'GET',
     })
