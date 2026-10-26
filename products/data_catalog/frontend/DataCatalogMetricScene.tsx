@@ -522,7 +522,8 @@ function MetricMetadata({
                             {() => (
                                 <LemonButton
                                     type="tertiary"
-                                    size="xsmall"
+                                    size="small"
+                                    noPadding
                                     loading={saving}
                                     data-attr="data-catalog-metric-owner-select"
                                 >
