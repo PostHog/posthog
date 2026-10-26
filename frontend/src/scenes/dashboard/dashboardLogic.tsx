@@ -149,6 +149,7 @@ import {
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -172,6 +173,8 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     AUTO_PREVIEW_TILE_LIMIT,
+    RATE_LIMITED_ERROR_CODE,
+    RATE_LIMIT_ERROR_MESSAGE,
     isEffectiveRefreshStale,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
@@ -5401,11 +5404,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const savedMetricVariables = values.savedDashboardSettings.filters.metricVariables ?? []
                 const urlVariables = settingsToRefresh.variables
 
+                const refreshFilters = withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables)
                 const tileRefresh: InsightTileRefresh = {
                     actions,
                     dashboardId,
                     currentTeamId,
-                    filters: withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
+                    filters: refreshFilters,
                     variables: urlVariables,
                     urlFilters,
                     forceRefresh: !!forceRefresh,
@@ -5415,8 +5419,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tileLoads: tileLoads(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
-                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
-                    const outcome = await refreshInsightTile(tile, tileRefresh)
+                const settleTile = (
+                    tile: DashboardTile & { insight: InsightModel },
+                    outcome: InsightTileRefreshOutcome
+                ): void => {
                     loadingHere.delete(tile.id)
                     if (outcome === 'refreshed' || outcome === 'cached') {
                         if (waiting.tileIds.includes(tile.id)) {
@@ -5430,7 +5436,105 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tilesAbortedCount += outcome === 'aborted' ? 1 : 0
                         tilesErroredCount += outcome === 'errored' ? 1 : 0
                     }
-                })
+                }
+
+                const streamedTiles = new Set<number>()
+                if (
+                    values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
+                    values.placement === DashboardPlacement.Dashboard &&
+                    !isSharedView() &&
+                    currentTeamId &&
+                    sortedTilesToRefresh.length >= 2 &&
+                    sortedTilesToRefresh.length <= 32
+                ) {
+                    const sharingController = cache.abortController
+                    const signal = sharingController.signal
+                    const batchQueryId = uuid()
+                    const startedAt = performance.now()
+                    cache.disposables.add(
+                        () => () => {
+                            if (!signal.aborted) {
+                                sharingController.abort()
+                            }
+                        },
+                        'dashboard-query-sharing',
+                        { pauseOnPageHidden: false }
+                    )
+                    try {
+                        await streamDashboardQueryResults(
+                            currentTeamId,
+                            dashboardId,
+                            {
+                                tile_ids: sortedTilesToRefresh.map((tile) => tile.id).join(','),
+                                client_query_id: batchQueryId,
+                                refresh: forceRefresh ? 'force_blocking' : 'blocking',
+                                filters_override: JSON.stringify(refreshFilters),
+                                variables_override: JSON.stringify(urlVariables),
+                            },
+                            signal,
+                            (result) => {
+                                if (signal.aborted || cache.disposables.isDisposed) {
+                                    return
+                                }
+                                const tile = sortedTilesToRefresh.find((candidate) => candidate.id === result.id)
+                                if (!tile || streamedTiles.has(tile.id)) {
+                                    return
+                                }
+                                if ('error' in result || !result.insight) {
+                                    streamedTiles.add(tile.id)
+                                    actions.setRefreshError(tile.insight.short_id)
+                                    settleTile(tile, 'errored')
+                                    return
+                                }
+                                const refreshedInsight = result.insight as unknown as InsightModel
+                                if (
+                                    isRefreshRejectionStub(refreshedInsight) ||
+                                    refreshedInsight.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                                    refreshedInsight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+                                ) {
+                                    return
+                                }
+                                streamedTiles.add(tile.id)
+                                const queryError = getInsightQueryError(refreshedInsight)
+                                if (queryError) {
+                                    actions.setRefreshError(
+                                        tile.insight.short_id,
+                                        queryError.code ? queryError : undefined
+                                    )
+                                    settleTile(tile, 'errored')
+                                    return
+                                }
+                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                actions.setRefreshStatus(tile.insight.short_id)
+                                reportDashboardTileRefreshed(
+                                    dashboardId,
+                                    tile,
+                                    urlFilters,
+                                    urlVariables,
+                                    Math.floor(performance.now() - startedAt),
+                                    false
+                                )
+                                settleTile(tile, refreshedInsight.is_cached ? 'cached' : 'refreshed')
+                            }
+                        )
+                    } catch {
+                        if (!signal.aborted) {
+                            posthog.capture('dashboard query sharing transport failed', { dashboard_id: dashboardId })
+                        }
+                    }
+                    if (signal.aborted) {
+                        loadingHere.clear()
+                        return
+                    }
+                    breakpoint()
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
+                }
+
+                const fetchSyncInsightFunctions = sortedTilesToRefresh
+                    .filter((tile) => !streamedTiles.has(tile.id))
+                    .map((tile) => async () => settleTile(tile, await refreshInsightTile(tile, tileRefresh)))
 
                 await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()

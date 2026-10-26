@@ -53,6 +53,8 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.hogql.multi_query import is_query_sharing_enabled
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -128,6 +130,7 @@ from products.dashboards.backend.access import dashboard_access_method, record_d
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from products.dashboards.backend.api.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.api.widget_openapi_serializers import (
     DASHBOARD_TILE_GROUP_DEFAULTS,
     GROUP_TITLES_HELP_TEXT,
@@ -170,6 +173,10 @@ from products.dashboards.backend.models.dashboard import (
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.query_sharing_stream import (
+    DashboardQuerySharingStream,
+    DashboardQuerySharingStreamEvent,
+)
 from products.dashboards.backend.run_insights_output import (
     bound_formatted_result,
     parse_max_result_chars,
@@ -528,6 +535,15 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
             tile_data = {"id": tile.id}
         tile_data["error"] = {"type": DASHBOARD_TILE_ERROR_TYPE, "message": DASHBOARD_TILE_ERROR_MESSAGE}
         return order, tile_data
+
+
+def _serialize_shared_tile(tile: DashboardTile, order: int, context: dict) -> DashboardQuerySharingStreamEvent:
+    _, data = serialize_tile_with_context(tile, order, context)
+    return {"type": "tile", "tile": cast(dict[str, object], data)}
+
+
+def _shared_tile_access_denied(tile_id: int) -> DashboardQuerySharingStreamEvent:
+    return {"type": "tile", "tile": {"id": tile_id, "error": {"type": "access_denied"}}}
 
 
 class ReorderLayout(StrEnum):
@@ -3400,6 +3416,57 @@ class DashboardsViewSet(
             if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
             else async_to_sync(lambda: async_tile_stream_generator()),
             endpoint="dashboard_tile_stream",
+        )
+
+    @extend_schema(
+        parameters=[DashboardQuerySharingParamsSerializer, FILTERS_OVERRIDE_PARAM, VARIABLES_OVERRIDE_PARAM],
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+        description="Experimentally refresh insight tiles with shared query execution and progressive results.",
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["query:read"])
+    def stream_query_results(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        if request.user.is_anonymous or not is_query_sharing_enabled(self.team):
+            raise exceptions.PermissionDenied("Dashboard query sharing is not enabled.")
+        params = DashboardQuerySharingParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        dashboard = self.get_object()
+        tile_ids = params.validated_data["tile_ids"]
+        tiles = list(
+            DashboardTile.dashboard_queryset(
+                dashboard.tiles.filter(id__in=tile_ids, insight__isnull=False)
+            ).prefetch_related(*tile_insight_prefetches())
+        )
+        if {tile.id for tile in tiles} != set(tile_ids):
+            raise exceptions.ValidationError("Every tile must be an insight tile on this dashboard.")
+        context = self.get_serializer_context()
+        if context.get("is_shared"):
+            raise exceptions.PermissionDenied("Shared dashboards cannot use query sharing.")
+        self.user_access_control.preload_object_access_controls([tile.insight for tile in tiles])
+        context["insight_variables"] = list(context["insight_variables"])
+        access_method = dashboard_access_method(request)
+        record_dashboard_access(access_method)
+        context.update(
+            request=request,
+            dashboard=dashboard,
+            dashboard_access_method=access_method,
+            require_parsed_results=True,
+            compute_surface=ComputeSurface.DASHBOARD_RUN_INSIGHTS,
+        )
+        by_id = {tile.id: tile for tile in tiles}
+        jobs: list[Callable[[], DashboardQuerySharingStreamEvent]] = []
+        for order, tile_id in enumerate(tile_ids):
+            tile = by_id[tile_id]
+            level = self.user_access_control.get_user_access_level(tile.insight)
+            if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
+                jobs.append(partial(_shared_tile_access_denied, tile_id))
+            else:
+                jobs.append(partial(_serialize_shared_tile, tile, order, context))
+        stream = DashboardQuerySharingStream(
+            jobs=jobs, team_id=self.team.pk, query_id=str(params.validated_data["client_query_id"])
+        )
+        return sse_streaming_response(
+            stream.astream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream.stream(),
+            endpoint="dashboard_query_sharing",
         )
 
     def _get_layout_size_from_request(self, request: Request) -> str:
