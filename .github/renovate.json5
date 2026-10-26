@@ -70,14 +70,12 @@
     },
   },
   packageRules: [
-    // pnpm-workspace.yaml (minimumReleaseAge) and pyproject.toml (exclude-newer) refuse releases younger
-    // than 7 days, so a shorter age here proposes updates whose lock file update then fails
+    // Keep in sync with the cooldowns in pnpm-workspace.yaml and pyproject.toml, or lock file updates fail
     {
       matchDatasources: ['npm', 'pypi', 'crate'],
       minimumReleaseAge: '7 days',
     },
-    // One dashboard entry per ecosystem and top-level directory, so the dashboard fits in one GitHub issue.
-    // Later rules that set their own groupName take precedence
+    // Keeps the dashboard under GitHub's issue size limit
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
