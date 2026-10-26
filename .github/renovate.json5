@@ -3,6 +3,7 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
+    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
@@ -21,6 +22,12 @@
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
   configMigration: false,
+  // CI bots push regenerated snapshots and OpenAPI types onto PR branches.
+  // Without this, Renovate treats those PRs as modified and stops rebasing them
+  gitIgnoredAuthors: [
+    '206114724+posthog[bot]@users.noreply.github.com',
+    '250237707+tests-posthog[bot]@users.noreply.github.com',
+  ],
   vulnerabilityAlerts: {
     enabled: false,
   },
@@ -73,6 +80,7 @@
     // Keep in sync with the cooldowns in pnpm-workspace.yaml and pyproject.toml, or lock file updates fail
     {
       matchDatasources: ['npm', 'pypi', 'crate'],
+      matchUpdateTypes: ['major', 'minor', 'patch'],
       minimumReleaseAge: '7 days',
     },
     // Keeps the dashboard under GitHub's issue size limit
