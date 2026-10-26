@@ -469,6 +469,14 @@ export interface PatchedDataCatalogMetricApi {
 }
 
 /**
+ * Input for approving one metric.
+ */
+export interface DataCatalogMetricApproveRequestApi {
+    /** The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version. */
+    expected_updated_at?: string
+}
+
+/**
  * * `second` - second
  * * `minute` - minute
  * * `hour` - hour

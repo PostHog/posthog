@@ -3676,6 +3676,8 @@ export interface ProjectBackwardCompatApi {
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
@@ -4564,6 +4566,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
+    readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi

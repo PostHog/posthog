@@ -45,8 +45,10 @@ describe('LemonTable', () => {
             const columns = Array.from({ length: 1801 }, (_, index) => ({
                 title: `Column ${index}`,
                 key: `column-${index}`,
+                width: index === 0 ? 280 : index % 2 ? 240 : undefined,
                 render: (_: unknown, record: { id: number }): string => `${record.id}:${index}`,
             }))
+            const totalWidth = columns.reduce((sum, column) => sum + (column.width ?? 192), 0)
             const data = [{ id: 1 }, { id: 2 }]
             try {
                 const { container, rerender } = render(
@@ -84,8 +86,13 @@ describe('LemonTable', () => {
                 expect(table).toHaveAttribute('aria-colcount', '1801')
                 expect(screen.getByText('1:0')).toBeVisible()
                 expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(table.querySelector('col')).toHaveStyle({ width: '280px' })
 
-                fireEvent.scroll(scroll, { target: { scrollLeft: 900 * 192 } })
+                fireEvent.scroll(scroll, {
+                    target: {
+                        scrollLeft: columns.slice(0, 900).reduce((sum, column) => sum + (column.width ?? 192), 0),
+                    },
+                })
                 if (pivot) {
                     expect(screen.getByText('1:0').closest('td')).toHaveClass('LemonTable__cell--sticky')
                     expect(screen.getByText('Group 450')).toHaveAttribute('colspan', '2')
@@ -101,8 +108,11 @@ describe('LemonTable', () => {
                 expect(screen.getByText('2:900').closest('td')).toHaveAttribute('aria-colindex', '901')
                 expect(screen.getByText('Column 900').closest('th')).toHaveAttribute('aria-colindex', '901')
                 expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(
+                    Array.from(table.querySelectorAll('col')).reduce((sum, col) => sum + parseFloat(col.style.width), 0)
+                ).toBe(totalWidth)
 
-                fireEvent.scroll(scroll, { target: { scrollLeft: 1801 * 192 - 800 } })
+                fireEvent.scroll(scroll, { target: { scrollLeft: totalWidth - 800 } })
                 expect(screen.getByText('1:1800')).toBeVisible()
                 expect(screen.getByText('2:1800')).toBeVisible()
 

@@ -45,6 +45,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import resolve_source_location
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLS_CONFIGURATION_ERRORS,
+    TLSConfigurationError,
+    ca_certificate_field,
+    client_certificate_fields,
+    tls_options,
+    verify_server_certificate_field,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -190,7 +199,12 @@ _DATABASE_NOT_FOUND_VALIDATION_ERROR = (
     "correct and try again."
 )
 
+# The source type the managed-warehouse host exemption is keyed on. It names the listener
+# set the exemption applies to, and both the validation and the connect path pass it.
+POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 PostgresErrors = {
+    **CERTIFICATE_ERRORS,
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
     # database-identification step instead of libpq's "password authentication failed for user",
@@ -725,6 +739,9 @@ class PostgresSource(
                         placeholder="public",
                         secret=False,
                     ),
+                    verify_server_certificate_field(),
+                    ca_certificate_field(),
+                    *client_certificate_fields(),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -1169,6 +1186,8 @@ class PostgresSource(
                 "check that the host for this source is the hostname your database provider gave "
                 "you rather than an IP address, then re-enable the sync."
             ),
+            **CERTIFICATE_ERRORS,
+            **TLS_CONFIGURATION_ERRORS,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
@@ -1731,8 +1750,9 @@ class PostgresSource(
         require_ssl: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
+        tls = tls_options(config)
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -1743,6 +1763,7 @@ class PostgresSource(
                 names=names,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls,
             )
             # Foreign keys are advisory metadata (they pre-populate relationship hints in the
             # table picker). The discovery query joins three `information_schema` views, which
@@ -1760,6 +1781,7 @@ class PostgresSource(
                     names=names,
                     require_ssl=require_ssl,
                     team_id=team_id,
+                    tls=tls,
                 )
             except Exception as e:
                 structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
@@ -1776,6 +1798,7 @@ class PostgresSource(
                     names=names,
                     require_ssl=require_ssl,
                     team_id=team_id,
+                    tls=tls,
                 )
             else:
                 row_counts = {}
@@ -1810,6 +1833,7 @@ class PostgresSource(
                     database=config.database,
                     require_ssl=require_ssl,
                     team_id=team_id,
+                    tls=tls,
                 ) as conn:
                     # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
                     # quirk on `pg_catalog` (rare) only disables CDC advertising for this
@@ -1985,7 +2009,11 @@ class PostgresSource(
             return False, _RAILWAY_INTERNAL_HOST_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
+            config.host,
+            team_id,
+            using_ssh_tunnel=self.ssh_tunnel_enabled(config),
+            port=config.port,
+            source_type=POSTGRES_HOST_CHECK_SOURCE_TYPE,
         )
         if not valid_host:
             return valid_host, host_errors
@@ -2007,7 +2035,7 @@ class PostgresSource(
             if require_ssl:
                 return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
-        except HostNotAllowedError as e:
+        except (HostNotAllowedError, TLSConfigurationError) as e:
             return False, str(e)
         except TemporaryHostResolutionError as e:
             return False, str(e)
@@ -2054,7 +2082,7 @@ class PostgresSource(
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -2063,6 +2091,7 @@ class PostgresSource(
                 database=config.database,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls_options(config),
             )
 
     def check_cdc_prerequisites(
@@ -2087,7 +2116,7 @@ class PostgresSource(
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config, team_id) as (host, port):
+        with self.with_ssh_tunnel(config, team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -2096,6 +2125,7 @@ class PostgresSource(
                 password=config.password,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls_options(config),
             )
             try:
                 # A blank schema means discovery enumerated every schema and named each table
@@ -2283,7 +2313,7 @@ class PostgresSource(
             ForeignServerUnreachableError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id, POSTGRES_HOST_CHECK_SOURCE_TYPE)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres — a
         # transient failure reaching it (e.g. a DNS blip resolving our host) is a plain Django
@@ -2344,6 +2374,7 @@ class PostgresSource(
                 chunk_size_override=schema.chunk_size_override,
                 team_id=inputs.team_id,
                 require_ssl=require_ssl,
+                tls=tls_options(config),
                 is_initial_sync=not schema.initial_sync_complete,
                 enabled_columns=inputs.enabled_columns,
                 row_filters=inputs.row_filters,

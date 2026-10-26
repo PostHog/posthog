@@ -474,6 +474,20 @@ async def create_worker(
             7200.0,
             21600.0,
         ]
+        histogram_bucket_overrides["warehouse_import_attempt_duration_seconds"] = [
+            1.0,
+            5.0,
+            15.0,
+            30.0,
+            60.0,
+            120.0,
+            300.0,
+            600.0,
+            1800.0,
+            3600.0,
+            7200.0,
+            21600.0,
+        ]
     if task_queue == settings.TASKS_TASK_QUEUE:
         histogram_bucket_overrides |= dict(
             zip(

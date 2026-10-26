@@ -8643,10 +8643,10 @@ Today (5): `booking_calendars`, `bookings`, `contacts`, `teams`, `users`
 
 Diffed against: <https://developers.oncehub.com/booking-calendars-api.yaml>
 
-- [ ] `GET /v2/event-types (Booking Pages API)` — Lookup resolving the meeting type referenced by bookings — duration, location and conferencing per meeting, the natural breakdown dimension for booking volume (high)
-- [ ] `GET /v2/booking-pages (Booking Pages API)` — The classic-product equivalent of booking_calendars; accounts still on Booking Pages have bookings whose parent object is unresolvable today (high)
-- [ ] `GET /v2/master-pages (Booking Pages API)` — Groups booking pages into a single scheduling entry point — the rollup level teams actually report on (medium)
-- [ ] `GET /v2/users/{id}/scheduling-availability` — Per-user availability windows, the denominator for booked-hours-versus-available-hours utilization (low)
+- [x] `GET /v2/event-types (Booking Pages API)` — Lookup resolving the meeting type referenced by bookings — duration, location and conferencing per meeting, the natural breakdown dimension for booking volume (high)
+- [x] `GET /v2/booking-pages (Booking Pages API)` — The classic-product equivalent of booking_calendars; accounts still on Booking Pages have bookings whose parent object is unresolvable today (high)
+- [x] `GET /v2/master-pages (Booking Pages API)` — Groups booking pages into a single scheduling entry point — the rollup level teams actually report on (medium)
+- [x] `GET /v2/users/{id}/scheduling-availability` — Per-user availability windows, the denominator for booked-hours-versus-available-hours utilization (low)
 
 Note: OnceHub publishes two parallel OpenAPI specs against the same /v2 base: booking-calendars-api.yaml (synced today) and booking-pages-api.yaml (the classic surface, https://developers.oncehub.com/booking-pages-api.yaml) — the latter is where event-types, booking-pages and master-pages live, and both share /bookings, /users, /teams and /contacts. Excluded: /webhooks, /notifications/sms, /one-time-links (ephemeral), /booking-calendars/{id}/time-slots (live availability query, not a warehouse table), and the write-only lifecycle actions (cancel, reassign, no-show, request-reschedule).
 
@@ -8656,10 +8656,10 @@ Today (10): `actions`, `calls`, `companies`, `contacts`, `deals`, `lead_sources`
 
 Diffed against: <https://developer.onepagecrm.com/api/reference/>
 
-- [ ] `pipelines` — lookup that resolves the pipeline/stage IDs carried on the deals we already sync (high)
-- [ ] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
-- [ ] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
-- [ ] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
+- [x] `pipelines` — lookup that resolves the pipeline/stage IDs carried on the deals we already sync (high)
+- [x] `call_results` — lookup resolving the call outcome IDs on synced calls (high)
+- [x] `custom_fields` — field definitions needed to interpret custom field IDs on synced contacts (high)
+- [x] `deal_fields` — definitions for custom deal fields, needed to name deal custom values (medium)
 - [ ] `company_fields` — definitions for custom company fields (medium)
 - [ ] `action_stream` — chronological activity/state-change feed across records (medium)
 - [ ] `team_stream` — team-wide activity history for rep productivity analysis (medium)
@@ -8719,14 +8719,14 @@ Today (20): `admin_api_keys`, `audit_logs`, `costs`, `invites`, `project_api_key
 
 Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml>
 
-- [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
-- [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
+- [x] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high). Added as `models`; like every platform table below it needs the optional project API key, because OpenAI rejects Admin API keys outside the organization endpoints
+- [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
-- [ ] `/batches` — batch job records with request counts and completion status (medium)
+- [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
-- [ ] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium)
+- [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
 - [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
 - [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
 
@@ -8751,11 +8751,11 @@ Today (20): `authors`, `awards`, `continents`, `countries`, `domains`, `fields`,
 
 Diffed against: <https://help.openalex.org/api/endpoints.md>
 
-- [ ] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
-- [ ] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
-- [ ] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
+- [x] `Study Designs (GET /study-designs)` — resolve study design IDs on works and compare evidence types (high)
+- [x] `Indexes (GET /indexes)` — resolve indexed_in values on works and compare coverage across bibliographic indexes (high)
+- [x] `Source Lists (GET /source-lists)` — resolve listed_in IDs on sources for journal quality and coverage analysis (high)
 - [ ] `Collections and Members (GET /collections; GET /collections/{id}/members)` — track research portfolios and collection membership across works, authors, and journals (medium)
-- [ ] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
+- [x] `Locations (GET /locations)` — analyze each harvested copy and its metadata beyond the locations embedded in works (medium)
 
 Note: Parsed the current endpoint index and entity references, including the collections member endpoint. Existing works already contain locations and affiliation strings; dedicated locations expose additional metadata. Collection members need requests for each collection. Excluded deprecated concepts, autocomplete, text tagging, saved searches, and correction workflows.
 
@@ -8781,11 +8781,11 @@ Today (2): `Companies`, `Officers`
 
 Diffed against: <https://api.opencorporates.com/documentation/API-Reference>
 
-- [ ] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
-- [ ] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
-- [ ] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
+- [x] `Jurisdictions (GET /jurisdictions)` — resolve jurisdiction_code values in company records for geographic comparisons (high)
+- [x] `Company Filings (GET /companies/:jurisdiction_code/:company_number/filings)` — analyze statutory filing history and changes in company status (high)
+- [x] `Company Statements (GET /companies/:jurisdiction_code/:company_number/statements)` — analyze ownership relationships and other sourced facts omitted from company search results (high)
 - [ ] `Gazette Notices (GET /statements/gazette_notices/search)` — track official notices about insolvency, dissolution, and other company events (medium)
-- [ ] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
+- [x] `Registration Statements (GET /statements/alternate_registrations/search; GET /statements/subsequent_registrations/search)` — link alternate and successor registrations to avoid duplicate company counts (medium)
 - [ ] `Trademark Registrations (GET /statements/trademark_registrations/search)` — analyze trademark ownership, registration dates, and expirations (medium)
 - [ ] `Industry Codes (GET /industry_codes; GET /industry_codes/:code_scheme_id)` — build industry classifications for company segmentation and comparisons across code schemes (medium)
 
@@ -8829,11 +8829,11 @@ Today (7): `activity`, `api_keys`, `credits`, `models`, `organization_members`, 
 
 Diffed against: <https://openrouter.ai/docs/llms.txt>
 
-- [ ] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
+- [x] `model endpoints (list all endpoints for a model)` — per-provider pricing, context length and availability - the lookup that joins the models and providers tables we already sync (high)
 - [ ] `/api/v1/analytics/query (+ /analytics/meta)` — metric/dimension query over usage - richer breakdowns than the 30-day activity rollup we sync (high)
-- [ ] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
+- [x] `workspace members` — membership table linking the workspaces and organization_members we already sync (high)
 - [ ] `benchmarks` — model benchmark scores, a lookup for model quality comparison (medium)
-- [ ] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
+- [x] `task classifications (market share)` — per-task-category model market share, a breakdown dimension for usage analysis (medium)
 - [ ] `app rankings (top apps by token usage)` — token usage leaderboard by app (medium)
 - [ ] `daily rankings (daily token totals for top 50 models)` — daily model-level token time series (medium)
 - [ ] `workspace budgets` — per-workspace spend limits, needed to compare spend against budget (low)

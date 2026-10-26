@@ -1,6 +1,8 @@
 name: Build and deploy recording-rasterizer container image
 
 on:
+    # A manual run from master works like the weekly schedule: it re-resolves the floated deps and
+    # deploys. Use it when a security fix in Chrome or a Debian package cannot wait for Monday.
     workflow_dispatch:
     # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
@@ -143,6 +145,28 @@ jobs:
                   # Prod deploys from private ECR; pause the public ghcr push during an embargo.
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
+            # The push build of a commit already holds its commit tags, and ECR refuses to move a commit tag
+            # to a new digest. A scheduled or manual rebuild of that commit therefore pushes tags that carry
+            # the run ID. The deploy pins the digest, so the tag name does not change what runs.
+            - name: Scope rebuild tags to this run
+              id: tags
+              env:
+                  TAGS: ${{ steps.docker-meta.outputs.tags }}
+                  EVENT_NAME: ${{ github.event_name }}
+                  COMMIT_SHA: ${{ github.sha }}
+                  RUN_ID: ${{ github.run_id }}
+              run: |
+                  if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                    run_tags="$(sed -E "s/:(sha-)?${COMMIT_SHA}\$/:\1${COMMIT_SHA}-refresh-${RUN_ID}/" <<<"$TAGS")"
+                  else
+                    run_tags="$TAGS"
+                  fi
+                  {
+                    echo "tags<<TAGS_EOF"
+                    echo "$run_tags"
+                    echo "TAGS_EOF"
+                  } >> "$GITHUB_OUTPUT"
+
             - name: Build and push container image
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
@@ -152,13 +176,13 @@ jobs:
                   project: '00mrvlsdvh'
                   push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.recording-rasterizer
-                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  tags: ${{ steps.tags.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
-                      DEPS_CACHE_BUST=${{ github.event_name == 'schedule' && github.run_id || 'pinned' }}
+                      DEPS_CACHE_BUST=${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.run_id || 'pinned' }}
 
             - name: Container image digest
               env:
@@ -198,7 +222,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'schedule')
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master') || github.event_name == 'schedule')
         permissions:
             contents: read
         steps:
@@ -220,8 +244,8 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            # On a scheduled (cron) run there is no head_commit in the event payload, so reuse it
-            # verbatim for push and synthesize a minimal commit object from git HEAD for schedule.
+            # A scheduled or manual run has no head_commit in the event payload, so reuse it verbatim
+            # for push and synthesize a minimal commit object from git HEAD for the other events.
             - name: Resolve commit metadata
               id: commit
               shell: bash
@@ -231,7 +255,7 @@ jobs:
                   HEAD_COMMIT_TIMESTAMP: ${{ github.event.head_commit.timestamp }}
                   COMMIT_SHA: ${{ github.sha }}
               run: |
-                  if [ "$EVENT_NAME" = "schedule" ]; then
+                  if [ "$EVENT_NAME" != "push" ]; then
                     timestamp="$(git show -s --format=%cI HEAD)"
                     commit_json="$(jq -nc \
                       --arg id "$COMMIT_SHA" \

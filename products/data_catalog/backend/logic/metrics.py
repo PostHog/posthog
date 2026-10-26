@@ -9,6 +9,7 @@ measurement.
 """
 
 import re
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
@@ -42,7 +43,7 @@ from .analytics import (
     capture_metric_event,
 )
 from .drift import canonical_query_hash, compute_drift, fetch_insight
-from .exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
+from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
@@ -433,10 +434,17 @@ def _apply_approval(metric: Metric, user: Optional[User]) -> None:
     metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
 
 
-def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
+def approve_metric(
+    metric: Metric,
+    user: Optional[User],
+    request: "Request | None" = None,
+    expected_updated_at: datetime | None = None,
+) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
+        if expected_updated_at is not None and metric.updated_at != expected_updated_at:
+            raise MetricChanged()
         if compute_drift([metric])[metric.id]:
             capture_metric_event(
                 METRIC_APPROVAL_BLOCKED_EVENT,
