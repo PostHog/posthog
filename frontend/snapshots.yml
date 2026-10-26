@@ -3360,6 +3360,14 @@ snapshots:
         hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.iP86lD1msdXZjVXPQ1hzjV9tizv3xhQfntQDguO8GLg
     experiments-howtoreadtooltip--tooltip-frequentist--light:
         hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.qvlIJTJCzqS5DL7nVn55PYJujlSmxLxgPDYwA8a5wWo
+    experiments-replayvisionscannercard--off--dark:
+        hash: v1.k794b7964.c9fb173cda38d075177709adc2b01144d835ca606362b9c701a596199a755158.nWxgtqo2ZyNfFq0RRmHmy78q7Hu_ZRbjSM5Q70inZKs
+    experiments-replayvisionscannercard--off--light:
+        hash: v1.k794b7964.29b3f4aabf9a8b4278f376eb215e9a0b9cd790b0dc71d45f883d9de0ab3c1b00.2EJQM-yi0aTNj2xCm0WTg4Ghpn6ltHzErpZH17f-4N0
+    experiments-replayvisionscannercard--on--dark:
+        hash: v1.k794b7964.2310779b5f45ffee6c85f3df1b1cf40d52c32233890d210d3a41378df0f304ff.eQoOTer1duveivghgGouT2veQHXRZdN3wcdrnMqzJcU
+    experiments-replayvisionscannercard--on--light:
+        hash: v1.k794b7964.d6ec4b22a942e76937533228a48b0b9c2b96fd91e59490b73d288d79e5484bf8.-jm9LXPCfKi4WA8TdwuacvyPmG_VO1e7HGUY8Nct_8Q
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.f97da973c97eab91ecdcbecedb9a1065107791def08411296c66f656cf021914.QvKHBwki9F0yI62j134QSU7jkV2sUlHq6SHddrzmRNo
     experiments-varianttimeseriestooltip--pending-day--light:
