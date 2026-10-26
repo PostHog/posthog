@@ -10,8 +10,29 @@ from posthog.tasks.alerts.trends import TrendResult, _drop_incomplete_current_in
 
 # The AI judge (products.alerts.backend.judge) is not a registry detector, but its lookback
 # is sized here like every other type, and the judge imports these so the two cannot drift.
-LLM_DETECTOR_DEFAULT_WINDOW = 90
 LLM_DETECTOR_MIN_POINTS = 5
+
+# How many points the AI judge sees for each insight interval: about a week of hours, a
+# quarter of days, a year of weeks, two years of months. A series with no interval (a SQL
+# alert) gets the daily size.
+LLM_DETECTOR_DEFAULT_LOOKBACK = 90
+LLM_DETECTOR_LOOKBACK_BY_INTERVAL: dict[str, int] = {
+    IntervalType.MINUTE.value: 180,
+    IntervalType.HOUR.value: 168,
+    IntervalType.DAY.value: 90,
+    IntervalType.WEEK.value: 52,
+    IntervalType.MONTH.value: 24,
+    IntervalType.QUARTER.value: 16,
+    IntervalType.YEAR.value: 10,
+}
+
+
+def llm_detector_lookback(interval: str | None) -> int:
+    """How many trailing points the AI judge is shown for a series at this interval."""
+    if interval is None:
+        return LLM_DETECTOR_DEFAULT_LOOKBACK
+    return LLM_DETECTOR_LOOKBACK_BY_INTERVAL.get(interval, LLM_DETECTOR_DEFAULT_LOOKBACK)
+
 
 # Minimum samples required for each detector type
 DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
@@ -33,12 +54,6 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 # Fallback window size used when no explicit window is set in the detector config
 # (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
-
-# Detectors whose own default window differs from the fallback, so a config saved without
-# a window is extracted at the size the detector will judge.
-DETECTOR_DEFAULT_WINDOWS: dict[DetectorType, int] = {
-    DetectorType.LLM: LLM_DETECTOR_DEFAULT_WINDOW,
-}
 
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
@@ -97,20 +112,21 @@ def min_points_to_evaluate(detector_config: dict[str, Any]) -> int:
     return _compute_min_samples_for_detector(detector_config)
 
 
-def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
+def _compute_min_samples_for_detector(detector_config: dict[str, Any], interval: str | None = None) -> int:
     """Compute the number of historical data points needed for a detector.
 
     Uses the configured ``window`` (falling back to a default) plus headroom
     for preprocessing (lags, diffs).  The result is floored by the
     per-detector ``DETECTOR_MIN_SAMPLES`` guard so we never train on fewer
-    points than the algorithm requires.
+    points than the algorithm requires. The AI detector has no window: its
+    lookback follows the series ``interval``.
     """
     detector_type_str = detector_config.get("type", "zscore")
 
     if detector_type_str == "ensemble":
         sub_detectors = detector_config.get("detectors", [])
         return max(
-            (_compute_min_samples_for_detector(d) for d in sub_detectors),
+            (_compute_min_samples_for_detector(d, interval) for d in sub_detectors),
             default=31,
         )
 
@@ -121,14 +137,12 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     if detector_type == DetectorType.THRESHOLD:
         return guard
 
-    # Use the configured window, falling back to the detector's own default so the lookback
-    # matches what the detector will read (the AI detector reads more than the statistical ones).
-    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOWS.get(detector_type, DETECTOR_DEFAULT_WINDOW)
-
-    # The AI detector reads the window as it is: no training point is held back and no
-    # preprocessing runs, so a series of exactly the window is enough.
+    # The AI detector reads its lookback as it is: no training point is held back and no
+    # preprocessing runs, so a series of exactly the lookback is enough.
     if detector_type == DetectorType.LLM:
-        return max(window, guard)
+        return max(llm_detector_lookback(interval), guard)
+
+    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
 
     # Statistical detectors exclude training_offset_n trailing points from the fit (default 1);
     # a caller-configured larger offset needs the same headroom here as detect()/detect_batch()

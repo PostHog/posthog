@@ -162,7 +162,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * section), `resolve` (marking a report done without an inbox PR), `resume_discussion` (reopening the
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
- * section instead).
+ * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -182,6 +182,9 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'claim'
+    | 'unclaim'
+    | 'expand_preview'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -484,6 +487,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -493,7 +497,7 @@ export function captureInboxReportsImpressed(params: {
             signal_count: report.signal_count,
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
-            ...(rankingSort ? { ranking_served_key: report.ranking?.served_key ?? null } : {}),
+            ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
         })),
     })
 }
@@ -668,18 +672,24 @@ export function captureTodayReportsImpressed(params: {
     })
 }
 
-/** The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. */
+/**
+ * The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. A deep-link
+ * has no `list`, `rank`, `list_size` or `source`.
+ */
 export function captureTodayReportOpened(params: {
     report: TodayReportSnapshot
-    list: TodayReportList
+    openMethod: InboxReportOpenMethod
+    linkSource: InboxReportLinkSource | null
+    list: TodayReportList | null
     rank: number | null
     listSize: number | null
-    source: string
+    source: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
         ...todayReportProperties(params.report),
         surface: 'today' satisfies InboxReportActionSurface,
-        open_method: 'click' satisfies InboxReportOpenMethod,
+        open_method: params.openMethod,
+        link_source: params.linkSource,
         list: params.list,
         rank: params.rank,
         list_size: params.listSize,
