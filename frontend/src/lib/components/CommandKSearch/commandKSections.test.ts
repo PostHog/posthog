@@ -207,16 +207,16 @@ describe('buildSections', () => {
             ['results', 'events', 'ask-ai', 'persons'],
         ],
         [
-            'only a loading row below Results while persons that go first load',
+            'only person skeletons while persons that go first load',
             { events: [dashboard('e', '8')] },
             true,
-            ['results', 'loading-more'],
+            ['persons'],
         ],
         [
-            'persons right below Results when they go first',
+            'persons above Results when they go first',
             { persons: [dashboard('p', '9')] },
             true,
-            ['results', 'persons', 'loading-more'],
+            ['persons', 'results', 'loading-more'],
         ],
     ])('reveals %s', (_, loaded, personsFirst, expectedKeys) => {
         const remote = emptyRemoteSlots()

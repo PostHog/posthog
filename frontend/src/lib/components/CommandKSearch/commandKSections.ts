@@ -297,9 +297,6 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
         }
         return true
     }
-    if (input.personsFirst && !appendInOrder(['persons'])) {
-        return loadingMore()
-    }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
             if (ranked && source === 'products') {
@@ -362,6 +359,14 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         )
     }
     sections.push(input.suggestions)
+    if (input.personsFirst && mode !== 'value') {
+        const personsQuery = remoteQueries.persons
+        if (!isSettled(remote.persons, personsQuery)) {
+            sections.push(loadingSection('persons'))
+            return sections.filter((section): section is CommandKSection => section !== null)
+        }
+        sections.push(personsQuery ? remoteSection('persons', remote.persons.cache[personsQuery], state) : null)
+    }
     const resultsQuery = remoteQueries.results
     const results = resultsQuery ? remote.results.cache[resultsQuery] : undefined
     const ranked = isRanked(input)
