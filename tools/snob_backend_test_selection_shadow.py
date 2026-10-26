@@ -44,6 +44,8 @@ import json
 import argparse
 import warnings
 import subprocess
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -193,25 +195,38 @@ def _name_from_node(node: ast.AST) -> str:
     return ""
 
 
-def _literal_strings(tree: ast.AST) -> set[str]:
+def _strings_imports_and_calls(tree: ast.AST) -> tuple[set[str], set[str], list[ast.Call]]:
+    """Collect every string literal, imported name and call in one pass over the tree.
+
+    ast.walk spends most of its time in the generators of ast.iter_child_nodes, so this
+    reads node._fields directly. It visits nodes in a different order than ast.walk, which
+    is safe because every caller treats the results as unordered."""
     strings: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            strings.add(node.value)
-    return strings
-
-
-def _imports(tree: ast.AST) -> set[str]:
     imports: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
+    calls: list[ast.Call] = []
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, str):
+                strings.add(node.value)
+            continue
+        if isinstance(node, ast.Call):
+            calls.append(node)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.add(node.module)
             for alias in node.names:
                 imports.add(f"{node.module}.{alias.name}")
-    return imports
+        for name in node._fields:
+            value = getattr(node, name, None)
+            if isinstance(value, list):
+                stack.extend(item for item in value if isinstance(item, ast.AST))
+            elif isinstance(value, ast.AST):
+                stack.append(value)
+    return strings, imports, calls
 
 
 def _normal_tokens(value: str) -> set[str]:
@@ -308,14 +323,11 @@ def classify_test_file(path: str) -> TestFeatures:
     if tree is None:
         return TestFeatures(path=path)
 
-    strings = _literal_strings(tree)
-    imports = _imports(tree)
+    strings, imports, calls = _strings_imports_and_calls(tree)
     calls_http_client = False
     uses_reverse = False
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    for node in calls:
         function_name = _name_from_node(node.func)
         if function_name.endswith(".reverse") or function_name == "reverse":
             uses_reverse = True
@@ -347,7 +359,12 @@ def classify_test_file(path: str) -> TestFeatures:
 
 
 def classify_tests() -> dict[str, TestFeatures]:
-    return {path: classify_test_file(path) for path in _iter_python_files() if _is_test_file(path)}
+    paths = [path for path in _iter_python_files() if _is_test_file(path)]
+    # Parsing every test file is CPU-bound and the test shards wait for it, so it runs on
+    # all cores. Fork makes each worker inherit module state such as a reassigned
+    # REPO_ROOT, which spawn and forkserver would re-import from scratch.
+    with ProcessPoolExecutor(mp_context=multiprocessing.get_context("fork")) as pool:
+        return dict(zip(paths, pool.map(classify_test_file, paths, chunksize=64)))
 
 
 def changed_files_from_git(base_ref: str) -> list[str]:
