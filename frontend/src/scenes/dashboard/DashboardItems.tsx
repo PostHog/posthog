@@ -635,6 +635,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
+                    resultMenuEnabled={placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.
