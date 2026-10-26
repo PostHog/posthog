@@ -61,10 +61,10 @@ from posthog.models.person.sql import (
     PERSONS_TABLE,
 )
 
-from products.error_tracking.backend.facade.api import DocumentEmbeddingTable, document_embedding_tables
-from products.mcp_analytics.backend.facade.clickhouse_schema import (
-    MCP_INTENT_ASSIGNMENTS_DATA_TABLE,
-    MCP_INTENT_ASSIGNMENTS_DISTRIBUTED_TABLE,
+from products.error_tracking.backend.facade.api import (
+    DocumentEmbeddingTable,
+    document_embedding_tables,
+    document_embeddings_buffer_table,
 )
 
 
