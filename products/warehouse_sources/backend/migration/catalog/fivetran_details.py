@@ -1,7 +1,10 @@
 """Per-connector table names, config keys and caveats for a Fivetran migration.
 
 Fivetran table names come from each connector's published schema reference at
-`https://fivetran.com/docs/connectors/applications/<connector>/connector-schema.md`. An alias
+`https://fivetran.com/docs/connectors/applications/<connector>/connector-schema.md`. The HubSpot
+`engagement_*` and Bing Ads names come from Fivetran's dbt source packages at
+`https://github.com/fivetran/dbt_<connector>`, because connections set up before the current
+schema still have those tables. An alias
 names the PostHog table that holds the same records. A Fivetran table with no alias and no
 PostHog table of the same name has no PostHog equivalent.
 """
@@ -310,7 +313,7 @@ _GOOGLE_SEARCH_CONSOLE = {
     "keyword_page_report": "search_analytics_by_query_page",
     "keyword_site_report_by_site": "search_analytics_by_query",
     "page_report": "search_analytics_by_page",
-    "site_report_by_site": "search_analytics_by_date",
+    "site_report_by_site": "search_analytics_by_country_device",
     "sitemap": "sitemaps",
 }
 
@@ -441,7 +444,7 @@ FIVETRAN_TABLE_ALIASES: Mapping[str, Mapping[str, str]] = {
 _TUNNEL = {
     "tunnel_host": "ssh_tunnel.host",
     "tunnel_port": "ssh_tunnel.port",
-    "tunnel_user": "ssh_tunnel.auth_type.username",
+    "tunnel_user": "ssh_tunnel.auth.username",
 }
 _SQL_DATABASE = {"host": "host", "port": "port", "database": "database", "user": "user", **_TUNNEL}
 
@@ -478,7 +481,6 @@ FIVETRAN_CONFIG_KEYS: Mapping[str, Mapping[str, str]] = {
     **dict.fromkeys(_POSTGRES_SERVICES + _MYSQL_SERVICES + _MSSQL_SERVICES, _SQL_DATABASE),
     "snowflake_db": {"database": "database", "role": "role", "user": "auth_type.user"},
     "bigquery_db": {"data_set_name": "dataset_id"},
-    "s3": {"access_key_id": "access_key_id"},
 }
 
 _LOCAL_AGENT_NOTE = (
@@ -489,6 +491,9 @@ _LOCAL_AGENT_NOTE = (
 FIVETRAN_NOTES: Mapping[str, tuple[str, ...]] = {
     "sql_server_hva": (_LOCAL_AGENT_NOTE,),
     "github": ("PostHog syncs GitHub one repository at a time. Choose the repositories when you connect the source.",),
+    "google_search_console": (
+        "PostHog's query and page tables do not break down by country and device like the Fivetran reports do.",
+    ),
     "google_analytics_4": (
         "PostHog syncs a fixed set of Google Analytics reports. Fivetran custom reports do not move over.",
     ),
