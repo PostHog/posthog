@@ -46,6 +46,7 @@ import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneChar
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -456,7 +457,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
-        (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+        (isBIPivotTable(query.config) ||
             (query.config.compareFilter?.compare &&
                 [ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber, ChartDisplayType.Metric].includes(
                     effectiveVisualizationType
@@ -469,15 +470,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             chartSettings,
             onInspect: canDrill ? inspect : undefined,
         }
-        component =
-            query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
-                <BIPivotTable {...resultProps} />
-            ) : (
-                <BIComparisonSummary
-                    {...resultProps}
-                    card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
-                />
-            )
+        component = isBIPivotTable(query.config) ? (
+            <BIPivotTable {...resultProps} embedded={props.embedded} />
+        ) : (
+            <BIComparisonSummary {...resultProps} card={effectiveVisualizationType !== ChartDisplayType.ActionsTable} />
+        )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
         query.config.panes?.fields.length &&
@@ -762,7 +759,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             />
 
                             {query.kind === NodeKind.BIVisualizationNode &&
-                                effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
+                                !isBIPivotTable(query.config) && (
                                     <LemonButton
                                         size={controlSize}
                                         type="secondary"

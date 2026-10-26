@@ -942,6 +942,7 @@ export class CdpApi {
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
                 execResult: result.execResult ?? null,
+                ...(result.emailSendResult ? { emailSendResult: result.emailSendResult } : {}),
             })
         } catch (e) {
             console.error(e)

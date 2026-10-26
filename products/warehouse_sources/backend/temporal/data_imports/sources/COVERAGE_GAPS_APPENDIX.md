@@ -7734,19 +7734,19 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (13): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`, `StockLocations`
+Today (17): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
 - [x] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high). Added as `StockLocations`.
 - [x] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high). Added as `Claims`.
 - [x] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high). Added as `Exchanges`.
-- [ ] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high)
+- [x] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high). Added as `Payments`.
 - [x] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high). Added as `InventoryItems` (full refresh: the list route has no timestamp filters).
-- [ ] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium)
-- [ ] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium)
+- [x] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium). Added as `Reservations`.
+- [x] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium). Added as `Promotions`.
 - [ ] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium)
-- [ ] `Product categories (GET /admin/product-categories)` — group catalog performance by category hierarchy (medium)
+- [x] `Product categories (GET /admin/product-categories)` — group catalog performance by category hierarchy (medium). Added as `ProductCategories`.
 
 Note: Parsed the official v2 OpenAPI root and fetched referenced path files to verify GET methods. Checked official query defaults: products already embed types, collections, tags, and sales channels, so duplicate lookups are excluded. Inventory lists include location levels; no collection route exists for fulfillments. Excluded auth, keys, settings, and uploads; route availability depends on the deployed Medusa version.
 
@@ -8525,10 +8525,10 @@ Today (5): `Domains`, `Emails`, `Inboxes`, `Messages`, `Webhooks`
 
 Diffed against: <https://nuntly.com/docs/llms-full.txt>
 
-- [ ] `Retrieve Email Events (GET /emails/{id}/events)` — measure delivery, open, click, bounce, and complaint events over time for each synced email (high)
-- [ ] `List Inbox Threads (GET /inboxes/{inboxId}/threads)` — resolve threadId on synced messages and analyze conversation activity, unread states, and assigned agents (high)
-- [ ] `List Namespaces (GET /namespaces)` — resolve namespaceId on synced inboxes to external customer identifiers for tenant-level reporting (high)
-- [ ] `List Contacts (GET /contacts)` — build the audience dimension for recipient, subscription, and broadcast analysis (medium)
+- [x] `Retrieve Email Events (GET /emails/{id}/events)` — measure delivery, open, click, bounce, and complaint events over time for each synced email (high)
+- [x] `List Inbox Threads (GET /inboxes/{inboxId}/threads)` — resolve threadId on synced messages and analyze conversation activity, unread states, and assigned agents (high)
+- [x] `List Namespaces (GET /namespaces)` — resolve namespaceId on synced inboxes to external customer identifiers for tenant-level reporting (high)
+- [x] `List Contacts (GET /contacts)` — build the audience dimension for recipient, subscription, and broadcast analysis (medium)
 - [ ] `List Broadcasts (GET /broadcasts)` — analyze broadcast lifecycle, audience targeting, scheduling, and failures beyond transactional email delivery (medium)
 - [ ] `List Broadcast Recipients (GET /broadcasts/{broadcastId}/recipients)` — measure recipient-level broadcast delivery outcomes and connect campaigns to contacts and sent emails (medium)
 - [ ] `List Segments and Segment Members (GET /segments; GET /segments/{segmentId}/members)` — analyze audience membership and compare campaign outcomes across customer segments (medium)
