@@ -322,6 +322,12 @@ DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS: float = get_from_env(
 DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS: float = get_from_env(
     "DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS", 3600.0, type_cast=float
 )
+# At a worker shutdown an import keeps running this long before any hand-off check sees the shutdown.
+# Many imports that run at the signal finish in this time, and a hand-off would restart them on
+# another worker. 0 hands off at once. The import uses at most half the graceful shutdown timeout.
+DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS: float = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS", 60.0, type_cast=float
+)
 # Restore unfinished append runs only after all extract and load workers have this implementation.
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
