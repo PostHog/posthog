@@ -36,6 +36,7 @@ from products.signals.backend.contracts import (
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
+    ReviewerRepick,
     ReviewerSelectionOutcome,
     SignalSourceProduct,
     SignalSourceType,
@@ -3028,6 +3029,26 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
             raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
         return attrs
+
+
+class SignalReportNotMineSerializer(serializers.Serializer):
+    replacement_user_uuid = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="The organization member to hand the report to. Leave it out to let research pick reviewers again.",
+    )
+
+
+class SignalReportNotMineResultSerializer(serializers.Serializer):
+    removed = serializers.BooleanField(help_text="Whether the caller was on the report's suggested reviewers.")
+    research = serializers.ChoiceField(
+        choices=ReviewerRepick.choices,
+        help_text=(
+            "'started' when research is picking reviewers again. 'not_needed' when a replacement was named "
+            "or other reviewers remain. 'unavailable' when research could not start, for example because of "
+            "a usage limit or because the report is not ready."
+        ),
+    )
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected

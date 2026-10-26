@@ -129,7 +129,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
-from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
+from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRepick
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.free_trial import (
@@ -233,6 +233,7 @@ from products.signals.backend.report_task_actions import (
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.reviewer_repick import request_reviewer_repick
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.scout_authorship import inbox_hidden_report_exists
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
@@ -263,6 +264,8 @@ from products.signals.backend.serializers import (
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
+    SignalReportNotMineResultSerializer,
+    SignalReportNotMineSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
@@ -754,8 +757,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked "
     "to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. "
     "The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, "
-    "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
-    "'wrong_assignee' when the report was routed to the wrong person or team. "
+    "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. "
+    "'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds "
+    "work: hand it off with the reviewers not-mine action instead of suppressing it. "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
     "Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. "
@@ -3088,6 +3092,40 @@ class SignalReportViewSet(
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        summary="Hand off a report that is not yours",
+        description=(
+            "Take the calling user off this report's suggested reviewers, and keep the report open. "
+            "Name a replacement to hand the report to them. Without one, research picks reviewers again "
+            "when nobody is left on the report, which can also update its title and summary."
+        ),
+        request=SignalReportNotMineSerializer,
+        responses={
+            200: SignalReportNotMineResultSerializer,
+            400: OpenApiResponse(description="The replacement is the caller or is not a member of this team."),
+            409: OpenApiResponse(description="The reviewers changed while the request ran. Read them and try again."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="reviewers/not-mine", required_scopes=["task:write"])
+    def not_mine(self, request, **kwargs):
+        report = cast(SignalReport, self.get_object())
+        serializer = SignalReportNotMineSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        replacement = serializer.validated_data.get("replacement_user_uuid")
+        try:
+            declined = decline_suggested_review(
+                team=self.team,
+                report_id=str(report.id),
+                user=cast(User, request.user),
+                request=request,
+                replacement_user_uuid=str(replacement) if replacement else None,
+            )
+        except StaleReviewerProposal as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        except ReviewerWriteError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(SignalReportNotMineResultSerializer(declined).data)
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
         report = cast(SignalReport, self.get_object())
@@ -5176,6 +5214,7 @@ def append_suggested_reviewers(
     entries: list[dict],
     request: Request,
     edit: ReviewerEdit | None = None,
+    reevaluate_autostart: bool = True,
 ) -> SignalReportArtefact:
     """Append a new `suggested_reviewers` status row for a report, merging forward from the current
     (latest) reviewers. Works whether or not the report already has a reviewers artefact — the first
@@ -5349,7 +5388,8 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
             reviewer_edit=edit,
-            reevaluate_autostart=edit.action not in {"remove", "confirm"}
+            reevaluate_autostart=reevaluate_autostart
+            and edit.action not in {"remove", "confirm"}
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
                 for entry in new_content
@@ -5613,6 +5653,44 @@ def remove_suggested_reviewer(
             )
         )
     return True
+
+
+@frozen
+class DeclinedReview:
+    removed: bool
+    research: ReviewerRepick
+
+
+def decline_suggested_review(
+    *, team: Team, report_id: str, user: User, request: Request, replacement_user_uuid: str | None
+) -> DeclinedReview:
+    """Take the caller off a report's reviewers, and make sure the report still reaches someone.
+
+    A named replacement joins in the same transaction as the removal. Without one, research picks
+    again, but only when nobody is left: the other reviewers still own the report, and a research
+    run costs money.
+    """
+    if replacement_user_uuid == str(user.uuid):
+        raise ReviewerWriteError("Name someone other than yourself.")
+    with transaction.atomic():
+        if replacement_user_uuid:
+            # An add re-evaluates auto-start as the editor, which here would start work as the person
+            # handing the report off.
+            append_suggested_reviewers(
+                team=team,
+                report_id=report_id,
+                entries=[{"user_uuid": replacement_user_uuid}],
+                request=request,
+                edit=ReviewerEdit(action="add"),
+                reevaluate_autostart=False,
+            )
+        removed = remove_suggested_reviewer(team=team, report_id=report_id, user=user, request=request)
+    if replacement_user_uuid or not removed:
+        return DeclinedReview(removed=removed, research=ReviewerRepick.NOT_NEEDED)
+    remaining = SignalReportArtefact.latest_content(team_id=team.id, report_id=report_id, model=SuggestedReviewers)
+    if remaining is not None and remaining.root:
+        return DeclinedReview(removed=True, research=ReviewerRepick.NOT_NEEDED)
+    return DeclinedReview(removed=True, research=request_reviewer_repick(team=team, report_id=report_id))
 
 
 def _record_reviewer_edit(

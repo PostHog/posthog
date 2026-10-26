@@ -41,6 +41,13 @@ class ReviewerEditAction(LabeledStrEnum):
     CONFIRM = "confirm", "Confirm"
 
 
+class ReviewerRepick(LabeledStrEnum):
+    # Whether research was asked to pick reviewers again after a reviewer declined a report.
+    NOT_NEEDED = "not_needed", "Not needed"
+    STARTED = "started", "Started"
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
 class ReportLinkKind(LabeledStrEnum):
     # How one report relates to another, written as a directed `report_link` artefact on the
     # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that

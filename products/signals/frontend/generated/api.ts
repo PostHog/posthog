@@ -113,6 +113,8 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportNotMineApi,
+    SignalReportNotMineResultApi,
     SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
@@ -1091,6 +1093,28 @@ export const signalsReportsReviewersMeDestroy = async (
     return apiMutator<void>(getSignalsReportsReviewersMeDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsReviewersNotMineCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/reviewers/not-mine/`
+}
+
+/**
+ * Take the calling user off this report's suggested reviewers, and keep the report open. Name a replacement to hand the report to them. Without one, research picks reviewers again when nobody is left on the report, which can also update its title and summary.
+ * @summary Hand off a report that is not yours
+ */
+export const signalsReportsReviewersNotMineCreate = async (
+    projectId: string,
+    id: string,
+    signalReportNotMineApi?: SignalReportNotMineApi,
+    options?: RequestInit
+): Promise<SignalReportNotMineResultApi> => {
+    return apiMutator<SignalReportNotMineResultApi>(getSignalsReportsReviewersNotMineCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportNotMineApi),
     })
 }
 

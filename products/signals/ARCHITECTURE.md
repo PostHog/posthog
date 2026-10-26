@@ -1094,6 +1094,14 @@ Suppression is per direction, so an edit that reverses an earlier one inside the
 Authorization, the 30-day TTL, the child-environment rule, and the read-side withholding are the dismissal ones (`dismissal_notes.principal_may_steer_scouts`); the key scopes aren't demanded on top, because the logins already reach scouts through the report's reviewers artefact and the profile.
 Forwarding runs after commit and is best-effort, and `signals_suggested_reviewers_resolved` carries `correction_notes_written` / `correction_note_targets` so what it achieved is measurable next to the edit itself.
 
+**Not mine.** A report sent to the wrong person still holds work, so the person hands it off instead of dismissing it: a `wrong_assignee` dismissal suppresses the report, and later signals about the issue then join it silently.
+`POST reports/{id}/reviewers/not-mine/` takes the caller off the reviewers, through the same removal as `DELETE reviewers/me` (`decline_suggested_review` in `views.py`).
+A named `replacement_user_uuid` joins in the same transaction, with `reevaluate_autostart=False`, because an add re-evaluates auto-start as the editor and would start work as the person who handed the report off.
+Without a replacement, and only when nobody is left on the report, `reviewer_repick.request_reviewer_repick` restarts research the way `rerun_signal_report` does.
+The run reuses the earlier findings and applies the report's reviewer corrections, so it does not pick the person again, and it can rewrite the title and summary like any re-research.
+It needs both the `signals-assignment-writer` and `signals-research-reviewer-selection` flags, respects the self-driving quota and the daily report limit, and puts the report back in its previous status when the workflow cannot start.
+The web dismiss dialog no longer offers `wrong_assignee`. The state API still accepts it from older clients.
+
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
 When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
