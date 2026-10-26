@@ -64,13 +64,13 @@ export interface WarehouseSuggestionsLogicProps {
 }
 
 export const ROW_LEAVE_MS = 150
-const KIND_ORDER: Record<string, number> = { certify: 0, deprecate: 1 }
+const KIND_ORDER: Record<string, number> = { sql_repair: -1, certify: 0, deprecate: 1 }
 
 const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
-    models: ['materialize', 'unmaterialize'],
+    models: ['sql_repair', 'materialize', 'unmaterialize'],
     catalog: ['certify', 'deprecate'],
 }
-const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
+const VIEW_ON_MODEL_PAGE_KINDS = ['sql_repair', 'materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
 const NOT_FOUND_STATUS = 404
 const FORBIDDEN_STATUS = 403
@@ -78,6 +78,7 @@ const PICK_INTERVAL_REASON = 'Pick how often it refreshes'
 const INCOMPLETE_INCREMENTAL_REASON = 'Select the incremental column and unique key columns'
 const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => string> = {
     materialize: ({ payload }) => `Materializing ${payload.subject_name}. The first refresh is running.`,
+    sql_repair: ({ payload }) => `Applied the SQL repair to ${payload.subject_name}.`,
     unmaterialize: ({ payload }) =>
         `Stopped materializing ${payload.subject_name}. Each read now computes it from its query.`,
     certify: ({ payload }) => `Certified ${payload.subject_name}.`,
@@ -593,6 +594,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         .filter((saving): saving is MonthlySaving => saving !== null)
                     return {
                         views: savings.length,
+                        repairs: open.filter(({ kind }) => kind === 'sql_repair').length,
                         saving: {
                             seconds: sum(savings.map((saving) => saving.seconds)),
                             bytes: sum(savings.map((saving) => saving.bytes)),

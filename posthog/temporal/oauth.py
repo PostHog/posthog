@@ -287,7 +287,9 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
 # still reaches the run. Listed explicitly so a typo or a genuinely unreachable scope still fails
 # `test_grantable_write_scopes_are_mcp_write_scopes`.
-SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:write"})
+SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset(
+    {"hog_flow_proposal:write", "warehouse_suggestion_proposal:write"}
+)
 
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
@@ -300,6 +302,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
+        "warehouse_suggestion_proposal:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
         "ticket:write",

@@ -92,6 +92,7 @@ describe('suggestionCopy', () => {
         ['certify', 'reads grow'],
         ['deprecate', 'refreshes cost'],
         ['materialize', 'save a lot more'],
+        ['sql_repair', 'different repair'],
         ['unmaterialize', 'save a lot more'],
     ])('says what has to grow before a not-now %s suggestion returns', (kind, condition) => {
         expect(notNowCondition(kind)).toContain(condition)

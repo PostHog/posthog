@@ -10,6 +10,7 @@ DAG traversal, resolvers) re-exported through ``facade.models``; this contract-d
 surface is intentionally small and grows as consumers migrate to data reads.
 """
 
+from dataclasses import field
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -63,6 +64,48 @@ class SavedQueryDefinition:
     created_at: datetime
     refreshes_incrementally: bool = False
     calls_decision_functions: bool = False
+
+
+@frozen
+class SavedQueryRepairValidation:
+    syntax_valid: bool
+    references_valid: bool
+    result_schema_compatible: bool
+    read_only: bool
+    rows_returned: int
+    max_execution_seconds: int
+    business_equivalence_checked: bool
+
+
+@frozen
+class SavedQueryRepairPlan:
+    saved_query_id: UUID
+    subject_name: str
+    original_query: str = field(repr=False)
+    original_query_revision: str | None
+    original_query_hash: str
+    proposed_query: str = field(repr=False)
+    validation: SavedQueryRepairValidation
+
+
+class SavedQueryRepairNotFoundError(Exception):
+    pass
+
+
+class SavedQueryRepairForbiddenError(Exception):
+    pass
+
+
+class SavedQueryRepairUnsupportedError(Exception):
+    pass
+
+
+class SavedQueryRepairInvalidError(Exception):
+    pass
+
+
+class SavedQueryRepairConflictError(Exception):
+    pass
 
 
 @dataclass(frozen=True)

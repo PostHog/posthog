@@ -7,7 +7,13 @@ class WarehouseSuggestionKind(LabeledStrEnum):
     CERTIFY = "certify"
     DEPRECATE = "deprecate"
     MATERIALIZE = "materialize"
+    SQL_REPAIR = ("sql_repair", "SQL repair")
     UNMATERIALIZE = "unmaterialize"
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django fields require (value, label) choice tuples.
+def warehouse_suggestion_kind_choices() -> list[tuple[str, str]]:
+    return WarehouseSuggestionKind.choices
 
 
 class WarehouseSuggestionStatus(LabeledStrEnum):

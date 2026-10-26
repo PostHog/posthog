@@ -7,15 +7,15 @@ from posthog.models.utils import UUIDModel
 from .facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
-    WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    warehouse_suggestion_kind_choices,
 )
 
 
 class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    kind = models.CharField(max_length=32, choices=WarehouseSuggestionKind.choices)
+    kind = models.CharField(max_length=32, choices=warehouse_suggestion_kind_choices)
     fingerprint = models.CharField(max_length=64)
     subject_kind = models.CharField(max_length=16, choices=WarehouseSuggestionSubjectKind.choices)
     subject_id = models.UUIDField()

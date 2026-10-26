@@ -19,7 +19,11 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
+from products.data_modeling.backend.facade.api import (
+    SavedQueryRepairConflictError,
+    get_declared_target,
+    set_declared_target,
+)
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
@@ -28,6 +32,8 @@ from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializePayload,
+    SqlRepairPayload,
+    SqlRepairValidation,
     SuggestionAlreadyDecidedError,
     SuggestionPayload,
     UnmaterializePayload,
@@ -240,6 +246,29 @@ class TestAcceptSuggestion(APIBaseTest):
         draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
         return ingest_surfaced(self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=payload))
 
+    def _suggest_sql_repair(self) -> WarehouseSuggestion:
+        draft = make_draft(fingerprint="sql-repair:orders", subject_id=self.view.id)
+        payload = SqlRepairPayload(
+            subject_name=self.view.name,
+            original_query=ORDERS_SQL,
+            original_query_revision=str(self.view.query_revision),
+            original_query_hash="a" * 64,
+            proposed_query="SELECT timestamp, event FROM events WHERE event != ''",
+            failure_evidence="The refresh fails on an empty event value.",
+            reason="Exclude the value that the source cannot process.",
+            expected_effect="The next refresh can complete.",
+            validation=SqlRepairValidation(
+                syntax_valid=True,
+                references_valid=True,
+                result_schema_compatible=True,
+                read_only=True,
+                rows_returned=0,
+                max_execution_seconds=10,
+                business_equivalence_checked=False,
+            ),
+        )
+        return ingest_surfaced(self.team.id, replace(draft, kind=WarehouseSuggestionKind.SQL_REPAIR, payload=payload))
+
     def _accept(self, suggestion_id: UUID, body: dict | None = None) -> dict:
         response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body or {})
         return {**response.json(), "http_status": response.status_code}
@@ -277,6 +306,34 @@ class TestAcceptSuggestion(APIBaseTest):
             self._accept(suggestion.id)
 
         assert [call.args[0] for call in report.call_args_list] == ["warehouse suggestion accepted"]
+
+    def test_accepting_a_sql_repair_is_idempotent(self) -> None:
+        suggestion = self._suggest_sql_repair()
+
+        with patch(
+            "products.warehouse_suggestions.backend.logic.accept.apply_saved_query_repair", return_value="r2"
+        ) as apply:
+            first = self._accept(suggestion.id)
+            second = self._accept(suggestion.id)
+
+        assert (first["http_status"], second["http_status"]) == (status.HTTP_200_OK, status.HTTP_200_OK)
+        assert first["created_asset"] == {"saved_query_id": str(self.view.id), "query_revision": "r2"}
+        assert second["created_asset"] == first["created_asset"]
+        apply.assert_called_once()
+
+    def test_a_stale_sql_repair_stays_open_with_a_useful_conflict(self) -> None:
+        suggestion = self._suggest_sql_repair()
+
+        with patch(
+            "products.warehouse_suggestions.backend.logic.accept.apply_saved_query_repair",
+            side_effect=SavedQueryRepairConflictError("The view changed. Create a new repair suggestion."),
+        ):
+            response = self._accept(suggestion.id)
+
+        suggestion.refresh_from_db()
+        assert response["http_status"] == status.HTTP_409_CONFLICT, response
+        assert "Create a new repair suggestion" in response["detail"]
+        assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
 
     @parameterized.expand(
         [

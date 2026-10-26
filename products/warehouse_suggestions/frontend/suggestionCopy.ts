@@ -6,6 +6,7 @@ import type {
     WarehouseSuggestionDeprecatePayloadApi,
     WarehouseSuggestionEvidenceApi,
     WarehouseSuggestionMaterializePayloadApi,
+    WarehouseSuggestionSqlRepairPayloadApi,
     WarehouseSuggestionUnmaterializePayloadApi,
 } from './generated/api.schemas'
 
@@ -51,6 +52,7 @@ export interface SurfaceSegment {
 
 export interface SavingsSummary {
     views: number
+    repairs: number
     saving: MonthlySaving
 }
 
@@ -79,6 +81,12 @@ export function isUnmaterializePayload(
     payload: WarehouseSuggestionApi['payload']
 ): payload is WarehouseSuggestionUnmaterializePayloadApi {
     return 'live_seconds_per_month' in payload
+}
+
+export function isSqlRepairPayload(
+    payload: WarehouseSuggestionApi['payload']
+): payload is WarehouseSuggestionSqlRepairPayloadApi {
+    return 'proposed_query' in payload && 'original_query_hash' in payload
 }
 
 export function isDeprecatePayload(
@@ -192,6 +200,7 @@ const NOT_NOW_CONDITIONS: Record<string, string> = {
     certify: 'Suggested again if reads grow a lot.',
     deprecate: 'Suggested again if its refreshes cost a lot more.',
     materialize: 'Suggested again if it would save a lot more.',
+    sql_repair: 'Suggested again if a different repair is found.',
     unmaterialize: 'Suggested again if it would save a lot more.',
 }
 

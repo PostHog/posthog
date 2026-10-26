@@ -134,6 +134,32 @@ const DEPRECATE: WarehouseSuggestionApi = {
     payload: { subject_name: 'old_rollup', refresh_seconds_per_month: 5400, refresh_bytes_per_month: 0 },
 }
 
+const SQL_REPAIR: WarehouseSuggestionApi = {
+    ...MATERIALIZE,
+    id: 'suggestion-sql-repair',
+    kind: 'sql_repair',
+    payload: {
+        subject_name: 'orders',
+        original_query: 'SELECT id, total FROM orders',
+        original_query_revision: '019a14dd-1234-7000-8000-000000000001',
+        original_query_hash: 'f'.repeat(64),
+        proposed_query: 'SELECT id, toFloat(total) AS total FROM orders',
+        failure_evidence: 'The refresh cannot convert a new source value.',
+        reason: 'Convert total to the current result type.',
+        expected_effect: 'The next refresh can read new rows.',
+        validation: {
+            syntax_valid: true,
+            references_valid: true,
+            result_schema_compatible: true,
+            read_only: true,
+            rows_returned: 0,
+            max_execution_seconds: 10,
+            business_equivalence_checked: false,
+        },
+    },
+    evidence: {},
+}
+
 function certification(id: string, kind: 'certify' | 'deprecate'): WarehouseSuggestionApi {
     return { ...MATERIALIZE, id, kind, subject_kind: 'table', payload: { subject_name: id } }
 }
@@ -269,6 +295,19 @@ describe('warehouseSuggestionsLogic', () => {
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
         expect(mockAccept).toHaveBeenCalledTimes(1)
+        expect(logic.values.surfaceSuggestions).toEqual([])
+    })
+
+    it('reviews and accepts a SQL repair through the normal confirmation flow', async () => {
+        mockList.mockResolvedValue(page([SQL_REPAIR]))
+        mockAccept.mockResolvedValue({ ...SQL_REPAIR, status: 'accepted' })
+        await mountLogic()
+
+        logic.actions.openAcceptConfirm(SQL_REPAIR.id)
+        logic.actions.confirmAccept()
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), SQL_REPAIR.id, undefined)
         expect(logic.values.surfaceSuggestions).toEqual([])
     })
 
@@ -505,12 +544,16 @@ describe('warehouseSuggestionsLogic', () => {
 
     it('sums time and bytes across every view, including views that save both', async () => {
         mockList.mockResolvedValue(
-            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12)])
+            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12), SQL_REPAIR])
         )
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
+        expect(logic.values.savingsSummary).toEqual({
+            views: 3,
+            repairs: 1,
+            saving: { seconds: 3000, bytes: 5e12 },
+        })
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {

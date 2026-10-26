@@ -99,6 +99,47 @@ export interface WarehouseSuggestionMaterializePayloadApi {
     lookback_seconds?: number
 }
 
+export interface WarehouseSuggestionSqlRepairValidationApi {
+    /** The proposed SQL passed the HogQL syntax check. */
+    syntax_valid: boolean
+    /** The proposed SQL references objects that the producer can read. */
+    references_valid: boolean
+    /** The proposed SQL returns the same ordered column names and types as the saved view. */
+    result_schema_compatible: boolean
+    /** The validation check did not write data. */
+    read_only: boolean
+    /** Result rows returned by the bounded validation check. */
+    rows_returned: number
+    /** Maximum time for the validation query, in seconds. */
+    max_execution_seconds: number
+    /** Always false. Validation does not prove that both queries have the same meaning. */
+    business_equivalence_checked: boolean
+}
+
+export interface WarehouseSuggestionSqlRepairPayloadApi {
+    /** Result of the bounded read-only validation check. */
+    validation: WarehouseSuggestionSqlRepairValidationApi
+    /** Name of the saved view to repair. */
+    subject_name: string
+    /** SQL that the saved view used when this repair was proposed. */
+    original_query: string
+    /**
+     * Saved view revision that this repair targets. Null for an old view with no revision.
+     * @nullable
+     */
+    original_query_revision: string | null
+    /** SHA-256 hash of the original SQL. */
+    original_query_hash: string
+    /** SQL that acceptance will apply to the saved view. */
+    proposed_query: string
+    /** Failure evidence that supports the repair. */
+    failure_evidence: string
+    /** Why the proposed SQL can fix the failure. */
+    reason: string
+    /** Expected result after a customer accepts the repair. */
+    expected_effect: string
+}
+
 export interface WarehouseSuggestionUnmaterializePayloadApi {
     /** Name of the rarely read materialized view to turn back into a plain view. */
     subject_name: string
@@ -118,6 +159,7 @@ export type WarehouseSuggestionPayloadApi =
     | WarehouseSuggestionCertifyPayloadApi
     | WarehouseSuggestionDeprecatePayloadApi
     | WarehouseSuggestionMaterializePayloadApi
+    | WarehouseSuggestionSqlRepairPayloadApi
     | WarehouseSuggestionUnmaterializePayloadApi
 
 /**
@@ -155,6 +197,7 @@ export interface WarehouseSuggestionReviewerApi {
  * * `certify` - Certify
  * * `deprecate` - Deprecate
  * * `materialize` - Materialize
+ * * `sql_repair` - SQL repair
  * * `unmaterialize` - Unmaterialize
  */
 export type WarehouseSuggestionKindEnumApi =
@@ -164,6 +207,7 @@ export const WarehouseSuggestionKindEnumApi = {
     Certify: 'certify',
     Deprecate: 'deprecate',
     Materialize: 'materialize',
+    SqlRepair: 'sql_repair',
     Unmaterialize: 'unmaterialize',
 } as const
 
@@ -243,11 +287,12 @@ export interface WarehouseSuggestionApi {
     created_asset: WarehouseSuggestionApiCreatedAsset
     /** Who accepted or dismissed this suggestion. Null while it is open. */
     reviewed_by: WarehouseSuggestionReviewerApi | null
-    /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
+    /** What the suggestion proposes: certify, deprecate, materialize, repair SQL or unmaterialize the subject. unmaterialize turns a rarely read materialized view into a plain view computed on read.
      *
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `sql_repair` - SQL repair
      * * `unmaterialize` - Unmaterialize */
     kind: WarehouseSuggestionKindEnumApi
     /** Whether the subject is a saved query (view) or a warehouse table.
@@ -375,6 +420,31 @@ export interface DismissWarehouseSuggestionApi {
     note?: string
 }
 
+export interface ProposeWarehouseSqlRepairApi {
+    /** Saved view in this project that needs a SQL repair. */
+    saved_query_id: string
+    /**
+     * Complete proposed HogQL SELECT query. This operation validates it but does not apply it.
+     * @maxLength 100000
+     */
+    proposed_query: string
+    /**
+     * Short failure evidence for the customer. Do not include secrets or query result data.
+     * @maxLength 4000
+     */
+    failure_evidence: string
+    /**
+     * Why the proposed SQL can repair the failure.
+     * @maxLength 2000
+     */
+    reason: string
+    /**
+     * Expected result if the customer accepts the repair. Do not claim business equivalence.
+     * @maxLength 2000
+     */
+    expected_effect: string
+}
+
 export interface WarehouseSuggestionStatusApi {
     /** False when the project turned suggestions off. */
     enabled: boolean
@@ -403,6 +473,7 @@ export type WarehouseSuggestionsListParams = {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `sql_repair` - SQL repair
      * * `unmaterialize` - Unmaterialize
      * @minLength 1
      */
@@ -439,6 +510,7 @@ export const WarehouseSuggestionsListKind = {
     Certify: 'certify',
     Deprecate: 'deprecate',
     Materialize: 'materialize',
+    SqlRepair: 'sql_repair',
     Unmaterialize: 'unmaterialize',
 } as const
 

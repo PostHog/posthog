@@ -8,6 +8,8 @@ from parameterized import parameterized
 
 from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog import redis
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
@@ -104,6 +106,18 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_duplicate_result_column_names_are_rejected(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = SimpleNamespace(types=[("id", "UInt8"), ("id", "UInt8")])
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="my_view",
+            query={"query": "SELECT 1 AS id, 2 AS id"},
+        )
+
+        with self.assertRaisesRegex(ExposedHogQLError, "must be unique"):
+            saved_query.get_columns()
 
 
 class TestGetColumnsConcurrency(BaseTest):

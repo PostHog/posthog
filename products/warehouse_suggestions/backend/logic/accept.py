@@ -17,6 +17,12 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
+    SavedQueryRepairConflictError,
+    SavedQueryRepairForbiddenError,
+    SavedQueryRepairInvalidError,
+    SavedQueryRepairNotFoundError,
+    SavedQueryRepairUnsupportedError,
+    apply_saved_query_repair,
     definition_database,
     dependent_saved_query_ids,
     disable_saved_query_materialization,
@@ -44,6 +50,8 @@ from ..facade.contracts import (
     DeprecatePayload,
     MaterializationAsset,
     MaterializePayload,
+    SqlRepairAsset,
+    SqlRepairPayload,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
     SuggestionAlreadyDecidedError,
@@ -297,6 +305,34 @@ class MaterializeAcceptor(Acceptor):
         return _materialization_asset(suggestion, interval, incremental_config)
 
 
+class SqlRepairAcceptor(Acceptor):
+    def accept(
+        self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
+    ) -> CreatedAsset:
+        if not isinstance(payload, SqlRepairPayload):
+            raise AcceptFailedError("This suggestion has no SQL repair to apply.")
+        try:
+            query_revision = apply_saved_query_repair(
+                suggestion.team_id,
+                suggestion.subject_id,
+                original_query_revision=payload.original_query_revision,
+                original_query_hash=payload.original_query_hash,
+                proposed_query=payload.proposed_query,
+                user=request.user,
+                was_impersonated=request.was_impersonated,
+                trigger=suggestion_trigger(suggestion),
+            )
+        except SavedQueryRepairNotFoundError:
+            raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except SavedQueryRepairForbiddenError:
+            raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
+        except SavedQueryRepairConflictError as error:
+            raise SuggestionOutdatedError(str(error))
+        except (SavedQueryRepairInvalidError, SavedQueryRepairUnsupportedError) as error:
+            raise SuggestionOutdatedError(f"This SQL repair is no longer valid. {error}")
+        return SqlRepairAsset(saved_query_id=str(suggestion.subject_id), query_revision=query_revision)
+
+
 def _incremental_config(payload: MaterializePayload, options: AcceptOptions) -> IncrementalConfig | None:
     if (options.refresh_mode or payload.refresh_mode) == WarehouseSuggestionRefreshMode.FULL:
         if _chose_keys(options) or options.lookback_seconds is not None:
@@ -370,6 +406,7 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
         status=CertificationStatus.DEPRECATED, apply=deprecate, reuses_existing=True, stops_materialization=True
     ),
     WarehouseSuggestionKind.MATERIALIZE: MaterializeAcceptor(),
+    WarehouseSuggestionKind.SQL_REPAIR: SqlRepairAcceptor(),
     WarehouseSuggestionKind.UNMATERIALIZE: UnmaterializeAcceptor(),
 }
 

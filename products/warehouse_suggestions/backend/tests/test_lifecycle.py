@@ -14,6 +14,8 @@ from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializePayload,
+    SqlRepairPayload,
+    SqlRepairValidation,
     SuggestionDraft,
     SuggestionPayload,
     UnmaterializePayload,
@@ -23,12 +25,13 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
 )
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
-from products.warehouse_suggestions.backend.logic.suggestions import transition_to
+from products.warehouse_suggestions.backend.logic.suggestions import transition_to, upsert_suggestions
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
@@ -273,6 +276,59 @@ class TestApplyRun(BaseTest):
         assert set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("status", flat=True)) == {
             WarehouseSuggestionStatus.AUTO_RESOLVED
         }
+
+    def test_daily_lifecycle_leaves_externally_proposed_repairs_alone(self) -> None:
+        view_ids = [uuid4(), uuid4()]
+        validation = SqlRepairValidation(
+            syntax_valid=True,
+            references_valid=True,
+            result_schema_compatible=True,
+            read_only=True,
+            rows_returned=0,
+            max_execution_seconds=10,
+            business_equivalence_checked=False,
+        )
+        drafts = [
+            SuggestionDraft(
+                kind=WarehouseSuggestionKind.SQL_REPAIR,
+                fingerprint=f"repair-{index}",
+                subject_kind=WarehouseSuggestionSubjectKind.SAVED_QUERY,
+                subject_id=view_id,
+                payload=SqlRepairPayload(
+                    subject_name=f"view_{index}",
+                    original_query="SELECT 1 AS id",
+                    original_query_revision=None,
+                    original_query_hash="a" * 64,
+                    proposed_query="SELECT 2 AS id",
+                    failure_evidence="A refresh failed.",
+                    reason="The new expression handles the failed value.",
+                    expected_effect="The refresh can run again.",
+                    validation=validation,
+                ),
+                payload_version=1,
+                rules_version="test",
+                evidence={},
+                evidence_window_start=NOW,
+                evidence_window_end=NOW,
+                score=1,
+                score_inputs={},
+                run_id="repair-run",
+            )
+            for index, view_id in enumerate(view_ids)
+        ]
+        upsert_suggestions(self.team.pk, drafts)
+        suggestions = WarehouseSuggestion.objects.for_team(self.team.pk)
+        suggestions.filter(subject_id=view_ids[1]).update(
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            reviewed_at=NOW - timedelta(days=2),
+        )
+
+        result = apply_run(self._context(*view_ids), self.team, [], NOW, surface=False)
+
+        assert Counter(suggestions.values_list("status", flat=True)) == Counter(
+            [WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED]
+        )
+        assert (result.auto_resolved, result.assets_reconciled) == (0, 0)
 
     @parameterized.expand(
         [

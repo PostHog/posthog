@@ -11,6 +11,8 @@ from ..facade.contracts import (
     MaterializePayload,
     MaterializeSuggestionPayload,
     SourceRef,
+    SqlRepairPayload,
+    SqlRepairValidation,
     SuggestionPayload,
     SuggestionPayloadView,
     UnmaterializePayload,
@@ -41,6 +43,8 @@ def payload_from_json(
         return DeprecatePayload(**data)
     if kind == WarehouseSuggestionKind.UNMATERIALIZE:
         return UnmaterializePayload(**data)
+    if kind == WarehouseSuggestionKind.SQL_REPAIR:
+        return SqlRepairPayload(**{**data, "validation": SqlRepairValidation(**data["validation"])})
     sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
     return MaterializePayload(**{**data, **sources, **_refresh_fields(data)})
 

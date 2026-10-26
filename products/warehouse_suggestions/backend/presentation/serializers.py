@@ -14,6 +14,9 @@ from ..facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializeSuggestionPayload,
+    ProposeSqlRepair,
+    SqlRepairPayload,
+    SqlRepairValidation,
     Suggestion,
     SuggestionPayloadView,
     SuggestionReviewer,
@@ -151,10 +154,50 @@ class UnmaterializePayloadSerializer(DataclassSerializer):
         }
 
 
+@extend_schema_serializer(component_name="WarehouseSuggestionSqlRepairValidation")
+class SqlRepairValidationSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SqlRepairValidation
+        extra_kwargs = {
+            "syntax_valid": {"help_text": "The proposed SQL passed the HogQL syntax check."},
+            "references_valid": {"help_text": "The proposed SQL references objects that the producer can read."},
+            "result_schema_compatible": {
+                "help_text": "The proposed SQL returns the same ordered column names and types as the saved view."
+            },
+            "read_only": {"help_text": "The validation check did not write data."},
+            "rows_returned": {"help_text": "Result rows returned by the bounded validation check."},
+            "max_execution_seconds": {"help_text": "Maximum time for the validation query, in seconds."},
+            "business_equivalence_checked": {
+                "help_text": "Always false. Validation does not prove that both queries have the same meaning."
+            },
+        }
+
+
+@extend_schema_serializer(component_name="WarehouseSuggestionSqlRepairPayload")
+class SqlRepairPayloadSerializer(DataclassSerializer):
+    validation = SqlRepairValidationSerializer(help_text="Result of the bounded read-only validation check.")
+
+    class Meta:
+        dataclass = SqlRepairPayload
+        extra_kwargs = {
+            "subject_name": {"help_text": "Name of the saved view to repair."},
+            "original_query": {"help_text": "SQL that the saved view used when this repair was proposed."},
+            "original_query_revision": {
+                "help_text": "Saved view revision that this repair targets. Null for an old view with no revision."
+            },
+            "original_query_hash": {"help_text": "SHA-256 hash of the original SQL."},
+            "proposed_query": {"help_text": "SQL that acceptance will apply to the saved view."},
+            "failure_evidence": {"help_text": "Failure evidence that supports the repair."},
+            "reason": {"help_text": "Why the proposed SQL can fix the failure."},
+            "expected_effect": {"help_text": "Expected result after a customer accepts the repair."},
+        }
+
+
 PAYLOAD_SERIALIZERS: dict[type, type[DataclassSerializer]] = {
     CertifyPayload: CertifyPayloadSerializer,
     DeprecatePayload: DeprecatePayloadSerializer,
     MaterializeSuggestionPayload: MaterializePayloadSerializer,
+    SqlRepairPayload: SqlRepairPayloadSerializer,
     UnmaterializePayload: UnmaterializePayloadSerializer,
 }
 
@@ -230,8 +273,8 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
-        help_text="What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. "
-        "unmaterialize turns a rarely read materialized view back into a plain view computed on read.",
+        help_text="What the suggestion proposes: certify, deprecate, materialize, repair SQL or unmaterialize the "
+        "subject. unmaterialize turns a rarely read materialized view into a plain view computed on read.",
     )
     subject_kind = serializers.ChoiceField(
         choices=WarehouseSuggestionSubjectKind.choices,
@@ -301,6 +344,35 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     subject_id = serializers.UUIDField(
         required=False, help_text="Only return suggestions about the view or table with this ID."
     )
+
+
+@extend_schema_serializer(component_name="ProposeWarehouseSqlRepair")
+class ProposeSqlRepairSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = ProposeSqlRepair
+        extra_kwargs = {
+            "saved_query_id": {"help_text": "Saved view in this project that needs a SQL repair."},
+            "proposed_query": {
+                "allow_blank": False,
+                "max_length": 100_000,
+                "help_text": "Complete proposed HogQL SELECT query. This operation validates it but does not apply it.",
+            },
+            "failure_evidence": {
+                "allow_blank": False,
+                "max_length": 4_000,
+                "help_text": "Short failure evidence for the customer. Do not include secrets or query result data.",
+            },
+            "reason": {
+                "allow_blank": False,
+                "max_length": 2_000,
+                "help_text": "Why the proposed SQL can repair the failure.",
+            },
+            "expected_effect": {
+                "allow_blank": False,
+                "max_length": 2_000,
+                "help_text": "Expected result if the customer accepts the repair. Do not claim business equivalence.",
+            },
+        }
 
 
 class DismissWarehouseSuggestionSerializer(serializers.Serializer):

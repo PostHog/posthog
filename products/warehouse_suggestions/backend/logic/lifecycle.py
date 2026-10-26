@@ -154,7 +154,7 @@ def _auto_resolve(context: CandidateContext, refreshed_fingerprints: Collection[
     """Auto-resolve proposed suggestions with no draft this run whose subject no longer needs them."""
     open_rows = (
         WarehouseSuggestion.objects.for_team(context.team_id)
-        .filter(status=WarehouseSuggestionStatus.PROPOSED)
+        .filter(status=WarehouseSuggestionStatus.PROPOSED, kind__in=CANDIDATES)
         .exclude(fingerprint__in=refreshed_fingerprints)
     )
     resolved = (
@@ -239,7 +239,7 @@ def _pick_in_turns(
 def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
-    for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
+    for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED, kind__in=CANDIDATES).only(
         "id",
         "kind",
         "subject_kind",

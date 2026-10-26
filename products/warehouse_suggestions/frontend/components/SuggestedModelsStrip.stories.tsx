@@ -100,6 +100,34 @@ function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
     }
 }
 
+function sqlRepair(id: string, name: string): WarehouseSuggestionApi {
+    const base = materialize(id, name, 0)
+    return {
+        ...base,
+        kind: 'sql_repair',
+        payload: {
+            subject_name: name,
+            original_query: 'SELECT id, total FROM stripe_invoices',
+            original_query_revision: '019a14dd-1234-7000-8000-000000000001',
+            original_query_hash: 'f'.repeat(64),
+            proposed_query: 'SELECT id, toFloat(total) AS total FROM stripe_invoices',
+            failure_evidence: 'The latest refresh failed because total has a new source type.',
+            reason: 'Convert total to the type that this view already returns.',
+            expected_effect: 'The next refresh can read new rows and keep the current output columns.',
+            validation: {
+                syntax_valid: true,
+                references_valid: true,
+                result_schema_compatible: true,
+                read_only: true,
+                rows_returned: 0,
+                max_execution_seconds: 10,
+                business_equivalence_checked: false,
+            },
+        },
+        evidence: {},
+    }
+}
+
 const suggestions = [
     materialize('1', 'customer_monthly_revenue', 1080),
     materialize('2', 'sessions_by_plan_daily', 2400),
@@ -192,6 +220,10 @@ const DIALOG_SNAPSHOT: Story['parameters'] = {
 
 export const Banner: Story = {}
 
+export const SqlRepairBanner: Story = {
+    args: { results: [sqlRepair('repair-1', 'stripe_invoices_enriched')] },
+}
+
 export const BannerNarrow: Story = { args: { width: 'narrow' } }
 
 export const ReviewDialog: Story = { args: { reviewOpen: true }, parameters: DIALOG_SNAPSHOT }
@@ -230,5 +262,10 @@ export const MaterializeDialogIncrementalProposal: Story = {
 
 export const StopMaterializingDialog: Story = {
     args: { confirmSuggestionId: '4' },
+    parameters: DIALOG_SNAPSHOT,
+}
+
+export const SqlRepairDialog: Story = {
+    args: { results: [sqlRepair('repair-1', 'stripe_invoices_clean')], confirmSuggestionId: 'repair-1' },
     parameters: DIALOG_SNAPSHOT,
 }
