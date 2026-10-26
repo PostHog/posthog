@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
-import { getHogChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { buildDataVisualizationQuery, renderDataVisualization } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
@@ -55,7 +55,7 @@ describe('SqlMetricCard', () => {
         expect(screen.getByText('Jan 3, 2026')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeInTheDocument()
 
-        hoverAtIndex(getHogChart(container).element, 1, 3)
+        hoverAtIndex(getChart(container).element, 1, 3)
         await waitFor(() => expect(screen.getByText('Jan 2, 2026')).toBeInTheDocument())
     })
 

@@ -5,15 +5,17 @@ flag-level aggregation, and the bucketing settings. Pass them to ``facade.edits`
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from django.db.models import F, Func, JSONField, Q, Value
 from django.db.models.fields.json import KT
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import AGENT_TRIGGER_JOB_TYPE, ActivityLog
 
 from products.feature_flags.backend.facade.edits import BucketingSetting
+from products.feature_flags.backend.facade.enums import SCHEDULED_CHANGE_JOB_TYPE
 
 # The activity log fields of a flag save that can change who gets which value.
 _FILTERS = "filters"
@@ -57,11 +59,36 @@ class FlagEditSide:
         }
 
 
+class FlagEditAuthor(StrEnum):
+    """
+    Who made a flag edit. An edit that another product triggers, such as an experiment exposure freeze, keeps the
+    author of the action that caused it. Read `FlagEdit.job_type` to find those edits. When an agent causes such an
+    edit, the author is PERSON, because `log_activity` adds the agent trigger only when the product sets no trigger.
+    """
+
+    # A user saved the flag, and no agent or scheduled change acted for them. A save outside a request that sets no
+    # trigger also reads as PERSON, because the row records the flag's last modifier.
+    PERSON = "person"
+    # An agent saved the flag for a user. The agent trigger comes from a server-set task id or from the intent
+    # header that agent clients such as the MCP server send, so the caller can claim it.
+    AGENT = "agent"
+    # A scheduled change applied the edit.
+    SCHEDULED_CHANGE = "scheduled_change"
+    # PostHog saved the flag outside a user request.
+    SYSTEM = "system"
+
+
 @frozen
 class FlagEdit:
     changed_at: datetime
     # The `job_type` of the activity log trigger, or None when the trigger has no job type.
     job_type: str | None
+    author: FlagEditAuthor
+    # The user on the activity log row, which is the flag's last modifier at save time. An agent and a scheduled
+    # change carry one too, so read `author` to learn who made the edit. None when that user was deleted.
+    user_id: int | None
+    # True when a staff member made the edit while impersonating the user in `user_id`.
+    was_impersonated: bool
     before: FlagEditSide
     after: FlagEditSide
 
@@ -92,17 +119,33 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
             **{f"after_{setting}": _changed(field, "after") for setting, field in _SETTING_FIELDS.items()},
         )
-        .values("created_at", "job_type", *_PROJECTED)[:limit]
+        .values("created_at", "job_type", "is_system", "user_id", "was_impersonated", *_PROJECTED)[:limit]
     )
     return tuple(
         FlagEdit(
             changed_at=row["created_at"],
             job_type=row["job_type"],
+            author=_author(job_type=row["job_type"], is_system=row["is_system"], user_id=row["user_id"]),
+            user_id=row["user_id"],
+            was_impersonated=bool(row["was_impersonated"]),
             before=_side(row, "before"),
             after=_side(row, "after"),
         )
         for row in rows
     )
+
+
+def _author(*, job_type: str | None, is_system: bool | None, user_id: int | None) -> FlagEditAuthor:
+    # Check the trigger before the user, because an agent and a scheduled change save the flag as a user.
+    if job_type == AGENT_TRIGGER_JOB_TYPE:
+        return FlagEditAuthor.AGENT
+    if job_type == SCHEDULED_CHANGE_JOB_TYPE:
+        return FlagEditAuthor.SCHEDULED_CHANGE
+    # Deleting a user sets the user column to NULL on their rows, so the user column decides only when `is_system`
+    # is unset.
+    if is_system or (is_system is None and user_id is None):
+        return FlagEditAuthor.SYSTEM
+    return FlagEditAuthor.PERSON
 
 
 def _side(row: dict[str, Any], side: str) -> FlagEditSide:
