@@ -12,10 +12,11 @@ from collections import Counter
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+import psycopg
 import structlog
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
@@ -39,6 +40,8 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # thousands of chunks per merge would rewrite all of them on each run. Cymbal throttles its own
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
+
+DEADLOCK_RETRY_ATTEMPTS = 3
 
 # The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
 # The reference is unique within a team, so it does not need a tiebreak.
@@ -192,11 +195,18 @@ def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
     symbolicated until a later deploy recreates the row.
     """
     now = timezone.now()
-    ErrorTrackingSymbolSet.objects.filter(
-        Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
-        team=team,
-        ref__in=chunk_ids,
-    ).update(last_used=now)
+    with transaction.atomic():
+        stale_ids = list(
+            ErrorTrackingSymbolSet.objects.filter(
+                Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
+                team=team,
+                ref__in=chunk_ids,
+            )
+            .order_by("ref")
+            .select_for_update()
+            .values_list("id", flat=True)
+        )
+        ErrorTrackingSymbolSet.objects.filter(team=team, id__in=stale_ids).update(last_used=now)
 
 
 def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> None:
@@ -340,14 +350,12 @@ def _lock_symbol_sets(team: Team, refs: list[str]) -> list[ErrorTrackingSymbolSe
     return list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=refs).order_by("ref").select_for_update())
 
 
-@posthoganalytics.scoped(capture_exceptions=False)
-def bulk_create_symbol_sets(
+def _create_or_reuse_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
-    force: bool = False,
-    skip_on_conflict: bool = False,
+    force: bool,
+    skip_on_conflict: bool,
 ) -> dict[str, dict[str, Any]]:
-    _validate_uploads(new_symbol_sets, team)
     chunk_ids = sorted(x.chunk_id for x in new_symbol_sets)
 
     id_url_map: dict[str, dict[str, Any]] = {}
@@ -415,13 +423,29 @@ def bulk_create_symbol_sets(
 
         # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
-        ErrorTrackingSymbolSet.objects.bulk_update(
-            sorted(to_update, key=lambda s: s.ref), ["release", "content_hash", "storage_ptr"]
-        )
+        ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
 
         refresh_last_used(team, chunk_ids)
 
     return id_url_map
+
+
+@posthoganalytics.scoped(capture_exceptions=False)
+def bulk_create_symbol_sets(
+    new_symbol_sets: list[SymbolSetUpload],
+    team: Team,
+    force: bool = False,
+    skip_on_conflict: bool = False,
+) -> dict[str, dict[str, Any]]:
+    _validate_uploads(new_symbol_sets, team)
+    for attempt in range(1, DEADLOCK_RETRY_ATTEMPTS):
+        try:
+            return _create_or_reuse_symbol_sets(new_symbol_sets, team, force, skip_on_conflict)
+        except OperationalError as e:
+            if not isinstance(e.__cause__, psycopg.errors.DeadlockDetected):
+                raise
+            logger.warning("symbol_set_upload_deadlock_retry", team_id=team.id, attempt=attempt)
+    return _create_or_reuse_symbol_sets(new_symbol_sets, team, force, skip_on_conflict)
 
 
 def list_symbol_sets(
@@ -640,7 +664,9 @@ def bulk_finish_upload(
 
             content_hash = content_hashes[str(symbol_set.id)]
             symbol_set.content_hash = content_hash
-        ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
+        with transaction.atomic():
+            _lock_symbol_sets(team, [symbol_set.ref for symbol_set in symbol_sets])
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
     except Exception as e:
         posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",
