@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from pydantic import BaseModel, Field
@@ -36,28 +37,25 @@ class WarehouseDataSummary(BaseModel):
     name: str
     recorded_row_count: int | None
     timestamp_columns: list[str]
-    has_rows: bool | None = None
 
 
 class FirstReportContext(BaseModel):
     computed_at: str
     inventory: Inventory
     warehouse_tables: list[WarehouseDataSummary]
+    events_ingested: bool = False
     product_data: dict[str, ProductDataVolume] = Field(default_factory=dict)
 
     def has_data(self) -> bool:
         return (
-            any(event.count > 0 for event in self.inventory.top_events or [])
-            or any((table.recorded_row_count or 0) > 0 or table.has_rows is True for table in self.warehouse_tables)
+            self.events_ingested
+            or any((table.recorded_row_count or 0) > 0 for table in self.warehouse_tables)
             or any((volume.rows or 0) > 0 or volume.has_rows is True for volume in self.product_data.values())
         )
 
+    # A warehouse table without a recorded row count has not finished a sync, so it is no evidence either way.
     def data_is_unknown(self) -> bool:
-        return (
-            self.inventory.top_events is None
-            or any(table.recorded_row_count is None and table.has_rows is None for table in self.warehouse_tables)
-            or any(volume.has_rows is None and not volume.rows for volume in self.product_data.values())
-        )
+        return any(volume.has_rows is None and not volume.rows for volume in self.product_data.values())
 
     def prompt_context(self) -> str:
         inventory = self.inventory.model_dump(
@@ -158,35 +156,19 @@ def build_first_report_context(team: Team, user: User) -> FirstReportContext:
             )
             for table in tables[:50]
         ],
+        events_ingested=Team.objects.filter(Q(pk=team.id) | Q(parent_team_id=team.id), ingested_event=True).exists(),
     )
     for name, table_path, timestamp in (
+        ("events", ["events"], "timestamp"),
         ("session_replay_fragments", ["raw_session_replay_events"], "min_first_timestamp"),
         ("logs", ["logs"], "timestamp"),
         ("apm", ["posthog", "trace_spans"], "timestamp"),
     ):
         context.product_data[name] = _product_data_volume(team, user, table_path, timestamp)
-    if not context.has_data():
-        context.product_data["events"] = _product_data_volume(team, user, ["events"], "timestamp")
-    for table in [table for table in context.warehouse_tables if table.recorded_row_count is None][:3]:
-        try:
-            result = execute_hogql_query(
-                query=parse_select(
-                    "SELECT 1 FROM {table} LIMIT 1", placeholders={"table": ast.Field(chain=[table.name])}
-                ),
-                team=team,
-                user=user,
-                workload=Workload.OFFLINE,
-                settings=HogQLGlobalSettings(max_execution_time=3, timeout_overflow_mode="throw"),
-            )
-            table.has_rows = bool(result.results)
-        except Exception:
-            pass
-        if context.has_data():
-            break
     return context
 
 
-def set_first_report_state(team_id: int, status: str) -> None:
+def set_first_report_state(team_id: int, status: str, *, activation_team_id: int | None = None) -> None:
     with transaction.atomic():
         config, _ = SignalTeamConfig.objects.get_or_create(team_id=team_id)
         config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=team_id)
@@ -198,6 +180,8 @@ def set_first_report_state(team_id: int, status: str) -> None:
             **state,
             "first_report": {"status": status, "started_at": timezone.now().isoformat()},
         }
+        if activation_team_id is not None:
+            config.onboarding.setdefault("first_report_activation_team_id", activation_team_id)
         config.save(update_fields=["onboarding", "updated_at"])
 
 
@@ -212,7 +196,7 @@ def first_report_state(team_id: int) -> dict[str, object]:
         .first()
     )
     if run is None:
-        if state.get("status") == FirstReportStatus.RUNNING and state.get("started_at"):
+        if state.get("status") in (FirstReportStatus.PENDING, FirstReportStatus.RUNNING) and state.get("started_at"):
             started_at = datetime.fromisoformat(state["started_at"])
             if timezone.now() - started_at > timedelta(seconds=FIRST_REPORT_SCOUT_TIMEOUT_SECONDS + 300):
                 return {"status": FirstReportStatus.INCOMPLETE}
