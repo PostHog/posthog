@@ -61,6 +61,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     InsightScores,
     ScoredPoint,
     ScoredSeries,
+    StateIdentity,
     TrainedState,
     UnsupportedInsightError,
     interval_scoring,
@@ -908,6 +909,58 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             (name, ScoringRun.SCORE) for name in expected
         ]
         assert (selection.picked_score, selection.picked_train) == (len(expected), 0)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_an_edited_insight_with_a_current_state_goes_to_the_train_pass(self) -> None:
+        self.team.timezone = "UTC"
+        self.team.save()
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        insights = {
+            name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
+            for name in ("edited", "current")
+        }
+        for insight in insights.values():
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            cache.delete(_cooldown_key(insight.id))
+        config = parse_config(
+            {**_SPLIT_PAYLOAD, "organization_ids": [str(self.organization.id)], "allow_team_ids": [self.team.id]}
+        )
+        today = NOW.replace(hour=0)
+        for name, scored_through in (("edited", today - timedelta(days=4)), ("current", today - timedelta(days=2))):
+            insight = insights[name]
+            identity = state_identity(
+                trends_query_for(insight, DEFAULT_PROFILE),
+                interval_scoring(DEFAULT_PROFILE, IntervalType.DAY),
+                self.team,
+                config.limits,
+            )
+            if name == "edited":
+                identity = StateIdentity(
+                    interval=identity.interval, detector_version=identity.detector_version, query_hash="before-edit"
+                )
+            save_state(
+                self.team,
+                insight.id,
+                DEFAULT_PROFILE.name,
+                TrainedState(
+                    identity=identity,
+                    trained_at=NOW - timedelta(days=1),
+                    scored_through=scored_through,
+                    series_keys=("a",),
+                    artifact_key=f"anomaly_models/{insight.id}",
+                ),
+            )
+        for kind in ScoringRun:
+            cache.delete_many([_fleet_budget_key(NOW, kind), _project_budget_key(self.team.id, NOW, kind)])
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(), NOW)
+
+        names = {insight.id: name for name, insight in insights.items()}
+        assert [(names[pick.insight_id], pick.run) for pick in selection.picks] == [
+            ("current", ScoringRun.SCORE),
+            ("edited", ScoringRun.TRAIN),
+        ]
 
 
 async def _run_tick(

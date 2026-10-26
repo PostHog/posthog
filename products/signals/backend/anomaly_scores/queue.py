@@ -6,7 +6,7 @@ insights whose queries fit the hourly budgets. With the train and score split on
 makes each pick a train step or a score step, and each kind has its own budgets.
 
 With the split on, the tick runs two passes, each with its own order and pick cap. The score pass goes
-first: it takes the trained insights from their stored state, most overdue first, so cheap score steps
+first: it takes the trained insights from their stored state, longest overdue first, so cheap score steps
 keep them current. The train pass then takes the other due insights in the `pick_order` order.
 """
 
@@ -426,12 +426,15 @@ def select_insights(
     watched_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
     team_ids = {insight_id: insight.team_id for insight_id, insight in watched_by_id.items()}
 
+    # Both passes share the plans, so an insight that the score pass planned is not planned again.
+    planned: dict[int, RunPlan] = {}
+
     def plans_for(insight_ids: list[int]) -> dict[int, RunPlan]:
-        plans: dict[int, RunPlan] = {}
-        for team_id in sorted({team_ids[insight_id] for insight_id in insight_ids}):
-            team_batch = [insight_id for insight_id in insight_ids if team_ids[insight_id] == team_id]
-            plans.update(_run_plans(teams[team_id], team_batch, config, now))
-        return plans
+        missing = [insight_id for insight_id in insight_ids if insight_id not in planned]
+        for team_id in sorted({team_ids[insight_id] for insight_id in missing}):
+            team_batch = [insight_id for insight_id in missing if team_ids[insight_id] == team_id]
+            planned.update(_run_plans(teams[team_id], team_batch, config, now))
+        return {insight_id: planned[insight_id] for insight_id in insight_ids}
 
     def walk(order: list[int], kind: ScoringRun, cap: int) -> tuple[dict[int, RunPlan], int]:
         # Read the budget before any cost, so a spent hour loads no insight.
@@ -445,18 +448,28 @@ def select_insights(
         )
 
     score_order_ids: list[int] = []
+    score_ready: set[int] = set()
     score_picked: dict[int, RunPlan] = {}
     score_skipped = 0
     if config.train_score_split:
-        score_order_ids = _score_order(watched_by_id, teams, config, now)
+        score_order_ids, score_ready = _score_order(watched_by_id, teams, config, now)
         score_picked, score_skipped = walk(
             score_order_ids, ScoringRun.SCORE, config.max_score_insights_per_tick if limit is None else limit
         )
+    # A score-ready insight belongs to the score pass, also when its cap or budget left it out this tick.
+    # Without this, the train pass loads a plan for every one of them and then passes over it. An insight
+    # that the score pass planned as a train step, for example after an edit, goes to the train pass.
+    score_only = {
+        insight_id
+        for insight_id in score_ready
+        if insight_id not in planned or planned[insight_id].run == ScoringRun.SCORE
+    }
 
     due_by_id = {
         insight_id: insight
         for insight_id, insight in watched_by_id.items()
         if insight_id not in score_picked
+        and insight_id not in score_only
         and is_due(insight, newest_buckets[insight_id], teams[insight.team_id].timezone_info, now)
     }
     usage: dict[int, InsightUsage] = {}
@@ -520,13 +533,18 @@ def _score_order(
     teams: dict[int, Team],
     config: AnomalyScoringConfig,
     now: datetime.datetime,
-) -> list[int]:
-    """Watched insights with a stored state and a due bucket after it, most overdue first in each project."""
+) -> tuple[list[int], set[int]]:
+    """The score pass order, and every watched insight with a score-ready state, due or not.
+
+    The order holds the insights with a due bucket after their state, longest overdue first in each project.
+    """
     team_orders: list[list[int]] = []
+    ready: set[int] = set()
     for team_id in sorted({insight.team_id for insight in watched_by_id.values()}):
         team = teams[team_id]
         team_insights = [insight for insight in watched_by_id.values() if insight.team_id == team_id]
-        scored = scored_through_by_insight(team, [insight.insight_id for insight in team_insights])
+        scored = scored_through_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
+        ready.update(scored)
         candidates = [
             ScoreCandidate(
                 insight_id=insight.insight_id,
@@ -537,4 +555,4 @@ def _score_order(
             if insight.insight_id in scored and is_due(insight, scored[insight.insight_id], team.timezone_info, now)
         ]
         team_orders.append(score_order(candidates, now=now, max_staleness=config.limits.max_backfill_buckets))
-    return _take_turns(team_orders)
+    return _take_turns(team_orders), ready

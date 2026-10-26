@@ -120,17 +120,39 @@ class TestPickOrder(SimpleTestCase):
 
 
 class TestScoreOrder(SimpleTestCase):
-    def test_the_most_overdue_buckets_go_first_whatever_the_interval(self) -> None:
-        candidates = [
-            # The oldest scored bucket, but only 1 completed bucket after it.
-            ScoreCandidate(insight_id=1, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 13, tzinfo=UTC)),
-            ScoreCandidate(insight_id=2, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=6)),
-            ScoreCandidate(insight_id=3, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=3)),
-            # Nothing completed after it.
-            ScoreCandidate(insight_id=4, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=1)),
+    @parameterized.expand(
+        [
+            (
+                "longest_overdue_first_whatever_the_interval",
+                [
+                    # 1 due bucket, which ended 12 hours ago.
+                    ScoreCandidate(
+                        insight_id=1, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 13, tzinfo=UTC)
+                    ),
+                    # 5 due buckets, the oldest of which ended 4 hours ago.
+                    ScoreCandidate(insight_id=2, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=6)),
+                    ScoreCandidate(insight_id=3, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=3)),
+                    # Nothing completed after it.
+                    ScoreCandidate(insight_id=4, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=1)),
+                ],
+                [1, 2, 3],
+            ),
+            (
+                "close_to_the_backfill_cap_goes_first",
+                [
+                    # 2 due buckets, the oldest of which ended 36 hours ago.
+                    ScoreCandidate(
+                        insight_id=5, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 12, tzinfo=UTC)
+                    ),
+                    # 26 due buckets of 30, the oldest of which ended 25 hours ago.
+                    ScoreCandidate(insight_id=6, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=27)),
+                ],
+                [6, 5],
+            ),
         ]
-
-        assert score_order(candidates, now=TICK, max_staleness=MAX_STALENESS) == [2, 3, 1]
+    )
+    def test_order(self, _name: str, candidates: list[ScoreCandidate], expected: list[int]) -> None:
+        assert score_order(candidates, now=TICK, max_staleness=MAX_STALENESS) == expected
 
 
 class TestParseSelectionConfig(SimpleTestCase):
