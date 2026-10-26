@@ -152,7 +152,7 @@ export interface traceViewAdapterLogicMeta {
             sessionId: string | null
         ) => NodeDetailData | null
         datasetItemSource: (
-            featureFlags: any,
+            featureFlags: FeatureFlagsSet,
             selectedNodeLoad: NodeLoad,
             createdAt: string | null,
             traceId: string
