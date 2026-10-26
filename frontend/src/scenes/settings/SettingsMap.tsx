@@ -76,6 +76,7 @@ import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/front
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { EventsRetentionSettings } from 'products/product_analytics/frontend/settings/EventsRetentionSettings'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -1375,6 +1376,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/product-analytics/paths#path-cleaning-rules',
                 component: <PathCleaningFiltersConfig />,
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
+            },
+            {
+                id: 'events-retention',
+                // The component renders its own title, so the setting stays hidden until retention applies.
+                title: null,
+                component: <EventsRetentionSettings />,
+                keywords: ['events', 'retention', 'storage', 'years', 'history'],
             },
             {
                 id: 'human-friendly-comparison-periods',

@@ -21,6 +21,7 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     EventsRetentionApi,
+    EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -353,7 +354,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project. The window comes from the organization's plan and is read-only. Both window fields are null while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project, and the longest window the organization's plan allows. All window fields are null while no retention window applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (
@@ -363,6 +364,27 @@ export const eventsRetentionRetrieve = async (
     return apiMutator<EventsRetentionApi>(getEventsRetentionRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventsRetentionUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/events_retention/`
+}
+
+/**
+ * Sets how far back events stay queryable for this project. The window can't be longer than the organization's plan allows, and it shortens if the plan later allows less. Project admins only.
+ * @summary Set the events retention window for a project
+ */
+export const eventsRetentionUpdate = async (
+    projectId: string,
+    eventsRetentionUpdateApi: EventsRetentionUpdateApi,
+    options?: RequestInit
+): Promise<EventsRetentionApi> => {
+    return apiMutator<EventsRetentionApi>(getEventsRetentionUpdateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventsRetentionUpdateApi),
     })
 }
 

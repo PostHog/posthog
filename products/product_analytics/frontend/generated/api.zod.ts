@@ -191,6 +191,19 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Sets how far back events stay queryable for this project. The window can't be longer than the organization's plan allows, and it shortens if the plan later allows less. Project admins only.
+ * @summary Set the events retention window for a project
+ */
+export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .union([zod.literal(12), zod.literal(24), zod.literal(36), zod.literal(60), zod.literal(84)])
+        .describe('\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years')
+        .describe(
+            "How many months of events to keep queryable. Must not be longer than the organization's plan allows.\n\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

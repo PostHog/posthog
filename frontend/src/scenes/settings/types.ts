@@ -192,6 +192,7 @@ export type SettingId =
     | 'error-tracking-suppression-rules'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-user-groups'
+    | 'events-retention'
     | 'feature-flag-confirmation'
     | 'feature-flag-default-evaluation-contexts'
     | 'feature-flag-default-release-conditions'

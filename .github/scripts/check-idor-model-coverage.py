@@ -224,6 +224,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Staff-only OneToOne extension keyed on the team, edited in Django admin and read by the
         # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
         "TeamEventsRetentionConfig",
+        # OneToOne extension keyed on the team, written only through the project's events retention endpoint;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamEventsRetentionSetting",
         "TeamFeatureFlagsConfig",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.

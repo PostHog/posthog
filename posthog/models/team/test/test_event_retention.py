@@ -2,14 +2,21 @@ from datetime import timedelta
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization, ProductFeature
-from posthog.models.team.event_retention import parse_events_feature_to_months, reconcile_organization_events_retention
+from posthog.models.team import event_retention
+from posthog.models.team.event_retention import (
+    choose_team_events_retention,
+    parse_events_feature_to_months,
+    reconcile_organization_events_retention,
+)
 from posthog.models.team.team import Team
+from posthog.models.team.team_events_retention_setting import TeamEventsRetentionSetting
 
 
 class TestParseEventsFeatureToMonths:
@@ -72,6 +79,39 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
         self._set_retention_feature(1, "year")
 
         assert reconcile_organization_events_retention(stale_org) == 1
+
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 12
+
+    def test_plan_caps_a_chosen_window_and_an_upgrade_restores_it(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._set_retention_feature(5, "years")
+        assert choose_team_events_retention(self.team, 24) == 24
+
+        self._set_retention_feature(1, "year")
+        reconcile_organization_events_retention(self.organization)
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 12
+
+        self._set_retention_feature(7, "years")
+        reconcile_organization_events_retention(self.organization)
+        self.team.refresh_from_db()
+        other_team.refresh_from_db()
+        assert self.team.event_retention_months == 24
+        assert other_team.event_retention_months == 84
+
+    def test_window_chosen_during_reconcile_is_kept(self) -> None:
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
+        self._set_retention_feature(2, "years")
+        target_months = event_retention.events_retention_target_months
+
+        def choose_after_rows_are_read(organization_months: int, chosen_months: int | None) -> int:
+            TeamEventsRetentionSetting.objects.create(team=self.team, retention_months=12)
+            Team.objects.filter(pk=self.team.pk).update(event_retention_months=12)
+            return target_months(organization_months, chosen_months)
+
+        with patch.object(event_retention, "events_retention_target_months", side_effect=choose_after_rows_are_read):
+            assert reconcile_organization_events_retention(self.organization) == 0
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == 12

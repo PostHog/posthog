@@ -170,6 +170,7 @@ function createExperimentsDefaultHandler(fieldName: string, format: (value: unkn
 const TEAM_PROPERTIES_MAPPING: Record<
     | keyof TeamType
     | keyof ExperimentsConfig
+    | 'events_retention_months'
     | 'heatmaps_screenshot_allowed_hostnames'
     | 'conversations_signing_secret'
     | 'conversations_signing_secret_previous',
@@ -392,6 +393,8 @@ const TEAM_PROPERTIES_MAPPING: Record<
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
     session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
+    events_retention_months: (change) =>
+        change.after ? { description: [<>changed the events retention to {String(change.after)} months</>] } : null,
     session_recording_trigger_groups: createSessionRecordingConfigHandler('session recording trigger groups'),
 
     // Survey config
