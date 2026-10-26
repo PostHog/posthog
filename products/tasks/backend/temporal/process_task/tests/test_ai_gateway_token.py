@@ -309,6 +309,7 @@ class TestMintScopedToken:
         pin = _PRODUCT_ALLOWED_MODELS[product]
         assert len(pin) == len(set(pin))
         expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
+        expected -= {"zai-org/glm-5.2"}
         if product != "review_hog":
             expected -= {
                 "deepseek-ai/deepseek-v4-flash-0731",
@@ -1267,7 +1268,7 @@ class TestSlackAppMint:
             "zai-org/glm-5.3-flash",
         }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
-        missing = routed - reserved - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
+        missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
         assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):

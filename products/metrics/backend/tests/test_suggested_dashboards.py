@@ -398,6 +398,19 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert [panel.key for panel in converted.panels] == ["orders"]
         assert converted.dropped == ("queue: Bad regex",)
 
+    def test_convert_closes_the_hole_that_a_dropped_panel_leaves_in_its_row(self) -> None:
+        drafts = [
+            self._draft(key, "orders_total", x).model_copy(update={"layout": GridLayout(x=x, y=0, w=3, h=2)})
+            for key, x in [("a", 0), ("b", 3), ("c", 6), ("d", 9)]
+        ]
+        converted = _convert(drafts, Team(id=1), CATALOG, checks=_Checks({}, errors={"b": "Bad regex"}))
+
+        assert [(panel.key, panel.layout.x, panel.layout.w) for panel in converted.panels] == [
+            ("a", 0, 4),
+            ("c", 4, 4),
+            ("d", 8, 4),
+        ]
+
     def test_convert_lists_only_the_values_of_the_metrics_of_the_panels_that_refer_to_a_variable(self) -> None:
         scoped = [BuilderFilter(key="instance", op="eq", value="$instance")]
         converted = _convert(

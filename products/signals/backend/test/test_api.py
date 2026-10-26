@@ -210,6 +210,7 @@ class TestEmitSignalValidation:
         with (
             patch("products.signals.backend.facade.api.async_connect", return_value=client),
             patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+            patch("products.signals.backend.facade.api.posthoganalytics.capture") as capture,
         ):
             await emit_signal(
                 team=team_stub,
@@ -226,6 +227,11 @@ class TestEmitSignalValidation:
             team_stub.id, "github:issue:notification-1"
         )
         assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert [call.kwargs["event"] for call in capture.call_args_list] == [
+            "signal_emission_started",
+            "signal_data_source_filtered",
+        ]
+        assert capture.call_args_list[1].kwargs["properties"]["filter_reason"] == "duplicate_emission"
 
     @pytest.mark.parametrize("idempotency_key", ["", "   "])
     async def test_emit_signal_rejects_empty_idempotency_keys(self, team_stub, idempotency_key):
@@ -307,6 +313,7 @@ class TestTelemetryPropsFromExtra:
                 "references": [{"queryText": "SELECT * FROM customers"}],  # nested — dropped
                 "time_range": {"date_from": "a", "date_to": "b"},  # dict — dropped
                 "author_login": "octocat",  # identifies a person — dropped
+                "value": '{"private": "customer-authored content"}',  # arbitrary source payload — dropped
             }
         )
         assert props == {"scout_run_id": "run-1", "number": 42, "confidence": 0.9, "locked": False}

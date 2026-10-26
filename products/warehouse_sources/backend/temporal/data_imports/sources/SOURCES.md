@@ -122,6 +122,7 @@ the row lists both.
 | aws_cost_and_usage_report        | HTTP                        | requests + botocore (S3 SigV4) + pyarrow                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_documentdb                   | DB protocol                 | pymongo (delegates to MongoDBSource)                            | ➖                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_guardduty                    | HTTP                        | requests                                                        | ✅                          |
 | aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
@@ -1062,6 +1063,7 @@ doesn't conflict with concurrent PRs.
 - aws_connect
 - aws_health
 - aws_rds_performance_insights
+- aws_s3_tables
 - aws_support
 - aws_trusted_advisor
 - aws_xray
@@ -1156,6 +1158,7 @@ doesn't conflict with concurrent PRs.
 - drchrono
 - dreamdata
 - dremio
+- dripify
 - dropbox
 - dubsado
 - ducklake

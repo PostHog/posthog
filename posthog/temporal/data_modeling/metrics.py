@@ -79,6 +79,28 @@ def get_node_suspended_metric(engine: str) -> MetricCounter:
     )
 
 
+def get_managed_warehouse_trino_compile_failure_metric(error_code: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_code": error_code})
+        .create_counter(
+            "managed_warehouse_shadow_trino_compile_failure",
+            "Number of managed warehouse shadow views that Trino compilation rejected, by error code.",
+        )
+    )
+
+
+def get_managed_warehouse_trino_missing_object_metric(error_name: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_name": error_name})
+        .create_counter(
+            "managed_warehouse_shadow_trino_missing_object",
+            "Number of managed warehouse shadow builds that failed because Trino could not resolve a catalog, schema, table or column, by error name.",
+        )
+    )
+
+
 @frozen
 class _DualMetricCounters:
     managed_warehouse: MetricCounter

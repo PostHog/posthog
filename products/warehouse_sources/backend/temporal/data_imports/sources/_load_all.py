@@ -111,6 +111,7 @@ from .aws_connect.source import AwsConnectSource
 from .aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
 from .aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
 from .aws_cost_explorer.source import AwsCostExplorerSource
+from .aws_documentdb.source import AwsDocumentDBSource
 from .aws_glue_data_catalog.source import AwsGlueDataCatalogSource
 from .aws_guardduty.source import AwsGuarddutySource
 from .aws_health.source import AwsHealthSource
@@ -119,6 +120,7 @@ from .aws_inspector.source import AwsInspectorSource
 from .aws_macie.source import AwsMacieSource
 from .aws_organizations.source import AwsOrganizationsSource
 from .aws_rds_performance_insights.source import AwsRdsPerformanceInsightsSource
+from .aws_s3_tables.source import AwsS3TablesSource
 from .aws_sagemaker.source import AwsSagemakerSource
 from .aws_savings_plans.source import AwsSavingsPlansSource
 from .aws_security_hub.source import AwsSecurityHubSource
@@ -391,6 +393,7 @@ from .drchrono.source import DrchronoSource
 from .dreamdata.source import DreamdataSource
 from .dremio.source import DremioSource
 from .drip.source import DripSource
+from .dripify.source import DripifySource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource

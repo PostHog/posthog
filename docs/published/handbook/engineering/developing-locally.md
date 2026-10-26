@@ -140,7 +140,7 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-   Use Flox 1.18.2 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+   Use Flox 1.19.1 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
 
    The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 

@@ -79,6 +79,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "AppleSearchAds": "no-request",
     "Attentive": "no-request",
     "AwsAthena": "schemas",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "schemas",
     "AzureCostManagement": "no-request",
     "AzureLogAnalytics": "no-request",
