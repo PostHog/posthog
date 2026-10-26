@@ -180,7 +180,16 @@ class TestAgentInstructionsAPI(APIBaseTest):
         [
             ("tasks/config/agent_instructions", "agent_instructions", "agent instructions"),
             ("tasks/@me/config/agent_instructions", "agent_instructions", "agent instructions"),
-            ("signals/config", "research_instructions", "steering instructions"),
+            (
+                "signals/config",
+                "research_instructions",
+                "steering instructions or implementation repositories",
+            ),
+            (
+                "signals/config",
+                "implementation_repositories",
+                "steering instructions or implementation repositories",
+            ),
         ]
     )
     def test_a_task_agent_cannot_rewrite_instructions(self, path: str, field: str, label: str) -> None:
@@ -213,7 +222,10 @@ class TestAgentInstructionsAPI(APIBaseTest):
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
 
-        response = client.post(f"/api/projects/{self.team.id}/{path}/", {field: "Change the project rules."})
+        value: str | list[str] = (
+            ["attacker/assets"] if field == "implementation_repositories" else "Change the project rules."
+        )
+        response = client.post(f"/api/projects/{self.team.id}/{path}/", {field: value}, format="json")
         assert response.status_code == 403, response.content
         assert response.json()["detail"] == f"Task agents cannot modify {label}."
         read_path = path.removesuffix("/agent_instructions")
