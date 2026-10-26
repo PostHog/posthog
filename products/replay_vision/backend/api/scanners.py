@@ -110,7 +110,6 @@ from products.replay_vision.backend.models.replay_observation import (
     hydrate_for_serialization,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
-from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -142,6 +141,7 @@ from products.replay_vision.backend.quota import (
     org_credit_cap,
     quota_state,
     quota_state_for_cap,
+    scanner_period_receipts,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
@@ -562,12 +562,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     )
     credits_this_month = serializers.SerializerMethodField(
         help_text=(
-            "Credits this scanner's succeeded observations consumed in the current billing period "
-            "(1 credit = $0.01). Matches the window of the org-wide quota meter."
+            "Credits billed for this scanner's observations created in the current billing period "
+            "(1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count."
         ),
     )
     observations_this_month = serializers.SerializerMethodField(
-        help_text="Succeeded observations this scanner produced in the current billing period.",
+        help_text="Billed observations this scanner created in the current billing period, including deleted ones.",
     )
     credits_used_against_limit = serializers.SerializerMethodField(
         help_text=(
@@ -699,10 +699,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
         return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
-    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+    def _page_scanners(self) -> list[ReplayScanner] | None:
+        """The list page's scanners, or None when serializing a single scanner."""
         root = self.root
         instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        return [s.id for s in instance] if instance is not None else [scanner.id]
+        return list(instance) if instance is not None else None
+
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        page = self._page_scanners()
+        return [s.id for s in page] if page is not None else [scanner.id]
 
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
@@ -1024,13 +1029,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         get_team = self.context.get("get_team")
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
-        page_ids, accessible = self._page_experiment_access(get_team().id)
-        if experiment_id in page_ids:
-            return experiment_id in accessible
+        page_access = self._page_experiment_access(get_team().id)
+        if experiment_id in page_access:
+            return page_access[experiment_id]
         return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
 
-    def _page_experiment_access(self, team_id: int) -> tuple[set[int], set[int]]:
-        """The list page's targeted experiment ids and the accessible subset, checked in one query.
+    def _page_experiment_access(self, team_id: int) -> dict[int, bool]:
+        """Whether the caller may view each experiment the list page targets, checked in one query.
 
         Shared through the context like `_scanner_spend`, so a page of experiment scanners costs one
         access check instead of one per row. Outside a list it is empty and callers check one id.
@@ -1038,17 +1043,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         cached = self.context.get("_page_experiment_access")
         if cached is not None:
             return cached
-        root = self.root
-        instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-        page_ids: set[int] = set()
-        for scanner in instance or ():
-            for scope in (scanner.experiment_targeting, scanner.scanner_config):
-                experiment_id = scope.get("experiment_id") if isinstance(scope, dict) else None
-                if isinstance(experiment_id, int):
-                    page_ids.add(experiment_id)
+        page_ids = {
+            scope["experiment_id"]
+            for scanner in self._page_scanners() or ()
+            if (scope := scanner.experiment_scope()) and isinstance(scope.get("experiment_id"), int)
+        }
         accessible = accessible_experiment_ids(self.user_access_control, team_id, page_ids) if page_ids else set()
-        self.context["_page_experiment_access"] = (page_ids, accessible)
-        return page_ids, accessible
+        page_access = {experiment_id: experiment_id in accessible for experiment_id in page_ids}
+        self.context["_page_experiment_access"] = page_access
+        return page_access
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -1208,12 +1211,8 @@ class _ScannerOrderByFilter(OrderByFilter):
                 return qs.order_by(self._tiebreaker)
             period = current_period_bounds(organization_id)
             spend = (
-                ReplayObservationUsage.objects.filter(
-                    organization_id=organization_id,
-                    scanner_id=OuterRef("pk"),
-                    observation_created_at__gte=period.start,
-                    observation_created_at__lt=period.end,
-                )
+                scanner_period_receipts(organization_id, period)
+                .filter(scanner_id=OuterRef("pk"))
                 .order_by()
                 .values("scanner_id")
                 .annotate(total=Sum("credits"))

@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from django.db.models import Count, IntegerField, Sum, Value
+from django.db.models import Count, IntegerField, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
@@ -235,6 +235,15 @@ class ScannerSpend:
     observations: int
 
 
+def scanner_period_receipts(organization_id: UUID, period: BillingPeriod) -> QuerySet[ReplayObservationUsage]:
+    """Receipts in a period by observation create time: the per-scanner window. Billing buckets by receipt write time instead."""
+    return ReplayObservationUsage.objects.filter(
+        organization_id=organization_id,
+        observation_created_at__gte=period.start,
+        observation_created_at__lt=period.end,
+    )
+
+
 def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
     """Billed credits and observation counts for each scanner in the current billing period.
 
@@ -246,12 +255,8 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
         return {}
     period = current_period_bounds(organization_id)
     rows = (
-        ReplayObservationUsage.objects.filter(
-            organization_id=organization_id,
-            scanner_id__in=scanner_ids,
-            observation_created_at__gte=period.start,
-            observation_created_at__lt=period.end,
-        )
+        scanner_period_receipts(organization_id, period)
+        .filter(scanner_id__in=scanner_ids)
         .values("scanner_id")
         .annotate(total_credits=Coalesce(Sum("credits"), 0), total_observations=Count("id"))
         .values_list("scanner_id", "total_credits", "total_observations")
@@ -371,12 +376,8 @@ def compute_scanner_budgets(
         in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
         settled = {
             row["scanner_id"]: row["total_credits"] or 0
-            for row in ReplayObservationUsage.objects.filter(
-                organization_id=organization_id,
-                scanner_id__in=capped_ids,
-                observation_created_at__gte=period.start,
-                observation_created_at__lt=period.end,
-            )
+            for row in scanner_period_receipts(organization_id, period)
+            .filter(scanner_id__in=capped_ids)
             .values("scanner_id")
             .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
         }
