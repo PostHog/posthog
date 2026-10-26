@@ -4,7 +4,7 @@ import dataclasses
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -66,7 +66,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, hydrate_event_reference
+from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
@@ -77,7 +77,7 @@ from .evaluation_llm_judge import (
     call_llm_judge,
     get_output_type_config,
 )
-from .evaluation_types import build_skipped_evaluation_result
+from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
     LocalEvaluationOutcome,
     backfill_verdict_timestamp,
@@ -1107,6 +1107,9 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     assert "provider_key_state" not in result
 
 
+RateLimitOutcome = Literal["reported", "unreported", "skipped"]
+
+
 @pytest.mark.parametrize(
     "provider, success_payload, status, retry_after",
     [
@@ -1154,14 +1157,15 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     ],
 )
 @pytest.mark.parametrize(
-    "attempt,backfill,reportable",
+    "attempt,backfill,outcome,customer_limit_outcome",
     [
-        pytest.param(1, False, False, id="first attempt"),
-        pytest.param(3, False, True, id="last attempt"),
-        pytest.param(3, True, False, id="backfill third attempt"),
-        pytest.param(5, True, True, id="backfill last attempt"),
+        pytest.param(1, False, "unreported", "unreported", id="first attempt"),
+        pytest.param(3, False, "reported", "skipped", id="last attempt"),
+        pytest.param(3, True, "unreported", "unreported", id="backfill third attempt"),
+        pytest.param(5, True, "reported", "unreported", id="backfill last attempt"),
     ],
 )
+@pytest.mark.parametrize("is_byok", [False, True], ids=["posthog key", "byok"])
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     provider: str,
     success_payload: dict[str, Any],
@@ -1169,8 +1173,11 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     retry_after: int,
     attempt: int,
     backfill: bool,
-    reportable: bool,
+    outcome: RateLimitOutcome,
+    customer_limit_outcome: RateLimitOutcome,
+    is_byok: bool,
 ) -> None:
+    expected = customer_limit_outcome if is_byok and status == 429 else outcome
     env = ActivityEnvironment()
     env.info = dataclasses.replace(
         env.info, attempt=attempt, retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY, schedule_to_close_timeout=None
@@ -1190,7 +1197,11 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
-                httpx.Response(status, headers={"Retry-After": str(retry_after)}, stream=httpx.ByteStream(b"")),
+                httpx.Response(
+                    status,
+                    headers={"Retry-After": str(retry_after), "Content-Type": "application/json"},
+                    stream=httpx.ByteStream(b'{"error": {"message": "Too many concurrent requests for this key."}}'),
+                ),
                 httpx.Response(
                     200,
                     headers={"Content-Type": "application/json"},
@@ -1198,28 +1209,44 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
                 ),
             ],
         ) as transport,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as user_errors,
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider,
             model="gpt-6-luna" if provider == "openai" else "example-judge-v1",
             provider_key=key,
-            is_byok=True,
+            is_byok=is_byok,
         )
-        with pytest.raises(ApplicationError) as error:
-            env.run(
-                lambda: call_llm_judge(
-                    evaluation=evaluation,
-                    system_prompt="",
-                    user_prompt="Hello!",
-                    allows_na=False,
-                    backfill=backfill,
-                )
+
+        def run_judge() -> EvaluationActivityResult:
+            return call_llm_judge(
+                evaluation=evaluation,
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
             )
-        assert not error.value.non_retryable
-        assert isinstance(error.value, NonReportableError) is not reportable
-        assert error.value.next_retry_delay == timedelta(seconds=retry_after)
-        assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+
+        if expected == "skipped":
+            skipped = env.run(run_judge)
+            assert skipped["skip_reason"] == "rate_limit_retries_exhausted"
+            assert "terminal_user_error" not in skipped
+            assert "provider_key_state" not in skipped
+            # Only the OpenAI-compatible adapter wraps an SDK error that carries the provider's text.
+            assert ("Too many concurrent requests for this key." in skipped["reasoning"]) is (
+                provider == "openai_compatible"
+            )
+        else:
+            with pytest.raises(ApplicationError) as error:
+                env.run(run_judge)
+            assert not error.value.non_retryable
+            assert isinstance(error.value, NonReportableError) is (expected == "unreported")
+            assert error.value.next_retry_delay == timedelta(seconds=retry_after)
+            assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1
+        assert [call.args[0] for call in user_errors.call_args_list] == (
+            ["rate_limit_retries_exhausted"] if expected == "skipped" else []
+        )
 
         result = call_llm_judge(
             evaluation=evaluation,
@@ -2308,8 +2335,63 @@ class TestRunEvaluationWorkflow:
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
+        assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
         expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
         assert raised.value.next_retry_delay == expected_delay
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "evaluation_type,output_type,expected_result_type",
+        [
+            ("hog", "boolean", "boolean"),
+            ("hog", "numeric", "numeric"),
+            ("sentiment", "sentiment", "sentiment"),
+            ("llm_judge", "boolean", "boolean"),
+        ],
+    )
+    async def test_an_expired_generation_is_skipped_without_grading_or_emitting(
+        self, evaluation_type: str, output_type: str, expected_result_type: str
+    ):
+        evaluation = _local_evaluation(
+            evaluation_type=evaluation_type,
+            output_type=output_type,
+            evaluation_config={"prompt": "grade it"},
+            enabled=True,
+            deleted=False,
+        )
+        module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+        with (
+            patch(HYDRATE_FETCH, return_value=None),
+            patch(f"{module}.fetch_evaluation", return_value=evaluation),
+            patch(f"{module}.run_hog_eval_for_event", new_callable=AsyncMock) as run_hog,
+            patch(f"{module}.run_sentiment_eval", new_callable=AsyncMock) as run_sentiment,
+            patch(f"{module}.emit_generation_evaluation_event", new_callable=AsyncMock) as emit,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
+        ):
+            if evaluation_type == "llm_judge":
+                result = _execute_llm_judge_activity(
+                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
+                )
+            else:
+                outcome = await run_local_evaluation_activity(
+                    RunLocalEvaluationInputs(
+                        evaluation_id="eval-1",
+                        event_data=dict(THIN_REFERENCE),
+                        start_time=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+                        backfill_id="B",
+                    )
+                )
+                assert outcome.emitted is False
+                assert outcome.result is not None
+                result = outcome.result
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == GENERATION_NOT_FOUND
+        assert result["result_type"] == expected_result_type
+        run_hog.assert_not_awaited()
+        run_sentiment.assert_not_awaited()
+        emit.assert_not_awaited()
+        call_judge.assert_not_called()
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""
@@ -2636,6 +2718,51 @@ class TestRunEvaluationWorkflow:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == skip_reason
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("evaluation_type", ["hog", "llm_judge"])
+    async def test_backfill_run_reports_an_expired_generation_as_skipped_without_emitting(
+        self, evaluation_type: str
+    ) -> None:
+        evaluation = _local_evaluation(evaluation_type=evaluation_type, enabled=True, deleted=False)
+
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            local_result = build_generation_not_found_result(evaluation) if evaluation_type == "hog" else None
+            return LocalEvaluationOutcome(evaluation=evaluation, result=local_result, emitted=False)
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            return build_generation_not_found_result(inputs.evaluation)
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit(inputs: EmitEvaluationEventInputs) -> None:
+            raise AssertionError("an expired generation has nothing for an $ai_evaluation event to describe")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_run_local_evaluation, mock_judge, mock_emit],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(evaluation_id="eval-1", event_data=dict(THIN_REFERENCE), backfill_id="B"),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=5),
+                )
+
+        assert result == {
+            "skipped": True,
+            "skip_reason": GENERATION_NOT_FOUND,
+            "evaluation_id": "eval-1",
+            "evaluation_type": evaluation_type,
+            "verdict": None,
+        }
 
     @pytest.mark.asyncio
     async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):

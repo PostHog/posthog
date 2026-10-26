@@ -232,6 +232,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     # Returns one team's onboarding state as a single document, so there is nothing to paginate.
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
+    # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
+    "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

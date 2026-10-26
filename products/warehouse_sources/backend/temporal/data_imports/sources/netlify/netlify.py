@@ -17,7 +17,8 @@ lists checkpoint the next page URL, and fan-out tables checkpoint the framework'
 state so a resumed run skips already-completed parents and re-fans the in-progress one (merge dedupes
 on the primary key).
 
-Site-scoped tables (deploys, builds, forms, submissions) and account-scoped tables (members) are
+Site-scoped tables (deploys, builds, forms, submissions, traffic_splits), account-scoped tables
+(members, audit_events) and zone-scoped tables (dns_records) are
 fan-outs via the framework's dependent resources: the parent list seeds a child endpoint per parent,
 injecting the parent identifier onto each child row so the composite primary key stays unique
 table-wide.
@@ -263,8 +264,9 @@ def _build_fan_out_resource(
         # A site-scoped sub-resource answers 404 when the site doesn't serve it at all (a site with
         # form detection off has no /forms), and when a site listed by the parent is deleted before
         # its children are fetched. Both mean this parent contributes no rows, not that the table
-        # can't sync, so skip the parent instead of failing every other site's rows with it.
-        "response_actions": [{"status_code": 404, "action": "ignore"}],
+        # can't sync, so skip the parent instead of failing every other site's rows with it. Some
+        # endpoints add other statuses with the same meaning (see `skip_parent_statuses`).
+        "response_actions": [{"status_code": status, "action": "ignore"} for status in config.skip_parent_statuses],
     }
     child_resource: EndpointResource = {
         "name": config.name,
