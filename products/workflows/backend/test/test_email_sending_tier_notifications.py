@@ -4,14 +4,15 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.workflows.backend.facade.contracts import TierDemotionEvidence
 from products.workflows.backend.services.email_sending_tier import TierDecision
 from products.workflows.backend.services.email_sending_tier_notifications import notify_email_sending_tier_changes
 
 NOTIFICATIONS_MODULE = "products.workflows.backend.services.email_sending_tier_notifications"
 
 
-def _demotion(reason: str) -> TierDecision:
-    return TierDecision(team_id=1, previous_tier=3, new_tier=2, reason=reason)
+def _demotion(reason: str, evidence: TierDemotionEvidence | None = None) -> TierDecision:
+    return TierDecision(team_id=1, previous_tier=3, new_tier=2, reason=reason, evidence=evidence)
 
 
 def _promotion() -> TierDecision:
@@ -34,16 +35,31 @@ class TestNotifyEmailSendingTierChanges(SimpleTestCase):
         self.create_notification.assert_not_called()
         self.email_task.delay.assert_not_called()
 
-    @parameterized.expand([("rates_above_threshold",), ("workflow_auto_paused",), ("ses_reputation_high",)])
-    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
-    def test_a_rate_demotion_notifies_in_app_and_by_email(self, reason: str) -> None:
-        notify_email_sending_tier_changes([_demotion(reason)])
+    @parameterized.expand(
+        [
+            (
+                "rates_above_threshold",
+                TierDemotionEvidence(sent=1890, complained=2, hard_bounced=1),
+                "sent 1,890 workflow emails and got 2 spam complaints and 1 hard bounce.",
+            ),
+            ("rates_above_threshold", None, "Recent sends caused deliverability problems"),
+            ("workflow_auto_paused", None, "A workflow in this project was paused automatically"),
+            ("ses_reputation_high", None, "Our email provider flagged this project's sending reputation."),
+        ]
+    )
+    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce", WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS=7)
+    def test_a_rate_demotion_notifies_in_app_and_by_email_with_its_cause(
+        self, reason: str, evidence: TierDemotionEvidence | None, expected_cause: str
+    ) -> None:
+        notify_email_sending_tier_changes([_demotion(reason, evidence)])
         assert self.create_notification.call_count == 1
         data = self.create_notification.call_args.args[0]
         assert data.title == "Workflow email sending limit lowered"
         assert data.team_id == 1
+        assert expected_cause in data.body
         assert self.email_task.delay.call_count == 1
         assert self.email_task.delay.call_args.kwargs["team_id"] == 1
+        assert expected_cause in self.email_task.delay.call_args.kwargs["cause"]
 
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_promotion_notifies_in_app_only(self) -> None:

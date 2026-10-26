@@ -282,11 +282,22 @@ class EmailSendingTierLimits:
 
 
 @frozen
+class TierDemotionEvidence:
+    """The team's workflow email totals over the demotion window that a demotion read."""
+
+    sent: int
+    complained: int
+    hard_bounced: int
+
+
+@frozen
 class TierDecision:
     team_id: int
     previous_tier: int
     new_tier: int
     reason: str
+    # Set on rate demotions only, so the demotion notice can show the team the counts behind it.
+    evidence: TierDemotionEvidence | None = None
 
     @property
     def changed(self) -> bool:
