@@ -345,6 +345,7 @@ Every attempt rechecks the report state, personal settings, account links, proje
 An uncertain write that reached GitHub appears as an assignment with an unknown source, so the worker does not repeat it.
 Successful first assignments record owner provenance for later reassessment.
 A permanent GitHub response, a closed pull request, a manual or unknown-source assignment, and a disabled flag end the attempt without retry.
+Permission checks follow the same rule: a non-rate-limit 403 stops recovery; network failures, 429 responses, and server errors permit retries.
 Safe assignment skips still allow review requests under the current review policy. Review requests, later owner reassessment, and legacy assignment policies remain best effort.
 Enabling a flag later does not replay suppressed work; the next pull request event queues a fresh attempt.
 
@@ -352,6 +353,7 @@ Queued work and retries use the current personal setting.
 Each successful automatic assignment records its owner and origin. A later reviewer edit, claim, or verified PR refresh can reassess that owner.
 The worker replaces owners only when GitHub's current assignees exactly match its latest record; extra assignees, manual removal, and unknown-origin assignments remain authoritative.
 It adds the replacement before removing the previous automatic owner and stops if GitHub reports a concurrent assignee change.
+Each GitHub write rechecks the delivery control, including owner removal and rollback after a partial reassignment.
 If no report recipient qualifies, it clears only its recorded automatic assignment. A failed eligibility lookup leaves the assignment unchanged.
 Incomplete human-edit history blocks automatic assignment.
 The legacy DRI path also respects report exclusions and rechecks human choices before assignment.

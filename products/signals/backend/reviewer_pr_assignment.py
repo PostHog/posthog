@@ -32,7 +32,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.github_integration_base import PullRequestRef
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 
 from products.signals.backend.artefact_schemas import (
@@ -544,6 +544,9 @@ def _assignable_owners(
             )
         except GitHubRateLimitError as error:
             return OwnerCandidates(failure="retryable_failure", retry_after=error.retry_after)
+        except GitHubIntegrationError as error:
+            log.warning("signals.pr_owner.identity_check_failed", status_code=error.status_code)
+            return OwnerCandidates(failure=_failure_status({"status_code": error.status_code}))
         except Exception:
             log.exception("signals.pr_owner.identity_check_failed")
             return OwnerCandidates(failure="retryable_failure")
@@ -628,6 +631,8 @@ def _remove_assignees(
     logins: list[str],
 ) -> list[str] | None:
     try:
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return None
         result = github.remove_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
         logger.exception("signals.pr_owner.unassign_failed", team_id=team_id, report_id=report_id)

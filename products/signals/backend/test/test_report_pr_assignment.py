@@ -8,6 +8,7 @@ from celery.exceptions import Retry
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Organization, Team
+from posthog.models.integration import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -360,6 +361,10 @@ class TestReportPRAssignment:
             ("events-forbidden-second-read", "permanent_failure"),
             ("check-network", "retryable_failure"),
             ("check-forbidden", "permanent_failure"),
+            ("permission-403", "permanent_failure"),
+            ("permission-429", "retryable_failure"),
+            ("permission-503", "retryable_failure"),
+            ("permission-network", "retryable_failure"),
             ("write-raises", "unknown_write"),
             ("write-bad-gateway", "retryable_failure"),
             ("write-unprocessable", "permanent_failure"),
@@ -389,6 +394,11 @@ class TestReportPRAssignment:
             github.is_assignable.return_value = {"success": False, "error": "network"}
         elif failure == "check-forbidden":
             github.is_assignable.return_value = {"success": False, "error": "forbidden", "status_code": 403}
+        elif failure.startswith("permission-"):
+            status_code = None if failure == "permission-network" else int(failure.removeprefix("permission-"))
+            github.get_collaborator_permission.side_effect = GitHubIntegrationError(
+                "Permission lookup failed", status_code=status_code
+            )
         elif failure == "write-raises":
             github.add_pull_request_assignees.side_effect = RuntimeError("socket closed")
         elif failure == "write-bad-gateway":
@@ -409,6 +419,9 @@ class TestReportPRAssignment:
         assert outcome.status == expected
         assert outcome.retryable is (expected in {"retryable_failure", "unknown_write"})
         assert outcome.assigned == ()
+        if failure.startswith("permission-"):
+            github.add_pull_request_assignees.assert_not_called()
+            github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.parametrize(
         "step",
@@ -515,6 +528,48 @@ class TestReportPRAssignment:
             assignment = PROwnerAssignment.model_validate_json(report.artefacts.get(type="pr_owner_assignment").content)
             assert assignment.owners[0].login == "selected"
             assert assignment.owners[0].proof is not None
+
+    @pytest.mark.parametrize("selection_enabled", [False, True])
+    def test_disabling_delivery_stops_owner_removal(
+        self, org_and_team: tuple[Organization, Team], dri_flag: MagicMock, selection_enabled: bool
+    ) -> None:
+        org, team = org_and_team
+        dri_flag.return_value = True
+        _make_reviewer(org, "selected", opted_in=True)
+        _make_reviewer(org, "replacement", opted_in=True)
+        report = _make_report(team, ["selected"])
+        github = self.github()
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.team_research_reviewer_selection_enabled",
+            return_value=selection_enabled,
+        ):
+            assert self.assign(report, github) == ["selected"]
+            SignalReportArtefact.objects.create(
+                team=team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"github_login": "replacement"}]),
+            )
+            github.request_pull_request_reviews.reset_mock()
+            add_assignees = github.add_pull_request_assignees.side_effect
+            with patch(
+                "products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True
+            ) as delivery_allowed:
+
+                def add_then_disable(repository: str, number: int, logins: list[str]) -> dict[str, object]:
+                    result = add_assignees(repository, number, logins)
+                    delivery_allowed.return_value = False
+                    return result
+
+                github.add_pull_request_assignees.side_effect = add_then_disable
+                outcome = self.deliver(report, github)
+
+        assert outcome.status == "skipped"
+        assert not outcome.retryable
+        assert github.assignee_state == ["selected", "replacement"]
+        github.remove_pull_request_assignees.assert_not_called()
+        github.request_pull_request_reviews.assert_not_called()
+        assert report.artefacts.filter(type="pr_owner_assignment").count() == 1
 
     @pytest.mark.parametrize("step", ["integration", "pr", "assignability", "identity", "write"])
     def test_reassessment_failures_do_not_start_first_assignment_retries(
