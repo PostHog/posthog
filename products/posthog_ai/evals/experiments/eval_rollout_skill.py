@@ -8,7 +8,7 @@ cheap to reproduce while iterating on the skill's description.
 
 Maps to stress-test finding #7 (skills rarely auto-load), specifically
 the variant-split rows (2.5, 5.3, 5.4, 5.5) in STEP_1_HARNESS.md. Uses
-``SandboxedPrivateEval`` with ``send_to_posthog=True`` to publish results
+``SandboxedEval`` with ``send_to_posthog=True`` to publish results
 only to PostHog. The harness still requires a Braintrust API key for its
 evaluation engine, but Braintrust result uploads remain disabled.
 
@@ -18,14 +18,12 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
-
-NO_SEND_LOGS = True
 
 SKILL_NAME = "configuring-experiment-rollout"
 
@@ -41,8 +39,7 @@ async def eval_rollout_skill(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-rollout-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(
