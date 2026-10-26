@@ -138,6 +138,10 @@ class ChangeEventBatcher:
         # Engine adapter's position_serialized → int converter. When set, flushed
         # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
         self._position_to_seq = position_to_seq
+        # Tables the last flush could not build, because a source column collides with a capture column.
+        # The caller raises for them only once it knows the table is not waiting for a reset, because a
+        # reset discards the table's changes.
+        self.reserved_collisions: dict[str, CDCReservedColumnError] = {}
 
     def add(self, event: ChangeEvent) -> None:
         size = self._estimate_event_bytes(event)
@@ -156,11 +160,15 @@ class ChangeEventBatcher:
         Returns empty dict if no events buffered.
         """
         result: dict[str, pa.Table] = {}
+        self.reserved_collisions = {}
 
         for table_name, events in self._events.items():
             if not events:
                 continue
-            result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            try:
+                result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            except CDCReservedColumnError as error:
+                self.reserved_collisions[table_name] = error
 
         self._events.clear()
         self._table_bytes.clear()
@@ -531,7 +539,10 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
     column_names = list(all_columns.keys())
     taken = reserved_column_collisions(column_names, CAPTURE_COLUMNS)
     if taken:
-        raise CDCReservedColumnError(f"Source column(s) {taken} collide with the columns change data capture writes")
+        raise CDCReservedColumnError(
+            f"Table {events[0].table_name} has source column(s) {taken} that collide with the columns change data "
+            "capture writes"
+        )
 
     # Authoritative Arrow type per column from the source schema (same for every event
     # of a relation). Lets all-null micro-batches keep the column's real type.

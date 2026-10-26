@@ -623,8 +623,10 @@ class TestSeqColumn:
         batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
         batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, column: 42}))
 
-        with pytest.raises(CDCReservedColumnError, match=column):
-            batcher.flush()
+        tables = batcher.flush()
+
+        assert "users" not in tables
+        assert column in str(batcher.reserved_collisions["users"])
 
     def test_engine_seq_stamp_survives_the_whole_transform_chain(self):
         # The load side gates every position decision on this stamp, and each transform below

@@ -36,7 +36,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_PROVENANCE,
     ChangeEventBatcher,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
+    CDCErrorCategory,
+    CDCReservedColumnError,
+    cdc_error_info,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     cancel_running_sync,
     stage_handed_over_reset,
@@ -2315,6 +2319,27 @@ class TestBufferedIngressCapture:
         capture.buffer.cleanup_superseded_files.assert_called_once_with(
             team_id=schema.team_id, schema_id=str(schema.id), restart_seq=0x100
         )
+
+    @parameterized.expand([("table_writes_the_buffer", False, True), ("table_awaiting_reset", True, False)])
+    def test_a_capture_column_collision_fails_only_a_table_that_writes_the_buffer(
+        self, _name: str, awaiting_reset: bool, refused: bool
+    ) -> None:
+        # A reset discards the table's queued changes, so its collision must not stop the other tables.
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.schema_by_name = {"users": _make_schema("users", source=source)}
+        act._buffered_table_names = {"users"}
+        if awaiting_reset:
+            act._tables_awaiting_reset.add("users")
+        act.batcher = ChangeEventBatcher(position_to_seq=lambda position: 1)
+        act.batcher.add(_make_event(op="I", columns={"id": 1, "_PH_DELETED": True}))
+        tables = act.batcher.flush()
+
+        if refused:
+            with pytest.raises(CDCReservedColumnError, match="users"):
+                act._process_flush(tables)
+        else:
+            act._process_flush(tables)
 
     @parameterized.expand(
         [

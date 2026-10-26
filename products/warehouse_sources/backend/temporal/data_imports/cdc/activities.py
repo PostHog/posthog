@@ -352,17 +352,25 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
+    def _writes_buffer_for(self, table_name: str) -> bool:
+        return (
+            table_name in self.schema_by_name
+            and table_name in self._buffered_table_names
+            and table_name not in self._tables_awaiting_reset
+        )
+
     def _process_flush(self, tables: dict[str, pa.Table]) -> None:
         """Enrich one micro-batch and write each captured table's changes to the S3 change buffer."""
         events_extracted = 0
 
+        assert self.batcher is not None
+        for table_name, error in self.batcher.reserved_collisions.items():
+            if self._writes_buffer_for(table_name):
+                raise error
+
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
-            if (
-                schema is None
-                or table_name not in self._buffered_table_names
-                or table_name in self._tables_awaiting_reset
-            ):
+            if schema is None or not self._writes_buffer_for(table_name):
                 continue
 
             self._safe_heartbeat()
