@@ -2,6 +2,7 @@ import { Robot } from "@phosphor-icons/react";
 import {
   formatTokens,
   formatUsd,
+  totalTokens,
 } from "@posthog/core/billing/spendAnalysisFormat";
 import type { SpendAnalysisModelRow } from "@posthog/core/billing/spendAnalysisTypes";
 import {
@@ -23,14 +24,9 @@ function sortModelBreakdownRows(
   sortBy: ModelBreakdownSort,
 ): SpendAnalysisModelRow[] {
   return [...rows].sort((first, second) => {
-    const firstValue =
-      sortBy === "cost"
-        ? first.cost_usd
-        : first.input_tokens + first.output_tokens;
+    const firstValue = sortBy === "cost" ? first.cost_usd : totalTokens(first);
     const secondValue =
-      sortBy === "cost"
-        ? second.cost_usd
-        : second.input_tokens + second.output_tokens;
+      sortBy === "cost" ? second.cost_usd : totalTokens(second);
 
     if (firstValue !== secondValue) return secondValue - firstValue;
     if (first.cost_usd !== second.cost_usd)
@@ -126,7 +122,7 @@ export function ModelBreakdownCards({
                 <div className="col-span-2">
                   <ModelStat
                     label="Total tokens"
-                    value={formatTokens(row.input_tokens + row.output_tokens)}
+                    value={formatTokens(totalTokens(row))}
                   />
                 </div>
                 <ModelStat
@@ -136,6 +132,14 @@ export function ModelBreakdownCards({
                 <ModelStat
                   label="Output"
                   value={formatTokens(row.output_tokens)}
+                />
+                <ModelStat
+                  label="Cache read"
+                  value={formatTokens(row.cache_read_input_tokens ?? 0)}
+                />
+                <ModelStat
+                  label="Cache write"
+                  value={formatTokens(row.cache_creation_input_tokens ?? 0)}
                 />
                 <ModelStat
                   label="Generations"

@@ -31,6 +31,8 @@ describe("spendSeriesForDays", () => {
         event_count: 2,
         input_tokens: 300,
         output_tokens: 400,
+        cache_read_input_tokens: 50,
+        cache_creation_input_tokens: 25,
         models: [],
       },
       {
@@ -48,8 +50,8 @@ describe("spendSeriesForDays", () => {
       { key: "cumulative-spend", type: "line", data: [1.25, 1.25, 4] },
     ]);
     expect(tokenTotalsForDay(days, 1)).toEqual({
-      daily: 700,
-      cumulative: 1000,
+      daily: 775,
+      cumulative: 1075,
     });
   });
 

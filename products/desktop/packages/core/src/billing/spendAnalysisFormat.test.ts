@@ -4,6 +4,7 @@ import {
   formatTokens,
   formatUsdCompact,
   type SpendAnalysisWindow,
+  totalTokens,
   windowToDateFrom,
   windowToDays,
 } from "./spendAnalysisFormat";
@@ -38,6 +39,28 @@ describe("formatTokens", () => {
   });
 });
 
+describe("totalTokens", () => {
+  it.each([
+    ["no cache fields", {}, 110],
+    ["cache read only", { cache_read_input_tokens: 500 }, 610],
+    ["cache write only", { cache_creation_input_tokens: 40 }, 150],
+    [
+      "both cache fields",
+      { cache_read_input_tokens: 500, cache_creation_input_tokens: 40 },
+      650,
+    ],
+  ])("adds %s to input and output", (_label, cache, expected) => {
+    expect(
+      totalTokens({
+        cost_usd: 1,
+        input_tokens: 100,
+        output_tokens: 10,
+        ...cache,
+      }),
+    ).toBe(expected);
+  });
+});
+
 describe("windowToDateFrom", () => {
   it.each<[SpendAnalysisWindow, string]>([
     ["7d", "-6dStart"],
@@ -68,6 +91,8 @@ describe("fillSpendDays", () => {
           cost_usd: 1.5,
           input_tokens: 100,
           output_tokens: 10,
+          cache_read_input_tokens: 900,
+          cache_creation_input_tokens: 50,
         },
         {
           day: "2026-07-03",
@@ -97,6 +122,8 @@ describe("fillSpendDays", () => {
         cost_usd: 1.5,
         input_tokens: 100,
         output_tokens: 10,
+        cache_read_input_tokens: 900,
+        cache_creation_input_tokens: 50,
         models: [
           {
             day: "2026-07-01",
@@ -114,6 +141,8 @@ describe("fillSpendDays", () => {
         cost_usd: 0,
         input_tokens: 0,
         output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
         models: [],
       },
       {
@@ -122,6 +151,8 @@ describe("fillSpendDays", () => {
         cost_usd: 0.25,
         input_tokens: 20,
         output_tokens: 2,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
         models: [],
       },
       {
@@ -130,6 +161,8 @@ describe("fillSpendDays", () => {
         cost_usd: 0,
         input_tokens: 0,
         output_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
         models: [],
       },
     ]);

@@ -2,6 +2,7 @@ import { ChartBar } from "@phosphor-icons/react";
 import {
   formatTokens,
   formatUsd,
+  totalTokens,
 } from "@posthog/core/billing/spendAnalysisFormat";
 import type { SpendAnalysisFilledDay } from "@posthog/core/billing/spendAnalysisTypes";
 import type { SpendLimits } from "@posthog/core/billing/spendLimits";
@@ -62,9 +63,9 @@ export function tokenTotalsForDay(
   const daily = daysThroughSelectedDay.at(-1);
 
   return {
-    daily: (daily?.input_tokens ?? 0) + (daily?.output_tokens ?? 0),
+    daily: daily ? totalTokens(daily) : 0,
     cumulative: daysThroughSelectedDay.reduce(
-      (total, day) => total + day.input_tokens + day.output_tokens,
+      (total, day) => total + totalTokens(day),
       0,
     ),
   };
@@ -121,7 +122,7 @@ function SpendTooltip({
             {formatUsd(model.cost_usd)}
           </strong>
           <span className="w-12 text-right tabular-nums opacity-60">
-            {formatTokens(model.input_tokens + model.output_tokens)}
+            {formatTokens(totalTokens(model))}
           </span>
         </div>
       ))}

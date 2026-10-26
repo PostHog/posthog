@@ -2,6 +2,7 @@ import type {
   SpendAnalysisDayModelRow,
   SpendAnalysisDayRow,
   SpendAnalysisFilledDay,
+  SpendAnalysisTokenRow,
 } from "./spendAnalysisTypes";
 
 export function formatUsd(amount: number): string {
@@ -33,6 +34,15 @@ export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return n.toString();
+}
+
+export function totalTokens(row: SpendAnalysisTokenRow): number {
+  return (
+    row.input_tokens +
+    row.output_tokens +
+    (row.cache_read_input_tokens ?? 0) +
+    (row.cache_creation_input_tokens ?? 0)
+  );
 }
 
 export type SpendAnalysisWindow = "7d" | "30d" | "90d";
@@ -95,6 +105,8 @@ export function fillSpendDays(
       cost_usd: row?.cost_usd ?? 0,
       input_tokens: row?.input_tokens ?? 0,
       output_tokens: row?.output_tokens ?? 0,
+      cache_read_input_tokens: row?.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: row?.cache_creation_input_tokens ?? 0,
       models: modelsByDay.get(day) ?? [],
     });
   }
