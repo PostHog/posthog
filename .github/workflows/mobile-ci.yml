@@ -18,6 +18,7 @@ on:
             - 'products/mobile/**'
             - '!products/mobile/**/*.md'
             - 'products/signals/frontend/generated/api.schemas.ts'
+            - 'products/error_tracking/frontend/generated/api.schemas.ts'
             - '.github/workflows/mobile-ci.yml'
 
 concurrency:
@@ -56,6 +57,7 @@ jobs:
                           - 'products/mobile/**'
                           - '!products/mobile/**/*.md'
                           - 'products/signals/frontend/generated/api.schemas.ts'
+                          - 'products/error_tracking/frontend/generated/api.schemas.ts'
                           - '.github/workflows/mobile-ci.yml'
 
     check:
@@ -75,6 +77,7 @@ jobs:
                   sparse-checkout: |
                       products/mobile
                       products/signals/frontend/generated/api.schemas.ts
+                      products/error_tracking/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
             # Reads packageManager from the app's package.json, not the repo root's,

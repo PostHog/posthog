@@ -98,7 +98,7 @@ export interface WatchFeedResponseApi {
     results?: WatchFeedItemApi[]
 }
 
-export const WATCH_FEED_LIMIT = 30
+export const WATCH_FEED_LIMIT = 5
 
 export async function fetchWatchFeed(signal?: AbortSignal): Promise<WatchFeedResponseApi> {
     return apiJson<WatchFeedResponseApi>(projectPath('vision/scanners/watch_feed/'), {

@@ -1,7 +1,10 @@
 import {
+    type InfiniteData,
     keepPreviousData,
     type QueryClient,
     type UseQueryResult,
+    useInfiniteQuery,
+    useQueries,
     useQuery,
     useQueryClient,
 } from '@tanstack/react-query'
@@ -23,6 +26,7 @@ import {
     type IssueEventsResponseApi,
     type IssueStatusApi,
     type IssueSummaryApi,
+    type IssuesListResponseApi,
     updateIssueStatus,
     type WritableIssueStatus,
 } from '@/api/errorTracking'
@@ -78,29 +82,51 @@ function stateOf<T>(query: UseQueryResult<T, unknown>): QueryState<T> {
 export interface IssuesListState extends QueryState<IssueRow[]> {
     updatedAt: number | null
     pulling: boolean
-    onPull: () => void
+    onPull: () => Promise<void>
+    hasMore: boolean
+    isLoadingMore: boolean
+    loadMoreFailed: boolean
+    loadMore: () => void
+    spikesLoading: boolean
+    spikesFailed: boolean
+    retrySpikes: () => void
 }
 
 export function useIssuesList(window: ErrorsWindow, filter: IssueFilter): IssuesListState {
     const context = useErrorsContext()
     const { scope, myUserId, ready } = context
-    const input = { window, assigneeUserId: filter === 'mine' && myUserId !== null ? myUserId : undefined }
-    const list = useQuery({
+    const queryClient = useQueryClient()
+    const input = useMemo(
+        () => ({ window, assigneeUserId: filter === 'mine' && myUserId !== null ? myUserId : undefined }),
+        [window, filter, myUserId]
+    )
+    const list = useInfiniteQuery({
         queryKey: errorTrackingKeys.list(scope, input),
-        queryFn: ({ signal }) => read(() => fetchIssues(input, signal)),
+        queryFn: ({ signal, pageParam }) => read(() => fetchIssues(input, signal, pageParam)),
+        initialPageParam: 0,
+        getNextPageParam: (page, _pages, offset) =>
+            page.hasMore && page.nextOffset !== undefined && page.nextOffset > offset ? page.nextOffset : undefined,
         enabled: ready && (filter !== 'mine' || myUserId !== null),
         staleTime: LIST_STALE_MS,
         retry: retryUnlessMissing,
     })
-    const ids = useMemo(() => (list.data?.results ?? []).map((issue) => issue.id), [list.data])
+    const pageIds = useMemo(
+        () =>
+            (list.data?.pages ?? [])
+                .map((page) => page.results.map((issue) => issue.id))
+                .filter((ids) => ids.length > 0),
+        [list.data]
+    )
     // Spikes only add a badge, so a failed read leaves the list without them instead of failing it.
-    const spikes = useQuery({
-        queryKey: errorTrackingKeys.spikes(scope, window, ids),
-        queryFn: ({ signal }) =>
-            read(() => fetchSpikeEvents(ids, windowStart(window, new Date()).toISOString(), signal)),
-        enabled: ready && ids.length > 0,
-        staleTime: LIST_STALE_MS,
-        retry: false,
+    const spikes = useQueries({
+        queries: pageIds.map((ids) => ({
+            queryKey: errorTrackingKeys.spikes(scope, window, ids),
+            queryFn: ({ signal }: { signal: AbortSignal }) =>
+                read(() => fetchSpikeEvents(ids, windowStart(window, new Date()).toISOString(), signal)),
+            enabled: ready,
+            staleTime: LIST_STALE_MS,
+            retry: false,
+        })),
     })
     const updatedAt = list.dataUpdatedAt || null
     const rows = useMemo(() => {
@@ -108,30 +134,70 @@ export function useIssuesList(window: ErrorsWindow, filter: IssueFilter): Issues
             return undefined
         }
         const now = new Date(updatedAt ?? Date.now())
-        const spiking = spikingIssueIds(spikes.data?.results ?? [])
-        return list.data.results.map((issue) => issueRowFrom(issue, { window, now, spiking, myUserId }))
-    }, [list.data, spikes.data, updatedAt, window, myUserId])
+        const spiking = spikingIssueIds(spikes.flatMap((page) => page.data?.results ?? []))
+        const seen = new Set<string>()
+        return list.data.pages
+            .flatMap((page) => page.results)
+            .filter((issue) => {
+                if (seen.has(issue.id)) {
+                    return false
+                }
+                seen.add(issue.id)
+                return true
+            })
+            .map((issue) => issueRowFrom(issue, { window, now, spiking, myUserId }))
+    }, [list.data, spikes, updatedAt, window, myUserId])
 
     const [pulling, setPulling] = useState(false)
     const { refetch: refetchList } = list
-    const { refetch: refetchSpikes } = spikes
-    const onPull = useCallback(() => {
+    const onPull = useCallback(async (): Promise<void> => {
         trackErrorsRefreshed({ window })
         setPulling(true)
-        Promise.all([refetchList(), refetchSpikes()]).finally(() => setPulling(false))
-    }, [refetchList, refetchSpikes, window])
+        try {
+            await queryClient.cancelQueries({ queryKey: errorTrackingKeys.list(scope, input) })
+            queryClient.setQueryData<InfiniteData<IssuesListResponseApi>>(
+                errorTrackingKeys.list(scope, input),
+                (data) => (data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data)
+            )
+            await Promise.all([
+                refetchList(),
+                queryClient.invalidateQueries({ queryKey: [...errorTrackingKeys.all(scope), 'spikes', window] }),
+            ])
+        } finally {
+            setPulling(false)
+        }
+    }, [queryClient, scope, input, refetchList, window])
+    const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = list
+    const loadMore = useCallback((): void => {
+        if (hasNextPage && !isFetching) {
+            void fetchNextPage({ cancelRefetch: false })
+        }
+    }, [hasNextPage, isFetching, fetchNextPage])
+    const retrySpikes = useCallback((): void => {
+        void queryClient.refetchQueries({
+            queryKey: [...errorTrackingKeys.all(scope), 'spikes', window],
+            type: 'active',
+        })
+    }, [queryClient, scope, window])
 
     return {
         data: rows,
-        isError: list.isError,
+        isError: list.isError && !list.data,
         error: list.error ? toError(list.error) : null,
-        isRefetching: list.isRefetching,
+        isRefetching: list.isRefetching && !isFetchingNextPage,
         refetch: refetchList,
         // A Mine list waits for the account's user id, which a session restored from an older build may not have yet.
         isLoading: list.isLoading || (filter === 'mine' && myUserId === null && context.mode === 'live'),
         updatedAt,
         pulling,
         onPull,
+        hasMore: hasNextPage,
+        isLoadingMore: isFetchingNextPage || (list.isRefetching && hasNextPage),
+        loadMoreFailed: isFetchNextPageError,
+        loadMore,
+        spikesLoading: spikes.some((page) => page.isPending),
+        spikesFailed: spikes.some((page) => page.isError),
+        retrySpikes,
     }
 }
 

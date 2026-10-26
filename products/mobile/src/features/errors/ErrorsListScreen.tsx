@@ -20,6 +20,7 @@ import { CheckCircleIcon } from '@/ui/icons/CheckCircleIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { ListPaginationFooter } from '@/ui/ListPaginationFooter'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
@@ -224,7 +225,20 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
             </View>
         )
     } else {
-        const empty = emptyCopy(filter, window)
+        const empty = emptyCopy(filter, window, list)
+        const onEmptyAction = (): void => {
+            switch (empty.action?.kind) {
+                case 'retry_spikes':
+                    list.retrySpikes()
+                    break
+                case 'window':
+                    changeWindow('7d')
+                    break
+                case 'clear_filter':
+                    changeFilter('all')
+                    break
+            }
+        }
         body = (
             <FlatList
                 onScroll={scrollTitle.onScroll}
@@ -233,17 +247,22 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <IssueListRow row={item} now={now} myName={viewer.name} onOpen={openIssue} />}
                 ListHeaderComponent={header}
+                ListFooterComponent={
+                    <ListPaginationFooter
+                        noun="errors"
+                        hasMore={list.hasMore}
+                        loading={list.isLoadingMore}
+                        failed={list.loadMoreFailed}
+                        onLoadMore={list.loadMore}
+                    />
+                }
                 ListEmptyComponent={
                     <StateView
                         icon={<CheckCircleIcon size={iconSizes.empty} color={colors.tertiary} />}
                         title={empty.title}
                         message={empty.message}
                         actionLabel={empty.action?.label}
-                        onAction={
-                            empty.action
-                                ? () => (empty.action?.kind === 'window' ? changeWindow('7d') : changeFilter('all'))
-                                : undefined
-                        }
+                        onAction={empty.action ? onEmptyAction : undefined}
                         testID="errors-empty"
                     />
                 }

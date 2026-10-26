@@ -44,6 +44,8 @@ export interface IssueRow {
     library: string | null
     assignee: IssueAssignee
     volume: number[]
+    isNew: boolean
+    isSpiking: boolean
     badge: IssueBadge | null
 }
 
@@ -163,7 +165,7 @@ export function issueRowFrom(api: IssueListItemApi, context: IssueRowContext): I
         id: api.id,
         title: api.name?.trim() || 'Unnamed error',
         detail: api.description?.trim() || null,
-        status: api.status ?? 'active',
+        status: api.status && api.status in ISSUE_STATUS_LABELS ? (api.status as IssueStatusApi) : 'active',
         users: count(aggregations.users),
         occurrences: count(aggregations.occurrences),
         sessions: count(aggregations.sessions),
@@ -172,6 +174,8 @@ export function issueRowFrom(api: IssueListItemApi, context: IssueRowContext): I
         library: api.library ?? null,
         assignee: assigneeFrom(api.assignee, context.myUserId),
         volume: (aggregations.volumeRange ?? []).map((value) => (Number.isFinite(value) ? value : 0)),
+        isNew: isNewInWindow(firstSeen, context.window, context.now),
+        isSpiking: context.spiking.has(api.id),
         badge: badgeFor(isNewInWindow(firstSeen, context.window, context.now), context.spiking.has(api.id)),
     }
 }
@@ -180,9 +184,9 @@ export function issueRowFrom(api: IssueListItemApi, context: IssueRowContext): I
 export function filterRows(rows: readonly IssueRow[], filter: IssueFilter): IssueRow[] {
     switch (filter) {
         case 'new':
-            return rows.filter((row) => row.badge === 'new')
+            return rows.filter((row) => row.isNew)
         case 'spiking':
-            return rows.filter((row) => row.badge === 'spiking')
+            return rows.filter((row) => row.isSpiking)
         case 'mine':
             return rows.filter((row) => row.assignee.kind === 'me')
         default:
@@ -320,10 +324,37 @@ export function trendCaption(trend: IssueTrendApi | undefined): TrendCaption | n
 export interface EmptyCopy {
     title: string
     message: string
-    action: { label: string; kind: 'window' | 'clear_filter' } | null
+    action: { label: string; kind: 'window' | 'clear_filter' | 'retry_spikes' } | null
 }
 
-export function emptyCopy(filter: IssueFilter, window: ErrorsWindow): EmptyCopy {
+export interface IssueListProgress {
+    hasMore: boolean
+    spikesLoading: boolean
+    spikesFailed: boolean
+}
+
+export function emptyCopy(filter: IssueFilter, window: ErrorsWindow, progress?: IssueListProgress): EmptyCopy {
+    if (filter === 'spiking' && progress?.spikesLoading) {
+        return {
+            title: 'Checking for spikes…',
+            message: 'Your issues are loaded. Spike information is still loading.',
+            action: null,
+        }
+    }
+    if (filter === 'spiking' && progress?.spikesFailed) {
+        return {
+            title: "Couldn't check for spikes",
+            message: 'Try again to check which issues are spiking.',
+            action: { label: 'Try again', kind: 'retry_spikes' },
+        }
+    }
+    if (progress?.hasMore && (filter === 'new' || filter === 'spiking')) {
+        return {
+            title: 'No matches in loaded issues',
+            message: 'Load more issues to keep checking, or choose another filter.',
+            action: null,
+        }
+    }
     const range = WINDOW_LABELS[window]
     const showAll = { label: 'Show all active issues', kind: 'clear_filter' } as const
     switch (filter) {

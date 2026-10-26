@@ -17,6 +17,7 @@ import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
+import { ListPaginationFooter } from '@/ui/ListPaginationFooter'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
@@ -83,12 +84,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     }, [failed])
 
     const rows = list.rows.data
-    const status =
-        mode !== 'live' || access.state !== 'ok' || !rows
-            ? null
-            : list.ranked
-              ? 'Worth watching first · last 7 days'
-              : 'Newest first · last 7 days'
+    const status = mode !== 'live' || access.state !== 'ok' || !rows ? null : 'Newest first · last 7 days'
     const openSession = useCallback(
         (row: Row) =>
             router.push({
@@ -178,13 +174,36 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <SessionListRow row={item} now={now} onOpen={openSession} />}
                 ListHeaderComponent={header}
+                ListFooterComponent={
+                    <>
+                        <ListPaginationFooter
+                            noun="sessions"
+                            hasMore={list.hasMore}
+                            loading={list.isLoadingMore}
+                            failed={list.loadMoreFailed}
+                            onLoadMore={list.loadMore}
+                        />
+                        {list.recommendations.length > 0 ? (
+                            <View>
+                                <Text style={styles.recommendationsTitle} accessibilityRole="header">
+                                    Worth watching
+                                </Text>
+                                {list.recommendations.map((row) => (
+                                    <SessionListRow key={row.sessionId} row={row} now={now} onOpen={openSession} />
+                                ))}
+                            </View>
+                        ) : null}
+                    </>
+                }
                 ListEmptyComponent={
-                    <StateView
-                        icon={<RecordingIcon size={iconSizes.empty} color={colors.tertiary} />}
-                        title="No recordings yet"
-                        message="Sessions show up here once your site or app records them with session replay turned on."
-                        testID="replay-empty"
-                    />
+                    list.recommendations.length > 0 ? null : (
+                        <StateView
+                            icon={<RecordingIcon size={iconSizes.empty} color={colors.tertiary} />}
+                            title="No recordings yet"
+                            message="Sessions show up here once your site or app records them with session replay turned on."
+                            testID="replay-empty"
+                        />
+                    )
                 }
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 refreshControl={
@@ -256,6 +275,12 @@ function TabHeaderPublisher({ status }: { status: string | null }): null {
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    recommendationsTitle: {
+        ...type.rowTitle,
+        color: colors.ink,
+        paddingTop: 20,
+        paddingBottom: 8,
+    },
     screen: {
         flex: 1,
         backgroundColor: colors.background,

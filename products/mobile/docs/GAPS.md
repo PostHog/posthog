@@ -192,8 +192,8 @@ by the mobile footer change:
 - **No full stack, code context or source maps.** The trace card shows up to three in-app frames as text. Exception
   chains, code lines, variables and symbol-set problems stay on the web.
 - **No search, severity, release or library filters**, no sort other than users, and no resolved or suppressed lists.
-- **New and Spiking filter the top 50.** An issue below the 50th by users is missing from those filters. Mine asks the
-  server, so it is complete.
+- **New and Spiking filter loaded pages.** Load more checks another 15 issues. An empty partial page is not a
+  project-wide empty result. Mine filters on the server, and also loads 15 issues per page.
 - **Sample sessions open at the start.** The session screen gets no `t`, because the exception's offset into the
   recording needs the recording's start time, which the issue reads do not return.
 - **No merge, split, or external issue links** (Linear, GitHub, Jira).
@@ -213,12 +213,12 @@ by the mobile footer change:
   API call before the image loads, and the signed URL expires (the app keeps it for 4 minutes). The web build cannot
   read a manual redirect, so frames show the empty tile there.
 - **Opening a session does not mark it viewed** on the web, because that needs `session_recording:write`.
-- **No filters and a fixed window.** The list covers the last 7 days: the feed's picks, then the 30 newest
-  recordings. No paging, search, collections or playlists.
+- **No filters and a fixed window.** The list covers the last 7 days, 10 newest recordings per page, with up to 5
+  optional recommendations below the recordings. No search, collections or playlists.
 - **Clicks in the timeline are a sample.** At most 20 clicks of a session show, spread over its length. The page view
   and click query reads the first 300 events, so a long session loses its later pages and clicks; the count then
   reads "301+ events". Errors and rage clicks have their own query and always show (up to 100).
-- **Rows from the feed may lack a length.** A feed pick older than the 30 newest recordings has no duration or click
+- **Rows from the feed may lack a length.** A feed pick outside the loaded recording pages has no duration or click
   count, because the feed carries the observation, not the recording.
 - **The full report's "Watch session" opens at the start.** A signal carries the session id but no offset into it.
 - **Not checked against a live project.** The shapes come from the serializers in this repository and the tests; the

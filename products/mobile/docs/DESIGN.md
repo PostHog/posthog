@@ -231,10 +231,13 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,
   Spiking and Mine chips (ink fill when on; tapping the chip that is on clears it). Rows follow the inbox geometry:
   the exception type on one line with a New (orange outline) or Spiking (orange fill, up arrow) badge, the exception
-  value in secondary text, then the owner's avatar, users and first seen in tertiary text, and a 72 × 32 `Sparkline` on
-  the right, gray unless the issue is new or spiking. Pull to refresh. Loading (row-shaped blocks), "Couldn't load your
+  value in secondary text, then the owner's avatar, users and first seen in tertiary text. The list loads 15 issues
+  per page with a Load more footer; charts stay on the issue detail. Pull to refresh reloads the first page.
+  Loading (row-shaped blocks), "Couldn't load your
   errors" with Try again, the empty state per filter with its next step ("Show the last 7 days", "Show all active
-  issues"), the Views sign-in state for missing scopes, and a demo state are separate screens. More (pushed only)
+  issues"), the Views sign-in state for missing scopes, and a demo state are separate screens. New and Spiking show
+  "No matches in loaded issues" while more pages remain. Pending spike reads show "Checking for spikes…"; failed
+  reads offer Try again. More (pushed only)
   holds Pin to navigation or Unpin from navigation, with the Views toast and Undo, and Open on web.
 - **Issue** (`features/errors/IssueScreen.tsx`): Back and More on the floating chrome. "Error · project" eyebrow,
   the status chip (the web's labels and colors: amber Active, green Resolved, red Suppressed) and the New or Spiking
@@ -250,11 +253,14 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   the Views toast with Undo; Suppress opens a confirmation sheet first. More holds Assign, Open on web and Copy link.
   The Assign sheet offers Assign to me (or Unassign me) and Assign a teammate on the web.
 - **Sessions list** (`features/replay/ReplayListScreen.tsx`): one body in two chromes, like the Errors list. Pushed
-  from Views, Back and More over a 28pt "Sessions" title and "Worth watching first · last 7 days" (or "Newest first"
-  without Replay Vision picks); as a pinned tab, the tabs header draws both. Rows: an 80 × 50 frame (the scan's
+  from Views, Back and More over a 28pt "Sessions" title and "Newest first · last 7 days";
+  as a pinned tab, the tabs header draws both. Rows: an 80 × 50 frame (the scan's
   thumbnail, or a muted recording tile), the scan's title, or "Session · 14 clicks · 1 error" in regular weight for
   an unsummarized one, then person, length, "key moment 2:14" and the time ago (never the raw score), with an
-  orange dot when the recording logged console errors. A row opens the session at its key moment. Pull to refresh.
+  orange dot when the recording logged console errors. A row opens the session at its key moment. The list loads
+  10 recordings per page with a Load more footer. Up to 5 optional recommendations load afterward under Worth watching,
+  below the recordings; recommendations matching loaded recordings enrich those rows without moving them.
+  Pull to refresh reloads the first page and the recommendations.
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.

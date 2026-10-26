@@ -1,9 +1,15 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { type InfiniteData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '@/api/client'
-import { fetchRecentRecordings, fetchRecording, fetchSessionEvents, recordingKeys } from '@/api/recordings'
+import {
+    fetchRecentRecordings,
+    fetchRecording,
+    fetchSessionEvents,
+    type RecordingsListApi,
+    recordingKeys,
+} from '@/api/recordings'
 import {
     fetchFrameUrl,
     fetchSessionObservations,
@@ -279,20 +285,28 @@ export function useFrameUrl(observationId: string | null, chapter: number | null
 
 export interface SessionList {
     rows: QueryState<SessionListRow[]>
-    ranked: boolean
+    recommendations: SessionListRow[]
     refresh: () => Promise<void>
     refreshing: boolean
+    hasMore: boolean
+    isLoadingMore: boolean
+    loadMoreFailed: boolean
+    loadMore: () => void
 }
 
 /**
- * The newest recordings with the watch feed's picks first. The feed is optional: a project without Replay Vision, or
- * a failed feed, still lists its recordings by time.
+ * Recordings keep their time order while the optional feed enriches them. Separate recommendations keep a late
+ * feed response from moving the rows the user is reading.
  */
 export function useSessionList(): SessionList {
     const { scope, ready } = useReplayContext()
-    const recordings = useQuery({
+    const queryClient = useQueryClient()
+    const recordings = useInfiniteQuery({
         queryKey: recordingKeys.recent(scope),
-        queryFn: ({ signal }) => scoped(() => fetchRecentRecordings(signal)),
+        queryFn: ({ signal, pageParam }) => scoped(() => fetchRecentRecordings(signal, pageParam)),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (page, _pages, _lastCursor, cursors) =>
+            page.has_next && page.next_cursor && !cursors.includes(page.next_cursor) ? page.next_cursor : undefined,
         enabled: ready,
         retry: retryUnlessMissing,
         staleTime: 60_000,
@@ -300,34 +314,74 @@ export function useSessionList(): SessionList {
     const feed = useQuery({
         queryKey: visionKeys.feed(scope),
         queryFn: ({ signal }) => fetchWatchFeed(signal),
-        enabled: ready,
+        enabled: ready && recordings.data !== undefined,
         retry: false,
         staleTime: 60_000,
     })
     const [refreshing, setRefreshing] = useState(false)
+    const { refetch: refetchRecordings } = recordings
+    const { refetch: refetchFeed } = feed
     const refresh = useCallback(async (): Promise<void> => {
         setRefreshing(true)
         try {
-            await Promise.all([recordings.refetch(), feed.refetch()])
+            await queryClient.cancelQueries({ queryKey: recordingKeys.recent(scope) })
+            queryClient.setQueryData<InfiniteData<RecordingsListApi>>(recordingKeys.recent(scope), (data) =>
+                data ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data
+            )
+            await Promise.all([refetchRecordings(), refetchFeed()])
         } finally {
             setRefreshing(false)
         }
-    }, [recordings, feed])
+    }, [queryClient, scope, refetchRecordings, refetchFeed])
 
     const feedItems = feed.data?.results
-    const recordingItems = recordings.data?.results
-    const rows = useMemo(
-        () => (recordingItems ? sessionListRows(feedItems ?? [], recordingItems) : undefined),
-        [feedItems, recordingItems]
-    )
-    const feedSettled = feed.isFetched || feed.isError
+    const recordingItems = useMemo(() => {
+        if (!recordings.data) {
+            return undefined
+        }
+        return [
+            ...new Map(
+                recordings.data.pages.flatMap((page) => page.results ?? []).map((row) => [row.id, row])
+            ).values(),
+        ]
+    }, [recordings.data])
+    const { rows, recommendations } = useMemo(() => {
+        if (!recordingItems) {
+            return { rows: undefined, recommendations: [] }
+        }
+        const combined = sessionListRows(feedItems ?? [], recordingItems)
+        const byId = new Map(combined.map((row) => [row.sessionId, row]))
+        const ids = new Set(recordingItems.map((row) => row.id))
+        return {
+            rows: recordingItems.flatMap((recording) => {
+                const row = byId.get(recording.id)
+                return row ? [row] : []
+            }),
+            recommendations: combined.filter((row) => !ids.has(row.sessionId)),
+        }
+    }, [feedItems, recordingItems])
+    const { hasNextPage, isFetching, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = recordings
+    const loadMore = useCallback((): void => {
+        if (hasNextPage && !isFetching) {
+            void fetchNextPage({ cancelRefetch: false })
+        }
+    }, [hasNextPage, isFetching, fetchNextPage])
     let state: QueryState<SessionListRow[]>
-    if (rows && feedSettled) {
-        state = successQuery(rows, { isRefetching: recordings.isRefetching, refetch: recordings.refetch })
+    if (rows) {
+        state = successQuery(rows, { isRefetching: recordings.isRefetching && !isFetchingNextPage, refetch: refresh })
     } else if (recordings.isError) {
         state = errorQuery(toError(recordings.error), recordings.refetch)
     } else {
         state = loadingQuery()
     }
-    return { rows: state, ranked: (feedItems?.length ?? 0) > 0, refresh, refreshing }
+    return {
+        rows: state,
+        recommendations,
+        refresh,
+        refreshing,
+        hasMore: hasNextPage,
+        isLoadingMore: isFetchingNextPage || (recordings.isRefetching && hasNextPage),
+        loadMoreFailed: isFetchNextPageError,
+        loadMore,
+    }
 }

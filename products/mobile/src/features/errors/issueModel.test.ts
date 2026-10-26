@@ -2,6 +2,7 @@ import type { IssueEventApi, IssueListItemApi } from '@/api/errorTracking'
 
 import {
     breakdownRows,
+    emptyCopy,
     highlightStart,
     type IssueRowContext,
     issueFrames,
@@ -55,6 +56,26 @@ describe('issueRowFrom', () => {
         ],
     ])('reads the assignee %j as %j', (assignee, expected) => {
         expect(issueRowFrom(issue({ assignee }), context()).assignee).toEqual(expected)
+    })
+})
+
+test.each(['new', 'spiking'] as const)(
+    '%s does not claim the entire window is empty before pagination ends',
+    (filter) => {
+        const progress = { hasMore: true, spikesLoading: false, spikesFailed: false }
+        expect(emptyCopy(filter, '24h', progress).title).toBe('No matches in loaded issues')
+        expect(emptyCopy(filter, '24h', { ...progress, hasMore: false }).title).not.toBe('No matches in loaded issues')
+    }
+)
+
+test('Spiking distinguishes pending and failed badge lookups from an empty result', () => {
+    expect(emptyCopy('spiking', '24h', { hasMore: false, spikesLoading: true, spikesFailed: false })).toMatchObject({
+        title: 'Checking for spikes…',
+        action: null,
+    })
+    expect(emptyCopy('spiking', '24h', { hasMore: false, spikesLoading: false, spikesFailed: true })).toMatchObject({
+        title: "Couldn't check for spikes",
+        action: { kind: 'retry_spikes' },
     })
 })
 

@@ -33,9 +33,10 @@ export interface RecordingApi {
 export interface RecordingsListApi {
     results?: RecordingApi[]
     has_next?: boolean
+    next_cursor?: string | null
 }
 
-export const RECENT_RECORDINGS_LIMIT = 30
+export const RECENT_RECORDINGS_LIMIT = 10
 /** The list window, the same as the watch feed's default, so both sides of the merged list cover the same days. */
 export const RECENT_RECORDINGS_FROM = '-7d'
 
@@ -44,13 +45,13 @@ export async function fetchRecording(sessionId: string, signal?: AbortSignal): P
 }
 
 /**
- * `GET session_recordings/?limit=30&date_from=-7d`, newest first: the server's default order is `start_time`
+ * `GET session_recordings/`, newest first: the server's default order is `start_time`
  * descending. The REST listing takes `session_recording:read`; the web's `RecordingsQuery` through `query/` would not
  * check that scope.
  */
-export async function fetchRecentRecordings(signal?: AbortSignal): Promise<RecordingsListApi> {
+export async function fetchRecentRecordings(signal?: AbortSignal, after?: string): Promise<RecordingsListApi> {
     return apiJson<RecordingsListApi>(projectPath('session_recordings/'), {
-        query: { limit: RECENT_RECORDINGS_LIMIT, date_from: RECENT_RECORDINGS_FROM },
+        query: { limit: RECENT_RECORDINGS_LIMIT, date_from: RECENT_RECORDINGS_FROM, after },
         signal,
     })
 }
@@ -148,7 +149,7 @@ export async function fetchSessionEvents(
 
 export const recordingKeys = {
     all: (scope: ProjectScope | null) => ['recordings', ...scopeKey(scope)] as const,
-    recent: (scope: ProjectScope | null) => [...recordingKeys.all(scope), 'recent'] as const,
+    recent: (scope: ProjectScope | null) => [...recordingKeys.all(scope), 'recent', 'pages'] as const,
     detail: (scope: ProjectScope | null, sessionId: string) =>
         [...recordingKeys.all(scope), 'detail', sessionId] as const,
     events: (scope: ProjectScope | null, sessionId: string) =>

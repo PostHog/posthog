@@ -1,3 +1,8 @@
+import type {
+    ErrorTrackingIssueListItemApi,
+    ErrorTrackingIssuesListQueryRequestApi,
+    ErrorTrackingIssuesListResponseApi,
+} from '../../../error_tracking/frontend/generated/api.schemas'
 import type { SignalsReportsListParams } from '../../../signals/frontend/generated/api.schemas'
 
 import { apiJson, projectPath } from './client'
@@ -24,22 +29,8 @@ export interface IssueAggregationsApi {
     volumeRange?: number[]
 }
 
-export interface IssueListItemApi {
-    id: string
-    name?: string | null
-    description?: string | null
-    status?: IssueStatusApi
-    first_seen?: string | null
-    last_seen?: string | null
-    library?: string | null
-    assignee?: IssueAssigneeApi | null
-    aggregations?: IssueAggregationsApi | null
-}
-
-export interface IssuesListResponseApi {
-    results: IssueListItemApi[]
-    hasMore: boolean
-}
+export type IssueListItemApi = ErrorTrackingIssueListItemApi
+export type IssuesListResponseApi = ErrorTrackingIssuesListResponseApi
 
 export interface IssueReleaseApi {
     version?: string
@@ -125,9 +116,8 @@ export interface SpikeEventsResponseApi {
 
 export type ErrorsWindow = '24h' | '7d'
 
-export const LIST_BUCKETS: Record<ErrorsWindow, number> = { '24h': 24, '7d': 14 }
 export const ISSUE_BUCKETS: Record<ErrorsWindow, number> = { '24h': 24, '7d': 28 }
-export const ISSUES_PAGE_SIZE = 50
+export const ISSUES_PAGE_SIZE = 15
 export const ISSUE_EVENTS_LIMIT = 10
 
 export function windowDateRange(window: ErrorsWindow): { date_from: string } {
@@ -139,22 +129,26 @@ export interface IssuesListInput {
     assigneeUserId?: number
 }
 
-export function issuesListBody({ window, assigneeUserId }: IssuesListInput): Record<string, unknown> {
+export function issuesListBody(
+    { window, assigneeUserId }: IssuesListInput,
+    offset = 0
+): ErrorTrackingIssuesListQueryRequestApi {
     return {
         dateRange: windowDateRange(window),
         status: 'active',
         orderBy: 'users',
         orderDirection: 'DESC',
         limit: ISSUES_PAGE_SIZE,
-        volumeResolution: LIST_BUCKETS[window],
+        offset,
+        volumeResolution: 0,
         ...(assigneeUserId === undefined ? {} : { assignee: { type: 'user', id: assigneeUserId } }),
     }
 }
 
-export function fetchIssues(input: IssuesListInput, signal?: AbortSignal): Promise<IssuesListResponseApi> {
+export function fetchIssues(input: IssuesListInput, signal?: AbortSignal, offset = 0): Promise<IssuesListResponseApi> {
     return apiJson<IssuesListResponseApi>(projectPath('error_tracking/query/issues/'), {
         method: 'POST',
-        json: issuesListBody(input),
+        json: issuesListBody(input, offset),
         signal,
     })
 }
@@ -267,7 +261,7 @@ export const errorTrackingKeys = {
     all: (scope: ProjectScope | null) => ['error_tracking', ...scopeKey(scope)] as const,
     lists: (scope: ProjectScope | null) => [...errorTrackingKeys.all(scope), 'issues'] as const,
     list: (scope: ProjectScope | null, input: IssuesListInput) =>
-        [...errorTrackingKeys.lists(scope), input.window, input.assigneeUserId ?? null] as const,
+        [...errorTrackingKeys.lists(scope), input.window, input.assigneeUserId ?? null, 'pages'] as const,
     spikes: (scope: ProjectScope | null, window: ErrorsWindow, issueIds: readonly string[]) =>
         [...errorTrackingKeys.all(scope), 'spikes', window, issueIds.join(',')] as const,
     issueAll: (scope: ProjectScope | null, issueId: string) =>

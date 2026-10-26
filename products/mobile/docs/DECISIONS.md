@@ -324,15 +324,16 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **The compact `error_tracking/query/` endpoints, not raw `query/`.** They are the agent and MCP surface: typed
   request serializers, small answers, impact, trend, releases and breakdowns already computed. Every read then needs
   only `error_tracking:read`, the scope the Errors gate checks, and none spends the Views query budget.
-- **Most users first, active only.** The list is `status: 'active'`, `orderBy: 'users'`, 50 rows, 24h by default with
-  7d one tap away. Resolved and suppressed issues stay on the web.
-- **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow the loaded 50 rows on the device.
-  Mine is a server filter (`assignee: { type: 'user', id }`), so issues outside the top 50 still show.
+- **Most users first, active only.** The list is `status: 'active'`, `orderBy: 'users'`, 15 rows per page, 24h by default
+  with 7d one tap away. Load more follows the server's next offset. Resolved and suppressed issues stay on the web.
+- **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow loaded pages on the device.
+  A partial empty result offers Load more. Mine is a server filter (`assignee: { type: 'user', id }`).
 - **New is first seen inside the window. Spiking is the server's spike detection.** The badge reads
   `error_tracking/spike_events/`, the read the web's issue list uses, so the phone and the web call the same issues
-  spiking. New wins over Spiking, because everything a new issue did happened inside the window. The sparkline turns
-  orange from the first occurrence of a new issue, or from the trailing run above the window's median on a spiking one
-  (`highlightStart`, tested).
+  spiking. New wins over Spiking for the displayed badge, but an issue can match either filter.
+  Spike reads cover each loaded page, and a failed read offers a retry in the Spiking filter.
+- **Counts on the list, charts on the issue.** The list requests `volumeResolution: 0` to reduce the initial response
+  and time-bucket work. The issue detail still requests its volume chart.
 - **No Reopened badge.** Nothing the app can read says an issue came back after a resolve: the issue resource has no
   history field, and the activity log needs `activity_log:read`.
 - **Statuses and wording match the web.** `active`, `resolved`, `suppressed` with the labels of the web's
@@ -363,9 +364,10 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **The REST recordings list, not `RecordingsQuery`.** `GET session_recordings/` checks `session_recording:read`, the
   scope the Sessions gate checks. The web's `RecordingsQuery` through `query/` would need only `query:read`, so a token
   without the replay scope could list recordings it cannot open.
-- **Worth watching first, then the newest.** The list merges `vision/scanners/watch_feed/` (best first, once per session)
-  with the 30 newest recordings of the last 7 days. The feed is optional: a project without Replay Vision, or a failed
-  feed, gets a list in time order and the status line says "Newest first".
+- **Newest first, recommendations afterward.** The list loads 10 recordings per page from the last 7 days and
+  follows the server's continuation cursor. It displays recordings without waiting for `vision/scanners/watch_feed/`.
+  The optional feed starts afterward with a limit of 5. It enriches loaded recordings in place and puts other picks
+  below the recordings, so a late response never changes their order.
 - **No filters on the phone.** The prototype's Today, 7d, Errors and Rage clicks chips are out: the build contract keeps
   filters on the web. The window is a fixed 7 days, the feed's own default.
 - **The timeline comes from events, not from the recording.** Two HogQL queries bounded by the recording's start and
