@@ -15,7 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, Team
 
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
@@ -153,10 +153,16 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
 
         manager.run_on_team(self.team, self.user)
 
+        summary_query = """
+            SELECT countIf(properties.foo = 'bar'), count(), min(timestamp), max(timestamp), uniq(distinct_id), uniq(person_id)
+            FROM events
+        """
+        master_team = Team.objects.get(pk=MatrixManager.MASTER_TEAM_ID)
+        source = execute_hogql_query(summary_query, team=master_team).results
+        copied = execute_hogql_query(summary_query, team=self.team).results
         # At least one event for each cluster
-        assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
-        copied = execute_hogql_query("SELECT count() FROM events WHERE properties.foo = 'bar'", team=self.team)
-        assert copied.results[0][0] >= 3
+        assert copied[0][0] >= 3
+        assert copied == source
 
 
 class TestWithExposureCopies(SimpleTestCase):
