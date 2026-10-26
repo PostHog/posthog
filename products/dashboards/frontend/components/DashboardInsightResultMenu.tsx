@@ -180,17 +180,6 @@ export function DashboardInsightResultMenu({
                                 }
                             },
                         },
-                        {
-                            name: 'Open in SQL editor',
-                            className: 'ResultMenu__sql',
-                            to: sqlUrl,
-                            disabledReason: sqlUrl
-                                ? undefined
-                                : actors
-                                  ? resultUnavailableReason
-                                  : 'Select a data point to edit its underlying query.',
-                            onClick: close,
-                        },
                         ...(canViewRecordings && recordingQuery
                             ? [
                                   {
@@ -214,6 +203,17 @@ export function DashboardInsightResultMenu({
                                   },
                               ]
                             : []),
+                        {
+                            name: 'Open in SQL editor',
+                            className: 'ResultMenu__sql',
+                            to: sqlUrl,
+                            disabledReason: sqlUrl
+                                ? undefined
+                                : actors
+                                  ? resultUnavailableReason
+                                  : 'Select a data point to edit its underlying query.',
+                            onClick: close,
+                        },
                     ]}
                 />
             )}

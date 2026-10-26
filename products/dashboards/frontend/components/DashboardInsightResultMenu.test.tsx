@@ -75,8 +75,8 @@ describe('dashboard result menu', () => {
             expect(screen.queryByText('Filter dashboard by this result')).not.toBeInTheDocument()
             expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
                 'View people',
-                'Open in SQL editor',
                 'View recordings',
+                'Open in SQL editor',
             ])
             fireEvent.click(screen.getByText('Chart point'))
             expect(screen.queryByRole('menu')).not.toBeInTheDocument()
