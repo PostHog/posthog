@@ -6,7 +6,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
-import { SentryMigration } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/SentryMigration'
+import { ImportWizard } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/ImportWizard'
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -981,11 +981,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['version', 'deploy', 'release', 'regression'],
             },
             {
-                id: 'error-tracking-sentry-migration',
-                title: 'Import from Sentry',
+                id: 'error-tracking-import',
+                title: 'Import from another tool',
                 description:
-                    'Bring the inbound filters and rate limits of a Sentry project into PostHog. Review how each setting translates before you import it.',
-                component: <SentryMigration />,
+                    'Bring filters and rate limits over from another error tracking tool. Review how each setting translates before you import it.',
+                component: <ImportWizard />,
                 flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
                 keywords: ['sentry', 'migrate', 'migration', 'import', 'inbound filter', 'rate limit'],
             },
