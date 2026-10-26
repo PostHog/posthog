@@ -895,6 +895,40 @@ class TestPostgresSourceNonRetryableErrors:
         assert "pg_hba.conf" in friendly[0]
 
     @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message: a pg_hba.conf line matches the host/user/database but its auth
+            # method is "reject", the explicit-rule sibling of "no pg_hba.conf entry for host" above.
+            # libpq concatenates the SSL and no-encryption attempts when sslmode=prefer retries after
+            # the SSL attempt is rejected; the host/user/database are volatile, the phrase is stable.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            'pg_hba.conf rejects connection for host "10.9.8.7", user "reporting_ro", database '
+            '"analytics", SSL encryption\nconnection to server at "203.0.113.10", port 5432 failed: '
+            'FATAL:  pg_hba.conf rejects connection for host "10.9.8.7", user "reporting_ro", '
+            'database "analytics", no encryption',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "10.0.0.5", port 5432 '
+            'failed: FATAL:  pg_hba.conf rejects connection for host "10.0.0.5", user "postgres", '
+            'database "app", no encryption',
+        ],
+    )
+    def test_pg_hba_conf_rejects_connection_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Explicit pg_hba.conf rejection should be non-retryable: {error_msg}"
+
+    def test_pg_hba_conf_rejects_connection_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            'pg_hba.conf rejects connection for host "10.9.8.7", user "reporting_ro", database '
+            '"analytics", no encryption'
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Explicit pg_hba.conf rejection should surface an actionable message"
+        assert "pg_hba.conf" in friendly[0]
+
+    @pytest.mark.parametrize(
         "error_msg,expected_fragment",
         [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake

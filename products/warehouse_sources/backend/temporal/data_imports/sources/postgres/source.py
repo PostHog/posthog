@@ -928,6 +928,17 @@ class PostgresSource(
                 '("no pg_hba.conf entry for host"). Add an entry that permits the connecting host, '
                 "user, and database (over SSL or otherwise), then re-enable the sync."
             ),
+            # The matching sibling of the entry above: a pg_hba.conf line *does* match the connecting
+            # host/user/database, but its auth method is explicitly "reject" — "FATAL: pg_hba.conf
+            # rejects connection for host <host>, user <user>, database <database>, SSL encryption"
+            # (and its "no encryption" sibling). Same administrator-authored rule, same permanence:
+            # every retry reaches the same explicit rejection until the customer changes the rule.
+            # Match the stable prefix and exclude the volatile host/user/database.
+            "pg_hba.conf rejects connection for host": (
+                "Your PostgreSQL server's pg_hba.conf explicitly rejects this connection "
+                '("pg_hba.conf rejects connection for host"). Update the matching rule to allow the '
+                "connecting host, user, and database (over SSL or otherwise), then re-enable the sync."
+            ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
             "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
