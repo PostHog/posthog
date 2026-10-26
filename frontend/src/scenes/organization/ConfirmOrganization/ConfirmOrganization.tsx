@@ -58,7 +58,6 @@ export function ConfirmOrganization(): JSX.Element {
         <AuthScene notes={AUTH_NOTES.confirmOrganization.default}>
             <AuthSceneCard footer={footer}>
                 <AuthCardTitle title="Create a new organization" sub="Your own corner of PostHog." />
-                {email && <OtherRegionNotice email={email} reason="no_account" />}
                 <Form
                     logic={confirmOrganizationLogic}
                     formKey="confirmOrganization"
@@ -94,6 +93,7 @@ export function ConfirmOrganization(): JSX.Element {
                     >
                         Create organization
                     </LemonButton>
+                    {email && <OtherRegionNotice email={email} reason="no_account" />}
                 </Form>
                 <div className="mt-4 text-center">
                     <button
