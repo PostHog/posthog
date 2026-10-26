@@ -34,6 +34,14 @@ def owning_team(resolution: Resolution) -> str | None:
     return first_team_owner(resolution.owners) or UNOWNED_TEAM
 
 
+def runner_for_path(path: str) -> str | None:
+    if _PYTEST_FILE.search(path):
+        return "pytest"
+    if _JEST_FILE.search(path):
+        return "jest"
+    return None
+
+
 def unowned_test_directories(resolver: OwnersResolver) -> set[str]:
     """Directories that hold a tracked test file whose failures reach no team. A new file inherits
     the owner of its directory, so a baseline of directories stays steady while files come and go."""
@@ -42,14 +50,6 @@ def unowned_test_directories(resolver: OwnersResolver) -> set[str]:
         for path in resolver.tracked_files()
         if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
     }
-
-
-def runner_for_path(path: str) -> str | None:
-    if _PYTEST_FILE.search(path):
-        return "pytest"
-    if _JEST_FILE.search(path):
-        return "jest"
-    return None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

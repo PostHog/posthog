@@ -42,6 +42,7 @@ from hogli import telemetry
 from hogli.hooks import telemetry_property_hooks
 from hogli.manifest import REPO_ROOT
 from owners_yaml.census import TEST_FILE_GLOBS
+from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
 from hogli_commands.build import (
     TRIGGERS as BUILD_TRIGGERS,
@@ -180,7 +181,12 @@ DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="test-owners",
         label="test ownership (new directory of unowned tests, or a stale baseline entry)",
-        triggers=[*TEST_FILE_GLOBS, "owners.yaml", "*/owners.yaml", "*/product.yaml", str(OWNERS_BASELINE)],
+        triggers=[
+            *TEST_FILE_GLOBS,
+            OWNERS_FILENAME,
+            *(f"*/{name}" for name in (OWNERS_FILENAME, *DEFAULT_ALIAS_FILES)),
+            str(OWNERS_BASELINE),
+        ],
         verify=None,
         run=check_test_owners,
     ),
