@@ -728,6 +728,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+# `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+# caller (that would let any client self-label as wizard- or self-driving-created). They
+# are derived server-side by upgrading a machine-injected `mcp` value based on the request
+# transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
+CALLER_CREATED_VIA_CHOICES = [
+    ExternalDataSource.CreatedVia.WEB,
+    ExternalDataSource.CreatedVia.API,
+    ExternalDataSource.CreatedVia.MCP,
+]
+
+
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
     source_type = serializers.ChoiceField(
         choices=ExternalDataSourceType.choices,
@@ -756,15 +767,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-        # caller (that would let any client self-label as wizard- or self-driving-created). They
-        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
-        choices=[
-            ExternalDataSource.CreatedVia.WEB,
-            ExternalDataSource.CreatedVia.API,
-            ExternalDataSource.CreatedVia.MCP,
-        ],
+        choices=CALLER_CREATED_VIA_CHOICES,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(

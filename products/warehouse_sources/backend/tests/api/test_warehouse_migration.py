@@ -5,14 +5,22 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
@@ -274,3 +282,60 @@ class TestApplyMigrationItem(APIBaseTest):
         )
         response = self.client.get(url, {"source_type": "Stripe", "migration_item_id": str(other_item.id)})
         assert response.status_code == 400
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_fake"}),
+    )
+    def test_webhook_turns_on_only_planned_tables(self, _create_webhook: MagicMock) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            code="// test code",
+            code_language="hog",
+            inputs_schema=[
+                {"type": "string", "key": "signing_secret", "label": "Signing secret", "secret": True},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True},
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True},
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+        response = self._apply(self._credential())
+
+        assert response.status_code == 201, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["source_id"])
+        assert schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME).sync_type == ExternalDataSchema.SyncType.WEBHOOK
+        # Webhook-only and not in the plan, so the webhook must not turn it on.
+        assert schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME).should_sync is False
+
+    @parameterized.expand([("stale_claim", 20, 201), ("live_claim", 1, 400)])
+    def test_only_a_stale_claim_can_be_taken_over(self, _name: str, minutes_ago: int, expected_status: int) -> None:
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=WarehouseMigrationItem.Status.APPLYING, updated_at=timezone.now() - timedelta(minutes=minutes_ago)
+        )
+
+        assert self._apply(self._credential()).status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("pending_item_fails", WarehouseMigrationItem.Status.PENDING, WarehouseMigrationItem.Status.FAILED),
+            (
+                "applied_item_stays_applied",
+                WarehouseMigrationItem.Status.APPLIED,
+                WarehouseMigrationItem.Status.APPLIED,
+            ),
+        ]
+    )
+    def test_an_invalid_stored_plan_fails_only_a_claimable_item(
+        self, _name: str, status: str, expected_status: str
+    ) -> None:
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=status, proposal={"source_type": "NotASource"}
+        )
+
+        assert self._apply(self._credential()).status_code == 400
+        self.item.refresh_from_db()
+        assert self.item.status == expected_status

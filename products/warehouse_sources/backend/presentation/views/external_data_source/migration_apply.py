@@ -16,10 +16,11 @@ from products.warehouse_sources.backend.facade import warehouse_migration as mig
 from products.warehouse_sources.backend.facade.contracts import ClaimedWarehouseMigrationItem, PlannedMigrationSchemas
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
+from products.warehouse_sources.backend.presentation.views.destination_links import EMPTY_SET_MESSAGE
 
 from . import base
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
-from .source_setup import ExternalDataSourceSetupMixin
+from .source_setup import CALLER_CREATED_VIA_CHOICES, ExternalDataSourceSetupMixin
 
 # Source creation gives every table this cadence, so a plan that matches it needs no second pass.
 _CREATED_SYNC_FREQUENCY = "6hour"
@@ -41,10 +42,16 @@ class ApplyMigrationItemSerializer(serializers.Serializer):
         help_text="Destinations to write the new source to. Omit to write to the PostHog warehouse.",
     )
     created_via = serializers.ChoiceField(
-        choices=ExternalDataSource.CreatedVia.choices,
+        choices=CALLER_CREATED_VIA_CHOICES,
         default=ExternalDataSource.CreatedVia.API,
-        help_text="Where the request came from.",
+        help_text="Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.",
     )
+
+    def validate_destination_ids(self, destination_ids: list) -> list:
+        # Same rule as source creation: an empty list would leave the source syncing nowhere.
+        if not destination_ids:
+            raise serializers.ValidationError(EMPTY_SET_MESSAGE)
+        return destination_ids
 
 
 class ApplyMigrationItemResponseSerializer(serializers.Serializer):

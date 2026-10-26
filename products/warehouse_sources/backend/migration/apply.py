@@ -40,12 +40,13 @@ def build_planned_schemas(
             planned=tuple(schema.name for schema in source_schemas) if not proposal.start_paused else (),
         )
 
-    discovered = {source_schema.name for source_schema in source_schemas}
+    discovered = {source_schema.name: source_schema for source_schema in source_schemas}
     plans: dict[str, ProposedSchema] = {}
     unavailable: list[str] = []
     for plan in proposal.schemas:
-        name = next((name for name in (plan.name, *plan.alternative_names) if name in discovered), None)
-        if name is None or permission_errors.get(name):
+        name = _discovered_name(plan, discovered)
+        # A table another plan already claimed would take that plan's columns and filters.
+        if name is None or name in plans or permission_errors.get(name):
             unavailable.append(plan.name)
         else:
             plans[name] = plan
@@ -79,6 +80,19 @@ def build_planned_schemas(
         webhook_only=tuple(webhook_only),
         planned=tuple(plans) if not proposal.start_paused else (),
     )
+
+
+def _discovered_name(plan: ProposedSchema, discovered: Mapping[str, SourceSchema]) -> str | None:
+    if plan.name in discovered:
+        return plan.name
+    # A bare name only stands for `schema.table` when the discovered table is in that schema,
+    # or when the source does not say which schema it read.
+    vendor_schema = plan.name.rpartition(".")[0]
+    for name in plan.alternative_names:
+        source_schema = discovered.get(name)
+        if source_schema is not None and source_schema.source_schema in (None, vendor_schema):
+            return name
+    return None
 
 
 def _with_time_of_day(schema: dict[str, Any], proposal: ItemProposal) -> dict[str, Any]:
