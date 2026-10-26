@@ -901,7 +901,6 @@ class TestFeatureFlagApprovalIntegration(APIBaseTest):
 _ROLLOUT_OVER_50 = {"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 50}
 
 
-# TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
 class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
     """Which policies cover a flag follows its owner, so adoption must not be a way around one.
@@ -944,6 +943,8 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
 
         return assert_flag_available_for(self.flag, product=product)
 
+    # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled
+    # out. The guard stays, so the tests keep running with the rollout state always on.
     def _scoped_by_owner(self, enabled: bool):
         return patch(
             "products.approvals.backend.coverage.scope_by_owner_enabled",
@@ -1081,6 +1082,7 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
         with self._scoped_by_owner(True):
             self._adopt("survey")
 
+    # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
     def test_adoption_is_untouched_before_the_rollout(self, _mock_enabled) -> None:
         """`feature_flag.*` still covers every flag then, so no owner change can drop the cover."""
         self._policy("feature_flag.enable")

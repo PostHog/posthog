@@ -7,7 +7,7 @@ from django.db import connection
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.access_control.backend.models.role import Role
 from products.approvals.backend.experiment_policy_sync import _SYNC_LOCK_KEY, sync_experiment_policies
@@ -176,12 +176,15 @@ class TestSyncLeavesRolledOutOrganizationsAlone(BaseTest):
 
     def test_still_syncs_an_organization_that_is_not_rolled_out(self) -> None:
         """The skip must be per organization, or one rollout would freeze everybody's mirrors."""
+        rolled_out = Organization.objects.create(name="Rolled out")
         self._policy("feature_flag.enable")
+        self._policy("feature_flag.enable", organization=rolled_out, team=None)
 
         with patch(
             "products.approvals.backend.experiment_policy_sync.scope_by_owner_state",
-            side_effect=lambda organization: organization.id != self.organization.id,
+            side_effect=lambda organization: organization.id == rolled_out.id,
         ):
             sync_experiment_policies()
 
         assert ApprovalPolicy.objects.filter(organization=self.organization, action_key="experiment.launch").exists()
+        assert not ApprovalPolicy.objects.filter(organization=rolled_out, action_key="experiment.launch").exists()

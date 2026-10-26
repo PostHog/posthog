@@ -227,20 +227,23 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
     def _assert_operation_took_effect(
         self, operation: str, flag: Optional[FeatureFlag], expected: Optional[str]
     ) -> None:
-        """An ungated cell must prove the write landed, or "no change request" means nothing."""
-        if operation == "update_release_condition":
-            assert flag is not None
-            properties = FeatureFlag.objects.get(id=flag.id).filters["groups"][0]["properties"]
-            landed = [prop["key"] for prop in properties] == [RELEASE_CONDITION["key"]]
-            assert landed is (expected is UNGATED), f"release edit landed={landed} but the table says {expected}"
-            return
-        if operation != "delete":
+        """An ungated cell must prove the write landed, or "no change request" means nothing.
+
+        A REJECTED cell also leaves no change request, so only the write landing tells the two apart.
+        """
+        if operation == "create_active":
             return
         assert flag is not None
-        deleted = FeatureFlag.objects_including_soft_deleted.get(id=flag.id).deleted
-        # An ungated delete must land, or "no change request" would prove nothing. A REJECTED
-        # cell must not.
-        assert deleted is (expected is UNGATED), f"delete landed={deleted} but the table says {expected}"
+        stored = FeatureFlag.objects_including_soft_deleted.get(id=flag.id)
+        group = stored.filters["groups"][0]
+        landed = {
+            "update_gated_field": group["rollout_percentage"] == 100,
+            "update_release_condition": [prop["key"] for prop in group["properties"]] == [RELEASE_CONDITION["key"]],
+            "enable": stored.active is True,
+            "disable": stored.active is False,
+            "delete": stored.deleted,
+        }[operation]
+        assert landed is (expected is UNGATED), f"{operation} landed={landed} but the table says {expected}"
 
     @parameterized.expand(
         [
