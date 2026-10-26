@@ -32,7 +32,7 @@ from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
-from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
+from posthog.query_creator_access import creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -279,9 +279,21 @@ _SLOT_POLL_SECONDS = 5.0
 
 _SLOT_LOST_ERROR_TYPE = "EvaluationSlotLost"
 
+CREATOR_LEFT_DISABLE_REASON = (
+    "The owner of this alert is no longer in the organization. Create a new alert to keep monitoring this insight."
+)
+CREATOR_LOST_ACCESS_DISABLE_REASON = (
+    "The owner of this alert no longer has access to some of the data in this insight. "
+    "Ask a project admin for access, or create a new alert."
+)
+
 
 class _EvaluationStopped(Exception):
     """Raised in the evaluation thread once its attempt's cancellation began, so it records nothing."""
+
+
+class _CreatorLeftOrganization(Exception):
+    pass
 
 
 async def _hold_evaluation_slot_before_running(alert_id: str, *, lease_seconds: float) -> float:
@@ -668,9 +680,18 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         breaches: list[str] | None = None
         error: dict | None = None
         invalid_configuration: str | None = None
+        disable_error_code = "invalid_configuration"
         alert_evaluation_result = None
 
         try:
+            # The query runs as the owner, and a query that reads no restricted table would still succeed.
+            # An alert with no recorded owner is left alone, and the platform delivers platform-owned alerts.
+            if (
+                alert.created_by is not None
+                and not alert.platform_owned
+                and creator_access_revoked(alert.created_by, alert.team)
+            ):
+                raise _CreatorLeftOrganization()
             alert_evaluation_result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
             breaches = alert_evaluation_result.breaches
             if is_llm_detector_config(alert.detector_config):
@@ -700,29 +721,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
             invalid_configuration = str(err)
-        except TableAccessDeniedError as err:
-            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
-            # A revoked creator's access-denied error is a known limitation - report it as an event
-            # rather than capturing it, which would recur on every check until the alert is fixed.
-            if creator_access_revoked(alert.created_by, alert.team):
-                report_creator_access_revoked(
-                    user=alert.created_by,
-                    team=alert.team,
-                    source="alert",
-                    error=err,
-                    properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
-                )
-                error = {"message": str(err)}
-            else:
-                capture_exception(
-                    err,
-                    additional_properties={
-                        "alert_configuration_id": str(alert.id),
-                        "insight_id": alert.insight_id,
-                        "team_id": alert.team_id,
-                    },
-                )
-                error = {"message": str(err), "traceback": traceback.format_exc()}
+        except _CreatorLeftOrganization:
+            invalid_configuration = CREATOR_LEFT_DISABLE_REASON
+            disable_error_code = "creator_left_organization"
+        except TableAccessDeniedError:
+            # The owner is still a member, so the denial is their access, not a bug to capture.
+            invalid_configuration = CREATOR_LOST_ACCESS_DISABLE_REASON
+            disable_error_code = "creator_lost_access"
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
@@ -755,7 +760,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert = current_alert
             if invalid_configuration is not None:
                 alert_check = disable_invalid_alert(
-                    alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
+                    alert, invalid_configuration, notify_subscribers=False, error_code=disable_error_code
                 )
                 return EvaluateAlertResult(
                     alert_check_id=str(alert_check.id),

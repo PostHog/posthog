@@ -30,6 +30,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled
@@ -38,7 +40,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.redis import get_client
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -1262,6 +1264,41 @@ class TestEvaluateAlert:
         assert second.kwargs["template_context"]["alert_error"] == "Alert configuration is invalid"
         await sync_to_async(check.refresh_from_db)()
         assert check.targets_notified
+
+    @pytest.mark.parametrize(
+        "owner_change, expected_code",
+        [("left_organization", "creator_left_organization"), ("lost_table_access", "creator_lost_access")],
+    )
+    async def test_evaluate_auto_disables_when_the_owner_can_no_longer_run_the_query(
+        self, alert_with_user, aorganization, owner_change, expected_code
+    ) -> None:
+        owner = await sync_to_async(lambda: alert_with_user.subscribed_users.get())()
+        alert_with_user.created_by = owner
+        await sync_to_async(alert_with_user.save)(update_fields=["created_by"])
+        if owner_change == "left_organization":
+            await sync_to_async(
+                OrganizationMembership.objects.filter(organization_id=aorganization.id, user=owner).delete
+            )()
+
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=TableAccessDeniedError("revenue"),
+            ) as mock_check,
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        mock_capture.assert_not_called()
+        # A departed owner's alert must stop even when its query would still run.
+        assert mock_check.called is (owner_change == "lost_table_access")
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None and check.error["code"] == expected_code
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.

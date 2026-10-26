@@ -1,13 +1,19 @@
 import uuid
+from collections.abc import Iterable
 from typing import NamedTuple
 from urllib.parse import urlparse
 
 import structlog
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
+from posthog.query_creator_access import creator_access_revoked
 
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -58,6 +64,22 @@ SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
         "Add files:write to a custom Slack app, or reconnect PostHog's Slack app, then try again."
     ),
 )
+CREATOR_LEFT_DISABLE_REASON = DisableReason(
+    key="creator_left_organization",
+    description="The owner of this subscription is no longer in the organization",
+    user_message=(
+        "Cannot re-enable {target_type} subscription: its owner is no longer in the organization. "
+        "Create a new subscription to keep receiving this report."
+    ),
+)
+CREATOR_LOST_ACCESS_DISABLE_REASON = DisableReason(
+    key="creator_lost_access",
+    description="The owner of this subscription no longer has access to some of its data",
+    user_message=(
+        "Cannot re-enable {target_type} subscription until its owner has access to all of its data again. "
+        "Ask a project admin for access, or create a new subscription."
+    ),
+)
 AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     key="ai_prompt_invalid",
     description="AI subscription prompt or creator is invalid",
@@ -80,6 +102,28 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
         return UNSUPPORTED_TARGET_DISABLE_REASON
     if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
         return SLACK_DISCONNECTED_DISABLE_REASON
+    return None
+
+
+def get_creator_disable_reason(subscription: Subscription) -> DisableReason | None:
+    """Disable reason when the owner can no longer run the subscription's queries. Deliveries run as the owner.
+
+    A subscription with no recorded owner is left alone, because nobody is known to have left.
+    """
+    if subscription.created_by is not None and creator_access_revoked(subscription.created_by, subscription.team):
+        return CREATOR_LEFT_DISABLE_REASON
+    return None
+
+
+# Export failures that mean the owner lost access, not that the export broke.
+_ACCESS_DENIED_EXCEPTION_TYPES = frozenset(
+    {TableAccessDeniedError.__name__, UserAccessControlError.__name__, UserNotOrganizationMemberError.__name__}
+)
+
+
+def get_asset_access_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
+    if any(exception_type in _ACCESS_DENIED_EXCEPTION_TYPES for exception_type in exception_types):
+        return CREATOR_LOST_ACCESS_DISABLE_REASON
     return None
 
 
@@ -108,6 +152,24 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     if not subscription.team.all_users_with_access().filter(id=creator_id).exists():
         return None
     return creator
+
+
+def _disabled_notification_emails(subscription: Subscription, reason: DisableReason) -> list[str]:
+    creator = _get_notification_creator(subscription)
+    if creator is not None:
+        return [creator.email] if creator.email else []
+    if reason != CREATOR_LEFT_DISABLE_REASON:
+        return []
+    # The owner is gone, so the admins are the only people who can replace the subscription.
+    return list(
+        OrganizationMembership.objects.filter(
+            organization_id=subscription.team.organization_id,
+            level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
+        .exclude(user__email="")
+        .values_list("user__email", flat=True)
+    )
 
 
 def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
@@ -149,10 +211,10 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             exc_info=True,
         )
 
-    creator = _get_notification_creator(subscription)
-    if creator and creator.email:
+    emails = _disabled_notification_emails(subscription, reason)
+    if emails:
         try:
-            send_notifications_for_disabled_subscription(subscription, reason, [creator.email])
+            send_notifications_for_disabled_subscription(subscription, reason, emails)
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)

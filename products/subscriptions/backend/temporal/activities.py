@@ -21,6 +21,8 @@ from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
     disable_invalid_subscription,
+    get_asset_access_disable_reason,
+    get_creator_disable_reason,
     get_subscription_disable_reason,
 )
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
@@ -224,7 +226,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAbort | None:
     """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "integration").get,
+        Subscription.objects.select_related("created_by", "integration", "team").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -234,7 +236,9 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
         await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
         return DeliveryAbort()
 
-    reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+    reason = get_subscription_disable_reason(
+        subscription.target_type, subscription.integration_id
+    ) or await database_sync_to_async(get_creator_disable_reason, thread_sensitive=False)(subscription)
     if reason is None:
         return None
 
@@ -505,6 +509,11 @@ async def _deliver_insight_dashboard_subscription(
         # ApplicationError would be misleading (matches `_auto_disable_and_return`).
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
+
+    # Disable rather than deliver a report with some tiles quietly missing.
+    access_reason = get_asset_access_disable_reason(asset.exception_type for asset in assets)
+    if access_reason is not None:
+        return await auto_disable_and_return(subscription, access_reason, recipient_results)
 
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
