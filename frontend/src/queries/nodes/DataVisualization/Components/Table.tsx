@@ -126,14 +126,31 @@ export function estimateColumnWidths(
     rowCount: number,
     getCell: (sampleRowIndex: number, columnIndex: number) => TableDataCell<any>
 ): number[] {
-    const sampleRowCount = Math.min(
-        rowCount,
-        Math.max(MIN_COLUMN_WIDTH_SAMPLE_ROWS, Math.floor(COLUMN_WIDTH_SAMPLE_CELLS / Math.max(1, columnTitles.length)))
-    )
+    const columnCount = columnTitles.length
+    // Keep the total number of formatted cells within the budget. Very wide tables (e.g. a transposed
+    // result) sample a spread of columns, and the other columns reuse the typical sampled width.
+    const minSampleRows = Math.max(1, Math.min(MIN_COLUMN_WIDTH_SAMPLE_ROWS, rowCount))
+    const sampledColumnCount = Math.min(columnCount, Math.floor(COLUMN_WIDTH_SAMPLE_CELLS / minSampleRows))
+    const sampleRowCount = Math.min(rowCount, Math.floor(COLUMN_WIDTH_SAMPLE_CELLS / Math.max(1, sampledColumnCount)))
     // Spread the sample over the whole result, so a long tail of wider values still counts
     const sampleRowIndexes = Array.from({ length: sampleRowCount }, (_, index) =>
         Math.floor((index * rowCount) / sampleRowCount)
     )
+
+    const longestCellLengths = new Map<number, number>()
+    for (let index = 0; index < sampledColumnCount; index++) {
+        const columnIndex = Math.floor((index * columnCount) / sampledColumnCount)
+        let longestCellLength = 0
+        for (const rowIndex of sampleRowIndexes) {
+            longestCellLength = Math.max(longestCellLength, getCellTextLength(getCell(rowIndex, columnIndex)))
+            if (longestCellLength * CELL_CHARACTER_WIDTH >= MAX_COLUMN_WIDTH) {
+                break
+            }
+        }
+        longestCellLengths.set(columnIndex, longestCellLength)
+    }
+    const sampledLengths = [...longestCellLengths.values()].sort((a, b) => a - b)
+    const typicalCellLength = sampledLengths[Math.floor(sampledLengths.length / 2)] ?? 0
 
     return columnTitles.map((title, columnIndex) => {
         // Headers wrap at spaces, dashes, and underscores, so only the longest segment must fit on one line
@@ -144,15 +161,8 @@ export function estimateColumnWidths(
                 Math.min(title.length * HEADER_CHARACTER_WIDTH, HEADER_LINE_MAX_WIDTH)
             ) + HEADER_ICONS_WIDTH
 
-        let longestCellLength = 0
-        for (const rowIndex of sampleRowIndexes) {
-            longestCellLength = Math.max(longestCellLength, getCellTextLength(getCell(rowIndex, columnIndex)))
-            if (longestCellLength * CELL_CHARACTER_WIDTH >= MAX_COLUMN_WIDTH) {
-                break
-            }
-        }
-
-        const isEdgeColumn = columnIndex === 0 || columnIndex === columnTitles.length - 1
+        const longestCellLength = longestCellLengths.get(columnIndex) ?? typicalCellLength
+        const isEdgeColumn = columnIndex === 0 || columnIndex === columnCount - 1
         const padding = CELL_HORIZONTAL_PADDING + (isEdgeColumn ? EDGE_CELL_EXTRA_PADDING : 0)
         const contentWidth = Math.max(headerWidth, longestCellLength * CELL_CHARACTER_WIDTH)
         return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, contentWidth + padding)))

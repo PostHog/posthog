@@ -75,4 +75,20 @@ describe('estimateColumnWidths', () => {
         expect(width).toBeGreaterThan(200)
         expect(getCell.mock.calls.length).toBeLessThanOrEqual(1000)
     })
+
+    it('keeps the sampled cells within the budget for very wide tables', () => {
+        const columnCount = 10_001
+        const titles = Array.from({ length: columnCount }, (_, index) => `row_${index}`)
+        const getCell = jest.fn((_rowIndex: number, columnIndex: number) =>
+            cell(columnIndex === 0 ? 'field_name' : 'x'.repeat(20))
+        )
+
+        const widths = estimateColumnWidths(titles, 10, getCell)
+
+        expect(getCell.mock.calls.length).toBeLessThanOrEqual(5000)
+        expect(widths).toHaveLength(columnCount)
+        // Unsampled columns reuse the typical sampled width
+        expect(widths[1]).toBe(widths[columnCount - 2])
+        expect(widths[1]).toBeGreaterThan(150)
+    })
 })
