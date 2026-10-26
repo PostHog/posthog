@@ -25,6 +25,7 @@ import { cloudEnvironmentsLogic } from 'scenes/settings/environment/cloudEnviron
 
 import type { SandboxEnvironmentDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
 import { cloudTargetKey, unattachedImages } from '../../../utils/cloudTargets'
 import { composerSandboxEnvironmentsLogic } from '../composerSandboxEnvironmentsLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
@@ -218,9 +219,9 @@ export function TaskComposerEnvironmentSelect(): JSX.Element {
                 />
                 <DropdownMenuContent
                     align="start"
-                    side="bottom"
+                    side="top"
                     sideOffset={6}
-                    className="w-auto max-w-[360px] min-w-[280px]"
+                    className={cn('w-auto max-w-[360px] min-w-[280px]', COMPOSER_MENU_CLASS)}
                 >
                     <div className="flex items-center justify-between px-2 py-1">
                         <MenuLabel className="p-0">Cloud environments</MenuLabel>

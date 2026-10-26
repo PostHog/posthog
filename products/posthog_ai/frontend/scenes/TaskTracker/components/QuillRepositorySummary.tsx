@@ -8,7 +8,9 @@ import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { useGitHubDefaultBranch } from 'lib/integrations/useGitHubDefaultBranch'
+import { cn } from 'lib/utils/css-classes'
 
+import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
 import type { RepositoryConfig } from '../../../types/taskTypes'
 import { QuillGitHubAccountMenu } from './QuillGitHubAccountMenu'
 
@@ -52,7 +54,7 @@ export function QuillRepositorySummary({
                     </Button>
                 }
             />
-            <PopoverContent side="bottom" align="start" className="w-72 gap-3">
+            <PopoverContent side="top" align="start" sideOffset={6} className={cn('w-72 gap-3', COMPOSER_MENU_CLASS)}>
                 {githubIntegrations.length > 1 && (
                     <div className="flex flex-col gap-1">
                         <Label>GitHub account</Label>

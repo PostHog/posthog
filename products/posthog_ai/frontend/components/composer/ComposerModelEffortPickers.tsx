@@ -15,6 +15,8 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
+import { cn } from 'lib/utils/css-classes'
+
 import {
     getCapabilityLadder,
     getDefaultModelForRuntimeAdapter,
@@ -38,6 +40,7 @@ import {
 import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
+import { COMPOSER_MENU_CLASS } from '../quill/composerMenuClass'
 import type { ThreadSkin } from '../quill/quillThreadContext'
 import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
@@ -106,10 +109,16 @@ interface PickerSectionProps {
 /** One `label … current ›` row of the cascade, opening a radio list. */
 const PICKER_CHROME: Record<
     ThreadSkin,
-    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean; modelIcon: boolean }
+    {
+        triggerVariant: 'outline' | 'default'
+        icons: boolean
+        defaultPrefix: boolean
+        modelIcon: boolean
+        composerMenu: boolean
+    }
 > = {
-    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true, modelIcon: false },
-    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false, modelIcon: true },
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true, modelIcon: false, composerMenu: false },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false, modelIcon: true, composerMenu: true },
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
@@ -296,7 +305,11 @@ export function ComposerModelEffortPickers({
                     </Button>
                 }
             />
-            <DropdownMenuContent className="w-auto min-w-56">
+            <DropdownMenuContent
+                side={chrome.composerMenu ? 'top' : 'bottom'}
+                sideOffset={chrome.composerMenu ? 6 : 4}
+                className={cn('w-auto min-w-56', chrome.composerMenu && COMPOSER_MENU_CLASS)}
+            >
                 {advanced ? (
                     <>
                         {showBack && (

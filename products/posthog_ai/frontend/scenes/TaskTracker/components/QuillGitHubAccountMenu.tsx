@@ -14,6 +14,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
 import { githubAuthorizeUrl } from './githubAuthorizeUrl'
 
 export interface QuillGitHubAccountMenuProps {
@@ -51,7 +52,12 @@ export function QuillGitHubAccountMenu({
                     </Button>
                 }
             />
-            <DropdownMenuContent align="start" className="min-w-fit">
+            <DropdownMenuContent
+                align="start"
+                side="top"
+                sideOffset={6}
+                className={cn('min-w-fit', COMPOSER_MENU_CLASS)}
+            >
                 {githubIntegrations.map((integration) => (
                     <DropdownMenuItem key={integration.id} onClick={() => onSelect(integration.id)}>
                         {integration.display_name}

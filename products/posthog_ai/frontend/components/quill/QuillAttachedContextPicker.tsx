@@ -23,6 +23,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { attachedContextLogic } from '../../logics/attachedContextLogic'
 import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
+import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 
 export interface QuillAttachedContextPickerProps {
     open?: boolean
@@ -128,7 +129,8 @@ export function QuillAttachedContextPicker({
                 sideOffset={8}
                 anchor={anchor}
                 className={cn(
-                    'overflow-hidden rounded-xl p-0',
+                    'overflow-hidden p-0',
+                    COMPOSER_MENU_CLASS,
                     anchor
                         ? 'w-(--anchor-width) max-w-[calc(100vw-2rem)] transition-[opacity,translate] duration-[180ms] ease-[cubic-bezier(0.23,1,0.32,1)] data-[ending-style]:translate-y-1 data-[ending-style]:transform-none data-[ending-style]:duration-[120ms] data-[starting-style]:translate-y-1.5 data-[starting-style]:transform-none motion-reduce:data-[ending-style]:translate-y-0 motion-reduce:data-[starting-style]:translate-y-0'
                         : 'w-auto'

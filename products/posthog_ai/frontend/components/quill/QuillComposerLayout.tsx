@@ -77,7 +77,7 @@ export function QuillComposerLayout({
                 <div className="relative w-full min-w-0">{field}</div>
                 <div
                     data-quill
-                    className="@container/composer flex w-full flex-wrap items-center gap-1 px-1 pb-1 text-[var(--muted-foreground)]"
+                    className="@container/composer flex w-full flex-wrap items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)]"
                 >
                     {controls}
                     <div className="ml-auto flex shrink-0 items-center gap-1">

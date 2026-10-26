@@ -15,9 +15,11 @@ import {
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useComposerFilePicker } from '../../../components/composer/useComposerFilePicker'
+import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
 import { githubAuthorizeUrl } from './githubAuthorizeUrl'
 
 export interface TaskComposerAddMenuProps {
@@ -63,7 +65,12 @@ export function TaskComposerAddMenu({
                         {addDisabledReason ?? (isOver ? 'Drop to attach' : 'Add files, context or a repository')}
                     </TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="start" side="top" sideOffset={6} className="min-w-fit">
+                <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    sideOffset={6}
+                    className={cn('min-w-fit', COMPOSER_MENU_CLASS)}
+                >
                     <DropdownMenuItem
                         disabled={!!addDisabledReason}
                         onClick={openPicker}
