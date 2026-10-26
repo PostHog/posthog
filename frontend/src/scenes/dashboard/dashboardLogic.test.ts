@@ -1007,12 +1007,13 @@ describe('dashboardLogic', () => {
             })
 
             it.each([
-                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: false },
-                { leftTabTiles: 4, cancelled: false, returnBeforeAbortsSettle: false },
-                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: true },
+                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: false, stop: false },
+                { leftTabTiles: 4, cancelled: false, returnBeforeAbortsSettle: false, stop: false },
+                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: true, stop: false },
+                { leftTabTiles: 5, cancelled: true, returnBeforeAbortsSettle: true, stop: true },
             ])(
-                'on a tab switch, $leftTabTiles loading tiles in the tab left behind are cancelled: $cancelled, and load again on a return before the aborts settle: $returnBeforeAbortsSettle',
-                async ({ leftTabTiles, cancelled, returnBeforeAbortsSettle }) => {
+                'on a tab switch, $leftTabTiles loading tiles in the tab left behind are cancelled: $cancelled, return before the aborts settle: $returnBeforeAbortsSettle, stop: $stop',
+                async ({ leftTabTiles, cancelled, returnBeforeAbortsSettle, stop }) => {
                     groupTiles({ target: { collapsed: false } })
                     const [targetTile, ungroupedTile] = dashboards[5].tiles
                     const leftTiles = Array.from({ length: leftTabTiles }, (_, index) => ({
@@ -1056,6 +1057,19 @@ describe('dashboardLogic', () => {
                         logic.actions.selectTileGroupTab('group-target')
                         refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
                         logic.actions.selectTileGroupTab('tiles-ungrouped')
+                        if (stop) {
+                            await expectLogic(logic, () => logic.actions.cancelDashboardRefresh())
+                                .toDispatchActions(leftTiles.map(() => 'abortQuery'))
+                                .delay(20)
+                                .toFinishAllListeners()
+                            expect(
+                                leftShortIds.map((id) => loads(id).filter((call) => !call[5]?.signal?.aborted).length)
+                            ).toEqual(leftShortIds.map(() => 0))
+                            expect(logic.values.waitingTileRefresh?.tileIds).toEqual(
+                                expect.arrayContaining(leftTiles.map((tile) => tile.id))
+                            )
+                            return
+                        }
                         await expectLogic(logic)
                             .toDispatchActions(['abortQuery', 'refreshOpenTileGroupsWaiting'])
                             .toFinishAllListeners()
