@@ -744,10 +744,10 @@ class TestSpendBasedBilling(BaseTest):
             set(first_billable_pr_run_at_by_report([report.id, legacy_report.id], team_id=self.team.id))
             == expected_refundable
         )
+        with self.assertNumQueries(0):
+            annotated = annotate_first_billable_pr_run_at(reports, organization_id=self.organization.id)
         assert {
-            str(row.id)
-            for row in annotate_first_billable_pr_run_at(reports)
-            if row.__dict__["first_billable_pr_run_at"] is not None
+            str(row.id) for row in annotated if row.__dict__["first_billable_pr_run_at"] is not None
         } == expected_refundable
         # Changing the report's driver cannot change either owner's eligibility.
         SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)

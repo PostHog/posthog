@@ -52,6 +52,7 @@ from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.models import Team
 from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
@@ -199,13 +200,11 @@ def report_has_implementation_pr(report_id: str | uuid.UUID, *, team_id: int) ->
     return _bridges_with_pr_run(include_manual=True).filter(report_id=report_id, team_id=team_id).exists()
 
 
-def _legacy_pr_bridges(reports: QuerySet[SignalReport]) -> QuerySet[SignalReportTask]:
-    cutoffs = {
-        organization_id: cutoff
-        for organization_id in reports.order_by().values_list("team__organization_id", flat=True).distinct()
-        if (cutoff := usage_billing_cutoff(organization_id)) is not None
-    }
-    reports = reports.exclude(id__in=usage_billed_reports(cutoffs).values("id"))
+def _legacy_pr_bridges(
+    reports: QuerySet[SignalReport], *, organization_id: uuid.UUID | None
+) -> QuerySet[SignalReportTask]:
+    if organization_id is not None and (cutoff := usage_billing_cutoff(organization_id)) is not None:
+        reports = reports.exclude(id__in=usage_billed_reports({organization_id: cutoff}).values("id"))
     return _bridges_with_pr_run().filter(report_id__in=reports.values("id"))
 
 
@@ -224,7 +223,10 @@ def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstB
     query, so the two can never disagree about whether a billable run exists.
     """
     row = (
-        _legacy_pr_bridges(SignalReport.objects.filter(id=report_id, team_id=team_id))
+        _legacy_pr_bridges(
+            SignalReport.objects.filter(id=report_id, team_id=team_id),
+            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
+        )
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -260,13 +262,15 @@ def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int
     ).exists()
 
 
-def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
+def annotate_first_billable_pr_run_at(
+    queryset: QuerySet[SignalReport], *, organization_id: uuid.UUID
+) -> QuerySet[SignalReport]:
     """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
     `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same
     fail-closed filters as the usage query, so list-rendered refund eligibility can never
     disagree with what the refund action would accept."""
     earliest = (
-        _legacy_pr_bridges(queryset)
+        _legacy_pr_bridges(queryset, organization_id=organization_id)
         .filter(report_id=OuterRef("id"))
         .order_by("task__runs__created_at")
         .values("task__runs__created_at")[:1]
@@ -282,7 +286,10 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID], *,
     Reports with no billable PR run are absent from the map, matching the annotation's NULL.
     """
     rows = (
-        _legacy_pr_bridges(SignalReport.objects.filter(id__in=report_ids, team_id=team_id))
+        _legacy_pr_bridges(
+            SignalReport.objects.filter(id__in=report_ids, team_id=team_id),
+            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
+        )
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )

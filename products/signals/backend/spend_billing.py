@@ -91,6 +91,16 @@ def usage_billed_reports(cutoffs: dict[UUID, datetime]) -> QuerySet[SignalReport
     return SignalReport.objects.filter(eligible)
 
 
+def task_run_uses_usage_billing(team: Team, run_id: UUID) -> bool:
+    cutoff = usage_billing_cutoff(team.organization_id)
+    return (
+        cutoff is not None
+        and SignalSpend.objects.for_team(team.id)
+        .filter(task_run_id=run_id, created_at__gte=cutoff, billing_exempt=False)
+        .exists()
+    )
+
+
 def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime]) -> dict[int, int]:
     if end <= begin or not cutoffs:
         return {}

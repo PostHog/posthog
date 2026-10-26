@@ -1463,7 +1463,10 @@ async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ate
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
+@pytest.mark.parametrize(
+    "source_product,exempt", [("health_checks", True), ("engineering_analytics", True), ("error_tracking", False)]
+)
+async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source_product, exempt):
     original_driver = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1474,7 +1477,10 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
         triggering_signal_id=original_driver,
     )
     for _ in range(3):
-        signal = _build_input(ateam.id, _existing_match(str(report.id)))
+        signal = _build_input(ateam.id, _existing_match(str(report.id)), source_product=source_product)
+        await database_sync_to_async(record_llm_spend)(
+            team_id=ateam.id, signal_id=signal.signal_id, stage="grouping", token_cost_microusd=100
+        )
         await assign_and_emit_signal_activity(signal)
         await database_sync_to_async(report.refresh_from_db)()
         assert report.triggering_signal_id == original_driver
@@ -1485,3 +1491,18 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
             assert str(report.pending_triggering_signal_id) == next_driver
         else:
             assert str(report.pending_triggering_signal_id) == next_driver
+
+    # Summary completion wins the race against the batch's final grouping activity.
+    await database_sync_to_async(finish_report_spend)(
+        team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver)
+    )
+    pending = await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=next_driver))()
+    finalized_at = pending.finalized_at
+    assert finalized_at is not None
+    assert pending.billing_exempt is exempt
+    await database_sync_to_async(complete_signal_pipeline)(
+        team_id=ateam.id, report_id=str(report.id), signal_id=next_driver, billing_exempt=exempt
+    )
+    await database_sync_to_async(pending.refresh_from_db)()
+    assert pending.finalized_at == finalized_at
+    assert pending.billing_exempt is exempt

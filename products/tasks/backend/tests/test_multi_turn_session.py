@@ -13,7 +13,6 @@ from django.db import OperationalError, transaction
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel, Field, JsonValue
-from temporalio.client import WorkflowFailureError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
@@ -2078,33 +2077,12 @@ class TestPollForTurnConnectionDrop:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
-@pytest.mark.parametrize("closed,teardown_failed", [(False, False), (True, False), (True, True)])
-async def test_pipeline_session_waits_for_task_completion_after_signalling(
-    origin: str, closed: bool, teardown_failed: bool
-) -> None:
-    completion_started = asyncio.Event()
-    cost_ready = asyncio.Event()
-
-    async def finish() -> None:
-        completion_started.set()
-        await cost_ready.wait()
-        if teardown_failed:
-            raise WorkflowFailureError(cause=RuntimeError("cleanup failed"))
-
+@pytest.mark.parametrize("closed", [False, True])
+async def test_pipeline_session_releases_activity_slot_after_signalling(origin: str, closed: bool) -> None:
     handle = AsyncMock()
-    handle.result.side_effect = finish
     if closed:
         handle.signal.side_effect = RPCError("workflow closed", RPCStatusCode.NOT_FOUND, b"")
     session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
-    ending = asyncio.create_task(session.end())
-    try:
-        await asyncio.wait_for(completion_started.wait(), timeout=2)
-        handle.signal.assert_awaited_once()
-        assert not ending.done()
-        cost_ready.set()
-        await asyncio.wait_for(ending, timeout=2)
-        handle.result.assert_awaited_once()
-    finally:
-        if not ending.done():
-            ending.cancel()
-            await asyncio.gather(ending, return_exceptions=True)
+    await session.end()
+    handle.signal.assert_awaited_once()
+    handle.result.assert_not_awaited()

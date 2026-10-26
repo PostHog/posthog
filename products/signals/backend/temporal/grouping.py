@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import complete_signal_pipeline, signal_spend_summaries
+from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -967,6 +967,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # bill the customer. Only this founding signal decides: signals that join the
                     # report later (the branch above) leave the exemption unchanged either way.
                     billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
+                )
+
+            # Persist source exemptions before a summary can see and finalize this trigger.
+            if system_source_exempt(input.source_product):
+                begin_report_spend(
+                    team_id=input.team_id,
+                    report_id=str(report.id),
+                    signal_id=input.signal_id,
+                    billing_exempt=True,
                 )
 
             # Promotion rules by status:

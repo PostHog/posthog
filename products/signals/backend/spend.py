@@ -84,6 +84,8 @@ class SignalSpendUpdate:
     team_id: int
     signal_id: str
     changes: list[SignalMetadataChange] = field(default_factory=list)
+    published_metadata: dict[str, SignalMetadataChange] = field(default_factory=dict)
+    published_versions: dict[str, int] = field(default_factory=dict)
 
 
 @frozen
@@ -91,6 +93,7 @@ class SignalSpendPublication:
     signal: SignalSpendUpdate
     summary: SignalSpendSummary
     versions: dict[str, int]
+    metadata: dict[str, SignalMetadataChange] = field(default_factory=dict)
 
 
 async def submit_signal_metadata_updates(
@@ -118,7 +121,6 @@ async def submit_signal_metadata_updates(
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     start_signal="update_metadata" if change else "refresh",
                     start_signal_args=[change] if change else [],
-                    execution_timeout=timedelta(minutes=15),
                     rpc_timeout=timedelta(seconds=5),
                 )
                 for signal_id in signal_ids[start : start + 20]
@@ -146,7 +148,6 @@ async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_complet
             id=f"signal-spend-{team_id}-{signal_id}",
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
-            execution_timeout=timedelta(minutes=15),
         ),
     )
 
@@ -349,11 +350,12 @@ def complete_signal_pipeline(
         _save_ad_hoc_spend(spend, finalize=not handed_off)
 
 
-def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
+def begin_report_spend(*, team_id: int, report_id: str, signal_id: str, billing_exempt: bool = False) -> None:
     with transaction.atomic():
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
         if spend.finalized_at is not None:
             return
+        spend.billing_exempt = spend.billing_exempt or billing_exempt
         report = SignalReport.objects.get(team_id=team_id, id=report_id)
         apply_report_billing(spend, report)
         _save_ad_hoc_spend(spend)

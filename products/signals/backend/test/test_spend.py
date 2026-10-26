@@ -25,6 +25,8 @@ from anthropic import APIResponseValidationError, AsyncAnthropic
 from asgiref.sync import async_to_sync
 from fakeredis import FakeRedis
 from parameterized import parameterized
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import EmbeddingModelName
 
@@ -62,6 +64,8 @@ from products.signals.backend.spend_metadata import confirm_signal_spend_metadat
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.tasks import settle_scout_spend
 from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.temporal.summary import check_report_task_settlement_activity
+from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, process_pending_gateway_usage
 from products.tasks.backend.models import Task, TaskRun
 
@@ -587,6 +591,24 @@ class TestSignalSpend(BaseTest):
             run_id=run_id,
             report_id=str(run.task.signal_report_id) if run.task.signal_report_id else None,
         )
+
+    def test_settlement_waits_for_only_the_triggering_signals_task_workflows(self) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        self._run(report=report, signal_id=str(uuid4()))
+        run = self._run(report=report, signal_id=driver)
+        handle = AsyncMock()
+        self.temporal.get_workflow_handle = Mock(return_value=handle)
+        inputs = SignalReportSummaryWorkflowInputs(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
+        with patch(
+            "products.signals.backend.temporal.summary.async_connect", new=AsyncMock(return_value=self.temporal)
+        ):
+            handle.describe.return_value.status = WorkflowExecutionStatus.RUNNING
+            with self.assertRaisesRegex(ApplicationError, "still settling"):
+                async_to_sync(check_report_task_settlement_activity)(inputs)
+            self.temporal.get_workflow_handle.assert_called_once_with(run.workflow_id)
+            handle.describe.return_value.status = WorkflowExecutionStatus.COMPLETED
+            async_to_sync(check_report_task_settlement_activity)(inputs)
 
     def _refresh_task_spend(self, *, run_id: str, team_id: int) -> None:
         run = TaskRun.objects.get(id=run_id, team_id=team_id)

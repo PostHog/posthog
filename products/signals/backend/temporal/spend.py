@@ -57,13 +57,14 @@ class UpdateSignalSpendWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: SignalSpendUpdate) -> None:
         self._changes = input.changes + self._changes
+        publication: SignalSpendPublication | None = None
         while True:
             # Separate replacements into Kafka timestamp seconds, and coalesce queued notifications.
             await workflow.sleep(1)
             updates = self._updates
             changes, self._changes = self._changes, []
             try:
-                publication = await workflow.execute_activity(
+                published: SignalSpendPublication = await workflow.execute_activity(
                     update_signal_spend_activity,
                     replace(input, changes=changes),
                     start_to_close_timeout=timedelta(minutes=1),
@@ -72,19 +73,45 @@ class UpdateSignalSpendWorkflow(PostHogWorkflow):
                         initial_interval=timedelta(seconds=1), maximum_interval=timedelta(seconds=10)
                     ),
                 )
+                publication = published
                 self._published_updates = updates
-                await workflow.execute_activity(
+                input = replace(input, published_metadata=publication.metadata, published_versions=publication.versions)
+                # Keep the acknowledged fields until ClickHouse catches up, without holding up
+                # another Kafka publication. Only the small fields we mutate enter workflow history.
+                confirmation = workflow.start_activity(
                     confirm_signal_spend_activity,
                     publication,
                     start_to_close_timeout=timedelta(minutes=1),
-                    schedule_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(seconds=1), maximum_interval=timedelta(seconds=10)
                     ),
                 )
+
+                def confirmation_ready(
+                    confirmation: workflow.ActivityHandle[None] = confirmation, updates: int = updates
+                ) -> bool:
+                    return confirmation.done() or updates != self._updates
+
+                await workflow.wait_condition(confirmation_ready)
+                confirmed = confirmation.done()
+                if confirmed:
+                    await confirmation
+                else:
+                    confirmation.cancel()
             except ActivityError:
                 self._publication_failed = True
                 await workflow.wait_condition(workflow.all_handlers_finished)
+                if publication is not None:
+                    # Reject the failed write now, but retain earlier acknowledged fields until
+                    # a replacement workflow can safely read them from ClickHouse.
+                    await workflow.execute_activity(
+                        confirm_signal_spend_activity,
+                        publication,
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=1), maximum_interval=timedelta(seconds=10)
+                        ),
+                    )
                 raise
             if updates == self._updates:
                 await workflow.wait_condition(
@@ -92,5 +119,5 @@ class UpdateSignalSpendWorkflow(PostHogWorkflow):
                 )
                 if updates == self._updates:
                     return
-            if workflow.info().is_continue_as_new_suggested() and workflow.all_handlers_finished():
+            if confirmed and workflow.info().is_continue_as_new_suggested() and workflow.all_handlers_finished():
                 workflow.continue_as_new(replace(input, changes=self._changes))

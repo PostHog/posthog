@@ -310,6 +310,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
 
+    @activity.defn(name="check_report_task_settlement_activity")
+    async def fake_task_settlement(input: SignalReportSummaryWorkflowInputs) -> None:
+        return None
+
     @activity.defn(name="publish_report_spend_activity")
     async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
         recorder.spend_publications += 1
@@ -350,6 +354,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_mark_ready,
                 fake_publish,
                 fake_publish_spend,
+                fake_task_settlement,
                 fake_revert,
                 fake_reset,
                 fake_failed,

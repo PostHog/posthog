@@ -116,6 +116,7 @@ from products.signals.backend.temporal.spend import (
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
+    check_report_task_settlement_activity,
     dispatch_inbox_slack_notifications_activity,
     implementation_buffer_seconds_activity,
     mark_report_failed_activity,
@@ -196,6 +197,7 @@ ACTIVITIES = [
     mark_report_failed_activity,
     read_signals_from_s3_activity,
     check_report_quota_gate_activity,
+    check_report_task_settlement_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
     mark_report_ready_activity,

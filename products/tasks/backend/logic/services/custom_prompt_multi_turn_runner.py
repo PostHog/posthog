@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
-from temporalio import activity
-from temporalio.client import WorkflowFailureError
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.tasks.backend.facade.api import record_run_failure_cause
@@ -57,20 +55,6 @@ def turn_failure_error_type(error: BaseException) -> str | None:
     if isinstance(error, (EmptyAgentTurnError, ValidationError, ValueError)):
         return "output_parse_failed"
     return None
-
-
-async def wait_for_task_completion(handle: WorkflowHandle) -> None:
-    completion = asyncio.create_task(handle.result())
-    try:
-        while not completion.done():
-            await asyncio.wait({completion}, timeout=10)
-            if activity.in_activity():
-                activity.heartbeat()
-        await completion
-    finally:
-        if not completion.done():
-            completion.cancel()
-            await asyncio.gather(completion, return_exceptions=True)
 
 
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
@@ -481,9 +465,3 @@ class MultiTurnSession:
                 logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
                 if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
                     raise
-        if self.task.origin_product in {Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT}:
-            try:
-                await wait_for_task_completion(self._workflow_handle)
-            except WorkflowFailureError:
-                # Teardown must not discard an agent response that the caller already received.
-                logger.exception("multi_turn: task teardown failed run=%s", self.task_run.id)
