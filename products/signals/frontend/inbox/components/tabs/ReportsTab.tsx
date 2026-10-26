@@ -14,7 +14,6 @@ import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisi
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
-import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
@@ -30,7 +29,6 @@ import { ReportContextMenu } from '../cards/ReportContextMenu'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
-import { GitHubConnectionNotice } from '../shell/GitHubConnectionNotice'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
@@ -207,7 +205,6 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
-    const { githubConnectionIssue } = useValues(signalTeamConfigLogic)
     const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
@@ -351,7 +348,7 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
-            {githubConnectionIssue ? <GitHubConnectionNotice /> : <InboxMcpBanner />}
+            <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
 
             {inboxIsEmpty ? (
