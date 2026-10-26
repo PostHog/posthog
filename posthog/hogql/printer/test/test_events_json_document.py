@@ -12,7 +12,8 @@ from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON
 
 # The event properties and person properties an SDK sent, then the rebuilt documents where they differ from what was
 # sent. A sent empty value under a dynamic key stays; the declared paths read '' or [] whether sent empty or absent,
-# so the document leaves those out. A field sent as null comes back as null wherever it sat.
+# so the document leaves those out. A field sent as null comes back as null wherever it sat, unless putting the nulls
+# back would re-read the document more than the builder allows: then none come back.
 SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
     (
         {"$browser": "Chrome", "pathname": "/docs", "empty": "", "list": [], "nested": {"child": ""}},
@@ -52,6 +53,12 @@ SENT_DOCUMENTS: list[tuple[dict, dict, dict | None, dict | None]] = [
         },
         {"years": {"2024": {"x": None}, "2025": 1}},
         None,
+        None,
+    ),
+    (
+        {"matrix": [[{"x": None, "y": 1}] for _ in range(500)], "padding": "v" * 20_000},
+        {},
+        {"matrix": [[{"y": 1}] for _ in range(500)], "padding": "v" * 20_000},
         None,
     ),
 ]
