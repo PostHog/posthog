@@ -30,12 +30,8 @@ const PAID_CHANNELS = new Set<string>([
 const SNOOZE_DURATION_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_DISMISSALS = 2
 
-export interface PaidTrafficThreshold {
-    minVisitors: number
-    minShare: number
-}
-
-const DEFAULT_PAID_TRAFFIC_THRESHOLD: PaidTrafficThreshold = { minVisitors: 50, minShare: 0.03 }
+const MIN_PAID_VISITORS = 50
+const MIN_PAID_SHARE = 0.03
 
 export interface PaidTrafficSummary {
     paidVisitors: number
@@ -61,11 +57,8 @@ export function isMarketingSetupEnabled(featureFlags: FeatureFlagsSet): boolean 
     )
 }
 
-export function isMarketingCrossSellTestArm(featureFlags: FeatureFlagsSet): boolean {
-    return (
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true &&
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL_V2] === 'test'
-    )
+export function isMarketingCrossSellEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true
 }
 
 function isPaidChannel(value: unknown): boolean {
@@ -101,24 +94,12 @@ export function summarizePaidTraffic(response: WebStatsTableQueryResponse | null
     return { paidVisitors, share: totalVisitors > 0 ? paidVisitors / totalVisitors : 0 }
 }
 
-export function parsePaidTrafficThreshold(payload: unknown): PaidTrafficThreshold {
-    const values = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : {}
-    return {
-        minVisitors:
-            typeof values.min_visitors === 'number' ? values.min_visitors : DEFAULT_PAID_TRAFFIC_THRESHOLD.minVisitors,
-        minShare: typeof values.min_share === 'number' ? values.min_share : DEFAULT_PAID_TRAFFIC_THRESHOLD.minShare,
-    }
-}
-
-export function meetsPaidTrafficThreshold(
-    summary: PaidTrafficSummary | null,
-    threshold: PaidTrafficThreshold = DEFAULT_PAID_TRAFFIC_THRESHOLD
-): boolean {
+export function meetsPaidTrafficThreshold(summary: PaidTrafficSummary | null): boolean {
     return (
         !!summary &&
         summary.paidVisitors > 0 &&
-        summary.paidVisitors >= threshold.minVisitors &&
-        summary.share >= threshold.minShare
+        summary.paidVisitors >= MIN_PAID_VISITORS &&
+        summary.share >= MIN_PAID_SHARE
     )
 }
 

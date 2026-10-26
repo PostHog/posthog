@@ -20,7 +20,7 @@ import { marketingCrossSellStateLogic } from './marketingCrossSellStateLogic'
 import {
     PaidTrafficTarget,
     buildMarketingAnalyticsDestination,
-    isMarketingCrossSellTestArm,
+    isMarketingCrossSellEnabled,
     isMarketingSetupEnabled,
     paidTrafficTargetFromFilters,
 } from './marketingCrossSellUtils'
@@ -150,7 +150,7 @@ export const marketingFilterHintLogic: LogicWrapper<marketingFilterHintLogicType
                 productTab === ProductTab.ANALYTICS &&
                 !marketingCrossSellDismissed &&
                 !isSnoozed &&
-                isMarketingCrossSellTestArm(featureFlags),
+                isMarketingCrossSellEnabled(featureFlags),
         ],
         visible: [
             (s) => [s.eligible, s.hasConnectedSources, s.hasConnectedSourcesLoading],

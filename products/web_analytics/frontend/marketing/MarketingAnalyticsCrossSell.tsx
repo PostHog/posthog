@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { supportsMarketingCrossSell } from 'lib/marketingCrossSell'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,6 +12,7 @@ import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { MarketingAnalyticsCrossSellSlot } from './MarketingAnalyticsCrossSellSlot'
 import { marketingCrossSellStateLogic } from './marketingCrossSellStateLogic'
+import { isMarketingCrossSellEnabled } from './marketingCrossSellUtils'
 
 function sourceTabDataNodeProps(tiles: WebAnalyticsTile[], sourceTab: SourceTab): DataNodeLogicProps | null {
     const sources = tiles.find((tile) => tile.tileId === TileId.SOURCES)
@@ -35,7 +35,7 @@ export function MarketingAnalyticsCrossSell({ breakdown }: { breakdown: WebStats
     const { isSnoozed } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
     if (
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] !== true ||
+        !isMarketingCrossSellEnabled(featureFlags) ||
         marketingCrossSellDismissed ||
         isSnoozed ||
         !supportsMarketingCrossSell(breakdown)
