@@ -266,10 +266,12 @@ function rankedResultsSections(
     query: string,
     local: LocalLists,
     localQuery: string,
-    state: CommandKSection['state']
+    state: CommandKSection['state'],
+    persons: SearchItem[]
 ): CommandKSection[] {
     const words = freeWords(query)
     return buildRankedResults({
+        persons,
         query: words.join(' '),
         highlightWords: words,
         results,
@@ -279,7 +281,12 @@ function rankedResultsSections(
     })
 }
 
-function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSection['state']): CommandKSection[] {
+function lowerSections(
+    input: SectionsInput,
+    ranked: boolean,
+    state: CommandKSection['state'],
+    shown: Set<string>
+): CommandKSection[] {
     const { local, remote, remoteQueries, localQuery } = input
     const sections: (CommandKSection | null)[] = []
     const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
@@ -293,12 +300,17 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             if (!isSettled(remote[source], query)) {
                 return false
             }
-            sections.push(query ? remoteSection(source, remote[source].cache[query], state) : null)
+            sections.push(
+                query
+                    ? remoteSection(
+                          source,
+                          remote[source].cache[query].filter((item) => !shown.has(item.id)),
+                          state
+                      )
+                    : null
+            )
         }
         return true
-    }
-    if (input.personsFirst && !appendInOrder(['persons'])) {
-        return loadingMore()
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
@@ -325,8 +337,7 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             state,
         })
     }
-    const trailing = input.personsFirst ? TRAILING_SOURCES.filter((source) => source !== 'persons') : TRAILING_SOURCES
-    return appendInOrder(trailing) ? loaded() : loadingMore()
+    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
@@ -365,12 +376,17 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
     const resultsQuery = remoteQueries.results
     const results = resultsQuery ? remote.results.cache[resultsQuery] : undefined
     const ranked = isRanked(input)
-    if (resultsQuery && !results) {
+    const personsQuery = input.personsFirst && mode !== 'value' ? remoteQueries.persons : undefined
+    if ((resultsQuery && !results) || (personsQuery && !isSettled(remote.persons, personsQuery))) {
         sections.push(withViewAll(loadingSection('results'), input.viewAll))
         return sections.filter((section): section is CommandKSection => section !== null)
     }
+    const leadingPersons = personsQuery ? remote.persons.cache[personsQuery] : []
+    if (!ranked && leadingPersons.length) {
+        sections.push(remoteSection('persons', leadingPersons, state))
+    }
     if (ranked && results && resultsQuery) {
-        const rankedSections = rankedResultsSections(results, resultsQuery, local, localQuery, state)
+        const rankedSections = rankedResultsSections(results, resultsQuery, local, localQuery, state, leadingPersons)
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
                 ? rankedSections.map((section) =>
@@ -382,7 +398,12 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         sections.push(withViewAll(results ? remoteSection('results', results, state) : null, input.viewAll))
     }
     if (mode !== 'value') {
-        sections.push(...lowerSections(input, ranked, state))
+        const shown = new Set(
+            sections.flatMap(
+                (section) => section?.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])) ?? []
+            )
+        )
+        sections.push(...lowerSections(input, ranked, state, shown))
     }
     return sections.filter((section): section is CommandKSection => section !== null)
 }
