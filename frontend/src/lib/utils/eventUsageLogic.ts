@@ -67,6 +67,7 @@ import {
     PropertyFilterType,
     InsightModel,
     type SDK,
+    TileGroupDisplay,
 } from '~/types'
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
@@ -736,6 +737,16 @@ function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, 
     }
 }
 
+export function tileGroupProperties(
+    groupDisplay: TileGroupDisplay | undefined,
+    tiles: DashboardTile[]
+): { group_display: TileGroupDisplay; group_count: number } {
+    return {
+        group_display: groupDisplay ?? 'sections',
+        group_count: new Set(tiles.map((tile) => tile.group_key).filter(Boolean)).size,
+    }
+}
+
 export function dashboardViewedProperties(
     dashboard: DashboardType,
     lastRefreshed: Dayjs | null,
@@ -753,8 +764,7 @@ export function dashboardViewedProperties(
         item_count: dashboard.tiles?.length || 0,
         created_by_system: !dashboard.created_by,
         dashboard_id: id,
-        group_display: dashboard.customization?.group_display ?? 'sections',
-        group_count: new Set((dashboard.tiles || []).map((tile) => tile.group_key).filter(Boolean)).size,
+        ...tileGroupProperties(dashboard.customization?.group_display, dashboard.tiles || []),
         lastRefreshed: lastRefreshed?.toISOString(),
         refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
         uses_data_warehouse_source: false,
