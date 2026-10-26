@@ -10,10 +10,10 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
-import type { ReplayObservationApi } from '../../generated/api.schemas'
+import { type ReplayObservationApi, VisionObservationsThumbnailRetrieveSize } from '../../generated/api.schemas'
 import { scannerLabel } from '../../utils/observation'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
-import { WATCH_GROUP_PREVIEW_SIZE, type WatchFeedGroupLogicProps, watchFeedGroupLogic } from '../watchFeedGroupLogic'
+import { type WatchFeedGroupLogicProps, watchFeedGroupLogic } from '../watchFeedGroupLogic'
 import { observationKeyMomentMs, watchCardHeadline, watchFeedObservationUrl } from './WatchFeedCard'
 
 /** The card's telemetry properties, so group events join the card they came from. */
@@ -46,7 +46,11 @@ function WatchFeedGroupMember({
                 className="w-24 shrink-0 overflow-hidden rounded border border-primary"
                 onClick={captureOpened('thumbnail')}
             >
-                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
+                <ObservationThumbnail
+                    observation={observation}
+                    size={VisionObservationsThumbnailRetrieveSize.Small}
+                    className="rounded-none border-0"
+                />
             </Link>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <Link
@@ -132,16 +136,17 @@ export function WatchFeedGroupList({
                         Try again
                     </LemonButton>
                 </div>
-            ) : members.length === 0 ? (
+            ) : members.shown.length === 0 ? (
                 <p className="m-0 text-sm text-secondary">No similar sessions to show right now.</p>
             ) : (
                 <ul className="m-0 flex list-none flex-col gap-3 p-0">
-                    {members.map((member) => (
+                    {members.shown.map((member) => (
                         <WatchFeedGroupMember key={member.id} observation={member} cardContext={cardContext} />
                     ))}
                 </ul>
             )}
-            {similarCount > WATCH_GROUP_PREVIEW_SIZE && (
+            {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count. */}
+            {members && members.total > members.shown.length && (
                 <Link
                     to={
                         combineUrl(urls.replayVision(logicProps.scannerId), {

@@ -17,7 +17,7 @@ export interface WatchFeedGroupLogicProps {
 export interface watchFeedGroupLogicValues {
     currentTeamId: number | null // teamLogic
     expanded: boolean
-    members: ReplayObservationApi[] | null
+    members: WatchGroupMembers | null
     membersLoading: boolean
 }
 
@@ -33,12 +33,19 @@ export interface watchFeedGroupLogicActions {
         errorObject?: any
     }
     loadMembersSuccess: (
-        members: ReplayObservationApi[] | null,
+        members: WatchGroupMembers | null,
         payload?: any
     ) => {
-        members: ReplayObservationApi[] | null
+        members: WatchGroupMembers | null
         payload?: any
     }
+}
+
+export interface WatchGroupMembers {
+    /** The first few of the group's other sessions. */
+    shown: ReplayObservationApi[]
+    /** How many other sessions the list endpoint matched, which can exceed what the card counted. */
+    total: number
 }
 
 export type watchFeedGroupLogicType = MakeLogicType<
@@ -67,9 +74,9 @@ export const watchFeedGroupLogic = kea<watchFeedGroupLogicType>([
     }),
     loaders(({ props, values }) => ({
         members: [
-            null as ReplayObservationApi[] | null,
+            null as WatchGroupMembers | null,
             {
-                loadMembers: async (): Promise<ReplayObservationApi[] | null> => {
+                loadMembers: async (): Promise<WatchGroupMembers | null> => {
                     if (!values.currentTeamId) {
                         return null
                     }
@@ -79,9 +86,11 @@ export const watchFeedGroupLogic = kea<watchFeedGroupLogicType>([
                         limit: WATCH_GROUP_PREVIEW_SIZE + 1,
                     })
                     // The card's own session already sits above the list.
-                    return page.results
-                        .filter((member) => member.id !== props.observationId)
-                        .slice(0, WATCH_GROUP_PREVIEW_SIZE)
+                    const others = page.results.filter((member) => member.id !== props.observationId)
+                    return {
+                        shown: others.slice(0, WATCH_GROUP_PREVIEW_SIZE),
+                        total: page.count - (page.results.length - others.length),
+                    }
                 },
             },
         ],

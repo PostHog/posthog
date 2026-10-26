@@ -9,7 +9,7 @@ describe('watchFeedGroupLogic', () => {
     let listSpy: jest.Mock
 
     beforeEach(() => {
-        listSpy = jest.fn(() => [200, { results: [{ id: 'card' }, { id: 'copy-1' }, { id: 'copy-2' }] }])
+        listSpy = jest.fn(() => [200, { count: 9, results: [{ id: 'card' }, { id: 'copy-1' }, { id: 'copy-2' }] }])
         useMocks({ get: { '/api/projects/:team/vision/scanners/:scanner/observations/': listSpy } })
         initKeaTests()
     })
@@ -22,7 +22,8 @@ describe('watchFeedGroupLogic', () => {
         await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()
         const params = new URL(listSpy.mock.calls[0][0].request.url).searchParams
         expect([params.get('watch_group'), params.get('date_from')]).toEqual(['card', '-30d'])
-        expect(logic.values.members?.map((member) => member.id)).toEqual(['copy-1', 'copy-2'])
+        expect(logic.values.members?.shown.map((member) => member.id)).toEqual(['copy-1', 'copy-2'])
+        expect(logic.values.members?.total).toBe(8)
 
         logic.actions.toggleExpanded()
         await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()

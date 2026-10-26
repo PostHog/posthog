@@ -1289,7 +1289,8 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/vision/scanners/:id/observations/': {
-                    count: checkoutGroupMembers.length,
+                    // The group holds seven other sessions, so the preview of five ends with a link to the rest.
+                    count: 7,
                     next: null,
                     previous: null,
                     results: checkoutGroupMembers,
