@@ -47,6 +47,8 @@ export function MetricsQueryEditorSection({
         ? (current: MetricsQuery, to: MetricsQueryLanguage): void =>
               switchMetricsQueryLanguage(current, to, (converted) => {
                   setQuery(to === 'builder' ? converted : withoutHeatmapDisplay(converted))
+                  // The converted query replaces the unrun text, and a builder-incompatible result shows no editor.
+                  onUnrunTextChange?.(false)
                   setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
               })
         : undefined
