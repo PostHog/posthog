@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -229,8 +230,11 @@ export const projectLogic = kea<projectLogicType>([
                         return null
                     }
                     try {
+                        // @current is the user's server-side current project, which another tab can change.
+                        // Once this tab has a project, reload it by id so its API calls stay in it.
+                        const projectId = values.currentProject?.id ?? '@current'
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.get('api/projects/@current')
+                        return await api.get(`api/projects/${projectId}`)
                     } catch {
                         return values.currentProject
                     }
@@ -344,6 +348,12 @@ export const projectLogic = kea<projectLogicType>([
         },
         locationChanged: ({ pathname }) => {
             actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
+        },
+        updateCurrentProjectFailure: ({ error, errorObject }) => {
+            const apiError = errorObject as ApiError | undefined
+            if (apiError?.status === 409) {
+                lemonToast.error(apiError.detail || error)
+            }
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())

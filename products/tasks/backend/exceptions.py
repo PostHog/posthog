@@ -6,6 +6,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 
@@ -265,6 +266,18 @@ class RepositoryCloneError(ProcessTaskTransientError):
     pass
 
 
+class RepositoryAccessError(ProcessTaskFatalError, NonReportableError):
+    """GitHub refused to serve the repository with the credential the sandbox has.
+
+    The run has no token, or its token does not cover the repository. A retry reuses the same
+    credential, so it cannot succeed. This is an expected customer setup state, so it is not
+    captured to error tracking.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
+
+
 class RetryableRepositorySetupError(ProcessTaskTransientError):
     """Failed to setup repository (install dependencies, etc)."""
 
@@ -283,7 +296,7 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     pass
 
 
-class CredentialUnavailableError(ProcessTaskFatalError):
+class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
     """A sandbox credential can never be resolved again for this run — the backing
     integration row was deleted mid-run or the user must re-authorize.
 
@@ -295,7 +308,7 @@ class CredentialUnavailableError(ProcessTaskFatalError):
         ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
-class GatewayTokenUnavailableError(ProcessTaskFatalError):
+class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
     """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 

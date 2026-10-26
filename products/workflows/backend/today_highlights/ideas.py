@@ -9,7 +9,7 @@ IDEAS_DETAIL = "Pick one to build it as a draft workflow"
 
 
 def find_workflow_ideas(context: HighlightContext) -> HighlightFindings:
-    count = count_waiting_data_suggestions(team=context.team, user=context.user)
+    count = count_waiting_data_suggestions(team=context.team)
     if not count:
         return HighlightFindings()
     return HighlightFindings(

@@ -130,7 +130,7 @@ Grant these permissions for the tables you select:
 
 Each sync replaces the current recommendations. This source does not keep recommendation history.""",
             iconPath="/static/services/aws_compute_optimizer.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

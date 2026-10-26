@@ -122,7 +122,7 @@ class LogicmonitorSource(ResumableSource[LogicmonitorSourceConfig, LogicMonitorR
                 "Alerts use full refresh to capture acknowledgments and cleared status."
             ),
             iconPath="/static/services/logicmonitor.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

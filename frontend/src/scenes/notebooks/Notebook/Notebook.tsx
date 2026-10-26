@@ -31,6 +31,7 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 let markdownNotebookMountCount = 0
 
 export type NotebookProps = NotebookLogicProps & {
+    collapsedToolbarContainer?: HTMLElement | null
     initialContent?: JSONContent
     editable?: boolean
     className?: string
@@ -47,6 +48,7 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    collapsedToolbarContainer,
     markdownSourceOpen,
     onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
@@ -184,6 +186,7 @@ export function Notebook({
                         <NotebookColumnLeft />
                         <ErrorBoundary>
                             <MarkdownNotebookV2
+                                collapsedToolbarContainer={collapsedToolbarContainer}
                                 debugOpen={markdownSourceOpen}
                                 onDebugOpenChange={onMarkdownSourceOpenChange}
                             />

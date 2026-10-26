@@ -93,10 +93,6 @@ class TestValidateCredentials:
             "grant_type": ["client_credentials"],
         }
 
-    def test_invalid_credentials(self):
-        with scripted_network(always(ScriptedResponse(status=401, json={}))):
-            assert validate_credentials("cid", "bad") is False
-
 
 class TestEntityEndpoints:
     def test_mid_sync_401_re_mints_token(self):

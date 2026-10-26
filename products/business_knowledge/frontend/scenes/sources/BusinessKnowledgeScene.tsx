@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -45,6 +46,7 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         sources,
         sourcesLoading,
@@ -72,9 +74,16 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
                 resourceType={{ type: 'business_knowledge' }}
                 actions={
-                    <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
-                        Add source
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="primary" onClick={() => openCreateModal()}>
+                            <IconPlus />
+                            Add source
+                        </Button>
+                    ) : (
+                        <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
+                            Add source
+                        </LemonButton>
+                    )
                 }
             />
             <BusinessKnowledgeTabs activeTab="sources" />

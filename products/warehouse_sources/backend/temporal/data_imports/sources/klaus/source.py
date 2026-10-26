@@ -51,7 +51,7 @@ class KlausSource(ResumableSource[KlausSourceConfig, KlausResumeConfig]):
             name=ExternalDataSourceType.KLAUS,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Klaus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["zendesk qa", "zendesk", "quality assurance", "conversation reviews"],
             caption="""Sync your Zendesk QA (formerly Klaus) reviews, AutoQA results, CSAT, disputes, and quality data into the PostHog Data warehouse.
 

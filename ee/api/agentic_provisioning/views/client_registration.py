@@ -31,8 +31,13 @@ from posthog.api.oauth.cimd import (
     fetch_and_upsert_cimd_application,
     is_cimd_client_id,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, describe_jwks, verify_client_assertion
-from posthog.models.oauth import OAuthApplication
+from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    ClientAssertionError,
+    describe_jwks,
+    verify_client_assertion,
+)
+from posthog.models.oauth import OAuthApplication, ProvisioningSigning
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -85,7 +90,11 @@ class ClientRegistrationView(ProvisioningAPIView):
                     "can_provision_resources": app.provisioning.can_provision_resources,
                 },
                 "capabilities": {
-                    "account_requests": app.provisioning.active and app.provisioning.can_create_accounts,
+                    "account_requests": app.provisioning.active
+                    and app.provisioning.can_create_accounts
+                    and not app.cannot_meet_provisioning_signature,
+                    "unsigned_requests": not app.requires_provisioning_signature,
+                    "unsigned_requests_allowed_until": _unsigned_requests_allowed_until(app),
                 },
                 "checks": checks,
             }
@@ -143,6 +152,21 @@ class ClientRegistrationView(ProvisioningAPIView):
         return app
 
     def _check_jwks(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> None:
+        if not app.uses_private_key_jwt_auth:
+            signing = app.provisioning_signing
+            if signing is ProvisioningSigning.REQUIRED:
+                _record(checks, "jwks", False, PRIVATE_KEY_REQUIRED_MESSAGE)
+                return
+            if signing is ProvisioningSigning.GRACE:
+                _record(
+                    checks,
+                    "jwks",
+                    True,
+                    f"Unsigned requests allowed until {_unsigned_requests_allowed_until(app)}. "
+                    f"{PRIVATE_KEY_REQUIRED_MESSAGE}",
+                )
+                return
+
         if not app.jwks_uri:
             # Not a failure: a public client legitimately publishes no keys. Reported so the
             # response says which of the two situations the caller is in.
@@ -195,6 +219,13 @@ def _not_a_partner_detail(app: OAuthApplication, *, document_read: bool) -> str:
             '"com.posthog": {"provisioning": true} to your client metadata document, then register again.'
         )
     return "This client is not enabled for agentic provisioning"
+
+
+def _unsigned_requests_allowed_until(app: OAuthApplication) -> str | None:
+    allowed_until = app.provisioning_unsigned_allowed_until
+    if allowed_until is None or app.provisioning_signing is not ProvisioningSigning.GRACE:
+        return None
+    return allowed_until.isoformat()
 
 
 def _record(checks: list[dict[str, Any]], name: str, ok: bool, detail: str) -> None:

@@ -73,8 +73,7 @@ _DEFAULT_SANDBOX_LABELS = '["depot-ubuntu-24.04"]'
 # pull request association as the run's own.
 _REPOSITORY_ID = 1
 
-# The hand-off between the engines, as .github/workflows/ci-backend.yml and .depot/workflows/ci-backend.yml
-# name its two ends.
+# Historical job names identify relay and hand-off rows that the union must deduplicate.
 _GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
 _GITHUB_RELAY_JOB = "Django Tests Pass"
 _DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
@@ -286,15 +285,16 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
             ) = 'success'
             AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
-    # The runs builder parses JSON columns on every row, so the raw columns narrow its input first.
-    successful_relays = f"id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})"
+    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
+    # the JSON parse runs only on successful relays.
     return f"""
-        SELECT r.id
-        FROM ({workflow_runs.build_query(f"({_github_runs(runs_table, successful_relays)})")}) AS r
-        WHERE (r.head_sha, r.pr_number) IN (
-            SELECT head_sha, pr_number FROM {handoffs}
-            WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-        )
+        SELECT id
+        FROM {runs_table}
+        WHERE id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})
+            AND (head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
+                SELECT head_sha, pr_number FROM {handoffs}
+                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+            )
     """
 
 

@@ -702,6 +702,23 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         filters: zod
             .unknown()
             .optional()
@@ -1671,6 +1688,23 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         filters: zod
             .unknown()
             .optional()
@@ -2399,6 +2433,23 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         filters: zod
             .unknown()
             .optional()
@@ -3112,6 +3163,23 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
             .describe(
                 "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'."
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -3844,6 +3912,23 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
             .describe(
                 "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'."
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])

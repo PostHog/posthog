@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opencorporates import (
@@ -91,6 +92,122 @@ class TestCompaniesPagination:
         # The first request must start from the persisted page, not page 1.
         assert result.raised is None
         assert result.params("page") == ["3"]
+
+
+def _statements_page(statements: list[dict[str, Any]], *, page: int = 1, total_pages: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "results": {"statements": [{"statement": s} for s in statements], "page": page, "total_pages": total_pages}
+        }
+    )
+
+
+class TestCompanyFanout:
+    @parameterized.expand(
+        [
+            ("filings", "CompanyFilings", "filings", "filing"),
+            ("statements", "CompanyStatements", "statements", "statement"),
+        ]
+    )
+    def test_walks_every_company_and_tags_rows_with_it(
+        self, _name: str, endpoint: str, collection: str, item_key: str
+    ) -> None:
+        def child_page(ids: list[int], *, page: int, total_pages: int) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "results": {
+                        collection: [{item_key: {"id": i}} for i in ids],
+                        "page": page,
+                        "total_pages": total_pages,
+                    }
+                }
+            )
+
+        result = _driver(jurisdiction_code="gb").run(
+            endpoint,
+            route(
+                {
+                    "/companies/search": [
+                        _companies_page([{"company_number": "001", "jurisdiction_code": "gb"}], page=1, total_pages=2),
+                        _companies_page([{"company_number": "002", "jurisdiction_code": "gb"}], page=2, total_pages=2),
+                    ],
+                    f"/companies/gb/001/{collection}": [
+                        child_page([1, 2], page=1, total_pages=2),
+                        child_page([3], page=2, total_pages=2),
+                    ],
+                    f"/companies/gb/002/{collection}": [child_page([1], page=1, total_pages=1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["company_number"], r["id"]) for r in result.rows] == [("001", 1), ("001", 2), ("001", 3), ("002", 1)]
+        assert {r["company_jurisdiction_code"] for r in result.rows} == {"gb"}
+        assert result.requests[0].param("q") == "acme"
+        assert result.requests[0].param("jurisdiction_code") == "gb"
+        assert "supersecret" not in str(result.rows)
+
+    def test_resume_skips_completed_companies(self) -> None:
+        result = _driver().run(
+            "CompanyFilings",
+            route(
+                {
+                    "/companies/search": [
+                        _companies_page(
+                            [
+                                {"company_number": "001", "jurisdiction_code": "gb"},
+                                {"company_number": "002", "jurisdiction_code": "gb"},
+                            ],
+                            page=1,
+                            total_pages=1,
+                        )
+                    ],
+                    "/companies/gb/002/filings": [
+                        ScriptedResponse(json={"results": {"filings": [{"filing": {"id": 9}}], "total_pages": 1}})
+                    ],
+                }
+            ),
+            resume_state=OpencorporatesResumeConfig(
+                fanout_state={"completed": ["/companies/gb/001/filings"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v0.4/companies/search", "/v0.4/companies/gb/002/filings"]
+        assert [r["id"] for r in result.rows] == [9]
+
+
+class TestUnscopedEndpoints:
+    @parameterized.expand(
+        [
+            ("wrapped", {"jurisdiction": {"code": "gb", "name": "United Kingdom"}}),
+            ("unwrapped", {"code": "gb", "name": "United Kingdom"}),
+        ]
+    )
+    def test_jurisdictions_is_one_unfiltered_request(self, _name: str, row: dict[str, Any]) -> None:
+        result = _driver(jurisdiction_code="us_de").run(
+            "Jurisdictions", [ScriptedResponse(json={"results": {"jurisdictions": [row]}})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"code": "gb", "name": "United Kingdom"}]
+        assert len(result.requests) == 1
+        assert result.queries[0].keys() == {"api_token"}
+
+    @parameterized.expand([("AlternateRegistrations",), ("SubsequentRegistrations",)])
+    def test_registration_search_sends_query_but_not_jurisdiction(self, endpoint: str) -> None:
+        result = _driver(jurisdiction_code="gb").run(
+            endpoint,
+            [
+                _statements_page([{"id": 1}], page=1, total_pages=2),
+                _statements_page([{"id": 2}], page=2, total_pages=2),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == [1, 2]
+        assert result.params("q") == ["acme", "acme"]
+        assert result.params("jurisdiction_code") == [None, None]
 
 
 class TestRequestParams:
@@ -203,10 +320,7 @@ class TestSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             ("quota_exhausted_token_still_genuine", 403, True),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:

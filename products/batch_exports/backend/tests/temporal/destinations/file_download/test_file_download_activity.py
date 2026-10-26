@@ -7,7 +7,12 @@ from django.test import override_settings
 from temporalio.testing._activity import ActivityEnvironment
 
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
-from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportInsertInputs,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.file_download_batch_export import (
     ExportInputs,
     GenerateFileDownloadsInputs,
@@ -45,7 +50,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     ateam,
     s3_client,
@@ -59,11 +64,11 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     S3InsertInputs, and delegates to insert_into_s3_from_stage. We verify
     the data ends up in the expected S3 location and matches what ClickHouse produces.
     """
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
@@ -128,13 +133,13 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         or result.records_completed == len(persons_to_export_created)
         or result.records_completed
         == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and 1 <= result.records_completed <= 2)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and 1 <= result.records_completed <= 2)
     )
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons":
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, AnyBatchExportModel) and model.name == "sessions":
         sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(

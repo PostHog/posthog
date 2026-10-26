@@ -2,6 +2,7 @@ import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, s
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -84,8 +85,16 @@ export const subscriptionSummariesLogic = kea<subscriptionSummariesLogicType>([
             {
                 loadSummaries: async (): Promise<SubscriptionSummaryApi[] | null> => {
                     const params = props.dashboardId ? { dashboard: props.dashboardId } : { insight: props.insightId }
-                    const response = await subscriptionsSummariesList(String(getCurrentTeamId()), params)
-                    return response.results
+                    try {
+                        const response = await subscriptionsSummariesList(String(getCurrentTeamId()), params)
+                        return response.results
+                    } catch (error) {
+                        // A deleted source or one from another team returns 404, which means there is nothing to show.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

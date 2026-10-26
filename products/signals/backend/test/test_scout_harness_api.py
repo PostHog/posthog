@@ -54,6 +54,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -2196,10 +2197,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -2327,6 +2327,17 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    def test_search_filters_by_creating_skill(self) -> None:
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        flags_run = _make_run(self.team, skill_name="signals-scout-flags")
+        SignalScratchpad.objects.create(team=self.team, key="errors", content="v", created_by_run=errors_run)
+        SignalScratchpad.objects.create(team=self.team, key="flags", content="v", created_by_run=flags_run)
+
+        response = self.client.get(self._list_url(), {"skill_name": "signals-scout-errors"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["errors"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -3895,6 +3906,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3915,6 +3927,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3942,6 +3955,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [
@@ -4299,7 +4335,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
-    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+    @parameterized.expand([(None, True), ("onboarding", False)])
+    def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
@@ -4307,7 +4344,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-        response = self.client.post(self._sync_url())
+        response = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -4315,10 +4352,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
-        assert all(c["enabled"] is True for c in body)
+        assert all(c["enabled"] is enabled for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.filter(team=self.team).exclude(enabled=enabled).exists()
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
         assert (
@@ -4477,7 +4516,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+    @parameterized.expand([(None,), ("onboarding",)])
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self, surface: str | None) -> None:
         first = self.client.post(self._sync_url())
         assert first.status_code == status.HTTP_200_OK
         fleet_size = len(first.json())
@@ -4488,13 +4528,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         tuned.enabled = False
         tuned.save(update_fields=["enabled"])
 
-        second = self.client.post(self._sync_url())
+        second = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert second.status_code == status.HTTP_200_OK
         assert len(second.json()) == fleet_size
         assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
         tuned.refresh_from_db()
         assert tuned.enabled is False, "sync must not reset existing configs"
+        assert sum(config["enabled"] for config in second.json()) == fleet_size - 1
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not
@@ -4885,6 +4926,17 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         assert superseded, "expected the catalogue to hold at least one superseded tool"
 
         assert not superseded & set(self._tools())
+
+    def test_catalogue_context_tools_can_be_removed_from_a_saved_selection_before_editing(self) -> None:
+        body = self.client.get(self._url()).json()
+        selected = ["skill-get", "skill-file-get", "dashboard-update"]
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [name for name in selected if name not in body["run_context_tools"]]},
+            partial=True,
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_mcp_tools"] == ["dashboard-update"]
 
     def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
         # `holdable` has to be measured against the scout postures, not against the full MCP scope

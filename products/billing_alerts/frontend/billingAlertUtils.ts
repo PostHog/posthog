@@ -1,6 +1,6 @@
 import { ApiError } from 'lib/api'
 
-import type { BillingAlertDestinationSummaryApi } from './generated/api.schemas'
+import type { BillingAlertDestinationSummaryApi } from 'products/billing/frontend/generated/api.schemas'
 
 export function offsetFromPageLink(link: string | null | undefined, fallback = 0): number {
     if (!link) {

@@ -13,6 +13,7 @@ export { piExtensionEventSchema, piRpcResponseSchema };
 
 const piTaskContextInput = z.object({
   taskId: z.string(),
+  taskRunId: z.string().optional(),
   cwd: z.string(),
   customInstructions: z.string().optional(),
   additionalDirectories: z.array(z.string()).optional(),
@@ -40,7 +41,11 @@ export const piSessionHealthOutput = z.object({
 });
 
 export const resumePiSessionInput = z.object({
-  taskContext: piTaskContextInput.pick({ taskId: true, cwd: true }),
+  taskContext: piTaskContextInput.pick({
+    taskId: true,
+    taskRunId: true,
+    cwd: true,
+  }),
 });
 
 export type ResumePiSessionInput = z.infer<typeof resumePiSessionInput>;

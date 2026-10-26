@@ -308,15 +308,17 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    # Facade-only: the metrics_table widget runs its query through the metrics facade.
+    "products.metrics",
     "products.notifications",
     "products.product_analytics",
     "products.conversations",
     "products.surveys", "products.access_control",
     # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
     "products.canvas",
-    # Facade-only: the dashboard filter access check asks the exports facade whether a
+    # Facade-only: the dashboard filter access check asks the subscriptions facade whether a
     # subscription delivers the dashboard.
-    "products.exports",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -536,10 +538,13 @@ depends_on = [
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
-    "products.exports",
+    "products.subscriptions",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
+    "products.notifications",
+    # Facade-only: feature flags declares its Today highlight sources against the Today facade contract.
+    "products.today",
 ]
 layer = "modules"
 
@@ -731,7 +736,7 @@ depends_on = [
     "products.annotations",
     "products.dashboards",
     "products.experiments",
-    "products.exports",
+    "products.subscriptions",
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
@@ -782,20 +787,19 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "products.cohorts",
+    "products.marketing_analytics",
     "ee",
     "posthog",
     "products.actions",
     "products.alerts",
     "products.dashboards",
     "products.event_definitions",
-    "products.exports",
+    "products.subscriptions",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
     # A trends query filtering on a first-pageview-aware property builds it through
     # web analytics' attribution helper. Core held this import before trends moved.
     "products.web_analytics",
-    # Facade-only: product analytics declares its Today highlight sources against the Today facade contract.
-    "products.today",
 ]
 layer = "modules"
 
@@ -908,6 +912,8 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    # Facade-only: anomaly scoring spreads insights over the window after each boundary like alert checks.
+    "products.alerts_platform",
     "products.cdp",
     "products.conversations",
     "products.dashboards",
@@ -981,6 +987,9 @@ depends_on = [
     "products.exports",
     # Mention workflows check billing quota limits before they start a task.
     "ee",
+    # Feature tips skip MCP tools and Slack subscriptions that the reader already uses.
+    "products.mcp_store",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -1013,8 +1022,6 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.workflows", "products.access_control",
-    # Facade-only: customer analytics declares its Today highlight sources against the Today facade contract.
-    "products.today",
 ]
 layer = "modules"
 
@@ -1026,6 +1033,7 @@ depends_on = [
     "products.data_warehouse",
     "products.data_modeling",
     "products.warehouse_sources",
+    "products.access_control",
 ]
 layer = "modules"
 
@@ -1036,6 +1044,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.event_definitions",
     "products.analytics_platform", "products.warehouse_sources",
     "products.feature_flags",
 ]
@@ -1077,6 +1086,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # ph.tools calls run on the PostHog MCP server as the viewer (via the webmcp facade).
+    "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
 ]
@@ -1213,6 +1224,7 @@ expose = [
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
@@ -1677,6 +1689,9 @@ depends_on = [
     "ee",
     "posthog",
     "products.access_control",
+    "products.customer_analytics",
+    "products.dashboards",
+    "products.product_analytics",
     "products.signals",
     "products.tasks",
 ]
@@ -1811,4 +1826,45 @@ expose = [
 ]
 from = [
     "products.account_audits",
+]
+
+[[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_gateway",
+]
+
+[[modules]]
+path = "products.uptime_monitoring"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.uptime_monitoring",
+]
+
+[[modules]]
+path = "products.authorization"
+depends_on = []
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.authorization",
 ]

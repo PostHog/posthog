@@ -876,10 +876,10 @@ Body`)
         // Entity links drag with only their href; this mapping is what turns a dropped link
         // into the resource's component node instead of a plain link.
         it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
-            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            ['feature flag', '/feature-flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
             [
                 'feature flag with project prefix',
-                '/project/1/feature_flags/123',
+                '/project/1/feature-flags/123',
                 { tagName: 'FeatureFlag', props: { id: 123 } },
             ],
             ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
@@ -912,7 +912,7 @@ Body`)
                 '/person/user%40example.com',
                 { tagName: 'Person', props: { distinctId: 'user@example.com' } },
             ],
-            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new flag form (no entity yet)', '/feature-flags/new', null],
             ['new insight form (no entity yet)', '/insights/new', null],
             ['unrecognized path', '/settings/project', null],
         ])('%s', (_name, path, expected) => {

@@ -66,17 +66,21 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
 
 @transaction.atomic
 def update_pinned_properties(
-    *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]
+    *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, str]]
 ) -> UserCustomerAnalyticsConfig:
-    validate_pinned_properties(team_id=team_id, references=references)
+    validated_references = validate_pinned_properties(team_id=team_id, references=references)
     config = get_or_create_config(team_id=team_id, user_id=user_id)
     config.properties = {
         **config.properties,
-        PINNED_PROPERTIES_KEY: [{"kind": kind.value, "id": str(definition_id)} for kind, definition_id in references],
+        PINNED_PROPERTIES_KEY: [
+            {"kind": kind.value, "id": reference_id} for kind, reference_id in validated_references
+        ],
         PINNED_PROPERTIES_OVERRIDE_KEY: True,
     }
     config.pinned_custom_property_definition_ids = [
-        definition_id for kind, definition_id in references if kind == AccountPropertyPinKind.CUSTOM_PROPERTY
+        UUID(reference_id)
+        for kind, reference_id in validated_references
+        if kind == AccountPropertyPinKind.CUSTOM_PROPERTY
     ]
     config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
     return config

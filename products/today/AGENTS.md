@@ -5,8 +5,10 @@
 Today ranks facts that other products find and shows the best few.
 The product that owns the data owns its source: the query, the thresholds, and the copy.
 Today owns the contract, the ranking, and the shared helpers.
+Today also owns the pulse: the routine and key-metric tiles, pinned numbers, and the home dashboard source.
+These live in `backend/logic/today_highlights/` and Today declares them in `backend/facade/today_highlights.py`.
 
-**A new source lives in its own product, never in `products/today/`.**
+**A source that another team owns lives in that team's product, never in `products/today/`.**
 
 1. Put the rule in the product's internals, for example `products/<x>/backend/today_highlights.py`.
    It takes a `HighlightContext` and returns `HighlightFindings`.
@@ -35,5 +37,5 @@ Import only from Today's facade:
 `HighlightContext.daily()` caches one value per team, property restrictions and day, so every viewer with the same restrictions shares it.
 Never compute a per-viewer value there without the user id in its name.
 
-**Status:** every source lives in its owning product.
-`backend/logic/highlight_sources/` and its legacy aliases are gone, so a source there no longer loads.
+**Status:** every other team's source lives in its own product.
+`backend/logic/highlight_sources/` and its `SOURCE` lookup are gone, so a file there no longer loads.

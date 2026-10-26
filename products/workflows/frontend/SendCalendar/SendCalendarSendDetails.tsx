@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { SendCalendarAudience } from './SendCalendarAudience'
 import { sendCalendarLogic } from './sendCalendarLogic'
-import { CalendarSend, CalendarSendState, SendCategory, moveBlockedReason } from './sendCalendarUtils'
+import { CalendarSend, CalendarSendState, moveBlockedReason } from './sendCalendarUtils'
 
 const STATE_TAGS: Record<CalendarSendState, { label: string; type: LemonTagType }> = {
     planned: { label: 'Scheduled', type: 'warning' },
@@ -17,17 +17,11 @@ const STATE_TAGS: Record<CalendarSendState, { label: string; type: LemonTagType 
     failed: { label: 'Failed', type: 'danger' },
 }
 
-const CATEGORY_TYPES: Record<NonNullable<SendCategory['type']>, { label: string; type: LemonTagType }> = {
-    marketing: { label: 'Marketing', type: 'highlight' },
-    transactional: { label: 'Transactional', type: 'default' },
-}
-
 export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.Element {
     const { messageCategoryNames, timezone } = useValues(sendCalendarLogic)
     const isBroadcast = send.kind === 'broadcast'
     const moveReason = send.state === 'planned' ? moveBlockedReason(send) : null
-    const categoryType = send.category.type ? CATEGORY_TYPES[send.category.type] : null
-    const categoryName = send.category.id ? messageCategoryNames[send.category.id] : null
+    const categoryName = send.categoryId ? messageCategoryNames[send.categoryId] : null
 
     return (
         <div className="flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-3 p-3" data-attr="send-calendar-send-details">
@@ -55,15 +49,8 @@ export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.E
                 </dd>
                 <dt className="text-secondary">Category</dt>
                 <dd className="m-0 min-w-0">
-                    {categoryType || categoryName ? (
-                        <div className="flex min-w-0 items-center gap-1">
-                            {categoryType ? (
-                                <LemonTag size="small" type={categoryType.type}>
-                                    {categoryType.label}
-                                </LemonTag>
-                            ) : null}
-                            {categoryName ? <span className="truncate">{categoryName}</span> : null}
-                        </div>
+                    {categoryName ? (
+                        <div className="truncate">{categoryName}</div>
                     ) : (
                         <span className="text-secondary">No category</span>
                     )}
@@ -81,11 +68,6 @@ export function SendCalendarSendDetails({ send }: { send: CalendarSend }): JSX.E
                     </>
                 ) : null}
             </dl>
-            {send.category.type === 'transactional' && !send.audience.address ? (
-                <div className="text-xs text-warning">
-                    Transactional emails go to everyone in the audience, including people who unsubscribed.
-                </div>
-            ) : null}
             {send.state === 'paused' ? (
                 <div className="text-xs text-secondary">
                     This schedule paused because its recipients changed. Open it to schedule it again.

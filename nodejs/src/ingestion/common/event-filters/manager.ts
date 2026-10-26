@@ -1,31 +1,60 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { IngestionPipeline } from '~/common/utils/event-ingestion-restrictions'
 import { logger } from '~/common/utils/logger'
 import { Component } from '~/ingestion/common/scopes'
 
 import { treeHasConditions } from './evaluate'
+import { eventFiltersOverrideRefreshErrors, eventFiltersRefreshErrors } from './metrics'
 import { EventFilterRowSchema, EventFilterRule } from './schema'
+
+export interface EventFilterManagerOptions {
+    pipeline: IngestionPipeline
+}
 
 /**
  * Manages per-team event filter config loaded from Postgres. One filter
  * per team, cached via a `BackgroundRefresher` that reloads all active
- * filters every 60s. The constructor does not prime the cache; call
+ * filters every 60s. The pipeline overrides that drop all events for
+ * `options.pipeline` reload the same way. The constructor does not prime the cache; call
  * `prime()` (or wrap construction in `EventFilterManagerComponent`) to
  * await the initial load.
  */
 export class EventFilterManager {
     private refresher: BackgroundRefresher<Map<number, EventFilterRule>>
+    private dropAllEventsTeams: BackgroundRefresher<Set<number>>
 
-    constructor(private readonly postgres: PostgresRouter) {
-        this.refresher = new BackgroundRefresher(async () => this.fetchAllFilters(), 60_000)
+    constructor(
+        private readonly postgres: PostgresRouter,
+        private readonly options: EventFilterManagerOptions
+    ) {
+        // A failed reload keeps the last loaded filters. The default handler rethrows from a
+        // detached promise, and the server stops on an unhandled rejection.
+        this.refresher = new BackgroundRefresher(
+            async () => this.fetchAllFilters(),
+            60_000,
+            (error) => {
+                logger.error('Failed to refresh event filter config', { error })
+                eventFiltersRefreshErrors.inc()
+            }
+        )
+        this.dropAllEventsTeams = new BackgroundRefresher(
+            async () => this.fetchDropAllEventsTeams(),
+            60_000,
+            (error) => {
+                logger.error('Failed to refresh event filter pipeline overrides', {
+                    pipeline: this.options.pipeline,
+                    error,
+                })
+                eventFiltersOverrideRefreshErrors.inc()
+            }
+        )
     }
 
     async prime(): Promise<void> {
-        // Failures are logged but don't surface — `tryGet` will retry in the
-        // background on subsequent reads.
-        await this.refresher.get().catch((error) => {
-            logger.error('Failed to initialize event filter config', { error })
-        })
+        // Do not catch a first load error: startup must fail. A consumer without its filters or
+        // overrides ingests the events that they drop, and those events cannot be removed later.
+        await Promise.all([this.refresher.get(), this.dropAllEventsTeams.get()])
     }
 
     /** Returns the filter for a team, or null if disabled or has no conditions. Non-blocking. */
@@ -35,6 +64,23 @@ export class EventFilterManager {
             return null
         }
         return filter
+    }
+
+    /** True when the team's override drops every event in this pipeline. Non-blocking. */
+    dropsAllEvents(teamId: number): boolean {
+        return this.dropAllEventsTeams.tryGet()?.has(teamId) ?? false
+    }
+
+    private async fetchDropAllEventsTeams(): Promise<Set<number>> {
+        const { rows } = await this.postgres.query<{ team_id: number }>(
+            PostgresUse.COMMON_READ,
+            `SELECT team_id
+             FROM posthog_eventfilterpipelineoverride
+             WHERE pipeline = $1 AND drop_all_events`,
+            [this.options.pipeline],
+            'fetchEventFilterDropAllEventsTeams'
+        )
+        return new Set(rows.map((row) => Number(row.team_id)))
     }
 
     private async fetchAllFilters(): Promise<Map<number, EventFilterRule>> {
@@ -78,10 +124,13 @@ export class EventFilterManager {
  * them.
  */
 export class EventFilterManagerComponent implements Component<EventFilterManager> {
-    constructor(private readonly postgres: PostgresRouter) {}
+    constructor(
+        private readonly postgres: PostgresRouter,
+        private readonly options: EventFilterManagerOptions
+    ) {}
 
     async start(): Promise<{ value: EventFilterManager; stop: () => Promise<void> }> {
-        const manager = new EventFilterManager(this.postgres)
+        const manager = new EventFilterManager(this.postgres, this.options)
         await manager.prime()
         return { value: manager, stop: () => Promise.resolve() }
     }

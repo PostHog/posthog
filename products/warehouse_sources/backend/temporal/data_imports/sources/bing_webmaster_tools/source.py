@@ -61,6 +61,14 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
             "not verified sites on the connected account": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # Bing's rate-limit fault, raised as `BingWebmasterToolsError` by `_request_payload`.
+            # The key is per API user rather than per request, so a Temporal retry with backoff
+            # normally clears it once the window rolls over; it must not page as a bug.
+            "ERROR!!! ThrottleUser",
+        }
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.canonical_descriptions import (  # noqa: PLC0415 (keeps the descriptions dict off the registry import path; only the enrichment activity reads it)
             CANONICAL_DESCRIPTIONS,
@@ -125,7 +133,7 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
 
 Generate an API key in [Bing Webmaster Tools](https://www.bing.com/webmasters) under **Settings > API access > API key**. The key is issued per user and covers every verified site on the account.
 """,
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/bing_webmaster_tools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-webmaster-tools",
             fields=cast(

@@ -40,6 +40,8 @@ class TemplateDefinition(_Model):
     name: str
     description: str
     panels: list[TemplatePanel]
+    # MetricsDashboardVariable JSON. A panel refers to a variable with a filter value such as `$service`.
+    variables: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # The AI answers. Field descriptions are part of the prompt, so they stay short and exact.
@@ -80,10 +82,20 @@ class DraftPanel(_Model):
     layout: GridLayout
 
 
+class DraftVariable(_Model):
+    name: str = Field(description="The name that filters refer to as $name, for example service. Letters, digits, _.")
+    label: str = Field(description="A short label in sentence case, for example 'Service'.")
+    attribute: str = Field(description="The attribute whose values the variable lists.")
+    multi: bool = Field(default=False, description="True when a user can select more than one value.")
+
+
 class DashboardDraft(_Model):
     name: str = Field(description="A short dashboard name in sentence case.")
     description: str = Field(description="One sentence that says what the dashboard shows. At most 120 characters.")
     panels: list[DraftPanel]
+    variables: list[DraftVariable] = Field(
+        default_factory=list, description="The dashboard variables. Empty when no attribute suits a variable."
+    )
 
 
 class PreviewCritique(_Model):
@@ -96,6 +108,10 @@ class PreviewCritique(_Model):
     )
     panels: list[DraftPanel] = Field(
         description="The complete corrected panel list when looks_good is false. Empty when looks_good is true."
+    )
+    variables: list[DraftVariable] = Field(
+        default_factory=list,
+        description="The complete corrected variable list when looks_good is false. Empty when looks_good is true.",
     )
 
 
@@ -113,10 +129,16 @@ class GenerationRecord(_Model):
 
     model: str = ""
     requested_name: str = ""
+    # A finished template lists only the metrics of its panels, so a regeneration starts again from these.
+    requested_metric_names: list[str] = Field(default_factory=list)
     rounds: list[GenerationRound] = Field(default_factory=list)
     # The panels in the shape that the model writes, so that a check round can show the model its own panels.
     draft_panels: list[DraftPanel] = Field(default_factory=list)
+    draft_variables: list[DraftVariable] = Field(default_factory=list)
     attributes: dict[str, list[str]] = Field(default_factory=dict)
     attribute_values: dict[str, list[str]] = Field(default_factory=dict)
+    # None when the attribute profile failed, so that a variable is not dropped for a count nobody read.
+    attribute_value_counts: dict[str, int] | None = None
+    variable_candidates: list[str] = Field(default_factory=list)
     dropped_panels: list[str] = Field(default_factory=list)
     error: str | None = None

@@ -358,11 +358,15 @@ def delete_team_records(team_ids: list[int]) -> None:
 
     from posthog.models.team import Team
 
+    from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
+
     with transaction.atomic():
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:
             queue_training_deletion(team.pk, "team")
+        # The cascade skips batch jobs (DO_NOTHING), so delete them here, in the step a stuck deletion retries.
+        delete_batch_jobs_for_teams(team_ids)
         Team.objects.filter(id__in=team_ids).delete()
 
 

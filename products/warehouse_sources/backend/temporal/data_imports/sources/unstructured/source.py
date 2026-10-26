@@ -59,7 +59,7 @@ class UnstructuredSource(ResumableSource[UnstructuredSourceConfig, UnstructuredR
             name=ExternalDataSourceType.UNSTRUCTURED,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Unstructured",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Unstructured API key to pull your [Unstructured](https://unstructured.io) document-pipeline metadata into the PostHog Data warehouse.
 
 Generate an API key in the [Unstructured platform dashboard](https://platform.unstructuredapp.io). The key has account-wide read access, so no extra scopes are needed.
@@ -157,4 +157,6 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

@@ -168,6 +168,31 @@ class TestBuildHighlights(SimpleTestCase):
             ),
         )
 
+    def test_pins_lead_the_pulse_and_each_pin_reports_its_state(self) -> None:
+        source = HighlightSource(name="metrics", find=lambda _c: HighlightFindings())
+
+        built = highlights.build_highlights(
+            (source,),
+            {"metrics": HighlightFindings(pulse=(metric("offered"), metric("suggested")))},
+            Team(timezone="UTC"),
+            DAY,
+            pins=["insight:pinned", "offered", "insight:slow", "insight:gone"],
+            pinned={"insight:pinned": metric("insight:pinned")},
+        )
+
+        self.assertEqual(
+            ([m.key for m in built.pulse], [(pin.key, pin.status) for pin in built.pins]),
+            (
+                ["insight:pinned", "offered", "suggested"],
+                [
+                    ("insight:pinned", "ready"),
+                    ("offered", "ready"),
+                    ("insight:slow", "unavailable"),
+                    ("insight:gone", "unavailable"),
+                ],
+            ),
+        )
+
     @parameterized.expand(
         [
             ("days", HighlightInterval.DAY, None, 3, [date(2026, 10, 10), date(2026, 10, 11), date(2026, 10, 12)]),
@@ -350,6 +375,14 @@ class TestGetHighlights(BaseTest):
                 1,
                 [],
             ),
+            (
+                "a ready row for the other pulse ranking",
+                {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=1)},
+                HighlightsStatus.COMPUTING,
+                1,
+                [],
+                "frecency",
+            ),
         ]
     )
     def test_the_request_never_waits_for_a_computation(
@@ -359,10 +392,15 @@ class TestGetHighlights(BaseTest):
         status: HighlightsStatus,
         starts: int,
         pulse: list[str],
+        ranking_later: str = "control",
     ) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        with patch.object(highlights, "sync_connect", connect):
+        ranking = ["control"]
+        with (
+            patch.object(highlights, "sync_connect", connect),
+            patch.object(highlights, "pulse_ranking", side_effect=lambda _user, _team: ranking[0]),
+        ):
             if row is not None:
                 highlights.get_highlights(team=self.team, user=self.user, scopes=None)
                 now = timezone.now()
@@ -372,6 +410,7 @@ class TestGetHighlights(BaseTest):
                 )
                 connect.return_value.start_workflow.reset_mock()
                 cache.clear()
+                ranking[0] = ranking_later
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(

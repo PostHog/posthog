@@ -54,7 +54,7 @@ it('only proposes the successfully executed current query, retaining resolved da
         definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42' },
     })!
     const response = { hogql: "SELECT 42 WHERE toDate('2026-01-01') < toDate('2026-01-08') LIMIT 1001" }
-    expect(getBIMetricSnapshot(node, node, response, true)).toBe(`SELECT * FROM (${response.hogql}) LIMIT 1000`)
+    expect(getBIMetricSnapshot(node, node, response, true)).toBe(`SELECT * FROM (${response.hogql}) LIMIT 50000`)
     expect(getBIMetricSnapshot(node, node, response, false)).toBeNull()
     expect(
         getBIMetricSnapshot({ ...node, source: { ...node.source, query: 'SELECT 43' } }, node, response, true)

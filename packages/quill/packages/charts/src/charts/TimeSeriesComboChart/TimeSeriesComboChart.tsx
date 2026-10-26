@@ -42,6 +42,8 @@ export interface TimeSeriesComboChartConfig {
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Inner gap between bar bands as a fraction of their slot. */
+    bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
@@ -99,6 +101,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         showCrosshair,
         showGrid,
         showAxisLines,
@@ -144,6 +147,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         tooltip: timeSeriesTooltipConfig,
         valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
         yAxes,
@@ -164,7 +168,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
                 {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && <ValueLabels {...valueLabelsConfig} valueFormatter={valueLabelFormatter} />}
                 {children}
             </ComboChart>
         </ChartLegend>

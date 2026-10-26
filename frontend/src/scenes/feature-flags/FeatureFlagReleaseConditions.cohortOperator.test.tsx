@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -38,9 +39,9 @@ const cohortFilter: CohortPropertyFilter = {
     cohort_name: 'Power Users',
 }
 
-function buildFilters(): FeatureFlagFilters {
+function buildFilters(property: CohortPropertyFilter = cohortFilter): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
-        properties: [cohortFilter],
+        properties: [property],
         rollout_percentage: 100,
         variant: null,
         sort_key: 'group-1',
@@ -102,6 +103,41 @@ describe('feature flag release conditions cohort operator', () => {
 
         await waitFor(() => {
             expect(document.querySelector('[data-attr="taxonomic-operator"]')).toBeInTheDocument()
+        })
+    })
+
+    it.each([
+        { state: 'a deleted cohort', markers: { cohort_deleted: true }, label: 'Power Users (deleted)' },
+        {
+            state: 'a missing cohort',
+            markers: { cohort_deleted: true, cohort_missing: true },
+            label: 'Power Users (missing)',
+        },
+    ])('keeps $state marked when the operator changes', async ({ markers, label }) => {
+        const onChange = jest.fn()
+        render(
+            <Provider>
+                <FeatureFlagReleaseConditions
+                    id="1234"
+                    filters={buildFilters({ ...cohortFilter, ...markers })}
+                    onChange={onChange}
+                />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText(label)).toBeInTheDocument()
+        })
+        expect(document.querySelector('[data-attr="property-filter-deleted-cohort-icon"]')).toBeInTheDocument()
+        await userEvent.click(document.querySelector('[data-attr="taxonomic-operator"] button')!)
+        await userEvent.click(await screen.findByText('user in'))
+
+        await waitFor(() => {
+            expect(onChange.mock.lastCall?.[0].groups[0].properties[0]).toMatchObject({
+                operator: PropertyOperator.In,
+                cohort_name: 'Power Users',
+                ...markers,
+            })
         })
     })
 })
