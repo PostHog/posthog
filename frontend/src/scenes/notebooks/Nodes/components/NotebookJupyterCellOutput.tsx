@@ -24,20 +24,15 @@ export type NotebookJupyterCellOutputProps = {
 function OutputRow({
     prompt,
     className,
-    controls,
     children,
 }: {
-    prompt?: string
+    prompt?: ReactNode
     className?: string
-    controls?: ReactNode
     children: ReactNode
 }): JSX.Element {
     return (
         <div className="MarkdownNotebook__jupyter-output-row">
-            <div className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--output">
-                <span>{prompt}</span>
-                {controls}
-            </div>
+            <div className="MarkdownNotebook__jupyter-prompt MarkdownNotebook__jupyter-prompt--output">{prompt}</div>
             <div className={clsx('MarkdownNotebook__jupyter-output-area', className)}>{children}</div>
         </div>
     )
@@ -60,8 +55,8 @@ export function NotebookJupyterCellOutput({
     valueOverride,
     footerExtra,
 }: NotebookJupyterCellOutputProps): JSX.Element | null {
-    const controls = useComponentPanelState()?.jupyterOutputControls
-    const outPrompt = `Out[${executionCount ?? ' '}]:`
+    const interactivePrompt = useComponentPanelState()?.jupyterOutputPrompt
+    const outPrompt = interactivePrompt ?? <span>{`Out[${executionCount ?? ' '}]`}</span>
     const media = result?.media ?? []
     const firstPageLength = result?.first_page?.length ?? 0
     // The kernel's row_count is the page size for a paged frame, so it only counts as the total
@@ -70,14 +65,10 @@ export function NotebookJupyterCellOutput({
     const resultText = !dataframeResult && !runError ? result?.result_text : undefined
     const hasValue = !!dataframeResult || media.length > 0 || !!resultText
     const hasValueRow = !!resultText || (!!dataframeResult && !runError)
-    const leadingPrompt = controls && !hasValueRow ? { prompt: outPrompt, controls } : {}
+    const leadingPrompt = interactivePrompt && !hasValueRow ? { prompt: outPrompt } : {}
 
     if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
-        return controls ? (
-            <OutputRow prompt={outPrompt} controls={controls}>
-                {null}
-            </OutputRow>
-        ) : null
+        return interactivePrompt ? <OutputRow prompt={outPrompt}>{null}</OutputRow> : null
     }
 
     return (
@@ -119,12 +110,12 @@ export function NotebookJupyterCellOutput({
                 </OutputRow>
             ))}
             {resultText ? (
-                <OutputRow prompt={outPrompt} controls={controls}>
+                <OutputRow prompt={outPrompt}>
                     <pre>{resultText}</pre>
                 </OutputRow>
             ) : null}
             {dataframeResult && !runError ? (
-                <OutputRow prompt={outPrompt} controls={controls}>
+                <OutputRow prompt={outPrompt}>
                     {valueOverride ?? (
                         <NotebookJupyterDataframe
                             {...dataframeProps}

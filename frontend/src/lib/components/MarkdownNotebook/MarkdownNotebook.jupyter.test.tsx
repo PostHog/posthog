@@ -39,7 +39,7 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputControls),
+        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt),
         EditComponent: CodeEditorStandIn,
         ToolbarComponent: RunPublisher,
     },
@@ -49,7 +49,7 @@ const registry = createMarkdownNotebookRegistry([
         category: 'Code',
         defaultProps: { code: '' },
         insertCommand: {},
-        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputControls),
+        ViewComponent: () => createElement('div', null, 'output', useComponentPanelState()?.jupyterOutputPrompt),
         EditComponent: CodeEditorStandIn,
     },
 ])
@@ -328,32 +328,44 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         )
     })
 
-    it.each(['Py', 'Sql'])('hides and restores %s input and output independently across reloads', async (tag) => {
-        const notebook = renderJupyterNotebook(`# Title\n\n<${tag} code="original source" />`)
+    it.each([
+        ['Py', false],
+        ['Sql', false],
+        ['Py', true],
+    ])('keeps one %s section visible and restores hidden sections (legacy collapse: %s)', async (tag, bothHidden) => {
+        const notebook = renderJupyterNotebook(
+            `# Title\n\n<${tag} code="original source"${bothHidden ? ' hideInput hideResults' : ''} />`
+        )
+        if (bothHidden) {
+            expect(notebook.editor(0).value).toBe('original source')
+            fireEvent.click(within(notebook.cell(0)).getByLabelText('Show output'))
+            expect(notebook.editor(0).value).toBe('original source')
+        }
         fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide input'))
         expect(notebook.editor(0)).toBeNull()
         expect(within(notebook.cell(0)).getByText('output')).toBeTruthy()
-        fireEvent.click(within(notebook.cell(0)).getByLabelText('Show input'))
-        expect(notebook.editor(0).value).toBe('original source')
-        fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide input'))
+        expect(within(notebook.cell(0)).getByLabelText('Show input').classList.contains('line-through')).toBe(true)
 
         fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide output'))
-        expect(within(notebook.cell(0)).queryByText('output')).toBeNull()
+        act(() => notebook.cell(0).focus())
+        press(notebook.cell(0), 'o')
+        expect(within(notebook.cell(0)).getByText('output')).toBeTruthy()
+        expect(notebook.editor(0)).toBeNull()
         const saved = notebook.latest()
         notebook.unmount()
 
         const reopened = renderJupyterNotebook(saved)
         expect(reopened.editor(0)).toBeNull()
-        expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
+        expect(within(reopened.cell(0)).getByText('output')).toBeTruthy()
         fireEvent.click(within(reopened.cell(0)).getByLabelText('Show input'))
         expect(reopened.editor(0).value).toBe('original source')
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide output'))
         expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
-        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show output'))
-        expect(within(reopened.cell(0)).getByText('output')).toBeTruthy()
+        expect(within(reopened.cell(0)).getByLabelText('Show output').classList.contains('line-through')).toBe(true)
+        fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide input'))
+        expect(reopened.editor(0).value).toBe('original source')
+        expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
 
-        act(() => reopened.cell(0).focus())
-        press(reopened.cell(0), 'o')
-        expect(within(reopened.cell(0)).getByLabelText('Show output')).toBeTruthy()
         fireEvent.click(within(reopened.cell(0)).getByLabelText('Show output'))
         fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide input'))
         act(() => reopened.cell(0).focus())

@@ -2572,18 +2572,30 @@ button.MarkdownNotebook__component-title:focus-visible {
     color: var(--color-text-error);
 }
 
-.MarkdownNotebook__jupyter-visibility-controls {
+.MarkdownNotebook__jupyter-prompt-actions {
     display: flex;
     flex-direction: column;
+    gap: 0.125rem;
     align-items: flex-end;
-    margin-top: 0.125rem;
     pointer-events: auto;
 
     .LemonButton {
         --lemon-button-font-size: var(--jupyter-prompt-font-size);
-        --lemon-button-color: var(--color-text-secondary);
 
         font-family: var(--font-mono);
+        cursor: pointer;
+
+        &.MarkdownNotebook__jupyter-prompt-button--input {
+            --lemon-button-color: var(--jupyter-input-prompt-color);
+        }
+
+        &.MarkdownNotebook__jupyter-prompt-button--output {
+            --lemon-button-color: var(--jupyter-output-prompt-color);
+        }
+
+        &.line-through {
+            --lemon-button-color: var(--color-text-secondary);
+        }
 
         .LemonButton__chrome {
             line-height: 1.3;
