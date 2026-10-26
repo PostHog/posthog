@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models import Organization, User
 
 
-@override_settings(DEMO=True)
+@override_settings(DEMO=True, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.ee
 class TestDemoSignupAPI(APIBaseTest):
     """Demo environment signup tests - signup and login are unified."""
