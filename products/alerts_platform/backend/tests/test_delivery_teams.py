@@ -71,6 +71,23 @@ class TestTeamsCard(SimpleTestCase):
             ],
         }
 
+    def test_rule_links_give_way_to_the_data_and_alert_links(self) -> None:
+        message = alert_message(
+            annotations={f"link_{index}_url": f"https://example.com/{index}" for index in range(5)},
+            data_link=MessageLink(label="View logs", url="https://app.example.com/project/1/logs"),
+        )
+
+        actions = card_for(message)["attachments"][0]["content"]["actions"]
+
+        assert [action["title"] for action in actions] == [
+            "Link 0",
+            "Link 1",
+            "Link 2",
+            "Link 3",
+            "View logs",
+            "View alert",
+        ]
+
     def test_a_query_error_cannot_push_the_card_past_what_teams_accepts(self) -> None:
         message = alert_message(
             headline="x" * 4000,

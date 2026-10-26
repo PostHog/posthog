@@ -21,6 +21,8 @@ PROVIDER: Final = "teams"
 TEXT_BUDGET_BYTES: Final = 20_000
 HEADLINE_BUDGET_BYTES: Final = 1_000
 DESCRIPTION_BUDGET_BYTES: Final = 8_000
+# Teams shows at most six actions on a card.
+MAX_ACTIONS: Final = 6
 
 # The alert name and a query error are user-written, and a TextBlock or a fact renders markdown.
 # Escaping links, emphasis and code stops `[x](https://...)` hiding where it goes, and a bare URL
@@ -74,7 +76,10 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
         )
     if context:
         body.append({"type": "TextBlock", "text": context, "isSubtle": True, "size": "Small", "wrap": True})
-    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in message.links]
+    # The rule's links give way first, so the data link and the alert link always show.
+    fixed = message.links[len(message.rule_links) :]
+    links = (*message.rule_links[: MAX_ACTIONS - len(fixed)], *fixed)
+    actions = [{"type": "Action.OpenUrl", "title": link.label, "url": link.url} for link in links]
     return {
         "type": "message",
         "attachments": [
