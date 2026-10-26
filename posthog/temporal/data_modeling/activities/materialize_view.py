@@ -978,6 +978,10 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     recorded = job.full_refresh_reason
     if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
         return recorded
+    # A failed rebuild clears the watermark, so its retry plans "first run". The reason the
+    # earlier attempt recorded is the real one.
+    if recorded is not None and plan.reason == "first run":
+        return recorded
 
     return plan.reason
 

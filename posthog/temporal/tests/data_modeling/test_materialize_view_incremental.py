@@ -466,6 +466,9 @@ class TestIncrementalMaterialization:
         assert _rows(first.table_uri) == [(DAY1, 10), (DAY2, 20), (DAY3, 30)]
         assert result.incremental is False
 
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.full_refresh_reason == "definition changed"
+
     async def test_a_zero_row_window_leaves_the_table_and_watermark_alone(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
