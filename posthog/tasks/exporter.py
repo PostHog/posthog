@@ -7,6 +7,7 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
+from posthog.query_creator_access import CreatorLeftOrganizationError, creator_access_revoked
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
@@ -121,6 +122,10 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
+        # The export runs as its owner. Stop before the query, because a query that reads no
+        # restricted table still succeeds after the owner leaves.
+        if exported_asset.created_by is not None and creator_access_revoked(exported_asset.created_by, team):
+            raise CreatorLeftOrganizationError()
         assert_export_authorization(exported_asset)
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)

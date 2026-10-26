@@ -6,6 +6,13 @@ from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 
 
+class CreatorLeftOrganizationError(Exception):
+    """A background query refused to run because its owner is no longer in the organization."""
+
+    def __init__(self) -> None:
+        super().__init__("The owner is no longer in the organization.")
+
+
 def creator_access_revoked(user: Optional[User], team: Team) -> bool:
     """True when `user` no longer has access to `team`: they were deleted (`user is None`),
     deactivated, or are no longer a member of the team's org.

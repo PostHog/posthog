@@ -9,8 +9,8 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import OrganizationMembership, User
-from posthog.query_creator_access import creator_access_revoked
+from posthog.models import User
+from posthog.query_creator_access import CreatorLeftOrganizationError
 
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -105,24 +105,26 @@ def get_subscription_disable_reason(target_type: str | None, integration_id: int
     return None
 
 
-def get_creator_disable_reason(subscription: Subscription) -> DisableReason | None:
-    """Disable reason when the owner can no longer run the subscription's queries. Deliveries run as the owner.
+# Export failures that mean the owner can no longer run the query, not that the export broke.
+_OWNER_DISABLE_REASONS_BY_EXCEPTION_TYPE = {
+    CreatorLeftOrganizationError.__name__: CREATOR_LEFT_DISABLE_REASON,
+    UserNotOrganizationMemberError.__name__: CREATOR_LEFT_DISABLE_REASON,
+    TableAccessDeniedError.__name__: CREATOR_LOST_ACCESS_DISABLE_REASON,
+    UserAccessControlError.__name__: CREATOR_LOST_ACCESS_DISABLE_REASON,
+}
 
-    A subscription with no recorded owner is left alone, because nobody is known to have left.
-    """
-    if subscription.created_by is not None and creator_access_revoked(subscription.created_by, subscription.team):
+
+def get_asset_owner_disable_reason(exception_type: str | None) -> DisableReason | None:
+    if exception_type is None:
+        return None
+    return _OWNER_DISABLE_REASONS_BY_EXCEPTION_TYPE.get(exception_type)
+
+
+def get_assets_owner_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
+    reasons = {get_asset_owner_disable_reason(exception_type) for exception_type in exception_types}
+    if CREATOR_LEFT_DISABLE_REASON in reasons:
         return CREATOR_LEFT_DISABLE_REASON
-    return None
-
-
-# Export failures that mean the owner lost access, not that the export broke.
-_ACCESS_DENIED_EXCEPTION_TYPES = frozenset(
-    {TableAccessDeniedError.__name__, UserAccessControlError.__name__, UserNotOrganizationMemberError.__name__}
-)
-
-
-def get_asset_access_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
-    if any(exception_type in _ACCESS_DENIED_EXCEPTION_TYPES for exception_type in exception_types):
+    if CREATOR_LOST_ACCESS_DISABLE_REASON in reasons:
         return CREATOR_LOST_ACCESS_DISABLE_REASON
     return None
 
@@ -154,25 +156,10 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     return creator
 
 
-def _disabled_notification_emails(subscription: Subscription, reason: DisableReason) -> list[str]:
-    creator = _get_notification_creator(subscription)
-    if creator is not None:
-        return [creator.email] if creator.email else []
-    if reason != CREATOR_LEFT_DISABLE_REASON:
-        return []
-    # The owner is gone, so the admins are the only people who can replace the subscription.
-    return list(
-        OrganizationMembership.objects.filter(
-            organization_id=subscription.team.organization_id,
-            level__gte=OrganizationMembership.Level.ADMIN,
-            user__is_active=True,
-        )
-        .exclude(user__email="")
-        .values_list("user__email", flat=True)
-    )
-
-
-def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
+def disable_invalid_subscription(
+    subscription: Subscription, reason: DisableReason, *, notify_owner: bool = True
+) -> None:
+    """Disable the subscription once. Pass `notify_owner=False` when the delivery itself already told the recipients why."""
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
     rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
@@ -199,6 +186,8 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
+    if not notify_owner:
+        return
 
     try:
         create_subscription_auto_disabled_notification(subscription, reason)
@@ -211,10 +200,10 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             exc_info=True,
         )
 
-    emails = _disabled_notification_emails(subscription, reason)
-    if emails:
+    creator = _get_notification_creator(subscription)
+    if creator and creator.email:
         try:
-            send_notifications_for_disabled_subscription(subscription, reason, emails)
+            send_notifications_for_disabled_subscription(subscription, reason, [creator.email])
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)

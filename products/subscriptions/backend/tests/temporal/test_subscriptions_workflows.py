@@ -729,36 +729,24 @@ async def test_process_subscription_records_missing_slack_integration_failure(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "case_label, target_type, target_value, asset_exception_type, expected_error",
+    "case_label, target_type, target_value, expected_error",
     [
         (
             "missing_slack_integration",
             "slack",
             "C12345|#test-channel",
-            None,
             {"message": "Slack integration disconnected", "type": "missing_integration"},
         ),
         (
             "unsupported_target",
             "webhook",
             "https://example.com/hook",
-            None,
             {"message": "Unsupported delivery channel", "type": "unsupported_target"},
-        ),
-        (
-            "creator_lost_access",
-            "email",
-            "owner@example.com",
-            "TableAccessDeniedError",
-            {
-                "message": "The owner of this subscription no longer has access to some of its data",
-                "type": "creator_lost_access",
-            },
         ),
     ],
 )
 async def test_deliver_subscription_auto_disables_invalid_subscriptions(
-    team, user, case_label, target_type, target_value, asset_exception_type, expected_error
+    team, user, case_label, target_type, target_value, expected_error
 ):
     """Activity-level auto-disable for permanently-broken targets. `no_assets` is
     deliberately excluded — empty-assets-at-delivery is transient (the workflow short-
@@ -771,7 +759,6 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
         insight=insight,
         export_format="image/png",
         content_location=f"s3://bucket/{case_label}.png",
-        exception_type=asset_exception_type,
     )
     subscription = await sync_to_async(create_subscription)(
         team=team,
@@ -809,6 +796,46 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     assert result is not None
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error == expected_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exception_type", ["CreatorLeftOrganizationError", "TableAccessDeniedError"])
+async def test_deliver_subscription_sends_the_reason_then_disables_when_the_owner_cannot_run_it(
+    team, user, exception_type
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"own-{exception_type[:4]}", name="owner")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight=insight, export_format="image/png", exception="denied", exception_type=exception_type
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="email",
+        target_value="reader@example.com",
+        enabled=True,
+    )
+
+    with (
+        patch("products.subscriptions.backend.temporal.activities.send_email_subscription_report") as send_report,
+        patch(
+            "products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"
+        ) as send_disabled_email,
+        patch("products.subscriptions.backend.logic.auto_disable.create_notification") as create_notification,
+    ):
+        result = await ActivityEnvironment().run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
+            ),
+        )
+
+    send_report.assert_called_once()
+    assert result.recipient_results[0].status == "success"
+    send_disabled_email.assert_not_called()
+    create_notification.assert_not_called()
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
 
 
 @pytest.mark.asyncio
@@ -917,12 +944,11 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
 
 
 @pytest.mark.parametrize(
-    "label,target_type,target_value,initial_enabled,creator_left,expected_aborts,expects_failed_recipient,expected_final_enabled",
+    "label,target_type,target_value,initial_enabled,expected_aborts,expects_failed_recipient,expected_final_enabled",
     [
-        ("valid_email_no_abort", "email", "ok@example.com", True, False, False, False, True),
-        ("unsupported_webhook_auto_disables", "webhook", "https://example.com/hook", True, False, True, True, False),
-        ("already_disabled_short_circuits", "email", "dis@example.com", False, False, True, False, False),
-        ("creator_left_org_auto_disables", "email", "left@example.com", True, True, True, True, False),
+        ("valid_email_no_abort", "email", "ok@example.com", True, False, False, True),
+        ("unsupported_webhook_auto_disables", "webhook", "https://example.com/hook", True, True, True, False),
+        ("already_disabled_short_circuits", "email", "dis@example.com", False, True, False, False),
     ],
 )
 @pytest.mark.asyncio
@@ -933,7 +959,6 @@ async def test_validate_subscription_for_delivery(
     target_type,
     target_value,
     initial_enabled,
-    creator_left,
     expected_aborts,
     expects_failed_recipient,
     expected_final_enabled,
@@ -947,10 +972,6 @@ async def test_validate_subscription_for_delivery(
         target_value=target_value,
         enabled=initial_enabled,
     )
-    if creator_left:
-        await sync_to_async(
-            OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).delete
-        )()
 
     env = ActivityEnvironment()
     with (

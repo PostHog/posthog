@@ -6,11 +6,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import User
 
 from products.subscriptions.backend.logic.auto_disable import (
     AI_PROMPT_INVALID_DISABLE_REASON,
-    CREATOR_LEFT_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
@@ -156,16 +155,11 @@ class TestDisableInvalidSubscription(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("former_creator", False, SLACK_DISCONNECTED_DISABLE_REASON),
-            ("deactivated_creator", True, SLACK_DISCONNECTED_DISABLE_REASON),
-            ("former_creator_left_org", False, CREATOR_LEFT_DISABLE_REASON),
-            ("deactivated_creator_left_org", True, CREATOR_LEFT_DISABLE_REASON),
+            ("former_creator", False),
+            ("deactivated_creator", True),
         ]
     )
-    def test_does_not_notify_creator_without_access(self, _label, deactivate_member, reason):
-        admin = User.objects.create_and_join(
-            self.organization, "admin@example.com", None, level=OrganizationMembership.Level.ADMIN
-        )
+    def test_does_not_notify_creator_without_access(self, _label, deactivate_member):
         if deactivate_member:
             creator = self.user
             creator.is_active = False
@@ -182,15 +176,10 @@ class TestDisableInvalidSubscription(APIBaseTest):
                 "products.subscriptions.backend.logic.auto_disable.send_notifications_for_disabled_subscription"
             ) as send_mock,
         ):
-            disable_invalid_subscription(sub, reason)
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         create_notification_mock.assert_not_called()
-        if reason == CREATOR_LEFT_DISABLE_REASON:
-            emails = send_mock.call_args.args[2]
-            assert admin.email in emails
-            assert creator.email not in emails
-        else:
-            send_mock.assert_not_called()
+        send_mock.assert_not_called()
 
     def test_send_notifications_uses_unique_campaign_key_per_call(self):
         sub = self._make_subscription()

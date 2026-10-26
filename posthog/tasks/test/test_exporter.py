@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.tasks import exporter
@@ -120,6 +121,20 @@ class TestExporterTask(APIBaseTest):
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_export_does_not_run_after_its_owner_left(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard=self.exported_asset.dashboard, export_format="image/png", created_by=former_member
+        )
+
+        exporter.export_asset(asset.id)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert asset.exception_type == "CreatorLeftOrganizationError"
         assert asset.failure_type == FAILURE_TYPE_USER
 
 
