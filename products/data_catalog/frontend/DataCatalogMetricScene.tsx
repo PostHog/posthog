@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,6 +44,7 @@ import { InsightShortId, SidePanelTab } from '~/types'
 
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
+import { MetricOwnerSelect } from './components/MetricOwnerSelect'
 import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
 import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
@@ -513,25 +513,7 @@ function MetricMetadata({
             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm max-w-2xl">
                 <MetadataItem
                     label="Owner"
-                    value={
-                        <MemberSelect
-                            value={null}
-                            defaultLabel="Unassigned"
-                            onChange={(user) => onSaveOwner(user?.email ?? null)}
-                        >
-                            {() => (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    noPadding
-                                    loading={saving}
-                                    data-attr="data-catalog-metric-owner-select"
-                                >
-                                    {metric.owner || 'Unassigned'}
-                                </LemonButton>
-                            )}
-                        </MemberSelect>
-                    }
+                    value={<MetricOwnerSelect owner={metric.owner} loading={saving} onChange={onSaveOwner} />}
                 />
                 <MetadataItem label="Approved by" value={metric.approved_by?.email || 'Not approved'} />
                 <MetadataItem
