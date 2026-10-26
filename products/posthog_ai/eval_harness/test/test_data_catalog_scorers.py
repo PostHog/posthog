@@ -111,6 +111,14 @@ def _sql_log(query: str, *, status: str = "completed") -> str:
             1.0,
         ),
         (
+            "star_over_a_subquery_without_the_column",
+            "SELECT * FROM (SELECT table_name FROM system.information_schema.tables)",
+            "information_schema.tables",
+            ["description"],
+            "completed",
+            0.0,
+        ),
+        (
             "star_inside_count_is_not_a_projection",
             "SELECT count(*) FROM system.information_schema.tables",
             "information_schema.tables",
@@ -471,6 +479,9 @@ def test_deprecation_proposed(
         ("range_with_a_hyphen", "437.50", "Line totals ran 400-437.50.", 1.0),
         ("round_value_without_decimals", "800.00", "Paid invoices total $800.", 1.0),
         ("round_value_inside_a_larger_integer", "800.00", "Paid invoices total 8000.", 0.0),
+        ("round_value_with_other_cents", "18050.00", "Revenue was $18,050.88.", 0.0),
+        ("integer_with_a_fraction", "13", "There are 13.5 approved requests.", 0.0),
+        ("integer_at_the_end_of_a_sentence", "13", "Approved requests: 13.", 1.0),
     ]
 )
 def test_answer_value_stated(_name: str, value: str, answer: str, expected_score: float) -> None:
@@ -505,6 +516,16 @@ _TABLE_CHOICE = {
             0.0,
         ),
         ("failed_target_query", [("SELECT sum(acv) FROM postgres_contracts_acv", "failed")], 0.0),
+        (
+            "names_the_target_only_in_a_catalog_filter",
+            [
+                (
+                    "SELECT description FROM system.information_schema.tables WHERE table_name = 'postgres_contracts_acv'",
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
         (
             "decoy_then_target",
             [

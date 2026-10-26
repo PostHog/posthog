@@ -749,8 +749,11 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         }
 
 
-# A star projection returns every column of the surface, so it reads the required columns without naming them.
-_SELECT_STAR = re.compile(r"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*")
+def _selects_star_from(query: str, surface: str) -> bool:
+    # A star projection read directly from the surface returns every column, so it reads the required columns
+    # without naming them. A star over a subquery or another table exposes only what that input selects.
+    pattern = rf"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*\s+from\s+(?:[\w.]+\.)?{re.escape(surface)}\b"
+    return re.search(pattern, query) is not None
 
 
 class SemanticMetadataQueried(Scorer):
@@ -781,7 +784,7 @@ class SemanticMetadataQueried(Scorer):
             query
             for call in _successful_sql(parser)
             if normalized_surface in (query := _query_text(call))
-            and (_SELECT_STAR.search(query) or all(column in query for column in normalized_columns))
+            and (_selects_star_from(query, normalized_surface) or all(column in query for column in normalized_columns))
         ]
         return Score(
             name=self._name(),
@@ -823,17 +826,23 @@ class AnswerValueStated(Scorer):
         normalized = answer.replace(",", "").replace("$", "")
         # Trailing decimal zeros are optional so that "437.5" matches "437.50". The digit guards stop "1437.50"
         # or "437.55" from matching. The zeros may only follow the decimal point, so "800.00" does not match "8000".
+        # The trailing guard also rejects a decimal point followed by a digit, so "18050.88" does not state 18050.00.
         whole, _, fraction = value.partition(".")
         fraction = fraction.rstrip("0")
         decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
-        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\d)"
+        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\.?\d)"
         found = any(not _is_negated(normalized, match.start()) for match in re.finditer(pattern, normalized))
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
 
 
+# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
+
+
 def _reads_table(query: str, names: list[str]) -> bool:
     # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
-    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", query) for name in names)
+    code = _STRING_LITERAL.sub("''", query)
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
 
 
 class AnswerTableQueried(Scorer):
