@@ -1837,8 +1837,7 @@ jobs:
                   # The load is atomic: on failure the transaction rolls back and
                   # the fallback below recreates an empty DB for a full migrate.
                   # The migrate in the next step seeds the data-migration rows the
-                  # schema-only dump lacks. Seeding here instead would fail on any
-                  # dump that predates a column master's models write.
+                  # schema-only dump lacks.
                   if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null; then
                       echo "Primed posthog DB from cached master schema"
                   else

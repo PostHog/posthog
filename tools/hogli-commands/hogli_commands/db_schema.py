@@ -176,18 +176,6 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _manage(target_db: str, *args: str) -> None:
-    """Run a management command against target_db."""
-    _run(
-        ["python", "manage.py", *args],
-        env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
-    )
-
-
-def _ensure_migration_defaults(target_db: str) -> None:
-    _manage(target_db, "ensure_migration_defaults")
-
-
 def _psql_write(target_db: str, sql: str) -> None:
     """Run a one-shot statement against target_db."""
     _run(
@@ -248,12 +236,10 @@ def restore_schema_dump(
     recreate: bool,
     schema_path: Path = LOCAL_SCHEMA_PATH,
 ) -> None:
-    """Load a schema dump. The caller must run `migrate` next.
+    """Load a schema dump. The caller must run `migrate` next, which seeds the rows the dump lacks.
 
-    `migrate` applies the migrations the dump predates and then seeds the rows that data
-    migrations used to write (`ensure_migration_defaults`). Do not seed here: the seed writes
-    through the checkout's models, and a dump older than the checkout can lack their newest
-    columns, which fails the restore with `UndefinedColumn` and forces a full migrate.
+    Do not seed here: the seed writes through the checkout's models, so a dump that predates a
+    model column fails the restore with `UndefinedColumn` and forces a full migrate.
     """
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
@@ -687,6 +673,5 @@ def db_restore_schema(yes: bool) -> None:
         _create_postgres_backup()
         restore_schema_dump(target_db="posthog", recreate=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
-        _ensure_migration_defaults("posthog")
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

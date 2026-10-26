@@ -377,8 +377,6 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert any("DROP DATABASE IF EXISTS test_posthog;" in command for call in commands for command in call)
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
-    # Seeding through Django models fails when the dump predates a column those models write.
-    # The caller's migrate seeds after it adds the column.
     assert not [command for command in commands if command[:2] == ["python", "manage.py"]]
 
 
