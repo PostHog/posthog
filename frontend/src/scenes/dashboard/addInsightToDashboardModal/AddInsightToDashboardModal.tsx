@@ -2,6 +2,11 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
+import {
+    getDashboardWidgetGroupIcon,
+    getDashboardWidgetPickerItem,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
+
 import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,6 +24,9 @@ import { InsightType } from '~/types'
 import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
 import { dashboardLogic } from '../dashboardLogic'
 
+const METRICS_WIDGET_PICKER_ITEM = getDashboardWidgetPickerItem('metrics:time_series')
+const MetricsWidgetIcon = getDashboardWidgetGroupIcon('metrics')
+
 const QUICK_CREATE_TYPES = [
     { type: InsightType.TRENDS, icon: IconInsightTrends, label: 'Trend' },
     { type: InsightType.FUNNELS, icon: IconInsightFunnels, label: 'Funnel' },
@@ -28,7 +36,8 @@ const QUICK_CREATE_TYPES = [
 export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
-    const { dashboard } = useValues(dashboardLogic)
+    const { dashboard, addWidgetTileLoading } = useValues(dashboardLogic)
+    const { addWidgetTiles } = useActions(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleClose = (): void => {
@@ -39,6 +48,30 @@ export function AddInsightToDashboardModal(): JSX.Element {
     const handleNewInsightClicked = (insightType: string): void => {
         posthog.capture('insight dashboard modal - new insight clicked', {
             insight_type: insightType,
+        })
+        handleClose()
+    }
+
+    // New metrics charts are metric widgets, so this adds a widget and opens its editor instead of the insight editor.
+    const offerMetricsWidget =
+        !!METRICS_WIDGET_PICKER_ITEM &&
+        METRICS_WIDGET_PICKER_ITEM.requiredFlags.every(
+            (flag) => !!(featureFlags as Record<string, boolean | string | undefined>)[flag]
+        )
+
+    const handleNewMetricsWidgetClicked = async (): Promise<void> => {
+        if (!dashboard?.id || !METRICS_WIDGET_PICKER_ITEM) {
+            return
+        }
+        posthog.capture('insight dashboard modal - new insight clicked', {
+            insight_type: METRICS_WIDGET_PICKER_ITEM.widgetType,
+        })
+        // addWidgetTiles toasts and rethrows on failure, so the modal stays open for another try.
+        await addWidgetTiles({
+            dashboardId: dashboard.id,
+            widgets: [
+                { widgetType: METRICS_WIDGET_PICKER_ITEM.widgetType, config: METRICS_WIDGET_PICKER_ITEM.defaultConfig },
+            ],
         })
         handleClose()
     }
@@ -114,6 +147,19 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     </LemonButton>
                                                 )
                                             })}
+                                            {offerMetricsWidget ? (
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    fullWidth
+                                                    icon={MetricsWidgetIcon ? <MetricsWidgetIcon /> : undefined}
+                                                    loading={addWidgetTileLoading}
+                                                    disabledReason={!dashboard?.id ? 'Loading dashboard' : undefined}
+                                                    data-attr="create-metrics-widget"
+                                                    onClick={() => void handleNewMetricsWidgetClicked().catch(() => {})}
+                                                >
+                                                    Metrics
+                                                </LemonButton>
+                                            ) : null}
                                         </div>
                                     }
                                 >
