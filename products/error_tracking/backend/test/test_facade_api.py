@@ -619,7 +619,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert api.get_settings(other_team.id).project_rate_limit_value is None
 
     @parameterized.expand([("project", False), ("environment", True)])
-    def test_exception_ingestion_switch_writes_the_project_pipeline_override(self, _name, via_environment):
+    def test_exception_ingestion_switch_writes_the_environment_pipeline_override(self, _name, via_environment):
         team_id = self.team.id
         if via_environment:
             team_id = Team.objects.create(
@@ -629,10 +629,10 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         for enabled in (False, True):
             assert api.update_settings(team_id, {"ingestion_enabled": enabled}).ingestion_enabled is enabled
-            override = EventFilterPipelineOverride.objects.for_team(self.team.id).get(
-                pipeline=IngestionPipeline.ERRORTRACKING
+            overrides = EventFilterPipelineOverride.objects.unscoped().values_list(
+                "team_id", "pipeline", "drop_all_events"
             )
-            assert override.drop_all_events is not enabled
+            assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
 
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)

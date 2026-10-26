@@ -7,7 +7,6 @@ from django.db.models import Count, Q, QuerySet
 
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
-from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -251,10 +250,8 @@ def is_exception_ingestion_enabled(team_id: int) -> bool:
 
 
 def set_exception_ingestion_enabled(team_id: int, enabled: bool) -> None:
-    # The override's save stores the row under the parent team, so look it up there too.
-    canonical_team_id = resolve_effective_team_id(team_id)
-    EventFilterPipelineOverride.objects.for_team(canonical_team_id, canonical=True).update_or_create(
-        team_id=canonical_team_id,
+    EventFilterPipelineOverride.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
         pipeline=IngestionPipeline.ERRORTRACKING,
         defaults={"drop_all_events": not enabled},
     )
