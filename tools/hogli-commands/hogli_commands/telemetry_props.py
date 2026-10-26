@@ -16,6 +16,7 @@ import time
 import fcntl
 import socket
 import hashlib
+import secrets
 import functools
 import contextlib
 import subprocess
@@ -431,11 +432,16 @@ def _terminal_session_id(state: dict[str, Any], now: float) -> str | None:
     return session_id
 
 
-def _agent_session_id() -> str | None:
+def _agent_session_id(state: dict[str, Any]) -> str | None:
     for var in _AGENT_SESSION_ENV_VARS:
         value = os.environ.get(var, "").strip()
         if value:
-            return value[:64]
+            salt = state.get("session_salt")
+            if not isinstance(salt, str) or not salt:
+                salt = secrets.token_hex(16)
+                state["session_salt"] = salt
+            digest = hashlib.sha256(f"{salt}|{value}".encode()).hexdigest()
+            return f"agent-{digest[:16]}"
     return None
 
 
@@ -453,7 +459,7 @@ def _session_properties(command: str | None) -> dict[str, Any]:
         now = time.time()
         with _state_lock():
             state = _load_state()
-            session_id = _agent_session_id()
+            session_id = _agent_session_id(state)
             source = "agent" if session_id else None
             if session_id is None:
                 session_id = _terminal_session_id(state, now)

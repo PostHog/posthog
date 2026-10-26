@@ -292,12 +292,15 @@ class TestSessionProperties:
         assert _session_properties("lint")["is_rerun"] is False
         assert _session_properties("lint")["is_rerun"] is False
         _session_properties.cache_clear()
-        assert _session_properties("lint") == {
+        rerun = _session_properties("lint")
+        assert rerun == {
             "command_kind": "verify-lint",
-            "session_id": "sess-1",
+            "session_id": rerun["session_id"],
             "session_id_source": "agent",
             "is_rerun": True,
         }
+        assert rerun["session_id"].startswith("agent-")
+        assert "sess-1" not in rerun["session_id"]
 
     def test_corrupt_state_file_does_not_raise(self, tmp_path) -> None:
         (tmp_path / "state.json").write_text('{"runs": [["only-two", 1], "junk"], "terminal_sessions": 3}')
