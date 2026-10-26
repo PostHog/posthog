@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import (
+    MANIFEST_FILE_NAME,
+    manifest_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     BatchWriteResult,
     cleanup_folder,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_date_partition,
     strip_s3_protocol,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
 
@@ -61,22 +66,6 @@ def build_schema_dict(schema: pa.Schema) -> dict:
         ],
         "pandas_metadata": schema.pandas_metadata,
     }
-
-
-def _object_size(file_info: object) -> int:
-    # s3fs reports the object size under the lowercase `size` key. S3's own HeadObject shape
-    # uses `Size`, so both are accepted rather than trusting one client's spelling.
-    if not isinstance(file_info, dict):
-        return 0
-    for key in ("size", "Size"):
-        value = file_info.get(key)
-        if value is None:
-            continue
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            continue
-    return 0
 
 
 def _is_transient_s3_write_error(exc: BaseException) -> bool:
@@ -109,9 +98,16 @@ def _is_transient_s3_write_error(exc: BaseException) -> bool:
 )
 def _write_parquet_to_s3(
     s3: s3fs.S3FileSystem, s3_path: str, pa_table: pa.Table, compression: ParquetCompression
-) -> None:
+) -> int:
+    """Write the table and return the size of the object in bytes.
+
+    The file position after the last write is the object size: the parquet writer only appends, and
+    s3fs uploads each byte it accepted, in one PUT or in parts. Reading the size back from S3 would
+    cost one HEAD for each batch.
+    """
     with s3.open(s3_path, "wb") as f:
         pq.write_table(pa_table, f, compression=compression)
+        return int(f.tell())
 
 
 class S3BatchWriter:
@@ -164,7 +160,7 @@ class S3BatchWriter:
         write_start = time.perf_counter()
         try:
             s3_path_without_protocol = strip_s3_protocol(s3_path)
-            _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
+            byte_size = _write_parquet_to_s3(self._s3, s3_path_without_protocol, pa_table, self._compression)
         except Exception as e:
             if activity.in_activity():
                 get_s3_write_errors_metric(type(e).__name__).add(1)
@@ -179,8 +175,6 @@ class S3BatchWriter:
         write_duration = time.perf_counter() - write_start
         if activity.in_activity():
             get_s3_write_duration_metric().record(write_duration)
-
-        byte_size = _object_size(self._s3.info(s3_path_without_protocol))
 
         if self._schema is None:
             self._schema = pa_table.schema
@@ -204,6 +198,7 @@ class S3BatchWriter:
             byte_size=byte_size,
             batch_index=batch_index,
             timestamp_ns=timestamp_ns,
+            arrow_bytes=pa_table.nbytes,
         )
 
     def write_schema(self) -> str | None:
@@ -229,6 +224,17 @@ class S3BatchWriter:
         self._logger.debug(f"Schema written successfully", s3_path=schema_path)
 
         return schema_path
+
+    def write_replace_scope(self, scope: ReplaceScope) -> str:
+        """Write the scope's value sets next to the run's batches and return the manifest's path."""
+        manifest_path = f"{self._base_folder}/{MANIFEST_FILE_NAME}"
+        try:
+            _write_parquet_to_s3(self._s3, strip_s3_protocol(manifest_path), manifest_table(scope), self._compression)
+        except Exception as e:
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            raise
+        return manifest_path
 
     def get_base_folder(self) -> str:
         return self._base_folder

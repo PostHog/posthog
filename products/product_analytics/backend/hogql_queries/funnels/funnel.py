@@ -241,11 +241,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
-        use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
-            BreakdownType.PERSON,
-            BreakdownType.EVENT,
-            BreakdownType.GROUP,
-        ]
+        # Cohort values stay integer cohort ids, which have no supertype with the string `Other`.
+        use_breakdown_limit = bool(self.context.breakdown) and self.context.breakdownType != BreakdownType.COHORT
 
         final_prop = (
             f"if(row_number < {self.get_breakdown_limit()}, breakdown, {other_aggregation})"
@@ -432,7 +429,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         elif self.context.includeTimestamp:
             return [
                 parse_expr(f"matched_events_array[{target_step}][1].1 AS timestamp"),
-                # Correlation code expects null if user hasn't made it to this step
                 parse_expr(f"nullIf(matched_events_array[{final_step}][1].1, 0) AS final_timestamp"),
                 parse_expr(f"matched_events_array[{first_step}][1].1 as first_timestamp"),
             ]
@@ -443,7 +439,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         self,
         extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
-        # Insight actors and correlation queries build this directly, skipping the
+        # Insight actors queries build this directly, skipping the
         # FunnelsQueryRunner validators
         validate_max_funnel_steps(self.context.max_steps)
 

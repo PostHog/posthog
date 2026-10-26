@@ -6,13 +6,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.project_access import enable_access_control, restrict_project
 from posthog.user_permissions import UserPermissions
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.dashboard_privilege import DashboardPrivilege
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 class WithPermissionsBase:
@@ -48,7 +46,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_does_not_belong(self):
@@ -73,7 +71,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_ids_visible_for_user(self):
@@ -158,7 +156,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         # Check effective membership level
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_new_access_control_private_team_member_no_access(self):
@@ -439,23 +437,17 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
-    def test_role_admin_access_overrides_direct_member_access(self):
-        """
-        BUG TEST: When a user has both:
-        1. Direct MEMBER access to a project
-        2. Role-based ADMIN access to the same project
-
-        The role admin access should take precedence and return ADMIN level.
-        Currently this fails because direct member access returns early without checking roles.
-        """
+    def test_direct_member_grant_is_not_overridden_by_role_admin_grant(self):
+        """A direct member rule decides on its own under most-specific resolution — a role
+        grant on the same project does not override it. Mirrors `_most_specific_rows_decision`
+        in `products/access_control/backend/facade/user_access_control.py`, so the enforced
+        API gate and this resolver cannot disagree."""
         from products.access_control.backend.models.access_control import AccessControl
         from products.access_control.backend.models.role import Role, RoleMembership
 
-        # Set up user as organization member (not admin)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        # Step 1: Give user direct MEMBER access to the project
         AccessControl.objects.create(
             team=self.team,
             resource="project",
@@ -464,17 +456,12 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             access_level="member",
         )
 
-        # Step 2: Create a role with ADMIN access to the same project
         admin_role = Role.objects.create(name="Project Admin Role", organization=self.organization)
-
-        # Step 3: Assign the user to this admin role
         RoleMembership.objects.create(
             role=admin_role,
             user=self.user,
             organization_member=self.organization_membership,
         )
-
-        # Step 4: Give the role ADMIN access to the project
         AccessControl.objects.create(
             team=self.team,
             resource="project",
@@ -483,9 +470,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             access_level="admin",
         )
 
-        # Expected: Should return ADMIN level (role access trumps direct access)
-        # Currently fails: Returns MEMBER level (direct access returned early)
-        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def _grant_project_access(self, access_level: str, *, member=None, role=None) -> None:
         from products.access_control.backend.models.access_control import AccessControl
@@ -632,9 +617,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
             ("member_none_with_admin_default", "none", None, "admin", None),
             ("role_none_without_default", None, "none", None, None),
             ("role_none_with_member_default", None, "none", "member", None),
-            ("member_none_role_admin", "none", "admin", None, OrganizationMembership.Level.ADMIN),
+            ("member_none_role_admin", "none", "admin", None, None),
             ("member_admin_role_none", "admin", "none", None, OrganizationMembership.Level.ADMIN),
-            ("member_none_role_member", "none", "member", "none", OrganizationMembership.Level.MEMBER),
+            ("member_none_role_member", "none", "member", "none", None),
         ]
     )
     def test_team_effective_membership_level_explicit_denial(
@@ -698,248 +683,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.permissions().current_team.effective_membership_level is None
 
 
-class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.dashboard = Dashboard.objects.create(team=self.team)
-
-    def dashboard_permissions(self):
-        return self.permissions().dashboard(self.dashboard)
-
-    def test_dashboard_effective_restriction_level(self):
-        assert (
-            self.dashboard_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    def test_dashboard_effective_restriction_level_explicit(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        assert (
-            self.dashboard_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        )
-
-    def test_dashboard_effective_restriction_level_when_feature_not_available(self):
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        assert (
-            self.dashboard_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    def test_dashboard_can_restrict(self):
-        from products.access_control.backend.models.access_control import AccessControl
-
-        # Explicitly set project default access to member level so the user
-        # doesn't get the implicit admin default
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=None,
-            role=None,
-            access_level="member",
-        )
-        assert not self.dashboard_permissions().can_restrict
-
-    def test_dashboard_can_restrict_as_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        assert self.dashboard_permissions().can_restrict
-
-    def test_dashboard_can_restrict_as_creator(self):
-        self.dashboard.created_by = self.user
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().can_restrict
-
-    def test_dashboard_effective_privilege_level_when_everyone_can_edit(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
-        from products.access_control.backend.models.access_control import AccessControl
-
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        # Explicitly set project default access to member level so the user
-        # doesn't get the implicit admin default (which would grant can_restrict)
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=None,
-            role=None,
-            access_level="member",
-        )
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
-
-    def test_dashboard_effective_privilege_level_priviledged(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        DashboardPrivilege.objects.create(
-            user=self.user,
-            dashboard=self.dashboard,
-            level=Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_effective_privilege_level_creator(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-        self.dashboard.created_by = self.user
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_dashboard_can_edit_when_everyone_can(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_not_collaborator(self):
-        from products.access_control.backend.models.access_control import AccessControl
-
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        # Explicitly set project default access to member level so the user
-        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=None,
-            role=None,
-            access_level="member",
-        )
-
-        assert not self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_creator(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-        self.dashboard.created_by = self.user
-        self.dashboard.save()
-
-        assert self.dashboard_permissions().can_edit
-
-    def test_dashboard_can_edit_priviledged(self):
-        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        self.dashboard.save()
-
-        DashboardPrivilege.objects.create(
-            user=self.user,
-            dashboard=self.dashboard,
-            level=Dashboard.PrivilegeLevel.CAN_EDIT,
-        )
-
-        assert self.dashboard_permissions().can_edit
-
-
-class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
-    def setUp(self):
-        super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-
-        self.dashboard1 = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        self.dashboard2 = Dashboard.objects.create(team=self.team)
-        self.insight = Insight.objects.create(team=self.team)
-        self.tile1 = DashboardTile.objects.create(dashboard=self.dashboard1, insight=self.insight)
-        self.tile2 = DashboardTile.objects.create(dashboard=self.dashboard2, insight=self.insight)
-
-    def insight_permissions(self):
-        return self.permissions().insight(self.insight)
-
-    def test_effective_restriction_level_limited(self):
-        assert (
-            self.insight_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        )
-
-    def test_effective_restriction_level_all_allow(self):
-        Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
-
-        assert (
-            self.insight_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    def test_effective_restriction_level_with_no_dashboards(self):
-        DashboardTile.objects.all().delete()
-
-        assert (
-            self.insight_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    def test_effective_restriction_level_with_no_permissioning(self):
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        assert (
-            self.insight_permissions().effective_restriction_level
-            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-        )
-
-    def test_effective_privilege_level_all_limited(self):
-        from products.access_control.backend.models.access_control import AccessControl
-
-        Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
-
-        # Explicitly set project default access to member level so the user
-        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            organization_member=None,
-            role=None,
-            access_level="member",
-        )
-
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
-
-    def test_effective_privilege_level_some_limited(self):
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_effective_privilege_level_all_limited_as_collaborator(self):
-        Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
-        self.dashboard1.created_by = self.user
-        self.dashboard1.save()
-
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-    def test_effective_privilege_level_with_no_dashboards(self):
-        DashboardTile.objects.all().delete()
-
-        assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_project_ids_visible_for_user_queries_teams_once(self):
         teams = [self.team]
@@ -953,33 +696,105 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
 
         assert set(project_ids) == {team.project_id for team in teams}
 
-    def test_dashboard_efficiency(self):
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
 
-        dashboard = Dashboard.objects.create(
-            team=self.team,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+class TestProjectAccessResolversAgree(BaseTest):
+    def _plain_member(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _role_held_by_user(self) -> Role:
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+        return role
+
+    def _rule(self, access_level: str, **subject: object) -> None:
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level=access_level, **subject
         )
-        insights, tiles = [], []
-        for _ in range(10):
-            insight = Insight.objects.create(team=self.team)
-            tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-            insights.append(insight)
-            tiles.append(tile)
 
-        user_permissions = self.permissions()
-        user_permissions.set_preloaded_dashboard_tiles(tiles)
+    def _restricted_project_in_a_newer_organization(self) -> Team:
+        self.organization.available_product_features = []
+        self.organization.save()
+        newer_organization = Organization.objects.create(name="Newer")
+        membership = OrganizationMembership.objects.create(
+            organization=newer_organization, user=self.user, level=OrganizationMembership.Level.MEMBER
+        )
+        team = Team.objects.create(organization=newer_organization, name="Restricted")
+        restrict_project(team, plain_members=[membership])
+        return team
 
-        with self.assertNumQueries(4):
-            assert user_permissions.current_team.effective_membership_level is not None
-            assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
-            assert user_permissions.dashboard(dashboard).can_restrict is not None
-            assert user_permissions.dashboard(dashboard).effective_privilege_level is not None
-            assert user_permissions.dashboard(dashboard).can_edit is not None
+    def _member_rule_of_none_without_default(self) -> Team:
+        enable_access_control(self.organization)
+        self._plain_member()
+        self._rule("none", organization_member=self.organization_membership)
+        return self.team
 
-            for insight in insights:
-                assert user_permissions.insight(insight).effective_restriction_level is not None
-                assert user_permissions.insight(insight).effective_privilege_level is not None
+    def _role_rule_of_none_with_member_default(self) -> Team:
+        enable_access_control(self.organization, role_based=True)
+        self._plain_member()
+        self._rule("member")
+        self._rule("none", role=self._role_held_by_user())
+        return self.team
+
+    def _role_grant_without_role_based_access(self) -> Team:
+        enable_access_control(self.organization)
+        self._plain_member()
+        self._rule("none")
+        self._rule("member", role=self._role_held_by_user())
+        return self.team
+
+    def _member_rule_of_none_with_role_grant(self) -> Team:
+        enable_access_control(self.organization, role_based=True)
+        self._plain_member()
+        self._rule("none", organization_member=self.organization_membership)
+        self._rule("member", role=self._role_held_by_user())
+        return self.team
+
+    def _org_admin_on_restricted_project(self) -> Team:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        restrict_project(self.team)
+        return self.team
+
+    def _no_rules(self) -> Team:
+        enable_access_control(self.organization)
+        self._plain_member()
+        return self.team
+
+    def _member_grant_on_restricted_project(self) -> Team:
+        restrict_project(
+            self.team, plain_members=[self.organization_membership], granted_members=[self.organization_membership]
+        )
+        return self.team
+
+    def _rule_without_access_control(self) -> Team:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self._plain_member()
+        self._rule("none")
+        return self.team
+
+    @parameterized.expand(
+        [
+            ("restricted_project_in_a_newer_organization", False),
+            ("member_rule_of_none_without_default", False),
+            ("role_rule_of_none_with_member_default", False),
+            ("role_grant_without_role_based_access", False),
+            ("member_rule_of_none_with_role_grant", False),
+            ("org_admin_on_restricted_project", True),
+            ("no_rules", True),
+            ("member_grant_on_restricted_project", True),
+            ("rule_without_access_control", True),
+        ]
+    )
+    def test_project_access_resolvers_agree(self, scenario: str, expected: bool) -> None:
+        team = getattr(self, f"_{scenario}")()
+        user = User.objects.get(pk=self.user.pk)
+
+        answers = {
+            "effective_membership_level": UserPermissions(user).team(team).effective_membership_level is not None,
+            "user.teams": team in user.teams,
+            "all_users_with_access": team.all_users_with_access().filter(pk=user.pk).exists(),
+        }
+
+        assert answers == dict.fromkeys(answers, expected)

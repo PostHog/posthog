@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import { initKeaTests } from '~/test/init'
 
 import { settingsSceneLogic } from './settingsSceneLogic'
@@ -18,6 +20,19 @@ describe('settingsSceneLogic', () => {
         initKeaTests()
         logic = settingsSceneLogic()
         logic.mount()
+    })
+
+    it.each([
+        ['/replay/settings', 'replay-log-capture'],
+        ['/logs', 'logs-drop-rules'],
+    ])('leaves %s alone when its embedded settings hash changes', async (pathname, setting) => {
+        router.actions.push('/settings/project-replay')
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-replay' })
+
+        router.actions.push(pathname, {}, { selectedSetting: setting })
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
     })
 
     it('reads filters from the URL', async () => {

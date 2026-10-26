@@ -9,8 +9,6 @@ rules:
       owners: team-growth
     - match: '/clickhouse/materialized_columns/'
       owners: team-analytics-platform
-    - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
-      owners: team-product-analytics
     - match: '/hogai/'
       owners: team-self-driving
     - match: '/session_recordings/'
@@ -19,5 +17,3 @@ rules:
       owners: team-self-driving
     - match: '/surveys/'
       owners: conversations
-    - match: '/tasks/subscriptions/'
-      owners: team-product-analytics

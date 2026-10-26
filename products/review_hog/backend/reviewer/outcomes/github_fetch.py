@@ -1,6 +1,6 @@
-"""The two GitHub reads outcome classification needs, through the gated egress client.
+"""The GitHub reads outcome classification needs, through the gated egress client.
 
-Both are read-only and metered against the installation's budget like every other ReviewHog call.
+All are read-only and metered against the installation's budget like every other ReviewHog call.
 """
 
 import logging
@@ -88,3 +88,24 @@ def fetch_review_comments(
         )
         return comments[:_MAX_REVIEW_COMMENTS]
     return comments
+
+
+def fetch_comment_reactions(
+    *, owner: str, repo: str, comment_id: int, token: str, installation_id: str | None = None
+) -> list[dict[str, Any]]:
+    """The reactions on one review comment, each with the ``user`` who left it.
+
+    The ``reactions`` summary on a review comment counts reactions but names nobody, and the resolution
+    stage puts its own 👀 on every thread it queues. Only the actors tell that marker apart from
+    someone else's reaction. One page is enough: ReviewHog leaves at most one reaction on a comment, so
+    a full page always holds someone else's.
+    """
+    response = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+        params={"per_page": 100},
+    )
+    return response.json()

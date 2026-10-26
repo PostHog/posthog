@@ -1,7 +1,7 @@
 """Canonical, documentation-sourced descriptions for Lovable endpoints and columns.
 
 Sourced from the Lovable API v1 reference (https://api.lovable.dev/v1/docs). Keyed by the resource
-names in `settings.py` `LOVABLE_ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced
+names in `settings.py` `LOVABLE_VERSIONS`, which match the `ExternalDataSchema.name` of a synced
 Lovable table. Columns absent here fall back to LLM enrichment.
 """
 
@@ -34,9 +34,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Project ID.",
             "workspace_id": "Workspace the project belongs to.",
             "user_id": "Project owner user ID.",
-            "name": "Project slug.",
+            "owner_id": "Project owner user UUID.",
+            "name": "Project name. A slug under API version v1, the human-readable name from 2026-09-11.",
             "display_name": "Human-readable project name.",
-            "description": "Description supplied by the caller on create or update.",
+            "description": "Under API version v1, the description supplied on create or update. From 2026-09-11, the AI-written summary of what the project does.",
             "generated_description": "AI-written summary of what the project does. Absent until the agent has completed a response for the project.",
             "project_type": "Project type: project or library.",
             "tech_stack": "Project tech stack.",
@@ -44,6 +45,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "visibility": "Project visibility: draft, private, workspace_view, or public.",
             "is_published": "Whether the project is published.",
             "publish_visibility": "Published visibility: public or private.",
+            "publish_audience": "Who can open the published app. Null while the app is not published.",
             "url": "Published project URL.",
             "folder_id": "Folder the project belongs to, if any.",
             "latest_screenshot_url": "URL of the latest screenshot.",
@@ -54,12 +56,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "WorkspaceMembers": {
-        "description": "A member of a Lovable workspace, including pending invites.",
+        "description": "A member of a Lovable workspace. API version v1 also lists pending invites.",
         "docs_url": _DOCS_URL,
         "columns": {
             "workspace_id": "Workspace the membership belongs to.",
             "user_id": "Stable identifier for the entry: the user ID for active members, the membership row ID for pending invites.",
             "display_name": "User display name as stored on the membership.",
+            "name": "Member display name. Null when unavailable.",
+            "type": "Identity type, such as user.",
             "email": "Member email as stored on the membership. For pending invites this is the invited email.",
             "role": "Workspace role: owner, admin, member, viewer, or collaborator.",
             "monthly_credit_limit": "Explicit monthly credit cap for this member. Absent when the workspace default applies.",
@@ -104,6 +108,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "project_id": "Project that was scanned.",
             "workspace_id": "Workspace the project belongs to.",
             "scan_id": "Unique scan invocation ID.",
+            "id": "Security scan ID.",
             "status": "Scan status: running, completed, or failed.",
             "trigger_source": "What triggered the scan, such as workflow, user, ui_auto, or workspace_scheduled.",
             "triggered_by": "Actor that triggered the scan.",
@@ -133,6 +138,65 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sql_location": "Database location, for cloud_sql labels.",
             "storage_path": "Cloud storage object path, for cloud_storage labels.",
             "found_at": "When the label was recorded.",
+        },
+    },
+    "WorkspaceGroups": {
+        "description": "A group of workspace members, used as an audience target when publishing a project.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Group ID.",
+            "workspace_id": "Workspace the group belongs to.",
+            "name": "Group display name, unique within the workspace.",
+            "description": "Group description.",
+            "scim_external_id": "External ID assigned by the SCIM identity provider. Null for groups not provisioned by SCIM.",
+            "member_count": "Number of members in the group, including pending members and invited users.",
+            "created_at": "When the group was created.",
+            "updated_at": "When the group was last updated.",
+        },
+    },
+    "ProjectSecurityScanFindings": {
+        "description": "One finding in a project security scan snapshot. A scan repeats findings carried over from earlier scans.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Project that was scanned.",
+            "workspace_id": "Workspace the project belongs to.",
+            "scan_id": "Security scan the finding belongs to.",
+            "id": "Finding ID. Stable across scans.",
+            "scanner_name": "Scanner that produced the finding.",
+            "status": "Review state: open, fixed, ignored, or suppressed.",
+            "level": "Severity reported by the scanner: error, warn, or info.",
+            "category": "Finding category.",
+            "name": "Short finding title.",
+            "description": "Summary of the finding.",
+            "created_at": "When the finding was first recorded.",
+            "updated_at": "When the finding was last updated.",
+        },
+    },
+    "ProjectAnalytics": {
+        "description": "Daily website traffic for a published project.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "project_id": "Project the traffic belongs to.",
+            "workspace_id": "Workspace the project belongs to.",
+            "timestamp": "Start of the daily bucket, in UTC.",
+            "visitors": "Visitor sessions in the bucket.",
+            "pageviews": "Page views in the bucket.",
+            "pageviews_per_visit": "Page views per visit in the bucket.",
+            "session_duration": "Average session duration in seconds.",
+            "bounce_rate": "Bounce rate as a percentage from 0 to 100.",
+        },
+    },
+    "WorkspaceAnalytics": {
+        "description": "Daily website traffic across a workspace, including traffic from projects that were later deleted.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "workspace_id": "Workspace the traffic belongs to.",
+            "timestamp": "Start of the daily bucket, in UTC.",
+            "visitors": "Visitor sessions in the bucket.",
+            "pageviews": "Page views in the bucket.",
+            "pageviews_per_visit": "Page views per visit in the bucket.",
+            "session_duration": "Average session duration in seconds.",
+            "bounce_rate": "Bounce rate as a percentage from 0 to 100.",
         },
     },
 }

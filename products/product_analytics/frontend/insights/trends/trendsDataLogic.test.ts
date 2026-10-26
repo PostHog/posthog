@@ -106,6 +106,28 @@ describe('trendsDataLogic', () => {
                 })
             })
 
+            it('leaves the previous period out of a proportion bar saved with compare on', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+                    compareFilter: { compare: true },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: [
+                        { ...trendResult.result[0], compare: true, compare_label: 'current' },
+                        { ...trendResult.result[0], compare: true, compare_label: 'previous' },
+                    ],
+                }
+
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [expect.objectContaining({ compare_label: 'current' })],
+                })
+            })
+
             it('for pie visualization', async () => {
                 const query: TrendsQuery = {
                     kind: NodeKind.TrendsQuery,
@@ -371,8 +393,8 @@ describe('trendsDataLogic', () => {
 
             const indexedResults = logic.values.indexedResults
             const [currentRow, previousRow] = indexedResults
-            expect(getTrendResultCustomizationKey(ResultCustomizationBy.Value, currentRow)).toBe(
-                getTrendResultCustomizationKey(ResultCustomizationBy.Value, previousRow)
+            expect(getTrendResultCustomizationKey(ResultCustomizationBy.Value, currentRow, query)).toBe(
+                getTrendResultCustomizationKey(ResultCustomizationBy.Value, previousRow, query)
             )
 
             await expectLogic(logic, () => {
@@ -435,7 +457,7 @@ describe('trendsDataLogic', () => {
 
             const indexedResults = logic.values.indexedResults
             const { resultCustomizationBy } = logic.values
-            const key0 = getTrendResultCustomizationKey(resultCustomizationBy, indexedResults[0])
+            const key0 = getTrendResultCustomizationKey(resultCustomizationBy, indexedResults[0], query)
 
             await expectLogic(logic, () => {
                 insightVizDataLogic.findMounted(insightProps)?.actions.updateInsightFilter({

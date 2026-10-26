@@ -23,6 +23,7 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillImportApi,
+    LLMSkillManifestApi,
     LLMSkillMarkdownApi,
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
@@ -32,15 +33,18 @@ import type {
     LLMSkillSearchResponseApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
+    LlmSkillsManifestsListParams,
     LlmSkillsNameExportRetrieveParams,
     LlmSkillsNameFilesDestroyParams,
     LlmSkillsNameFilesRetrieveParams,
+    LlmSkillsNameManifestRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsNameSkillMdRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
     LlmSkillsSearchRetrieveParams,
     PaginatedCommunitySkillListListApi,
     PaginatedLLMSkillListListApi,
+    PaginatedLLMSkillManifestListApi,
     PatchedLLMSkillPublishApi,
 } from './api.schemas'
 
@@ -250,6 +254,36 @@ export const llmSkillsImportCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getLlmSkillsManifestsListUrl = (projectId: string, params?: LlmSkillsManifestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/manifests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/manifests/`
+}
+
+/**
+ * The resource manifest of the latest version of each skill, paged and filtered like the list.
+ */
+export const llmSkillsManifestsList = async (
+    projectId: string,
+    params?: LlmSkillsManifestsListParams,
+    options?: RequestInit
+): Promise<PaginatedLLMSkillManifestListApi> => {
+    return apiMutator<PaginatedLLMSkillManifestListApi>(getLlmSkillsManifestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -511,6 +545,43 @@ export const llmSkillsNameFilesDestroy = async (
     return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLlmSkillsNameManifestRetrieveUrl = (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameManifestRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/name/${skillName}/manifest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/name/${skillName}/manifest/`
+}
+
+/**
+ * Every file of one skill with the digest and size of the bytes the store serves for it.
+ *
+ * Answers an unservable skill with 200 too, so a caller can log why it skips the skill.
+ */
+export const llmSkillsNameManifestRetrieve = async (
+    projectId: string,
+    skillName: string,
+    params?: LlmSkillsNameManifestRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillManifestApi> => {
+    return apiMutator<LLMSkillManifestApi>(getLlmSkillsNameManifestRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

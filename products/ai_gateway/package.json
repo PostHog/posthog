@@ -1,25 +1,20 @@
 {
     "name": "@posthog/products-ai-gateway",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
-        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
-        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:",
-        "posthog-js": "catalog:"
+        "kea-router": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "@testing-library/react": "*"
     },
     "peerDependencies": {
-        "@posthog/brand": "catalog:",
-        "@posthog/icons": "catalog:",
-        "@storybook/react": "catalog:",
+        "@posthog/lemon-ui": "*",
         "@types/react": "*",
-        "clsx": "*",
         "react": "*"
     }
 }

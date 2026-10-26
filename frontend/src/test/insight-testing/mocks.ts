@@ -114,8 +114,7 @@ function buildTrendsResponse(series: SeriesData[], opts: { formulaLabels?: strin
     return {
         results: series.map((s, i) => {
             // Breakdown/compare rows carry their parent series' identity (event name and
-            // order), like the real runner. Plain rows keep their own label as the entity
-            // name so fixtures can model several distinct series under one canned event.
+            // order), like the real runner.
             const isChildRow = s.compare || s.breakdown_value != null
             const seriesOrder = isChildRow ? (s.seriesIndex ?? 0) : i
             const entityName = (isChildRow ? s.eventName : undefined) ?? s.label

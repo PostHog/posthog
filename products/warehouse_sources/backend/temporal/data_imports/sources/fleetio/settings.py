@@ -72,6 +72,31 @@ FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
     "vehicle_types": FleetioEndpointConfig(name="vehicle_types", path="/vehicle_types"),
     "service_tasks": FleetioEndpointConfig(name="service_tasks", path="/service_tasks"),
     "vendors": FleetioEndpointConfig(name="vendors", path="/vendors"),
+    "faults": FleetioEndpointConfig(name="faults", path="/faults"),
+    "service_reminders": FleetioEndpointConfig(name="service_reminders", path="/service_reminders", path_version="v2"),
+    "inventory_journal_entries": FleetioEndpointConfig(
+        name="inventory_journal_entries", path="/inventory_journal_entries"
+    ),
+    # From 2024-06-30 Fleetio only lists location entries per vehicle, so fan out over vehicles.
+    # The list action takes a `filter[updated_at]`, but fan-out rows arrive grouped by vehicle, so
+    # no ascending watermark holds across the table: full refresh only.
+    "location_entries": FleetioEndpointConfig(
+        name="location_entries",
+        path="/vehicles/{vehicle_id}/location_entries",
+        incremental_fields=[],
+        primary_keys=["vehicle_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="vehicles",
+            resolve_param="vehicle_id",
+            resolve_field="id",
+            # The entry carries `vehicle_id` itself, but the field is not required by the schema,
+            # so take it from the parent row to keep the composite primary key populated.
+            include_from_parent=["id"],
+            parent_field_renames={"id": "vehicle_id"},
+            parent_params={"sort[created_at]": "asc"},
+            child_params={"sort[id]": "asc"},
+        ),
+    ),
     # Line items are only listed per service entry, so fan out over the service entries endpoint.
     # The list action takes no `filter` param — only `sort[id]` — so this is full refresh only.
     "service_entry_line_items": FleetioEndpointConfig(

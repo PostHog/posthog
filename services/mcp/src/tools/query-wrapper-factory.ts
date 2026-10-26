@@ -238,7 +238,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 query,
                 results: isTraceQuery ? redactTraceResults(data.results) : data.results,
+                // Table queries (e.g. WebStatsTableQuery) return positional rows, so the
+                // column names are the only way to read each cell.
+                ...(Array.isArray(data.columns) && Array.isArray(data.results) ? { columns: data.columns } : {}),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
+                // Cursor-paginated queries (e.g. RecordingsQuery) need these for the caller to request the next page.
+                ...(typeof data.has_next === 'boolean'
+                    ? { has_next: data.has_next, next_cursor: data.next_cursor ?? null }
+                    : {}),
             }
             if (isTraceQuery) {
                 return compactTraceResponse(response, traceDetail, effectiveOutputFormat)

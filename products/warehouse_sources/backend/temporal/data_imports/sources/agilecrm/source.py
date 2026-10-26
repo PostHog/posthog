@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]):
+    codebase_detection = detect(env=("^(AGILE_CRM|AGILECRM)_",))
+
     api_docs_url = "https://github.com/agilecrm/rest-api"
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
@@ -53,7 +56,7 @@ class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]
             name=ExternalDataSourceType.AGILECRM,
             category=DataWarehouseSourceCategory.CRM,
             label="AgileCRM",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Agile CRM credentials to pull your CRM data into the PostHog Data warehouse.
 
 Find your API key under **Admin Settings → Developers & API** in your Agile CRM account. Authenticate with the email address you log in with and that API key.

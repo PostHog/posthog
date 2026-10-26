@@ -11,4 +11,13 @@ database "posthog" {
       storage_policy = "s3_tiered"
     }
   }
+  # Cloud stores raw_sessions on the sessions satellite, not behind the data cluster.
+  patch_table "raw_sessions" {
+    engine "distributed" {
+      cluster_name    = "sessions"
+      remote_database = "posthog"
+      remote_table    = "raw_sessions"
+      sharding_key    = "cityHash64(session_id_v7)"
+    }
+  }
 }

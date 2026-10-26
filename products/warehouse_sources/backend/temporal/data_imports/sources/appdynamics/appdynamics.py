@@ -1,6 +1,7 @@
 import json
 import socket
 import threading
+import contextvars
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -9,7 +10,7 @@ from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.util.retry import Retry
 
@@ -27,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     MIN_WINDOW_SPLIT_MS,
     AppdynamicsEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -254,7 +258,8 @@ def _request_within_deadline(session: requests.Session, send: Callable[[], reque
         except Exception as exc:
             result["error"] = exc
 
-    worker = threading.Thread(target=_run, daemon=True)
+    # The thread runs in a copy of this context, so the request deadline of the retry loop reaches the request.
+    worker = threading.Thread(target=contextvars.copy_context().run, args=(_run,), daemon=True)
     worker.start()
     worker.join(timeout=MAX_DOWNLOAD_SECONDS)
     if worker.is_alive():
@@ -410,7 +415,7 @@ class AppdynamicsClient:
             return None
         return (f"{self._auth.username}@{self._auth.account_name}", self._auth.password or "")
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(
             (
                 AppdynamicsRetryableError,

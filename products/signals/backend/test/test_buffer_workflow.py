@@ -154,17 +154,24 @@ async def test_check_activity_attributes_drop_to_the_limit_that_fired(
         ),
         patch(f"{BUFFER_MODULE}.metrics.increment_dropped") as dropped,
         patch(f"{BUFFER_MODULE}.capture_signal_report_daily_limit_paused") as capture,
+        patch("products.signals.backend.temporal.drop_telemetry.posthoganalytics.capture") as analytics_capture,
     ):
+        signals = [_signal(ateam.id) for _ in range(3)]
         result = await ActivityEnvironment().run(
             check_signals_quota_limited_activity,
-            CheckSignalsQuotaInput(team_id=ateam.id, signal_count=3),
+            CheckSignalsQuotaInput(team_id=ateam.id, signal_count=3, signals=signals),
         )
 
     assert result is expected
+    dropped_events = [c.kwargs for c in analytics_capture.call_args_list if c.kwargs["event"] == "signal_dropped"]
     if expected_reason is None:
         dropped.assert_not_called()
+        assert dropped_events == []
     else:
         dropped.assert_called_once_with(stage="ingestion", reason=expected_reason, count=3)
+        # Every dropped signal gets its own terminal event, so the loss shows up per signal.
+        assert sorted(e["properties"]["source_id"] for e in dropped_events) == sorted(s.source_id for s in signals)
+        assert {e["properties"]["reason"] for e in dropped_events} == {f"ingestion:{expected_reason}"}
     # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
     # the quota drop wins the single-reason metric attribution.
     if daily_limited:

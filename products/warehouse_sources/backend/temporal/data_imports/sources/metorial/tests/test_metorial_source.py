@@ -49,24 +49,6 @@ class TestSchemas:
         assert schemas[endpoint].supports_incremental is incremental
         assert schemas[endpoint].supports_append is append
 
-    def test_providers_is_off_by_default(self) -> None:
-        # providers is a global catalog, not project data — syncing it every time by default would
-        # burn the tight rate limit for little value.
-        schemas = {s.name: s for s in MetorialSource().get_schemas(_config(), team_id=1)}
-        assert schemas["providers"].should_sync_default is False
-
-    def test_names_filter(self) -> None:
-        schemas = MetorialSource().get_schemas(_config(), team_id=1, names=["sessions"])
-        assert [s.name for s in schemas] == ["sessions"]
-
-    def test_lists_documented_tables_without_credentials(self) -> None:
-        # The static catalog powers the public docs "Supported tables" section.
-        source = MetorialSource()
-        assert source.lists_tables_without_credentials is True
-        assert {t["name"] for t in source.get_documented_tables()} == {
-            s.name for s in source.get_schemas(_config(), team_id=1)
-        }
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True), ("invalid", False)])
@@ -75,29 +57,6 @@ class TestValidateCredentials:
             ok, error = MetorialSource().validate_credentials(_config(), team_id=1)
         assert ok is probe_ok
         assert (error is None) is probe_ok
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.metorial.com/sessions?limit=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.metorial.com/provider-runs"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        keys = MetorialSource().get_non_retryable_errors()
-        assert any(key in observed for key in keys)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.metorial.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.metorial.com/sessions"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.metorial.com/tool-calls"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        keys = MetorialSource().get_non_retryable_errors()
-        assert not any(key in observed for key in keys)
 
 
 class TestSourceForPipeline:

@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -30,6 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLS_CONFIGURATION_ERRORS,
+    TLSConfigurationError,
+    ca_certificate_field,
+    client_certificate_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -52,6 +61,7 @@ _MYSQL_IMPLEMENTATION = MySQLImplementation()
 # get_non_retryable_errors — which the sync path also consults for retry
 # classification — so connection-error retry behaviour is unchanged.
 _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    *CERTIFICATE_ERRORS.items(),
     (
         "Name or service not known",
         "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
@@ -99,6 +109,61 @@ class MySQLSource(
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
+    codebase_detection = detect(
+        env=("^MYSQL_", "^MYSQLHOST$", "^MYSQLPORT$", "^MYSQLUSER$", "^MYSQLPASSWORD$", "^MYSQLDATABASE$"),
+        npm=(
+            "mysql",
+            "mysql2",
+            "@mysql/xdevapi",
+            "serverless-mysql",
+            "promise-mysql",
+            "@types/mysql",
+            "@fastify/mysql",
+            "@sequelize/mysql",
+            "@mikro-orm/mysql",
+            "@databases/mysql",
+        ),
+        pypi=(
+            "pymysql",
+            "mysqlclient",
+            "mysql-connector-python",
+            "aiomysql",
+            "asyncmy",
+            "mysql-connector",
+            "mysql-connector-python-rf",
+            "mysqlx-connector-python",
+            "mysql-python",
+            "mysql-replication",
+            "django-mysql",
+            "flask-mysqldb",
+            "flask-mysql",
+        ),
+        cargo=("mysql", "mysql_async", "sqlx-mysql"),
+        cocoapods=("OHMySQL",),
+        go=(
+            "github.com/go-sql-driver/mysql",
+            "gorm.io/driver/mysql",
+            "github.com/go-mysql-org/go-mysql",
+            "github.com/siddontang/go-mysql",
+            "github.com/ziutek/mymysql",
+        ),
+        hex=("myxql", "mysql", "mariaex"),
+        maven=(
+            "com.mysql:mysql-connector-j",
+            "mysql:mysql-connector-java",
+            "io.asyncer:r2dbc-mysql",
+            "dev.miku:r2dbc-mysql",
+            "io.vertx:vertx-mysql-client",
+            "com.github.jasync-sql:jasync-mysql",
+            "org.flywaydb:flyway-mysql",
+            "org.testcontainers:mysql",
+            "org.testcontainers:testcontainers-mysql",
+        ),
+        pub=("mysql1", "mysql_client"),
+        rubygems=("mysql2", "trilogy", "activerecord-trilogy-adapter", "mysql", "ruby-mysql"),
+        swiftpm=("github.com/vapor/mysql-kit", "github.com/vapor/mysql-nio", "github.com/vapor/fluent-mysql-driver"),
+    )
+
     def resume_covers_run(
         self,
         *,
@@ -218,8 +283,8 @@ class MySQLSource(
                         converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
                         caption=(
                             "Check that your database's TLS certificate comes from a trusted authority. "
-                            "A self-signed certificate or a private authority does not pass, so leave this off "
-                            "if you use one. Through an SSH tunnel we check the certificate chain but not the "
+                            "A self-signed certificate or a private authority passes only when you add its "
+                            "certificate authority below. Through an SSH tunnel we check the certificate chain but not the "
                             "hostname, because the tunnel presents your database on a local address."
                         ),
                         options=[
@@ -227,6 +292,8 @@ class MySQLSource(
                             SourceFieldSelectConfigOption(label="No", value="false"),
                         ],
                     ),
+                    ca_certificate_field(),
+                    *client_certificate_fields(),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -234,6 +301,9 @@ class MySQLSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # pymysql wraps a TLS failure in the generic 2003 error below, so these must come first.
+            **CERTIFICATE_ERRORS,
+            **TLS_CONFIGURATION_ERRORS,
             # pymysql collapses every connect-level failure (wrong host/port, closed firewall,
             # unreachable host, a connect timeout that outlasts the in-process retry budget) into
             # error 2003, "Can't connect to MySQL server on '<host>' (<os detail>)". Non-retryable
@@ -425,6 +495,16 @@ class MySQLSource(
             # fails identically. Match the locale-independent error code (the trailing message
             # text is translated on non-English servers).
             "(3024,": "Your MySQL/MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 3024). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_execution_time', or switch this table to a full re-sync, then resync.",
+            # MariaDB error 1969 (ER_STATEMENT_TIMEOUT): MariaDB's own `max_statement_time` cap
+            # killed the `ORDER BY <incremental_field>` query before the filesort could finish —
+            # the same symptom as 3024 above, just MariaDB's variant of the setting. We already
+            # try to dodge the sort with the in-activity FORCE INDEX fallback (see
+            # `_is_bad_plan_error`); this only escapes once that fallback can't apply — no usable
+            # index on the incremental field. Both `max_statement_time` and the missing index are
+            # static server-side state, so every retry filesorts the same rows and fails
+            # identically. Match the locale-independent error code (the trailing message text is
+            # translated on non-English servers).
+            "(1969,": "Your MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 1969). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_statement_time', or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 2013 (lost connection during query) that escapes the in-activity
             # FORCE INDEX fallback because the incremental field has no usable index (see
             # `MySQLUnavoidableFilesortError` in mysql.py). The un-indexed full-table sort re-times-out
@@ -468,6 +548,16 @@ class MySQLSource(
             # branch never comes back, so every retry fails identically. Match the stable phrase,
             # excluding the volatile branch id that follows it.
             "branch is missing or sleeping": "The PlanetScale (or Vitess) branch this source connects to has been deleted or put to sleep. Wake it from the PlanetScale dashboard (or resolve any billing issue), or point this source at a database that exists, then resync.",
+            # MySQL/MariaDB error 3032 (ER_SERVER_OFFLINE_MODE): a DB admin put the server into
+            # offline mode (`SET GLOBAL offline_mode = ON`), typically to drain non-admin clients
+            # ahead of maintenance. An already-open connection is allowed to finish its current
+            # statement but gets this error on the next one — which is exactly the streaming read
+            # this source is mid-way through when it hits this. Only an admin with CONNECTION_ADMIN/
+            # SUPER can turn it back off, and every retry reconnects as the same non-admin user, so it
+            # fails identically until they do — the same "wait for an admin action" class as the
+            # locked-account (4151) and host-blocked (1129) entries above. Match the locale-independent
+            # error code (the message text is translated on non-English servers).
+            "(3032,": "Your MySQL/MariaDB server is in offline mode (error 3032), which a database admin turned on to block non-admin connections, usually ahead of maintenance. Ask your database admin to turn it back off ('SET GLOBAL offline_mode = OFF'), then retry the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -507,6 +597,13 @@ class MySQLSource(
             # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
             # mysql.py); this is the backstop for the rare case where it exhausts that budget.
             "No available TiDB instances, please make sure TiDB is available",
+            # A Vitess/PlanetScale vtgate found zero serving tablet endpoints for the target
+            # keyspace/shard/tablet-type — the same gRPC `Unavailable` status as `code =
+            # Unavailable` above, phrased differently. Both `_connect_with_transient_retry` and
+            # `_retry_on_transient_tablet_unavailable` already retry it in-process (see
+            # `_is_transient_vitess_no_endpoints` in mysql.py); this is the backstop for the rare
+            # case where it exhausts that budget.
+            "vtgate connection error: no endpoints",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the
@@ -565,9 +662,10 @@ class MySQLSource(
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
-        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
-            # The host policy refused the host, or its lookup never answered. Both carry their own
-            # user-facing wording and neither is a PostHog defect, so they are not captured.
+        except (HostNotAllowedError, TemporaryHostResolutionError, TLSConfigurationError) as e:
+            # The host policy refused the host, its lookup never answered, or the TLS fields contradict
+            # each other. Each carries its own user-facing wording and none is a PostHog defect, so they
+            # are not captured.
             return False, str(e)
         except BaseSSHTunnelForwarderError as e:
             # sshtunnel surfaces raw library strings (e.g. "Could not establish session to SSH

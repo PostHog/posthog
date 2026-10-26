@@ -1,17 +1,30 @@
 import { deepEqual as equal } from 'fast-equals'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
-import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import {
+    isEmptyProperty,
+    isPersonMetadataPropertyFilter,
+    isPersonPropertyFilter,
+    propertyFilterTypeToPropertyDefinitionType,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { isStringDateRegex } from 'lib/utils/dateFilters'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, getRowShape } from 'scenes/cohorts/CohortFilters/constants'
+import { isOperatorDate } from 'lib/utils/operators'
+import {
+    BEHAVIORAL_TYPE_TO_LABEL,
+    CRITERIA_VALIDATIONS,
+    FIELD_VALUES,
+    getRowShape,
+} from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
     CohortClientErrors,
+    FieldOptionsType,
     FieldWithFieldKey,
     FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
@@ -30,6 +43,9 @@ import {
     CohortCriteriaType,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyOperator,
@@ -37,6 +53,7 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import { MessageAudience, cohortAudienceProperties } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
@@ -166,6 +183,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -685,20 +703,13 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
 }
 
 export function urlForCohortWorkflow(cohort: CohortType): string {
-    return urlForNewWorkflowWithTrigger({
-        type: 'batch',
-        filters: {
-            properties: [
-                {
-                    key: 'id',
-                    type: PropertyFilterType.Cohort,
-                    value: cohort.id as number,
-                    operator: PropertyOperator.In,
-                    cohort_name: cohort.name,
-                },
-            ],
+    return urlForNewWorkflowWithTrigger(
+        {
+            type: 'batch',
+            filters: { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }) },
         },
-    })
+        'cohort'
+    )
 }
 
 export const COHORT_MATCHING_DAYS = {
@@ -706,4 +717,75 @@ export const COHORT_MATCHING_DAYS = {
     '7': 'week',
     '14': '2 weeks',
     '30': 'month',
+}
+
+function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+    if ('values' in group && Array.isArray(group.values)) {
+        return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).some(hasBehavioralCriteria)
+    }
+    return group.type === BehavioralFilterKey.Behavioral
+}
+
+/** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */
+export function cohortBroadcastDisabledReason(cohort: CohortType): string | null {
+    if (typeof cohort.id !== 'number') {
+        return 'Save the cohort first'
+    }
+    if (cohort.deleted) {
+        return 'Restore the cohort first'
+    }
+    if (!cohort.is_static && cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+        return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
+    }
+    return null
+}
+
+export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>): MessageAudience {
+    if (typeof cohort.id !== 'number') {
+        return { properties: [], source: 'cohort' }
+    }
+    return {
+        properties: cohortAudienceProperties({ id: cohort.id, name: cohort.name }),
+        source: 'cohort',
+        draftSource: { source: 'cohort', source_id: String(cohort.id) },
+    }
+}
+
+export function personOperatorOptionsType(propertyType?: PropertyType | null): FieldOptionsType {
+    return propertyType === PropertyType.DateTime
+        ? FieldOptionsType.SingleFieldDateOperators
+        : FieldOptionsType.CohortMathOperators
+}
+
+export type PropertyDefinitionLookup = (
+    key: string,
+    type: PropertyDefinitionType
+) => PropertyDefinition | PropertyDefinitionState | null
+
+/**
+ * True when the cohort editor cannot show a recent filter's operator and value.
+ * While a property type is still loading, only operators that both type menus offer count as shown.
+ */
+export function isRecentPersonFilterUnsupported(
+    filter: AnyPropertyFilter,
+    lookupDefinition: PropertyDefinitionLookup
+): boolean {
+    if (!(isPersonPropertyFilter(filter) || isPersonMetadataPropertyFilter(filter)) || !filter.operator) {
+        return true
+    }
+    const { operator, value } = filter
+    // The cohort date editor takes an absolute date only, so a relative value such as -30d shows as an invalid date.
+    if (isOperatorDate(operator) && typeof value === 'string' && isStringDateRegex.test(value)) {
+        return true
+    }
+    const isOperatorShownFor = (propertyType?: PropertyType): boolean =>
+        operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+    const definition = lookupDefinition(filter.key, propertyFilterTypeToPropertyDefinitionType(filter.type))
+    if (typeof definition === 'object' && definition !== null) {
+        return !isOperatorShownFor(definition.property_type)
+    }
+    if (definition === PropertyDefinitionState.Missing || definition === PropertyDefinitionState.Error) {
+        return !isOperatorShownFor()
+    }
+    return !(isOperatorShownFor(PropertyType.DateTime) && isOperatorShownFor())
 }

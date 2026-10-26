@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
+    codebase_detection = detect(env=("^PINGDOM_",), script_hosts=("rum-static.pingdom.net",))
+
     supported_versions = ("3.1",)
     default_version = "3.1"
     api_docs_url = "https://docs.pingdom.com/api/"
@@ -62,7 +65,7 @@ class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
 You can create an API token in [My Pingdom](https://my.pingdom.com/app/api-tokens) under Settings > Pingdom API. A read-only token is sufficient.""",
             iconPath="/static/services/pingdom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pingdom",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.supermetrics import (
+    SupermetricsSourceConfig,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+@SourceRegistry.register
+class SupermetricsSource(SimpleSource[SupermetricsSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.SUPERMETRICS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.SUPERMETRICS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Supermetrics",
+            iconPath="/static/services/supermetrics.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

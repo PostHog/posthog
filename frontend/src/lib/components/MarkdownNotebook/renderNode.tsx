@@ -24,7 +24,7 @@ import {
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
 import { NotebookMermaidBlock } from './NotebookMermaidBlock'
-import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
+import { NotebookBlockNode, NotebookComponentBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({
     node,
@@ -47,6 +47,7 @@ export function renderNode({
     updateNode,
     onBtw,
     askAIDisabledReason,
+    copyNode,
     replaceNodeWithNodes,
     deleteNode,
     deleteNodeAndFocusAdjacent,
@@ -99,6 +100,7 @@ export function renderNode({
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     onBtw?: () => void
     askAIDisabledReason?: string
+    copyNode?: (node: NotebookComponentBlockNode) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
     deleteNodeAndFocusAdjacent: () => void
@@ -201,6 +203,7 @@ export function renderNode({
                 updateNode={updateNode}
                 onBtw={onBtw}
                 askAIDisabledReason={askAIDisabledReason}
+                copyNode={copyNode}
                 deleteNode={deleteNode}
                 deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
                 insertParagraphAfterNode={insertParagraphAfterNode}
