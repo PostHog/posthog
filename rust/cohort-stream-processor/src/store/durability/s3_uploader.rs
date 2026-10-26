@@ -114,8 +114,9 @@ impl S3Uploader {
         Ok(Self { store, config })
     }
 
-    /// Upload a file with cancellation support.
-    /// On cancellation or error, calls `abort()` to clean up multipart upload parts.
+    /// Upload a file with cancellation support. A failure aborts the multipart upload, except one
+    /// inside `shutdown`, which `BufWriter` cannot abort; the bucket's lifecycle rule removes it
+    /// after a day.
     async fn upload_file_cancellable(
         &self,
         local_path: &Path,
