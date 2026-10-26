@@ -9,6 +9,7 @@ from .first_report_seeders import seed_sparse_project, seed_upload_control, seed
 from .offline_config import FIRST_REPORT_SUITE
 from .scout_runner import run_first_report_scout
 
+
 async def eval_first_report(ctx: EvalContext) -> None:
     if ctx.skill_delivery != "bundled":
         raise ValueError("Scout evals use the production bundled skill configuration")
