@@ -38,8 +38,17 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "prompt_source": StringDatabaseField(
             name="prompt_source", description="Where the prompt came from: 'imported' or 'manual'."
         ),
+        "prompt_topic": StringDatabaseField(
+            name="prompt_topic", description="Topic the prompt belonged to when it ran; empty when it had none."
+        ),
         "prompt_hash": StringDatabaseField(
-            name="prompt_hash", description="SHA-256 of the normalized prompt; stable join key across runs."
+            name="prompt_hash",
+            description="SHA-256 of the normalized prompt text the check ran. Changes when the prompt text is edited; join on prompt_id instead.",
+        ),
+        "prompt_version": IntegerDatabaseField(
+            name="prompt_version",
+            nullable=True,
+            description="Prompt version that ran; null for checks recorded before prompts had versions.",
         ),
         "engine": StringDatabaseField(
             name="engine", description="Answer engine: claude-web-search, openai-web-search, or exa-answer."

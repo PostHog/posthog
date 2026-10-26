@@ -13,8 +13,11 @@ use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::futures::TaskLocalFuture;
+use tonic::metadata::MetadataValue;
 use tonic::transport::server::Connected;
 use tower::{Layer, Service};
+
+use crate::storage_error::TimeoutKind;
 
 // ============================================================
 // Client name extraction
@@ -36,6 +39,20 @@ pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
 
 /// Never set where the request may have been applied.
 pub const NOT_APPLIED_HEADER: &str = "x-not-applied";
+
+/// Marks a DEADLINE_EXCEEDED that a Postgres timeout caused, rather than an
+/// expired gRPC deadline. The value names the setting that fired:
+/// `statement_timeout` or `lock_timeout`.
+pub const DB_TIMEOUT_METADATA_KEY: &str = "x-db-timeout";
+
+pub fn db_timeout_status(message: impl Into<String>, kind: TimeoutKind) -> tonic::Status {
+    let mut status = tonic::Status::deadline_exceeded(message.into());
+    status.metadata_mut().insert(
+        DB_TIMEOUT_METADATA_KEY,
+        MetadataValue::from_static(kind.as_str()),
+    );
+    status
+}
 
 /// Build a semantic refusal. The reason is a short slug used as a metric
 /// label.
@@ -517,6 +534,7 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
 pub struct GrpcLoadShedLayer {
     max_requests: usize,
     in_flight: Arc<AtomicUsize>,
+    grpc_status: HeaderValue,
 }
 
 impl GrpcLoadShedLayer {
@@ -524,8 +542,18 @@ impl GrpcLoadShedLayer {
         Self {
             max_requests,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            grpc_status: grpc_status_header(tonic::Code::Unavailable),
         }
     }
+
+    pub fn with_code(mut self, code: tonic::Code) -> Self {
+        self.grpc_status = grpc_status_header(code);
+        self
+    }
+}
+
+fn grpc_status_header(code: tonic::Code) -> HeaderValue {
+    HeaderValue::from(code as i32)
 }
 
 impl<S> Layer<S> for GrpcLoadShedLayer {
@@ -536,6 +564,7 @@ impl<S> Layer<S> for GrpcLoadShedLayer {
             inner: service,
             max_requests: self.max_requests,
             in_flight: self.in_flight.clone(),
+            grpc_status: self.grpc_status.clone(),
         }
     }
 }
@@ -545,6 +574,7 @@ pub struct GrpcLoadShedService<S> {
     inner: S,
     max_requests: usize,
     in_flight: Arc<AtomicUsize>,
+    grpc_status: HeaderValue,
 }
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcLoadShedService<S>
@@ -583,7 +613,7 @@ where
             let response = Response::builder()
                 .status(200)
                 .header("content-type", "application/grpc")
-                .header("grpc-status", "14") // UNAVAILABLE
+                .header("grpc-status", self.grpc_status.clone())
                 .header("grpc-message", "Server at capacity")
                 .header(NOT_APPLIED_HEADER, "load_shed")
                 .body(ResBody::default())
@@ -725,32 +755,40 @@ mod tests {
 
     #[tokio::test]
     async fn sheds_at_capacity() {
-        let in_flight = Arc::new(AtomicUsize::new(0));
-        let layer = GrpcLoadShedLayer {
-            max_requests: 2,
-            in_flight: in_flight.clone(),
-        };
-        in_flight.store(2, Ordering::Relaxed);
+        for (layer, expected_status) in [
+            (GrpcLoadShedLayer::new(2), "14"),
+            (
+                GrpcLoadShedLayer::new(2).with_code(tonic::Code::ResourceExhausted),
+                "8",
+            ),
+        ] {
+            let in_flight = Arc::new(AtomicUsize::new(0));
+            let layer = GrpcLoadShedLayer {
+                in_flight: in_flight.clone(),
+                ..layer
+            };
+            in_flight.store(2, Ordering::Relaxed);
 
-        let mut svc = layer.layer(OkService);
+            let mut svc = layer.layer(OkService);
 
-        let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
-        assert_eq!(resp.headers().get("grpc-status").unwrap(), "14");
-        assert_eq!(
-            resp.headers().get("grpc-message").unwrap(),
-            "Server at capacity"
-        );
-        assert_eq!(resp.headers().get(NOT_APPLIED_HEADER).unwrap(), "load_shed");
-        // Shed path: increment then immediate decrement, net zero change
-        assert_eq!(in_flight.load(Ordering::Relaxed), 2);
+            let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
+            assert_eq!(resp.headers().get("grpc-status").unwrap(), expected_status);
+            assert_eq!(
+                resp.headers().get("grpc-message").unwrap(),
+                "Server at capacity"
+            );
+            assert_eq!(resp.headers().get(NOT_APPLIED_HEADER).unwrap(), "load_shed");
+            // Shed path: increment then immediate decrement, net zero change
+            assert_eq!(in_flight.load(Ordering::Relaxed), 2);
+        }
     }
 
     #[tokio::test]
     async fn counter_decrements_on_completion() {
         let in_flight = Arc::new(AtomicUsize::new(0));
         let layer = GrpcLoadShedLayer {
-            max_requests: 10,
             in_flight: in_flight.clone(),
+            ..GrpcLoadShedLayer::new(10)
         };
         let mut svc = layer.layer(OkService);
 
@@ -767,8 +805,8 @@ mod tests {
     async fn counter_decrements_on_drop() {
         let in_flight = Arc::new(AtomicUsize::new(0));
         let layer = GrpcLoadShedLayer {
-            max_requests: 10,
             in_flight: in_flight.clone(),
+            ..GrpcLoadShedLayer::new(10)
         };
         let mut svc = layer.layer(PendingService);
 
@@ -784,8 +822,8 @@ mod tests {
     async fn shed_response_does_not_decrement_existing() {
         let in_flight = Arc::new(AtomicUsize::new(5));
         let layer = GrpcLoadShedLayer {
-            max_requests: 5,
             in_flight: in_flight.clone(),
+            ..GrpcLoadShedLayer::new(5)
         };
         let mut svc = layer.layer(OkService);
 

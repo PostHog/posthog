@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 
 from django.db import connection
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -201,7 +202,7 @@ class TestTeamsTokenStorage(BaseTest):
             get_graph_token(self.team)
 
 
-class TestTrustedTeamsServiceUrl(BaseTest):
+class TestTrustedTeamsServiceUrl(SimpleTestCase):
     @parameterized.expand(
         [
             ("https://smba.trafficmanager.net/teams/",),

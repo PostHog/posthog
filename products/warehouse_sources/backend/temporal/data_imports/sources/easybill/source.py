@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EasybillSource(ResumableSource[EasybillSourceConfig, EasybillResumeConfig]):
+    codebase_detection = detect(env=("^EASYBILL_",), composer=("easybill/php-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # easybill's REST API has a single, fixed `/rest/v1` base path with no documented version
     # header, query param, or changelog — there is nothing to pin.
@@ -50,7 +53,7 @@ class EasybillSource(ResumableSource[EasybillSourceConfig, EasybillResumeConfig]
             name=ExternalDataSourceType.EASYBILL,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="easybill",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your easybill API key to sync your invoices, customers and accounting records into the PostHog data warehouse. Generate a key from your easybill account under **username menu > Profil und Einstellungen**.",
             iconPath="/static/services/easybill.png",
             docsUrl="https://posthog.com/docs/cdp/sources/easybill",

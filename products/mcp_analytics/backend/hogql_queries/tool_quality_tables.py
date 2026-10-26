@@ -58,9 +58,12 @@ if TYPE_CHECKING:
 
 # The tab scopes to $mcp_tool_call events that carry a tool name. Category and tool are event-supplied
 # and bound as constants (never interpolated).
-_P50 = "round(quantile(0.5)(toFloat(properties.$mcp_duration_ms)))"
-_P95 = "round(quantile(0.95)(toFloat(properties.$mcp_duration_ms)))"
-_P99 = "round(quantile(0.99)(toFloat(properties.$mcp_duration_ms)))"
+# One sample for every level keeps p25 <= p50 <= p75. quantiles() returns NaN, not NULL, for a bucket
+# with no durations, so map NaN back to NULL.
+_LATENCY_QUANTILES = (
+    "arrayMap(q -> if(isNaN(q), NULL, round(q)), "
+    "quantiles(0.25, 0.5, 0.75, 0.95, 0.99)(toFloat(properties.$mcp_duration_ms)))"
+)
 _IS_ERROR = "countIf(toBool(properties.$mcp_is_error))"
 _TOOL_ROW_DEFAULT_LIMIT = 50
 _TOOL_ROW_MAX_LIMIT = 100
@@ -397,25 +400,28 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
         interval = self.query.interval.value if self.query.interval else "day"
         return parse_select(
             """
-            SELECT
-                toString(dateTrunc({interval}, timestamp)) AS day,
-                count() AS calls,
-                {_IS_ERROR} AS errors,
-                {_P50} AS p50,
-                {_P95} AS p95,
-                {_P99} AS p99
-            FROM events
-            WHERE {where}
-            GROUP BY day
+            SELECT day, calls, errors, latency[2] AS p50, latency[4] AS p95, latency[5] AS p99,
+                min, latency[1] AS p25, mean, latency[3] AS p75, max
+            FROM (
+                SELECT
+                    toString(dateTrunc({interval}, timestamp)) AS day,
+                    count() AS calls,
+                    {_IS_ERROR} AS errors,
+                    {_LATENCY_QUANTILES} AS latency,
+                    min(toFloat(properties.$mcp_duration_ms)) AS min,
+                    round(avg(toFloat(properties.$mcp_duration_ms))) AS mean,
+                    max(toFloat(properties.$mcp_duration_ms)) AS max
+                FROM events
+                WHERE {where}
+                GROUP BY day
+            )
             ORDER BY day
             LIMIT 10000
             """,
             placeholders={
                 "interval": ast.Constant(value=interval),
                 "_IS_ERROR": parse_expr(_IS_ERROR),
-                "_P50": parse_expr(_P50),
-                "_P95": parse_expr(_P95),
-                "_P99": parse_expr(_P99),
+                "_LATENCY_QUANTILES": parse_expr(_LATENCY_QUANTILES),
                 "where": _named_tool_where(
                     _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
                     self.query.categories,
@@ -452,6 +458,13 @@ class MCPToolQualityDailyStatsQueryRunner(AnalyticsQueryRunner[MCPToolQualityDai
                 p50=float(row[3] or 0),
                 p95=float(row[4] or 0),
                 p99=float(row[5] or 0),
+                # None (not 0) when every duration in the bucket is missing, so the box plot
+                # skips the bucket instead of drawing a flat line at zero.
+                min=None if row[6] is None else float(row[6]),
+                p25=None if row[7] is None else float(row[7]),
+                mean=None if row[8] is None else float(row[8]),
+                p75=None if row[9] is None else float(row[9]),
+                max=None if row[10] is None else float(row[10]),
             )
             for row in (response.results or [])
         ]

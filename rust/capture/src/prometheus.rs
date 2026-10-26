@@ -6,6 +6,7 @@ use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+pub const CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL: &str = "capture_events_over_v1_limits_total";
 
 pub const CAPTURE_TIMESTAMP_PATH_TOTAL: &str = "capture_timestamp_path_total";
 pub const CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS: &str =
@@ -15,6 +16,11 @@ pub const CAPTURE_EDGE_TIMESTAMP_REJECTED: &str = "capture_edge_timestamp_reject
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
+}
+
+/// Counts a legacy event that capture v1 would drop; `cause` is the v1 per-event detail tag.
+pub fn report_over_v1_limit(cause: &'static str) {
+    counter!(CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL, "cause" => cause).increment(1);
 }
 
 pub fn report_overflow_partition(quantity: u64) {
@@ -264,13 +270,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
     ];
 
-    // Same shape as KAFKA_PRODUCE_ACK_MS, but in seconds for the v1 sink's
-    // `capture_v1_kafka_ack_duration_seconds` histogram.
-    const KAFKA_PRODUCE_ACK_SECONDS: &[f64] = &[
-        0.0005, 0.001, 0.002, 0.005, 0.01, 0.015, 0.025, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1.0,
-        2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
-    ];
-
     PrometheusBuilder::new()
         .add_global_label("role", role)
         .add_global_label("capture_mode", capture_mode)
@@ -347,11 +346,6 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_v1_response_time_seconds".to_string()),
             EXPONENTIAL_SECONDS,
-        )
-        .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Full("capture_v1_kafka_ack_duration_seconds".to_string()),
-            KAFKA_PRODUCE_ACK_SECONDS,
         )
         .unwrap()
         // capture_v1_event_batch_size is covered by the Suffix("_batch_size")

@@ -110,6 +110,9 @@ class TestSESProvider(TestCase):
             assert any(arn.endswith(f"identity/{TEST_DOMAIN}") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging-untracked") for arn in associated)
+            mock_ses_v2_client.put_email_identity_feedback_attributes.assert_called_with(
+                EmailIdentity=TEST_DOMAIN, EmailForwardingEnabled=False
+            )
 
             # An unprovisioned config set must not fail the customer's add-domain request —
             # only the identity association (self-created above) is allowed to raise.
@@ -121,8 +124,15 @@ class TestSESProvider(TestCase):
             mock_ses_v2_client.create_tenant_resource_association.side_effect = fail_config_set_associations
             provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
+            # The configuration sets already report bounces, so a forwarding failure must not fail it either.
+            mock_ses_v2_client.put_email_identity_feedback_attributes.side_effect = ClientError(
+                {"Error": {"Code": "TooManyRequestsException"}}, "PutEmailIdentityFeedbackAttributes"
+            )
+            provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
+        mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
         ):

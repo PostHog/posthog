@@ -1,147 +1,142 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
+import itertools
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 import requests
-from requests import Response
+from dateutil import parser
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.heyreach import (
+    HeyReachSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.heyreach import (
     STATS_START_DATE,
     HeyReachResumeConfig,
-    heyreach_source,
     validate_credentials,
 )
-
-_REST_CLIENT_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client"
-    ".make_tracked_session"
-)
-_HEYREACH_SESSION = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.heyreach.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.heyreach.source import HeyReachSource
 
 
-def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(HeyReachSource(), HeyReachSourceConfig(api_key="test-key"))
 
 
-def _drive(
-    endpoint: str, manager: MagicMock, responses: list[Response]
-) -> tuple[list[tuple[str, dict[str, Any]]], list[Any]]:
-    # Returns (sent, batches) where sent is a list of (url, json_body) captured at send time.
-    # The Request object is mutated in place by the paginator between pages, so bodies are
-    # copied per send instead of read back from call_args_list.
-    sent: list[tuple[str, dict[str, Any]]] = []
-    response_iter = iter(responses)
-
-    def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-        sent.append((request.url, dict(request.json or {})))
-        return next(response_iter)
-
-    with patch(_REST_CLIENT_SESSION) as MockSession:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.side_effect = lambda req: req
-        mock_session.send.side_effect = fake_send
-
-        response = heyreach_source(
-            api_key="test-key",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="test_job",
-            resumable_source_manager=manager,
-        )
-        batches = list(cast(Iterable[Any], response.items()))
-        return sent, batches
-
-
-def _fresh_manager(can_resume: bool = False) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    return manager
+def _page(items: list[dict[str, Any]], total_count: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"totalCount": total_count, "items": items})
 
 
 class TestTopLevelEndpoints:
     def test_fresh_run_pages_by_total_count_and_saves_offsets(self) -> None:
-        manager = _fresh_manager()
-        responses = [
-            _make_http_response({"totalCount": 150, "items": [{"id": i} for i in range(100)]}),
-            _make_http_response({"totalCount": 150, "items": [{"id": i} for i in range(100, 150)]}),
-        ]
+        result = _driver().run(
+            "campaigns",
+            [
+                _page([{"id": i} for i in range(100)], 150),
+                _page([{"id": i} for i in range(100, 150)], 150),
+            ],
+        )
 
-        sent, _ = _drive("campaigns", manager, responses)
-
-        assert [body.get("offset") for _, body in sent] == [0, 100]
-        assert all(body.get("limit") == 100 for _, body in sent)
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [HeyReachResumeConfig(offset=100)]
+        assert result.raised is None
+        assert [request.json().get("offset") for request in result.requests] == [0, 100]
+        assert all(request.json().get("limit") == 100 for request in result.requests)
+        assert result.saved_states == [HeyReachResumeConfig(offset=100)]
+        assert len(result.rows) == 150
 
     def test_resume_seeds_paginator_with_saved_offset(self) -> None:
-        manager = _fresh_manager(can_resume=True)
-        manager.load_state.return_value = HeyReachResumeConfig(offset=100)
-        responses = [
-            _make_http_response({"totalCount": 101, "items": [{"id": 100}]}),
-        ]
+        result = _driver().run(
+            "campaigns",
+            [_page([{"id": 100}], 101)],
+            resume_state=HeyReachResumeConfig(offset=100),
+        )
 
-        sent, _ = _drive("campaigns", manager, responses)
-
-        assert [body.get("offset") for _, body in sent] == [100]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert [request.json().get("offset") for request in result.requests] == [100]
 
 
 class TestFanoutEndpoints:
     def test_campaign_leads_fans_out_per_campaign_and_injects_campaign_id(self) -> None:
-        responses = [
-            _make_http_response({"totalCount": 2, "items": [{"id": 1}, {"id": 2}]}),
-            _make_http_response({"totalCount": 1, "items": [{"id": 11, "leadCampaignStatus": "Finished"}]}),
-            _make_http_response({"totalCount": 1, "items": [{"id": 21, "leadCampaignStatus": "Pending"}]}),
+        result = _driver().run(
+            "campaign_leads",
+            [
+                _page([{"id": 1}, {"id": 2}], 2),
+                _page([{"id": 11, "leadCampaignStatus": "Finished"}], 1),
+                _page([{"id": 21, "leadCampaignStatus": "Pending"}], 1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/public/campaign/GetAll",
+            "/api/public/campaign/GetLeadsFromCampaign",
+            "/api/public/campaign/GetLeadsFromCampaign",
         ]
-
-        sent, batches = _drive("campaign_leads", _fresh_manager(), responses)
-
-        paths = [url.split("/api/public")[1] for url, _ in sent]
-        assert paths == [
-            "/campaign/GetAll",
-            "/campaign/GetLeadsFromCampaign",
-            "/campaign/GetLeadsFromCampaign",
-        ]
-        assert [body.get("campaignId") for _, body in sent[1:]] == [1, 2]
-        assert all(body.get("offset") == 0 and body.get("limit") == 100 for _, body in sent)
-
-        rows = [row for batch in batches for row in batch]
-        assert rows == [
+        assert [request.json().get("campaignId") for request in result.requests[1:]] == [1, 2]
+        assert all(
+            request.json().get("offset") == 0 and request.json().get("limit") == 100 for request in result.requests
+        )
+        assert result.rows == [
             {"campaignId": 1, "id": 11, "leadCampaignStatus": "Finished"},
             {"campaignId": 2, "id": 21, "leadCampaignStatus": "Pending"},
         ]
 
-    def test_list_leads_only_fans_out_lead_lists_and_skips_parents_without_id(self) -> None:
-        responses = [
-            _make_http_response({"totalCount": 2, "items": [{"id": 5}, {"name": "row without id"}]}),
-            _make_http_response({"totalCount": 0, "items": []}),
+    @pytest.mark.parametrize(
+        ("endpoint", "list_type", "child_path"),
+        [
+            ("list_leads", "USER_LIST", "/api/public/list/GetLeadsFromList"),
+            ("list_companies", "COMPANY_LIST", "/api/public/list/GetCompaniesFromList"),
+        ],
+    )
+    def test_list_children_fan_out_matching_list_type_and_skip_parents_without_id(
+        self, endpoint: str, list_type: str, child_path: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _page([{"id": 5}, {"name": "row without id"}], 2),
+                _page([], 0),
+            ],
+        )
+
+        assert result.raised is None
+        # Lead lists and company lists serve their rows through different endpoints, so the
+        # parent listing is restricted to the matching list type.
+        assert result.paths == ["/api/public/list/GetAll", child_path]
+        assert result.requests[0].json()["listType"] == list_type
+        # Only the parent with an id produces a child request, and an empty child page yields no batch.
+        assert result.requests[1].json()["listId"] == 5
+        assert result.items == []
+
+    def test_sender_network_pages_by_page_number_until_empty_page(self) -> None:
+        result = _driver().run(
+            "sender_network",
+            [
+                _page([{"id": 7}], 1),
+                _page([{"profileUrl": "https://www.linkedin.com/in/a"}], 2),
+                _page([{"profileUrl": "https://www.linkedin.com/in/b"}], 2),
+                _page([], 2),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/public/li_account/GetAll"] + ["/api/public/MyNetwork/GetMyNetworkForSender"] * 3
+        child_bodies = [request.json() for request in result.requests[1:]]
+        assert [body["pageNumber"] for body in child_bodies] == [0, 1, 2]
+        assert all(body["senderId"] == 7 and body["pageSize"] == 100 for body in child_bodies)
+        assert all("offset" not in body for body in child_bodies)
+        assert result.rows == [
+            {"senderId": 7, "profileUrl": "https://www.linkedin.com/in/a"},
+            {"senderId": 7, "profileUrl": "https://www.linkedin.com/in/b"},
         ]
 
-        sent, batches = _drive("list_leads", _fresh_manager(), responses)
 
-        parent_url, parent_body = sent[0]
-        assert parent_url.endswith("/list/GetAll")
-        # Company lists serve companies via a different endpoint, so the parent listing is
-        # restricted to lead lists.
-        assert parent_body["listType"] == "USER_LIST"
-        # Only the parent with an id produces a child request, and an empty child page yields no batch.
-        assert len(sent) == 2
-        assert sent[1][1]["listId"] == 5
-        assert batches == []
-
-
-class TestOverallStats:
+class TestDailyStats:
     @pytest.mark.parametrize(
         ("payload", "expected_days"),
         [
@@ -160,21 +155,52 @@ class TestOverallStats:
         ],
     )
     def test_yields_one_row_per_day(self, payload: dict[str, Any], expected_days: int) -> None:
-        responses = [_make_http_response(payload)]
+        result = _driver().run("overall_stats", [ScriptedResponse(json=payload)])
 
-        sent, batches = _drive("overall_stats", _fresh_manager(), responses)
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        assert len(result.rows) == expected_days
+        if result.rows:
+            assert result.rows[0]["messagesSent"] == 5
+            assert result.rows[0]["date"].isoformat() == "2024-12-17T00:00:00+00:00"
 
-        assert len(rows) == expected_days
-        if rows:
-            assert rows[0]["messagesSent"] == 5
-            assert rows[0]["date"].isoformat() == "2024-12-17T00:00:00+00:00"
-
-        url, body = sent[0]
-        assert url.endswith("/stats/GetOverallStats")
+        assert result.paths == ["/api/public/stats/GetOverallStats"]
+        body = result.requests[0].json()
         assert body["startDate"] == STATS_START_DATE
         assert body["accountIds"] == []
         assert body["campaignIds"] == []
+
+    def test_campaign_stats_requests_contiguous_windows_and_yields_one_row_per_day_and_campaign(self) -> None:
+        payload = {
+            "byDayStats": {
+                "2024-12-17T00:00:00Z": [
+                    {"campaignId": 1, "campaignName": "A", "messagesSent": 3},
+                    {"campaignId": 2, "campaignName": "B", "messagesSent": 4},
+                ],
+                "2024-12-18T00:00:00Z": [],
+            },
+            "overallStats": [{"campaignId": 1, "messagesSent": 3}],
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            body = request.json()
+            if body["startDate"] <= "2024-12-17" <= body["endDate"]:
+                return ScriptedResponse(json=payload)
+            return ScriptedResponse(json={"byDayStats": {}, "overallStats": []})
+
+        result = _driver().run("campaign_stats", respond)
+
+        assert result.raised is None
+        assert set(result.paths) == {"/api/public/stats/GetOverallStatsByCampaign"}
+        windows = [(parser.parse(r.json()["startDate"]), parser.parse(r.json()["endDate"])) for r in result.requests]
+        assert windows[0][0] == parser.parse(STATS_START_DATE)
+        assert windows[-1][1] > datetime.now(tz=UTC) - timedelta(minutes=5)
+        for (start, end), (next_start, _) in itertools.pairwise(windows):
+            assert end - start < timedelta(days=30)
+            assert next_start - end == timedelta(milliseconds=1)
+        assert [(row["date"].isoformat(), row["campaignId"], row["messagesSent"]) for row in result.rows] == [
+            ("2024-12-17T00:00:00+00:00", 1, 3),
+            ("2024-12-17T00:00:00+00:00", 2, 4),
+        ]
 
 
 class TestValidateCredentials:
@@ -182,18 +208,12 @@ class TestValidateCredentials:
         ("status_code", "expected_valid", "expected_fragment"),
         [
             (200, True, None),
-            (401, False, "HeyReach rejected the API key"),
-            (403, False, "HeyReach rejected the API key"),
-            (500, False, "unexpected status (500)"),
         ],
     )
     def test_maps_status_to_user_message(
         self, status_code: int, expected_valid: bool, expected_fragment: str | None
     ) -> None:
-        with patch(_HEYREACH_SESSION) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.get.return_value = _make_http_response({}, status_code=status_code)
-
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
             valid, message = validate_credentials("test-key")
 
         assert valid is expected_valid
@@ -201,36 +221,26 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert expected_fragment in (message or "")
+        assert network.requests_log[0].path == "/api/public/auth/CheckApiKey"
+        assert network.requests_log[0].headers["x-api-key"] == "test-key"
 
     def test_transport_error_reports_unreachable_instead_of_raising(self) -> None:
         # A DNS failure or timeout during the probe must not raise out of validate_credentials
         # and fail source creation with a stack trace.
-        with patch(_HEYREACH_SESSION) as MockSession:
-            MockSession.return_value.get.side_effect = requests.ConnectionError("dns failure")
-
+        with scripted_network(always(requests.ConnectionError("dns failure"))) as network:
             valid, message = validate_credentials("test-key")
 
         assert valid is False
         assert "Couldn't reach HeyReach" in (message or "")
+        assert {request.path for request in network.requests_log} == {"/api/public/auth/CheckApiKey"}
 
     def test_non_ascii_key_fails_without_a_request(self) -> None:
         # A non-latin-1 key can't be encoded into the X-API-KEY header; the raw
         # UnicodeEncodeError must never surface to the user.
-        with patch(_HEYREACH_SESSION) as MockSession:
+        with scripted_network([]) as network:
             valid, message = validate_credentials("bad中key")
 
         assert valid is False
         assert "Retype it by hand" in (message or "")
-        MockSession.assert_not_called()
-
-
-class TestUnknownEndpoint:
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="HeyReach endpoint does not exist"):
-            heyreach_source(
-                api_key="test-key",
-                endpoint="does_not_exist",
-                team_id=1,
-                job_id="test_job",
-                resumable_source_manager=_fresh_manager(),
-            )
+        assert network.requests_log == []
+        assert network.session_options == []

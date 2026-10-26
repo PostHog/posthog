@@ -1,17 +1,17 @@
-from collections.abc import Iterable, Iterator
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
-
 import pytest
 from unittest.mock import MagicMock, patch
 
-import responses
-from requests import HTTPError, Session
+from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.calendarific import (
     CalendarificClient,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendarific.source import CalendarificSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendarific import (
     CalendarificSourceConfig,
@@ -21,34 +21,27 @@ BASE_URL = "https://calendarific.com/api/v2"
 API_KEY = "calendarific-test-key"
 
 
-@pytest.fixture
-def http() -> Iterator[responses.RequestsMock]:
-    with (
-        Session() as session,
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session",
-            return_value=session,
-        ),
-        responses.RequestsMock() as mocked,
-    ):
-        yield mocked
-
-
 def client(country: str = " us ", year: str = " 2026 ") -> CalendarificClient:
     return CalendarificClient(CalendarificSourceConfig(api_key=API_KEY, country=country, year=year), "v2")
 
 
-@pytest.mark.parametrize("schema_name", [None, "holidays", "countries", "languages"])
-def test_credential_probe_uses_one_request(http: responses.RequestsMock, schema_name: str | None) -> None:
-    endpoint = schema_name or "holidays"
-    http.get(f"{BASE_URL}/{endpoint}", json={"meta": {"code": 200}, "response": {endpoint: []}})
+def driver() -> SourceDriver:
+    return SourceDriver(CalendarificSource(), CalendarificSourceConfig(api_key=API_KEY, country=" us ", year=" 2026 "))
 
-    assert client().validate_credentials(1, schema_name) == (True, None)
-    assert len(http.calls) == 1
-    expected = {"api_key": [API_KEY]}
+
+@pytest.mark.parametrize("schema_name", [None, "holidays", "countries", "languages"])
+def test_credential_probe_uses_one_request(schema_name: str | None) -> None:
+    endpoint = schema_name or "holidays"
+    with scripted_network([ScriptedResponse(json={"meta": {"code": 200}, "response": {endpoint: []}})]) as network:
+        assert client().validate_credentials(1, schema_name) == (True, None)
+
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.url.startswith(f"{BASE_URL}/{endpoint}?")
+    expected = {"api_key": (API_KEY,)}
     if endpoint == "holidays":
-        expected.update({"country": ["US"], "year": ["2026"], "month": ["1"], "day": ["1"]})
-    assert parse_qs(urlsplit(http.calls[0].request.url).query) == expected
+        expected.update({"country": ("US",), "year": ("2026",), "month": ("1",), "day": ("1",)})
+    assert request.query == expected
 
 
 @pytest.mark.parametrize(
@@ -64,16 +57,15 @@ def test_credential_probe_uses_one_request(http: responses.RequestsMock, schema_
         ("US", "2026", "unknown", "Unknown Calendarific table"),
     ],
 )
-def test_invalid_configuration_makes_no_request(
-    http: responses.RequestsMock, country: str, year: str, schema_name: str | None, message: str
-) -> None:
+def test_invalid_configuration_makes_no_request(country: str, year: str, schema_name: str | None, message: str) -> None:
     transport = client(country, year)
-    valid, error = transport.validate_credentials(1, schema_name)
-    assert not valid
-    assert error is not None and message in error
-    with pytest.raises(ValueError, match=message):
-        transport.source_response(schema_name or "holidays", 1, "test-job")
-    assert len(http.calls) == 0
+    with scripted_network([]) as network:
+        valid, error = transport.validate_credentials(1, schema_name)
+        assert not valid
+        assert error is not None and message in error
+        with pytest.raises(ValueError, match=message):
+            transport.source_response(schema_name or "holidays", 1, "test-job")
+    assert network.requests_log == []
 
 
 @pytest.mark.parametrize(
@@ -83,41 +75,37 @@ def test_invalid_configuration_makes_no_request(
         (403, "subscription_expired", "Renew it in your Calendarific account"),
     ],
 )
-def test_authentication_errors_are_actionable_and_terminal(
-    http: responses.RequestsMock, status: int, error_type: str, message: str
-) -> None:
-    http.get(
-        f"{BASE_URL}/holidays",
-        status=status,
-        json={"meta": {"code": status, "error_type": error_type}, "response": []},
-    )
-    valid, error = client().validate_credentials(1, None)
+def test_authentication_errors_are_actionable_and_terminal(status: int, error_type: str, message: str) -> None:
+    answer = ScriptedResponse(status=status, json={"meta": {"code": status, "error_type": error_type}, "response": []})
+    with scripted_network([answer]) as network:
+        valid, error = client().validate_credentials(1, None)
     assert not valid
     assert error is not None and message in error
-    assert len(http.calls) == 1
+    assert len(network.requests_log) == 1
 
-    with pytest.raises(HTTPError) as raised:
-        list(cast(Iterable[Any], client().source_response("holidays", 1, "test-job").items()))
-    assert API_KEY not in str(raised.value)
+    result = driver().run("holidays", [answer])
+    assert isinstance(result.raised, HTTPError)
+    assert API_KEY not in str(result.raised)
     mappings = CalendarificSource().get_non_retryable_errors()
-    assert any(pattern in str(raised.value) and mapped == error for pattern, mapped in mappings.items())
-    assert len(http.calls) == 2
+    assert any(pattern in str(result.raised) and mapped == error for pattern, mapped in mappings.items())
+    assert len(result.requests) == 1
 
 
 @pytest.mark.parametrize("status", [400, 404])
-def test_other_http_errors_are_not_reported_as_invalid_credentials(http: responses.RequestsMock, status: int) -> None:
-    http.get(f"{BASE_URL}/holidays", status=status, json={"meta": {"code": status}, "response": []})
-    with pytest.raises(HTTPError):
-        client().validate_credentials(1, None)
-    assert len(http.calls) == 1
+def test_other_http_errors_are_not_reported_as_invalid_credentials(status: int) -> None:
+    answer = ScriptedResponse(status=status, json={"meta": {"code": status}, "response": []})
+    with scripted_network([answer]) as network:
+        with pytest.raises(HTTPError):
+            client().validate_credentials(1, None)
+    assert len(network.requests_log) == 1
 
 
 @pytest.mark.parametrize("endpoint", ["holidays", "countries", "languages"])
-def test_missing_collection_fails_instead_of_erasing_table(http: responses.RequestsMock, endpoint: str) -> None:
-    http.get(f"{BASE_URL}/{endpoint}", json={"meta": {"code": 200}, "response": {"unexpected": []}})
-    with pytest.raises(ValueError, match="matched nothing"):
-        list(cast(Iterable[Any], client().source_response(endpoint, 1, "test-job").items()))
-    assert len(http.calls) == 1
+def test_missing_collection_fails_instead_of_erasing_table(endpoint: str) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json={"meta": {"code": 200}, "response": {"unexpected": []}})])
+    assert isinstance(result.raised, ValueError)
+    assert "matched nothing" in str(result.raised)
+    assert len(result.requests) == 1
 
 
 def test_source_delegates_with_resolved_version() -> None:

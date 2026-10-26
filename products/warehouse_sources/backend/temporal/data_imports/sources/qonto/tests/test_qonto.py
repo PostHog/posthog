@@ -1,27 +1,30 @@
 import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import parse_qs, urlsplit
+from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qonto import QontoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.qonto import (
-    QontoResumeConfig,
-    qonto_source,
-    validate_credentials,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.settings import AUTH_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qonto import QontoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.qonto import validate_credentials
+from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.settings import (
+    AUTH_ERROR,
+    ENDPOINTS,
+    PERMISSION_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.source import QontoSource
 
 CONFIG = QontoSourceConfig(login="example-company", secret_key="fake-secret")
@@ -37,9 +40,9 @@ def response(body: dict[str, Any], status: int = 200) -> Response:
     return result
 
 
-def page(name: str, rows: list[dict[str, Any]], current: int = 1, total: int = 1) -> Response:
-    return response(
-        {
+def page(name: str, rows: list[dict[str, Any]], current: int = 1, total: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
             name: rows,
             "meta": {
                 "current_page": current,
@@ -50,17 +53,8 @@ def page(name: str, rows: list[dict[str, Any]], current: int = 1, total: int = 1
     )
 
 
-def manager(state: dict[str, Any] | None = None) -> MagicMock:
-    result = MagicMock(spec=ResumableSourceManager)
-    result.can_resume.return_value = state is not None
-    result.load_state.return_value = QontoResumeConfig(paginator_state=state) if state is not None else None
-    return result
-
-
-def source(
-    endpoint: str, resume_manager: MagicMock, incremental: bool = False, last_value: str | datetime | None = None
-) -> SourceResponse:
-    return qonto_source(CONFIG, endpoint, "v2", 1, "test-job", resume_manager, incremental, last_value)
+def drive(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    return SourceDriver(QontoSource(), CONFIG).run(endpoint, script, **inputs)
 
 
 @pytest.mark.parametrize(
@@ -77,21 +71,59 @@ def source(
 def test_incremental_filters(
     endpoint: str, incremental: bool, last_value: str | datetime | None, expected: str | None
 ) -> None:
-    responses = [page(endpoint, [{"id": "row"}], 1, 2), page(endpoint, [{"id": "last"}], 2, 2)]
+    responses: list[ScriptedResponse | BaseException] = [
+        page(endpoint, [{"id": "row"}], 1, 2),
+        page(endpoint, [{"id": "last"}], 2, 2),
+    ]
     if endpoint == "transactions":
-        responses.insert(0, response({"organization": {"bank_accounts": [{"id": "account-1"}]}}))
-    with patch("requests.Session.send", side_effect=responses) as send:
-        result = source(endpoint, manager(), incremental, last_value)
-        list(cast(Iterable[Any], result.items()))
-    requests = [call.args[0] for call in send.call_args_list if urlsplit(call.args[0].url).path != "/v2/organization"]
+        responses.insert(0, ScriptedResponse(json={"organization": {"bank_accounts": [{"id": "account-1"}]}}))
+    result = (
+        drive(endpoint, responses, incremental_field="updated_at", db_incremental_field_last_value=last_value)
+        if (incremental)
+        else drive(endpoint, responses, db_incremental_field_last_value=last_value)
+    )
+
+    assert result.raised is None
+    requests = [request for request in result.requests if request.path != "/v2/organization"]
+    assert len(requests) == 2
     for request in requests:
-        params = parse_qs(urlsplit(request.url).query)
-        assert params.get("updated_at_from") == ([expected] if expected else None)
-        assert params["sort_by"] == ["updated_at:desc"]
+        assert request.param("updated_at_from") == expected
+        assert request.query["sort_by"] == ("updated_at:desc",)
         if endpoint == "transactions":
-            assert params["status[]"] == ["pending", "declined", "completed", "reversed"]
-            assert params["bank_account_id"] == ["account-1"]
-    assert result.sort_mode == "desc"
+            assert request.query["status[]"] == ("pending", "declined", "completed", "reversed")
+            assert request.query["bank_account_id"] == ("account-1",)
+    assert result.response is not None
+    assert result.response.sort_mode == "desc"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "selector", "expected_query"),
+    [
+        ("labels", "labels", {"per_page": ("100",)}),
+        ("beneficiaries", "beneficiaries", {"per_page": ("100",)}),
+        (
+            "client_invoices",
+            "client_invoices",
+            {"per_page": ("100",), "sort_by": ("created_at:asc",), "exclude_imported": ("false",)},
+        ),
+    ],
+)
+def test_full_refresh_endpoints_walk_every_page(
+    endpoint: str, selector: str, expected_query: dict[str, tuple[str, ...]]
+) -> None:
+    result = drive(
+        endpoint,
+        [page(selector, [{"id": "first"}], 1, 2), page(selector, [{"id": "second"}], 2, 2)],
+        incremental_field="updated_at",
+        db_incremental_field_last_value="2025-01-02T03:04:05Z",
+    )
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["first", "second"]
+    assert [request.path for request in result.requests] == [f"/v2/{ENDPOINTS[endpoint][0]}"] * 2
+    assert result.params("page") == ["1", "2"]
+    for request in result.requests:
+        assert {key: value for key, value in request.query.items() if key != "page"} == expected_query
 
 
 @pytest.mark.parametrize(
@@ -132,26 +164,23 @@ def test_credential_validation_propagates_transient_errors(status: int) -> None:
 
 @pytest.mark.parametrize(("status", "message"), [(401, AUTH_ERROR), (403, PERMISSION_ERROR)])
 def test_sync_auth_errors_are_terminal(status: int, message: str) -> None:
-    with patch(
-        "requests.Session.send",
-        return_value=response({"errors": [{"code": "unauthorized", "detail": "Invalid credentials"}]}, status),
-    ) as send:
-        with pytest.raises(HTTPError) as error:
-            list(cast(Iterable[Any], source("labels", manager()).items()))
-    assert send.call_count == 1
-    matches = [value for key, value in QontoSource().get_non_retryable_errors().items() if key in str(error.value)]
+    result = drive(
+        "labels",
+        [ScriptedResponse(status=status, json={"errors": [{"code": "unauthorized", "detail": "Invalid credentials"}]})],
+    )
+
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
+    matches = [value for key, value in QontoSource().get_non_retryable_errors().items() if key in str(result.raised)]
     assert matches == [message]
 
 
 @pytest.mark.parametrize("status", [429, 500])
 def test_sync_transient_errors_remain_retryable(status: int) -> None:
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.DEFAULT_RETRY_ATTEMPTS", 1
-    ):
-        with patch("requests.Session.send", return_value=response({}, status)):
-            with pytest.raises(RESTClientRetryableError) as error:
-                list(cast(Iterable[Any], source("labels", manager()).items()))
-    assert not any(key in str(error.value) for key in QontoSource().get_non_retryable_errors())
+    result = drive("labels", always(ScriptedResponse(status=status, json={})))
+
+    assert isinstance(result.raised, RESTClientRetryableError)
+    assert not any(key in str(result.raised) for key in QontoSource().get_non_retryable_errors())
 
 
 @pytest.mark.parametrize(
@@ -159,6 +188,8 @@ def test_sync_transient_errors_remain_retryable(status: int) -> None:
     [("missing", None, "Unknown Qonto table"), ("transfers", "invalid", "Invalid Qonto incremental timestamp")],
 )
 def test_invalid_inputs_fail_before_requests(endpoint: str, last_value: str | None, message: str) -> None:
-    with patch("requests.Session.send") as send, pytest.raises(ValueError, match=message):
-        source(endpoint, manager(), True, last_value)
-    send.assert_not_called()
+    result = drive(endpoint, [], incremental_field="updated_at", db_incremental_field_last_value=last_value)
+
+    assert isinstance(result.raised, ValueError)
+    assert message in str(result.raised)
+    assert result.requests == []

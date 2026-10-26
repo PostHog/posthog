@@ -16,12 +16,12 @@ const SAMPLE_COUNTRIES: [string, number][] = [
 
 const SAMPLE_BOX_PLOT_DAYS = 7
 
-function sampleAction(result: TrendResult | undefined): Pick<TrendResult, 'action' | 'label'> {
-    return { action: result?.action ?? null, label: result?.label ?? 'Sample' }
+function sampleSeries(result: TrendResult | undefined): Pick<TrendResult, 'order' | 'label'> {
+    return { order: result?.order, label: result?.label ?? 'Sample' }
 }
 
 export function sampleWorldMapRows(loaded: TrendResult[]): unknown[] {
-    const base = sampleAction(loaded[0])
+    const base = sampleSeries(loaded[0])
     return SAMPLE_COUNTRIES.map(([code, value]) => ({
         ...base,
         breakdown_value: code,
@@ -51,7 +51,7 @@ export function sampleCalendarHeatmapRows(loaded: TrendResult[]): unknown[] {
     }
     return [
         {
-            ...sampleAction(loaded[0]),
+            ...sampleSeries(loaded[0]),
             data: [],
             days: [],
             labels: [],

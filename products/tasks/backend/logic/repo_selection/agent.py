@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -70,6 +71,24 @@ class RepoSelectionUnavailableError(Exception):
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(reason)
+
+
+class RepoSelectionUsageLimitError(Exception):
+    """Raised when the LLM gateway refused the agent's model calls with a 402, because the team
+    has no credits left for this billing period.
+
+    A task on any repository would hit the same refusal, so callers should report the limit
+    instead of falling back to a repository picker.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+# The agent prints a refused model call as `API Error: <status> <body>`. The gateway answers a
+# team with no credits left with a 402.
+_USAGE_LIMIT_REPLY = re.compile(r"\s*API Error: 402\b")
 
 
 def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration | None:
@@ -136,7 +155,7 @@ def resolve_team_github_integration(
     )
     # Prefer the first GitHub integration from the team
     if integration is not None:
-        return GitHubIntegration(integration)
+        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
 
     if team_only:
         return None
@@ -146,7 +165,7 @@ def resolve_team_github_integration(
     if requester_user_id is not None:
         requester_integration = _first_user_github_integration([requester_user_id])
         if requester_integration is not None:
-            return UserGitHubIntegration(requester_integration)
+            return UserGitHubIntegration(requester_integration, source="repo_selection", priority=Priority.CRITICAL)
 
     organization = (team if team is not None else Team.objects.get(id=team_id)).organization
     owner_user_ids = OrganizationMembership.objects.filter(
@@ -157,7 +176,7 @@ def resolve_team_github_integration(
     # If no team integration - pick an org owner's integration (personal account preferred)
     owner_integration = _first_user_github_integration(owner_user_ids)
     if owner_integration is not None:
-        return UserGitHubIntegration(owner_integration)
+        return UserGitHubIntegration(owner_integration, source="repo_selection", priority=Priority.CRITICAL)
     return None
 
 
@@ -587,6 +606,7 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    priority: Priority,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -649,7 +669,7 @@ async def select_repository(
     # concurrent calls for the same team wait on the leader and then read the warm cache.
     if output_fn:
         output_fn("Refreshing repository cache...")
-    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id)
+    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
     await repo_cache.sync_full_cache()
     # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
     # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).
@@ -697,21 +717,36 @@ async def select_repository(
         service_tier=service_tier,
     )
 
-    session, result = await MultiTurnSession.start(
-        prompt=prompt,
-        context=sandbox_context,
-        model=RepoSelectionResult,
-        step_name=step_name,
-        verbose=verbose,
-        output_fn=output_fn,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
-        ai_stage="repo_selection",
-        internal=True,
-        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
-        # user into a manual repository picker. Read the pick out of the raw reply instead.
-        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
-    )
+    usage_limit_reply: str | None = None
+
+    def _salvage(text: str) -> RepoSelectionResult:
+        nonlocal usage_limit_reply
+        if _USAGE_LIMIT_REPLY.match(text):
+            # The runner raises its own parse error when this raises, so the refusal is kept here.
+            usage_limit_reply = text
+            raise ValueError("The end turn is a usage limit refusal, not a selection")
+        return _salvage_repo_selection(text, candidate_repos)
+
+    try:
+        session, result = await MultiTurnSession.start(
+            prompt=prompt,
+            context=sandbox_context,
+            model=RepoSelectionResult,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+            origin_product=origin_product,
+            signal_report_id=signal_report_id,
+            ai_stage="repo_selection",
+            internal=True,
+            # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+            # user into a manual repository picker. Read the pick out of the raw reply instead.
+            fallback_from_text=_salvage,
+        )
+    except Exception as e:
+        if usage_limit_reply is not None:
+            raise RepoSelectionUsageLimitError(usage_limit_reply) from e
+        raise
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
         on_research_session(str(session.task.id), str(session.task_run.id))

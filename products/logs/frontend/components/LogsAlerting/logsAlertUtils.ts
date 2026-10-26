@@ -107,6 +107,11 @@ export function dispatchPreEnableCheck(result: PreEnableCheckResult, onConfirm: 
     onConfirm()
 }
 
+export const CUSTOM_MESSAGE_TAG = {
+    label: 'Custom message',
+    tooltip: 'This destination was edited, so it sends what you configured instead of the standard alert message.',
+}
+
 export const SNOOZE_DURATIONS = [
     { label: '30 minutes', minutes: 30 },
     { label: '1 hour', minutes: 60 },

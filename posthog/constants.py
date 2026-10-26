@@ -197,15 +197,7 @@ FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
 FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
-FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "SECOND", "MINUTE", "HOUR", "WEEK", "MONTH"]
-# Funnel Correlation Properties
-FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
-FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
-# Funnel Correlation Events
-FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
-FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
-FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
 FUNNEL_PATHS = "funnel_paths"
 PATHS_HOGQL_EXPRESSION = "paths_hogql_expression"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
@@ -245,12 +237,6 @@ class FunnelVizType(StrEnum):
     STEPS = "steps"
 
 
-class FunnelCorrelationType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
-
-
 RETENTION_RECURRING = "retention_recurring"
 RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
 RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
@@ -268,15 +254,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-
-class ExperimentNoResultsErrorKeys(StrEnum):
-    NO_EVENTS = "no-events"
-    NO_FLAG_INFO = "no-flag-info"
-    NO_CONTROL_VARIANT = "no-control-variant"
-    NO_TEST_VARIANT = "no-test-variant"
-    NO_RESULTS = "no-results"
-    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
@@ -323,6 +300,7 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # Enable only after every subscriptions worker has deployed the gallery claim boundary. Older workers
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
+EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-ratio-metric-events-preaggregation"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
@@ -344,7 +322,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "whiteLabel": False,
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
-    "position": "bottom-right",
+    "position": "right",
     "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",

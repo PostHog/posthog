@@ -20,6 +20,7 @@ const SKIP_MESSAGES: Record<string, string> = {
     skipped_quota: "this project's monthly Replay Vision credits are used up",
     skipped_scanner_limit: 'this scanner reached its own credit limit',
     skipped_limit: 'too many scans were already running',
+    no_recording: 'the recording could not be found',
     failed: 'the scan could not be started',
 }
 

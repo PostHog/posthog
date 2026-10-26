@@ -5,14 +5,16 @@ import { IconPlus } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
-import { todayShellLogic } from './todayShellLogic'
+import { todayNewChatUrl } from './todayShellLogic'
 
 export function TodayNewChatButton(): JSX.Element {
-    const { location } = useValues(router)
-    const { phoneLayout } = useValues(todayShellLogic)
-    const starting = location.pathname.endsWith(urls.taskNewSession())
+    const { location, searchParams } = useValues(router)
+    const { effectivePhaiView } = useValues(maxGlobalLogic)
+    const newChatUrl = todayNewChatUrl(effectivePhaiView)
+    // A legacy chat in progress also sits on `/ai`, with its id in `chat`.
+    const starting = location.pathname.endsWith(newChatUrl) && !searchParams.chat && !searchParams.task
 
     return (
         <Tooltip>
@@ -20,8 +22,8 @@ export function TodayNewChatButton(): JSX.Element {
                 delay={0}
                 render={
                     <Button
-                        size={phoneLayout ? 'icon-lg' : 'icon'}
-                        render={<LinkPrimitive to={urls.taskNewSession()} />}
+                        size="icon"
+                        render={<LinkPrimitive to={newChatUrl} />}
                         aria-current={starting ? 'page' : undefined}
                         className={cn('-me-2 text-muted-foreground', starting && 'bg-fill-selected text-foreground')}
                         aria-label="New chat"

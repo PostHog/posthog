@@ -16,17 +16,16 @@ export interface ChangeRequestActionsProps {
     showDisabledApproveButton?: boolean
 }
 
-export function ChangeRequestActions({
+export function changeRequestDialogHandlers({
     changeRequest,
     onApprove,
     onReject,
     onCancel,
-    showViewButton = false,
-    showDisabledApproveButton = false,
-}: ChangeRequestActionsProps): JSX.Element {
-    const { showApproveButton, showRejectButton, showCancelButton } = getChangeRequestButtonVisibility(changeRequest)
-    const approveDisabledReason = getApproveDisabledReason(changeRequest)
-
+}: Pick<ChangeRequestActionsProps, 'changeRequest' | 'onApprove' | 'onReject' | 'onCancel'>): {
+    handleApprove: () => void
+    handleReject: () => void
+    handleCancel: () => void
+} {
     const handleApprove = (): void => {
         LemonDialog.open({
             title: 'Approve this change request?',
@@ -110,6 +109,27 @@ export function ChangeRequestActions({
             },
         })
     }
+
+    return { handleApprove, handleReject, handleCancel }
+}
+
+export function ChangeRequestActions({
+    changeRequest,
+    onApprove,
+    onReject,
+    onCancel,
+    showViewButton = false,
+    showDisabledApproveButton = false,
+}: ChangeRequestActionsProps): JSX.Element {
+    const { showApproveButton, showRejectButton, showCancelButton } = getChangeRequestButtonVisibility(changeRequest)
+    const approveDisabledReason = getApproveDisabledReason(changeRequest)
+
+    const { handleApprove, handleReject, handleCancel } = changeRequestDialogHandlers({
+        changeRequest,
+        onApprove,
+        onReject,
+        onCancel,
+    })
 
     const menuItems = []
     if (showViewButton) {

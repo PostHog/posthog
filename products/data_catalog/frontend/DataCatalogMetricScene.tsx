@@ -90,7 +90,6 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         draftMarkdown,
         activeTab,
         mountedTabs,
-        metricChecksEnabled,
     } = useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
@@ -156,11 +155,24 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
             title: 'Edit this approved metric?',
             content: (
                 <div className="text-sm text-secondary">
-                    Saving this change sets the metric back to proposed, so it will need to be approved again.
+                    Saving this change sets the metric back to proposed. Approve it again now, or leave it for a
+                    teammate to review.
                 </div>
             ),
-            primaryButton: { children: 'Save and reset to proposed', onClick: () => updateMetric(patch) },
-            secondaryButton: { children: 'Cancel' },
+            primaryButton: {
+                children: 'Save and approve',
+                onClick: () => updateMetric(patch, true),
+                disabledReason: metric.is_drifted
+                    ? 'This metric has drifted from its source insight. Refresh it before approving.'
+                    : undefined,
+                'data-attr': 'data-catalog-metric-save-and-approve',
+            },
+            secondaryButton: {
+                children: 'Save and reset to proposed',
+                onClick: () => updateMetric(patch),
+                'data-attr': 'data-catalog-metric-save-and-reset',
+            },
+            tertiaryButton: { children: 'Cancel' },
         })
     }
 
@@ -189,7 +201,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         stop working until it is updated. The old name becomes available for a new metric.
                         {isApproved && ' Renaming also sets the metric back to proposed, so it needs approving again.'}
                     </div>
-                    <LemonField name="name" label="Name">
+                    <LemonField name="name" label="SQL name">
                         <LemonInput data-attr="data-catalog-metric-rename-input" autoFocus />
                     </LemonField>
                 </div>
@@ -200,6 +212,16 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     }
 
     const actions: MetricAction[] = [
+        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE] && definitionSql
+            ? [
+                  {
+                      key: 'explore-bi',
+                      label: 'Explore in BI',
+                      icon: <IconGraph />,
+                      onClick: () => router.actions.push(urls.businessIntelligenceNew(), { metric: metric.name }),
+                  },
+              ]
+            : []),
         ...(isApproved
             ? []
             : [
@@ -364,7 +386,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     tabs={[
                         { key: 'definition', label: 'Definition' },
                         { key: 'lineage', label: 'Lineage' },
-                        metricChecksEnabled && {
+                        {
                             key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
@@ -403,7 +425,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </div>
                 )}
 
-                {metricChecksEnabled && mountedTabs.includes('data-quality') && (
+                {mountedTabs.includes('data-quality') && (
                     <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
                     </div>

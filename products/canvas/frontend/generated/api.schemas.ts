@@ -736,6 +736,12 @@ export interface CanvasPostHogCapabilitiesApi {
      * @items.maxLength 64
      */
     actions?: string[]
+    /**
+     * PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 200
+     */
+    tools?: string[]
     agentRequests?: boolean
 }
 
@@ -843,6 +849,8 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
+    /** PostHog MCP tools the draft newly declares it may run via ph.tools. */
+    tools_added: string[]
     /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
     connectors_added: CanvasConnectorDeclarationApi[]
 }
@@ -1606,10 +1614,15 @@ export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
     /**
-     * Next entry offset, or null when complete.
+     * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
      */
     next_offset: number | null
+    /**
+     * Cursor for the next page, or null when complete. Pass it as cursor.
+     * @nullable
+     */
+    next_cursor: string | null
     /** True when no further entries remain for this selection. */
     complete: boolean
 }
@@ -1655,6 +1668,39 @@ export interface CanvasStateValueResponseApi {
     next_offset: number | null
     /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
     complete: boolean
+}
+
+/**
+ * The tool's input, exactly as an MCP client passes it.
+ */
+export type CanvasToolInvokeApiArguments = { [key: string]: unknown }
+
+/**
+ * Payload for running one PostHog MCP tool.
+ */
+export interface CanvasToolInvokeApi {
+    /**
+     * MCP tool to run, e.g. 'feature-flag-enable'.
+     * @maxLength 200
+     */
+    tool: string
+    /** The tool's input, exactly as an MCP client passes it. */
+    arguments?: CanvasToolInvokeApiArguments
+}
+
+/**
+ * The tool's JSON result.
+ */
+export type CanvasToolResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one PostHog MCP tool run.
+ */
+export interface CanvasToolResultApi {
+    /** The tool that ran. */
+    tool: string
+    /** The tool's JSON result. */
+    result: CanvasToolResultApiResult
 }
 
 /**
@@ -1761,11 +1807,29 @@ export interface CanvasActionDefinitionApi {
 }
 
 /**
- * The action registry: every verb a canvas may declare and invoke.
+ * One PostHog MCP tool a canvas may declare, as the host renders it before running it.
+ */
+export interface CanvasToolDefinitionApi {
+    /** MCP tool name, e.g. 'feature-flag-enable'. */
+    name: string
+    /** Human-readable tool title. */
+    title: string
+    /** One line naming what the tool does. */
+    summary: string
+    /** True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with ph.tools.call. */
+    read_only: boolean
+    /** True when the tool deletes or overwrites something; the host warns the viewer before it runs. */
+    destructive: boolean
+}
+
+/**
+ * The action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
  */
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+    /** PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each tool's input schema with the MCP `info` command. */
+    tools: CanvasToolDefinitionApi[]
 }
 
 /**
@@ -1837,6 +1901,10 @@ export type CanvasesListParams = {
      * Only return canvases in this channel.
      */
     channel?: string
+    /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string
     /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
@@ -1948,6 +2016,12 @@ export type CanvasesSourceRetrieveParams = {
 
 export type CanvasesStateRetrieveParams = {
     /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
      * Only read this exact key.
      * @minLength 1
      * @maxLength 200
@@ -1969,7 +2043,7 @@ export type CanvasesStateRetrieveParams = {
      */
     limit?: number
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number

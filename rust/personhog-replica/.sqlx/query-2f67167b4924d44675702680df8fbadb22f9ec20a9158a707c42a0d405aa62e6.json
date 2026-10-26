@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f67167b4924d44675702680df8fbadb22f9ec20a9158a707c42a0d405aa62e6"
+}

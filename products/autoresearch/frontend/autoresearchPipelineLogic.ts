@@ -20,18 +20,22 @@ import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
-    AgentNotes,
     AgentSearch,
     ExperimentLogFilter,
     ExperimentLogGroup,
+    type RunRole,
     SearchPoint,
+    type StatusBrief,
     buildAgentSearch,
     experimentLogGroups,
-    latestAgentNotes,
+    runRoles,
+    scoredChallenger,
+    statusBrief,
 } from './agentSearch'
 import {
     autoresearchModelsList,
     autoresearchOnlinePerformanceRetrieve,
+    autoresearchPartialUpdate,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
     autoresearchRetrieve,
@@ -55,30 +59,40 @@ import {
     CreateSuggestionPriorityEnumApi,
     type ModelExplanationFieldApi,
     type OnlinePerformanceRowApi,
+    type PredictionSegmentThresholdsApi,
 } from './generated/api.schemas'
 import type { ConfusionByCutoffApi } from './generated/api.schemas'
 import {
     type AccuracyCutoff,
+    type AccuracyTrend,
+    type AccuracyTrendMetric,
     type PooledConfusion,
-    RealizedAucPoint,
     SegmentCalibration,
+    accuracyTrend,
     calibrationBySegment,
     firstCheckDate,
     latestChampionRow,
     pooledConfusion,
-    realizedAucSeries,
     validatedPredictionDates,
 } from './onlinePerformance'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
+import { type CoveragePoint, type CoverageSummary, coverageHistory, coverageSummary } from './predictionCoverage'
 import {
-    PREDICTION_SEGMENTS,
-    PREDICTION_SEGMENT_THRESHOLDS,
+    PREDICTION_SEGMENT_KEYS,
     type PredictionLinkDestination,
     type PredictionSegmentCounts,
+    type PredictionSegmentDefinition,
     type PredictionSegmentKey,
     predictionSegmentCohortFilters,
+    predictionSegmentDefinitions,
 } from './predictionSegments'
 import type { PredictionsPeopleView } from './predictionsPeopleQuery'
+
+/** Where a person opened an experiment from. */
+export type ExperimentOpenSource = 'chart' | 'log'
+
+/** The card whose cutoff picker changed the shared cutoff. */
+export type AccuracyCutoffSource = 'flagged' | 'trend'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
@@ -107,11 +121,17 @@ export function pipelineTabFromUrl(value: unknown): AutoresearchPipelineTab | nu
     return LEGACY_PIPELINE_TABS[value] ?? null
 }
 
+/** Where a person changed whether scores are written to person profiles. */
+export type PersonPropertyToggleSource = 'actions_panel' | 'setup_tab'
+
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
 
 /** How often the Agent research tab reloads training runs while one is pending or running. */
 export const TRAINING_RUN_POLL_INTERVAL_MS = 10000
+
+/** How often the runs reload while a person property cleanup is pending or running. A cleanup takes over an hour. */
+export const PROPERTY_CLEANUP_POLL_INTERVAL_MS = 30000
 
 function isTrainingRunLive(run: AutoresearchTrainingRunApi): boolean {
     return run.status === 'pending' || run.status === 'running'
@@ -272,15 +292,18 @@ export interface autoresearchPipelineLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accuracyCutoff: AccuracyCutoff
+    accuracyTrend: AccuracyTrend
+    accuracyTrendMetric: AccuracyTrendMetric
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
-    agentNotes: AgentNotes | null
     agentSearch: AgentSearch
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
     champion: AutoresearchModelApi | null
     championConfusion: PooledConfusion | null
+    coverageHistory: CoveragePoint[]
+    coverageSummary: CoverageSummary | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
@@ -291,8 +314,12 @@ export interface autoresearchPipelineLogicValues {
     experimentLogFilter: ExperimentLogFilter
     experimentLogGroups: ExperimentLogGroup[]
     firstCheck: dayjs.Dayjs | null
+    hasChallengerPerformance: boolean
     hasLiveTrainingRun: boolean
+    hoveredAccuracyDate: string | null
+    hoveredSearchPoint: SearchPoint | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
+    latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
     modelByTrainingRun: Record<string, AutoresearchModelApi>
     models: AutoresearchModelApi[]
@@ -302,6 +329,8 @@ export interface autoresearchPipelineLogicValues {
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
+    openedExperiment: SearchPoint | null
+    personPropertyDisabledReason: string | undefined
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
@@ -313,21 +342,28 @@ export interface autoresearchPipelineLogicValues {
     probabilityDistributionError: boolean
     probabilityDistributionLoading: boolean
     probabilityHistogram: ProbabilityBucket[] | null
-    realizedAucPoints: RealizedAucPoint[]
+    queuedSuggestionCount: number
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
+    runRoles: Record<string, RunRole>
     runs: AutoresearchRunApi[]
     runsError: boolean
     runsLoaded: boolean
     runsLoading: boolean
     savingCohortSegment: PredictionSegmentKey | null
+    savingWritePersonProperty: boolean
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
+    scoredChallenger: AutoresearchModelApi | null
     scoringCoverage: ScoringCoverage | null
     segmentCalibration: SegmentCalibration[]
+    segmentDefinitions: PredictionSegmentDefinition[] | null
+    segmentThresholds: PredictionSegmentThresholdsApi | null
     selectedTab: AutoresearchPipelineTab | null
+    showChallengersInTrend: boolean
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
+    statusBrief: StatusBrief | null
     suggestionDraft: string
     suggestionPriority: CreateSuggestionPriorityEnumApi
     suggestionSubmitResult: AutoresearchSuggestionApi | null
@@ -372,6 +408,15 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         viewedArtifact: null
         payload?: any
+    }
+    closeExperiment: () => {
+        value: true
+    }
+    experimentDetailsOpened: (point: SearchPoint) => {
+        point: SearchPoint
+    }
+    fullNotesOpened: () => {
+        value: true
     }
     loadDailyVolume: () => any
     loadDailyVolumeFailure: (
@@ -453,10 +498,10 @@ export interface autoresearchPipelineLogicActions {
         errorObject?: any
     }
     loadPredictionSegmentsSuccess: (
-        predictionSegments: PredictionSegmentCounts,
+        predictionSegments: PredictionSegmentCounts | null,
         payload?: any
     ) => {
-        predictionSegments: PredictionSegmentCounts
+        predictionSegments: PredictionSegmentCounts | null
         payload?: any
     }
     loadProbabilityDistribution: () => any
@@ -567,6 +612,13 @@ export interface autoresearchPipelineLogicActions {
         trainingRuns: AutoresearchTrainingRunApi[]
         payload?: any
     }
+    openExperiment: (
+        point: SearchPoint,
+        source: ExperimentOpenSource
+    ) => {
+        point: SearchPoint
+        source: ExperimentOpenSource
+    }
     pausePipeline: () => any
     pausePipelineFailure: (
         error: string,
@@ -636,8 +688,15 @@ export interface autoresearchPipelineLogicActions {
     searchPointClicked: (point: SearchPoint) => {
         point: SearchPoint
     }
-    setAccuracyCutoff: (cutoff: AccuracyCutoff) => {
+    setAccuracyCutoff: (
+        cutoff: AccuracyCutoff,
+        source: AccuracyCutoffSource
+    ) => {
         cutoff: keyof ConfusionByCutoffApi
+        source: AccuracyCutoffSource
+    }
+    setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => {
+        metric: AccuracyTrendMetric
     }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
@@ -648,8 +707,20 @@ export interface autoresearchPipelineLogicActions {
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
     }
+    setHoveredAccuracyDate: (date: string | null) => {
+        date: string | null
+    }
+    setHoveredSearchPoint: (point: SearchPoint | null) => {
+        point: SearchPoint | null
+    }
     setPredictionsPeopleView: (view: PredictionsPeopleView) => {
         view: PredictionsPeopleView
+    }
+    setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => {
+        thresholds: PredictionSegmentThresholdsApi
+    }
+    setShowChallengersInTrend: (show: boolean) => {
+        show: boolean
     }
     setSuggestionDraft: (draft: string) => {
         draft: string
@@ -659,6 +730,16 @@ export interface autoresearchPipelineLogicActions {
     }
     setTabFromUrl: (tab: AutoresearchPipelineTab | null) => {
         tab: AutoresearchPipelineTab | null
+    }
+    setWritePersonProperty: (
+        enabled: boolean,
+        source: PersonPropertyToggleSource
+    ) => {
+        enabled: boolean
+        source: PersonPropertyToggleSource
+    }
+    setWritePersonPropertyFinished: () => {
+        value: true
     }
     startScorePolling: () => {
         value: true
@@ -680,6 +761,9 @@ export interface autoresearchPipelineLogicActions {
     ) => {
         startTrainingResult: AutoresearchTrainingRunApi | null
         payload?: any
+    }
+    steerOpened: () => {
+        value: true
     }
     submitSuggestion: () => any
     submitSuggestionFailure: (
@@ -749,9 +833,27 @@ export interface autoresearchPipelineLogicMeta {
             runs: AutoresearchRunApi[],
             pipeline: AutoresearchPipelineApi | null
         ) => ScoringCoverage | null
+        coverageSummary: (
+            runs: AutoresearchRunApi[],
+            scoringCoverage: ScoringCoverage | null,
+            pipeline: AutoresearchPipelineApi | null
+        ) => CoverageSummary | null
+        coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
         latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
-        realizedAucPoints: (onlinePerformance: OnlinePerformanceRowApi[]) => RealizedAucPoint[]
-        segmentCalibration: (latestChampionPerformance: OnlinePerformanceRowApi | null) => SegmentCalibration[]
+        accuracyTrend: (
+            onlinePerformance: OnlinePerformanceRowApi[],
+            accuracyTrendMetric: AccuracyTrendMetric,
+            accuracyCutoff: keyof ConfusionByCutoffApi,
+            showChallengersInTrend: boolean
+        ) => AccuracyTrend
+        hasChallengerPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => boolean
+        segmentDefinitions: (
+            segmentThresholds: PredictionSegmentThresholdsApi | null
+        ) => PredictionSegmentDefinition[] | null
+        segmentCalibration: (
+            latestChampionPerformance: OnlinePerformanceRowApi | null,
+            segmentThresholds: PredictionSegmentThresholdsApi | null
+        ) => SegmentCalibration[]
         championConfusion: (
             onlinePerformance: OnlinePerformanceRowApi[],
             accuracyCutoff: keyof ConfusionByCutoffApi
@@ -759,14 +861,33 @@ export interface autoresearchPipelineLogicMeta {
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
-        agentSearch: (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null) => AgentSearch
+        scoredChallenger: (models: AutoresearchModelApi[]) => AutoresearchModelApi | null
+        runRoles: (
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => Record<string, RunRole>
+        queuedSuggestionCount: (suggestions: AutoresearchSuggestionApi[]) => number
+        agentSearch: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => AgentSearch
         experimentLogGroups: (
             trainingRuns: AutoresearchTrainingRunApi[],
             agentSearch: AgentSearch,
             experimentLogFilter: ExperimentLogFilter
         ) => ExperimentLogGroup[]
-        agentNotes: (trainingRuns: AutoresearchTrainingRunApi[]) => AgentNotes | null
+        statusBrief: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            champion: AutoresearchModelApi | null,
+            scoredChallenger: AutoresearchModelApi | null
+        ) => StatusBrief | null
         defaultTab: (pipeline: AutoresearchPipelineApi | null) => AutoresearchPipelineTab
+        latestPropertyCleanupRun: (runs: AutoresearchRunApi[]) => AutoresearchRunApi | null
+        personPropertyDisabledReason: (
+            pipeline: AutoresearchPipelineApi | null,
+            savingWritePersonProperty: boolean
+        ) => string | undefined
         activeTab: (
             selectedTab: AutoresearchPipelineTab | null,
             defaultTab: AutoresearchPipelineTab
@@ -799,7 +920,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
-        setAccuracyCutoff: (cutoff: AccuracyCutoff) => ({ cutoff }),
+        setAccuracyCutoff: (cutoff: AccuracyCutoff, source: AccuracyCutoffSource) => ({ cutoff, source }),
+        setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => ({ metric }),
+        setShowChallengersInTrend: (show: boolean) => ({ show }),
+        setHoveredAccuracyDate: (date: string | null) => ({ date }),
         setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
@@ -816,8 +940,17 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setExperimentLogFilter: (filter: ExperimentLogFilter) => ({ filter }),
         toggleLogRun: (runId: string) => ({ runId }),
         searchPointClicked: (point: SearchPoint) => ({ point }),
+        experimentDetailsOpened: (point: SearchPoint) => ({ point }),
+        openExperiment: (point: SearchPoint, source: ExperimentOpenSource) => ({ point, source }),
+        closeExperiment: true,
+        setHoveredSearchPoint: (point: SearchPoint | null) => ({ point }),
+        steerOpened: true,
+        fullNotesOpened: true,
         saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
         saveSegmentCohortFinished: true,
+        setWritePersonProperty: (enabled: boolean, source: PersonPropertyToggleSource) => ({ enabled, source }),
+        setWritePersonPropertyFinished: true,
+        setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => ({ thresholds }),
     }),
     reducers({
         detailRequested: [
@@ -843,6 +976,24 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'top_10' as AccuracyCutoff,
             {
                 setAccuracyCutoff: (_, { cutoff }) => cutoff,
+            },
+        ],
+        accuracyTrendMetric: [
+            'ranking' as AccuracyTrendMetric,
+            {
+                setAccuracyTrendMetric: (_, { metric }) => metric,
+            },
+        ],
+        showChallengersInTrend: [
+            false,
+            {
+                setShowChallengersInTrend: (_, { show }) => show,
+            },
+        ],
+        hoveredAccuracyDate: [
+            null as string | null,
+            {
+                setHoveredAccuracyDate: (_, { date }) => date,
             },
         ],
         activeScoreRun: [
@@ -875,6 +1026,19 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     current.includes(point.runId) ? current : [...current, point.runId],
             },
         ],
+        openedExperiment: [
+            null as SearchPoint | null,
+            {
+                openExperiment: (_, { point }) => point,
+                closeExperiment: () => null,
+            },
+        ],
+        hoveredSearchPoint: [
+            null as SearchPoint | null,
+            {
+                setHoveredSearchPoint: (_, { point }) => point,
+            },
+        ],
         suggestionDraft: [
             '',
             {
@@ -895,11 +1059,26 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 saveSegmentCohortFinished: () => null,
             },
         ],
+        savingWritePersonProperty: [
+            false,
+            {
+                setWritePersonProperty: () => true,
+                setWritePersonPropertyFinished: () => false,
+            },
+        ],
+        segmentThresholds: [
+            null as PredictionSegmentThresholdsApi | null,
+            {
+                setSegmentThresholds: (_, { thresholds }) => thresholds,
+            },
+        ],
         predictionSegmentsError: [
             false,
             {
                 loadPredictionSegments: () => false,
                 loadPredictionSegmentsFailure: () => true,
+                // The segments cannot be counted without the cut points.
+                loadOnlinePerformanceFailure: () => true,
             },
         ],
         probabilityDistributionError: [
@@ -972,7 +1151,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             },
         ],
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ actions, values, props }) => ({
         pipeline: [
             null as AutoresearchPipelineApi | null,
             {
@@ -1041,7 +1220,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const { rows } = await autoresearchOnlinePerformanceRetrieve(String(values.currentTeamId), props.id)
+                    const { rows, segment_thresholds } = await autoresearchOnlinePerformanceRetrieve(
+                        String(values.currentTeamId),
+                        props.id
+                    )
+                    actions.setSegmentThresholds(segment_thresholds)
                     return rows
                 },
             },
@@ -1184,11 +1367,15 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as PredictionSegmentCounts | null,
             {
                 loadPredictionSegments: async () => {
+                    const thresholds = values.segmentThresholds
+                    if (!thresholds) {
+                        return null
+                    }
                     // The same per-person scores as the probability distribution, so the segments add up to its total.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                multiIf(p >= ${PREDICTION_SEGMENT_THRESHOLDS.high}, 'likely', p >= ${PREDICTION_SEGMENT_THRESHOLDS.low}, 'possible', 'unlikely') AS segment,
+                                multiIf(p >= ${thresholds.likely_threshold}, 'likely', p >= ${thresholds.possible_threshold}, 'possible', 'unlikely') AS segment,
                                 count() AS people,
                                 sum(p) AS expected_conversions
                             FROM (
@@ -1217,7 +1404,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                         (response.results ?? []).map((row: any[]) => [String(row[0]), row])
                     )
                     return Object.fromEntries(
-                        PREDICTION_SEGMENTS.map(({ key }) => {
+                        PREDICTION_SEGMENT_KEYS.map((key) => {
                             const row = rows.get(key)
                             return [key, { people: Number(row?.[1] ?? 0), expectedConversions: Number(row?.[2] ?? 0) }]
                         })
@@ -1302,19 +1489,50 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): ScoringCoverage | null =>
                 scoringCoverage(runs, pipeline?.cadence_days ?? 1),
         ],
+        coverageSummary: [
+            (s) => [s.runs, s.scoringCoverage, s.pipeline],
+            (
+                runs: AutoresearchRunApi[],
+                scoringCoverage: ScoringCoverage | null,
+                pipeline: AutoresearchPipelineApi | null
+            ): CoverageSummary | null =>
+                coverageSummary(runs, scoringCoverage?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
+        ],
+        coverageHistory: [(s) => [s.runs], (runs: AutoresearchRunApi[]): CoveragePoint[] => coverageHistory(runs)],
         latestChampionPerformance: [
             (s) => [s.onlinePerformance],
             (onlinePerformance: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null =>
                 latestChampionRow(onlinePerformance),
         ],
-        realizedAucPoints: [
+        accuracyTrend: [
+            (s) => [s.onlinePerformance, s.accuracyTrendMetric, s.accuracyCutoff, s.showChallengersInTrend],
+            (
+                onlinePerformance: OnlinePerformanceRowApi[],
+                accuracyTrendMetric: AccuracyTrendMetric,
+                accuracyCutoff: AccuracyCutoff,
+                showChallengersInTrend: boolean
+            ): AccuracyTrend =>
+                accuracyTrend(onlinePerformance, accuracyTrendMetric, accuracyCutoff, showChallengersInTrend),
+        ],
+        hasChallengerPerformance: [
             (s) => [s.onlinePerformance],
-            (onlinePerformance: OnlinePerformanceRowApi[]): RealizedAucPoint[] => realizedAucSeries(onlinePerformance),
+            (onlinePerformance: OnlinePerformanceRowApi[]): boolean =>
+                onlinePerformance.some((row) => row.emitted_role !== 'champion'),
+        ],
+        segmentDefinitions: [
+            (s) => [s.segmentThresholds],
+            (segmentThresholds: PredictionSegmentThresholdsApi | null): PredictionSegmentDefinition[] | null =>
+                segmentThresholds ? predictionSegmentDefinitions(segmentThresholds) : null,
         ],
         segmentCalibration: [
-            (s) => [s.latestChampionPerformance],
-            (latestChampionPerformance: OnlinePerformanceRowApi | null): SegmentCalibration[] =>
-                calibrationBySegment(latestChampionPerformance?.calibration_bins ?? []),
+            (s) => [s.latestChampionPerformance, s.segmentThresholds],
+            (
+                latestChampionPerformance: OnlinePerformanceRowApi | null,
+                segmentThresholds: PredictionSegmentThresholdsApi | null
+            ): SegmentCalibration[] =>
+                segmentThresholds
+                    ? calibrationBySegment(latestChampionPerformance?.calibration_bins ?? [], segmentThresholds)
+                    : [],
         ],
         championConfusion: [
             (s) => [s.onlinePerformance, s.accuracyCutoff],
@@ -1343,10 +1561,29 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.trainingRuns],
             (trainingRuns: AutoresearchTrainingRunApi[]): boolean => trainingRuns.some(isTrainingRunLive),
         ],
+        scoredChallenger: [
+            (s) => [s.models],
+            (models: AutoresearchModelApi[]): AutoresearchModelApi | null => scoredChallenger(models),
+        ],
+        runRoles: [
+            (s) => [s.champion, s.scoredChallenger],
+            (
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): Record<string, RunRole> => runRoles(champion, scoredChallenger),
+        ],
+        queuedSuggestionCount: [
+            (s) => [s.suggestions],
+            (suggestions: AutoresearchSuggestionApi[]): number =>
+                suggestions.filter((suggestion) => suggestion.status === 'queued').length,
+        ],
         agentSearch: [
-            (s) => [s.trainingRuns, s.champion],
-            (trainingRuns: AutoresearchTrainingRunApi[], champion: AutoresearchModelApi | null): AgentSearch =>
-                buildAgentSearch(trainingRuns, champion),
+            (s) => [s.trainingRuns, s.champion, s.scoredChallenger],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): AgentSearch => buildAgentSearch(trainingRuns, champion, scoredChallenger),
         ],
         experimentLogGroups: [
             (s) => [s.trainingRuns, s.agentSearch, s.experimentLogFilter],
@@ -1356,14 +1593,32 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 experimentLogFilter: ExperimentLogFilter
             ): ExperimentLogGroup[] => experimentLogGroups(trainingRuns, agentSearch, experimentLogFilter),
         ],
-        agentNotes: [
-            (s) => [s.trainingRuns],
-            (trainingRuns: AutoresearchTrainingRunApi[]): AgentNotes | null => latestAgentNotes(trainingRuns),
+        statusBrief: [
+            (s) => [s.trainingRuns, s.champion, s.scoredChallenger],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                champion: AutoresearchModelApi | null,
+                scoredChallenger: AutoresearchModelApi | null
+            ): StatusBrief | null => statusBrief(trainingRuns, champion, scoredChallenger),
         ],
         defaultTab: [
             (s) => [s.pipeline],
             (pipeline: AutoresearchPipelineApi | null): AutoresearchPipelineTab =>
                 pipeline?.last_scored_at ? 'predictions' : 'agent_research',
+        ],
+        latestPropertyCleanupRun: [
+            (s) => [s.runs],
+            (runs: AutoresearchRunApi[]): AutoresearchRunApi | null =>
+                runs.find((run) => run.run_type === 'property_cleanup') ?? null,
+        ],
+        personPropertyDisabledReason: [
+            (s) => [s.pipeline, s.savingWritePersonProperty],
+            (pipeline: AutoresearchPipelineApi | null, savingWritePersonProperty: boolean): string | undefined =>
+                savingWritePersonProperty
+                    ? 'Wait for the person profile setting to save'
+                    : pipeline && !pipeline.write_person_property
+                      ? 'Turn on "Write scores to person profiles" to target people by score'
+                      : undefined,
         ],
         activeTab: [
             (s) => [s.selectedTab, s.defaultTab],
@@ -1422,7 +1677,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             if (pipeline?.last_scored_at && !values.probabilityDistribution && !values.probabilityDistributionLoading) {
                 actions.loadProbabilityDistribution()
             }
-            if (pipeline?.last_scored_at && !values.predictionSegments && !values.predictionSegmentsLoading) {
+            if (
+                pipeline?.last_scored_at &&
+                values.segmentThresholds &&
+                !values.predictionSegments &&
+                !values.predictionSegmentsLoading
+            ) {
                 actions.loadPredictionSegments()
             }
             if (pipeline?.last_scored_at && !values.dailyVolume && !values.dailyVolumeLoading) {
@@ -1475,6 +1735,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             // A run started before a reload, or by the daily schedule, is still followed to the end.
             if (values.activeScoreRun) {
                 actions.startScorePolling()
+            }
+            // Follow the cleanup to the end, so the setting shows when it finished or failed.
+            const cleanup = values.latestPropertyCleanupRun
+            if (!cleanup || !isScoreRunInProgress(cleanup)) {
+                cache.disposables.dispose('cleanupPoll')
+            } else if (!cache.disposables.registry.has('cleanupPoll')) {
+                cache.disposables.add(() => {
+                    const timer = window.setInterval(() => actions.loadRuns(), PROPERTY_CLEANUP_POLL_INTERVAL_MS)
+                    return () => clearInterval(timer)
+                }, 'cleanupPoll')
             }
         },
         startScorePolling: () => {
@@ -1569,6 +1839,43 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 iteration_number: point.iterationNumber,
                 status: point.status,
             })
+            actions.openExperiment(point, 'chart')
+        },
+        openExperiment: ({ point, source }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research experiment opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+                status: point.status,
+                source,
+            })
+            actions.experimentDetailsOpened(point)
+            if (!values.artifactsByRun[point.runId]) {
+                actions.loadRunArtifacts({ runId: point.runId })
+            }
+        },
+        steerOpened: () => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research steer opened', {
+                pipeline_id: props.id,
+                queued_count: values.queuedSuggestionCount,
+            })
+        },
+        fullNotesOpened: () => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch agent research full notes opened', {
+                pipeline_id: props.id,
+                run_number: values.statusBrief?.runNumber ?? null,
+            })
+        },
+        experimentDetailsOpened: ({ point }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model experiment details opened', {
+                pipeline_id: props.id,
+                run_id: point.runId,
+                iteration_number: point.iterationNumber,
+            })
         },
         submitSuggestionSuccess: ({ suggestionSubmitResult }) => {
             posthog.capture('autoresearch model suggestion sent', {
@@ -1606,29 +1913,88 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setPredictionsPeopleView: ({ view }) => {
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
         },
-        setAccuracyCutoff: ({ cutoff }) => {
-            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
+        setSegmentThresholds: () => {
+            if (values.pipeline?.last_scored_at) {
+                actions.loadPredictionSegments()
+            }
+        },
+        setAccuracyCutoff: ({ cutoff, source }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff, source })
+        },
+        setAccuracyTrendMetric: ({ metric }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy trend metric changed', { pipeline_id: props.id, metric })
+        },
+        setShowChallengersInTrend: ({ show }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy trend challengers toggled', {
+                pipeline_id: props.id,
+                shown: show,
+            })
+        },
+        setWritePersonProperty: async ({ enabled, source }) => {
+            if (!values.currentTeamId) {
+                actions.setWritePersonPropertyFinished()
+                return
+            }
+            const teamId = String(values.currentTeamId)
+            try {
+                actions.loadPipelineSuccess(
+                    await autoresearchPartialUpdate(teamId, props.id, { write_person_property: enabled })
+                )
+                posthog.capture('autoresearch model person property toggled', {
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                if (enabled) {
+                    lemonToast.success(
+                        'Scores are now written to person profiles. People get the property over the next few scoring runs.'
+                    )
+                } else {
+                    // The cleanup records a run, so reload the runs to show it.
+                    actions.loadRuns()
+                    lemonToast.success(
+                        'Scores are no longer written to person profiles. The property is being removed.'
+                    )
+                }
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'person_property',
+                    pipeline_id: props.id,
+                    enabled,
+                    source,
+                })
+                lemonToast.error("Couldn't change the setting. Try again.")
+            } finally {
+                actions.setWritePersonPropertyFinished()
+            }
         },
         saveSegmentCohort: async ({ segment }) => {
-            const { pipeline, currentProjectId } = values
-            const definition = PREDICTION_SEGMENTS.find(({ key }) => key === segment)
+            const { pipeline, currentProjectId, segmentThresholds } = values
+            const definition = values.segmentDefinitions?.find(({ key }) => key === segment)
             const outputProperty = pipeline?.output_person_property
-            if (!pipeline || !outputProperty || !currentProjectId || !definition) {
+            if (!pipeline || !outputProperty || !currentProjectId || !definition || !segmentThresholds) {
                 actions.saveSegmentCohortFinished()
                 return
             }
             try {
                 const cohort = await cohortsCreate(String(currentProjectId), {
-                    name: `${pipeline.name}: ${definition.label.toLowerCase()} (${definition.range.toLowerCase()})`,
-                    description: `People whose ${outputProperty} score is ${definition.range.toLowerCase()}. Updates each time the model scores.`,
+                    name: `${pipeline.name}: ${definition.label.toLowerCase()} (${definition.probabilityRange.toLowerCase()})`,
+                    description: `People whose ${outputProperty} score is ${definition.probabilityRange.toLowerCase()}. The members update each time the model scores, but the cut point stays at the value it had when the cohort was saved.`,
                     is_static: false,
-                    filters: predictionSegmentCohortFilters(segment, outputProperty),
+                    filters: predictionSegmentCohortFilters(segment, outputProperty, segmentThresholds),
                 })
                 posthog.capture('autoresearch model cohort saved', {
                     pipeline_id: props.id,
                     segment,
                     cohort_id: cohort.id,
                     people: values.predictionSegments?.[segment].people,
+                    cut_points:
+                        segmentThresholds.base_rate_source === 'realized'
+                            ? 'base_rate'
+                            : segmentThresholds.base_rate_source,
                 })
                 lemonToast.success('Cohort saved', {
                     button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },

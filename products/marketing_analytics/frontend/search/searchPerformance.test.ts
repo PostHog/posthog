@@ -22,6 +22,21 @@ describe('search performance sources', () => {
             [schema('keyword'), schema('keyword_stats')],
             { sourceType: 'GoogleAds', keywordTable: 'example.keyword', statsTable: 'example.keyword_stats' },
         ],
+        [
+            'GoogleAds',
+            [schema('keyword'), schema('keyword_stats'), schema('keyword_placement_stats')],
+            {
+                sourceType: 'GoogleAds',
+                keywordTable: 'example.keyword',
+                statsTable: 'example.keyword_stats',
+                placementTable: 'example.keyword_placement_stats',
+            },
+        ],
+        [
+            'GoogleAds',
+            [schema('keyword'), schema('keyword_stats'), schema('keyword_placement_stats', false)],
+            { sourceType: 'GoogleAds', keywordTable: 'example.keyword', statsTable: 'example.keyword_stats' },
+        ],
         ['GoogleAds', [schema('keyword'), schema('keyword_stats', false)], null],
         ['GoogleAds', [schema('keyword', true, false), schema('keyword_stats')], null],
         ['GoogleAds', [schema('search_term_stats')], null],
@@ -43,11 +58,7 @@ describe('search performance sources', () => {
         [
             'GoogleSearchConsole',
             [schema('search_analytics_by_query', false), schema('search_analytics_by_query_page')],
-            {
-                sourceType: 'GoogleSearchConsole',
-                statsTable: 'example.search_analytics_by_query_page',
-                queryPageTable: true,
-            },
+            null,
         ],
         ['GoogleSearchConsole', [schema('search_analytics_by_query_page', true, false)], null],
     ])('requires synced keyword tables for %s', (source_type, schemas, expected) => {
@@ -79,6 +90,8 @@ describe('search performance sources', () => {
             'example.search_analytics_by_query_page',
         ],
         ['GoogleSearchConsole', ['search_analytics_by_query'], 'keyword', true, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'keyword', false, undefined],
+        ['GoogleSearchConsole', ['search_analytics_by_query_page'], 'page', false, undefined],
     ] as const)('uses the right table for %s %s %s details=%s', (source_type, schemas, breakdown, detail, expected) => {
         expect(
             searchPerformanceSource(
@@ -105,27 +118,59 @@ describe('search performance sources', () => {
         expect(searchPerformanceSourceNotice(source)).toContain(message)
     })
 
-    it.each(['keyword', 'page'] as const)('uses fresh query-page data instead of a stale %s aggregate', (breakdown) => {
+    it.each([
+        ['disabled', { should_sync: false }, 'Enable keyword_placement_stats'],
+        ['pending', { last_synced_at: undefined }, 'first sync of keyword_placement_stats'],
+        ['failed', { status: ExternalDataSchemaStatus.Failed }, 'failed'],
+        ['paused', { status: ExternalDataSchemaStatus.Paused }, 'Resume it'],
+        ['billing', { status: 'Billing limits' as ExternalDataSchemaStatus }, 'billing limit'],
+        ['stale', { last_synced_at: dayjs('2025-02-10T12:00:00Z') }, 'out of date'],
+    ])('keeps traffic available when placement is %s', (_, overrides, message) => {
         const source = {
-            source_type: 'GoogleSearchConsole',
+            source_type: 'GoogleAds',
             schemas: [
-                { ...schema('search_analytics_by_query'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
-                { ...schema('search_analytics_by_page'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
-                schema('search_analytics_by_query_page'),
+                schema('keyword'),
+                schema('keyword_stats'),
+                { ...schema('keyword_placement_stats'), ...overrides },
+                schema('landing_page_stats'),
             ],
         } as ExternalDataSource
-        expect(searchPerformanceSource(source, breakdown)).toEqual({
-            sourceType: 'GoogleSearchConsole',
-            statsTable: 'example.search_analytics_by_query_page',
-            queryPageTable: true,
+        expect(searchPerformanceSource(source)).toEqual({
+            sourceType: 'GoogleAds',
+            keywordTable: 'example.keyword',
+            statsTable: 'example.keyword_stats',
         })
-        expect(searchPerformanceSourceNotice(source, breakdown)).toContain('Showing query-and-page data instead')
-        expect(searchPerformanceSourceNotice(source, breakdown)).toContain('Totals may differ')
-        source.schemas[2].last_synced_at = dayjs('2025-02-10T12:00:00Z')
-        expect(searchPerformanceSource(source, breakdown)).toBeNull()
-        expect(searchPerformanceSource(source, breakdown, true)).toBeNull()
-        expect(searchPerformanceSourceNotice(source, breakdown, true)).toContain('out of date')
+        expect(searchPerformanceSourceNotice(source)).toContain(message)
+        expect(searchPerformanceSourceNotice(source)).toContain('Traffic data is available.')
+        expect(searchPerformanceSourceNotice(source, 'page')).toBeNull()
+        source.schemas[2] = schema('keyword_placement_stats')
+        expect(searchPerformanceSourceNotice(source)).toBeNull()
     })
+
+    it.each(['keyword', 'page'] as const)(
+        'keeps %s metrics unavailable when its dedicated table is stale',
+        (breakdown) => {
+            const source = {
+                source_type: 'GoogleSearchConsole',
+                schemas: [
+                    { ...schema('search_analytics_by_query'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
+                    { ...schema('search_analytics_by_page'), last_synced_at: dayjs('2025-02-10T12:00:00Z') },
+                    schema('search_analytics_by_query_page'),
+                ],
+            } as ExternalDataSource
+            expect(searchPerformanceSource(source, breakdown)).toBeNull()
+            expect(searchPerformanceSourceNotice(source, breakdown)).toContain('out of date')
+            expect(searchPerformanceSource(source, breakdown, true)).toEqual({
+                sourceType: 'GoogleSearchConsole',
+                statsTable: 'example.search_analytics_by_query_page',
+                queryPageTable: true,
+            })
+            source.schemas[2].last_synced_at = dayjs('2025-02-10T12:00:00Z')
+            expect(searchPerformanceSource(source, breakdown)).toBeNull()
+            expect(searchPerformanceSource(source, breakdown, true)).toBeNull()
+            expect(searchPerformanceSourceNotice(source, breakdown, true)).toContain('out of date')
+        }
+    )
 
     it.each([
         ['24hour', '2025-02-13T12:00:00Z', true],

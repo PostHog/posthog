@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { readsFlagEvaluationsTable } from 'scenes/feature-flags/featureFlagUsageQueries'
+import { readsFlagEvaluationsTable } from 'scenes/feature-flags/flagEvaluationsTable'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'

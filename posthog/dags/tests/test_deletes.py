@@ -32,22 +32,26 @@ from posthog.dags.deletes import (
     _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
+    _watermark_holders,
     cleanup_old_events_by_partition,
+    delete_events,
+    delete_team_product_documents_job,
     deletes_job,
     ensure_no_concurrent_deletes_run,
     manual_deletes_job,
     mark_deletions_verified,
-    monthly_old_events_cleanup_job,
-    monthly_old_events_cleanup_schedule,
+    monthly_retention_events_cleanup_job,
+    monthly_retention_events_cleanup_schedule,
     plan_old_events_cleanup,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
+    wait_for_delete_mutations_in_shards,
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -160,9 +164,16 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     # Check overrides is correct
     oldest_override_timestamp = cluster.any_host(get_oldest_override_timestamp).result()
     assert oldest_override_timestamp == timestamp - timedelta(hours=hour_delay - 1)
+    assert _watermark_holders(cluster, timestamp - timedelta(hours=hour_delay - 3)) == [
+        {
+            "team_id": 0,
+            "rows": 2,
+            "oldest": (timestamp - timedelta(hours=hour_delay - 1)).replace(tzinfo=UTC).isoformat(),
+        }
+    ]
 
     # Run the deletion job
-    deletes_job.execute_in_process(
+    result = deletes_job.execute_in_process(
         run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
         resources={"cluster": cluster},
     )
@@ -200,6 +211,13 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     post_override_deletions = AsyncDeletion.objects.filter(created_at__gt=oldest_override_timestamp)
     assert len(post_override_deletions) == hour_delay
     assert not all(deletion.delete_verified_at is not None for deletion in post_override_deletions)
+
+    run_log = DeletionRunLog.objects.get(dagster_run_id=result.dagster_run.run_id)
+    assert run_log.status == DeletionRunStatus.SUCCEEDED
+    assert run_log.watermark == oldest_override_timestamp.replace(tzinfo=UTC)
+    assert run_log.loaded_counts == {"Person": delete_count - hour_delay}
+    assert run_log.skipped_person_deletions == hour_delay
+    assert run_log.oldest_skipped_created_at == min(d.created_at for d in post_override_deletions)
 
     # Verify the temporary tables were cleaned up
     table = PendingDeletesTable(timestamp=timestamp)
@@ -582,6 +600,65 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
+DOCUMENT_TABLES = (
+    "sharded_posthog_document_embeddings_buffer",
+    "distributed_posthog_document_embeddings_text_embedding_3_large_3072",
+)
+
+
+@pytest.mark.django_db
+def test_delete_team_product_documents_job_keeps_other_products_and_teams(cluster: ClickhouseCluster):
+    timestamp = datetime.now().replace(microsecond=0)
+
+    # Ingestion writes to the buffer, and a materialized view copies each row into its model table,
+    # so every document below exists twice.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO sharded_posthog_document_embeddings_buffer
+               (team_id, product, document_type, model_name, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (
+                    team_id,
+                    product,
+                    "doc",
+                    "text-embedding-3-large-3072",
+                    "text",
+                    f"trace-{team_id}-{product}::job",
+                    timestamp,
+                    timestamp,
+                    "text",
+                    [0.0] * 3072,
+                )
+                for team_id in (9100, 9101)
+                for product in ("llm-analytics", "error_tracking")
+            ],
+        )
+
+    def surviving_documents(table: str, client: Client) -> set[tuple[int, str]]:
+        result = client.execute(f"SELECT team_id, product FROM {table} WHERE team_id IN (9100, 9101)")
+        return {(row[0], row[1]) for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_documents).result()
+
+    def run(product: str) -> bool:
+        return delete_team_product_documents_job.execute_in_process(
+            run_config={"ops": {"delete_team_product_documents": {"config": {"team_id": 9100, "product": product}}}},
+            resources={"cluster": cluster},
+            raise_on_error=False,
+        ).success
+
+    # A misspelled product matches nothing, so it must fail rather than report a clean delete.
+    assert not run("llm_analytics")
+    assert run("llm-analytics")
+
+    for table in DOCUMENT_TABLES:
+        assert cluster.any_host(partial(surviving_documents, table)).result() == {
+            (9100, "error_tracking"),
+            (9101, "llm-analytics"),
+            (9101, "error_tracking"),
+        }, table
+
+
 def _mid_month(months_ago: int) -> datetime:
     return (datetime.now() - relativedelta(months=months_ago)).replace(
         day=15, hour=12, minute=0, second=0, microsecond=0
@@ -695,7 +772,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
 
 @pytest.mark.django_db
-def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
+def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
     thirteen, eighteen, no_retention = _teams_with_13_and_18_months()
     _insert_events(
         cluster,
@@ -708,7 +785,7 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
         + _events(no_retention.id, _mid_month(20), 0, 9),
     )
 
-    monthly_old_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
+    monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
 
     assert _count_by_team_and_partition(cluster, [thirteen.id, eighteen.id, no_retention.id]) == {
         (thirteen.id, _partition(_first_hour_of_month(13))): 5,
@@ -720,14 +797,14 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
 @pytest.mark.django_db
 @time_machine.travel("2027-01-01", tick=False)
-def test_monthly_old_events_cleanup_schedule_starts_one_run_when_a_retention_is_set():
+def test_monthly_retention_events_cleanup_schedule_starts_one_run_when_a_retention_is_set():
     with dagster.build_schedule_context(scheduled_execution_time=datetime(2027, 1, 1, tzinfo=UTC)) as context:
-        assert isinstance(monthly_old_events_cleanup_schedule(context), dagster.SkipReason)
+        assert isinstance(monthly_retention_events_cleanup_schedule(context), dagster.SkipReason)
 
         organization = Organization.objects.create(name="With default")
         OrganizationEventsRetentionConfig.objects.create(organization=organization, default_events_retention_months=13)
         Team.objects.create(organization=organization, name="Inherits default")
-        run_request = monthly_old_events_cleanup_schedule(context)
+        run_request = monthly_retention_events_cleanup_schedule(context)
 
     assert isinstance(run_request, dagster.RunRequest)
     assert (run_request.run_key, run_request.run_config) == ("202701", {})
@@ -1094,6 +1171,76 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
 
 
 @pytest.mark.django_db
+def test_events_json_deletes_reach_every_partition_for_person_and_team_deletions(cluster: ClickhouseCluster):
+    # sharded_events_json deletes person rows one partition at a time with patch parts, and team rows
+    # with a separate mutation. A partition the loop misses, or a team arm left out of both, keeps
+    # rows the request is about to be marked verified for.
+    person_team, deleted_team = 424250, 424251
+    person_uuid, kept_person_uuid = UUID(int=21), UUID(int=22)
+    created_at = datetime(2026, 8, 28, 10, 0, 0)
+
+    table = PendingDeletesTable(timestamp=created_at)
+    dictionary = PendingDeletesDictionary(source=table)
+    adhoc = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
+
+    def insert_deletions(client: Client) -> None:
+        client.execute(
+            table.populate_query,
+            [
+                {
+                    "id": id,
+                    "deletion_type": int(deletion_type),
+                    "key": key,
+                    "group_type_index": None,
+                    "created_at": created_at,
+                    "delete_verified_at": None,
+                    "created_by_id": None,
+                    "team_id": team_id,
+                }
+                for id, deletion_type, key, team_id in [
+                    (1, DeletionType.Person, str(person_uuid), person_team),
+                    (2, DeletionType.Team, str(deleted_team), deleted_team),
+                ]
+            ],
+        )
+
+    kept = UUID(int=2003)
+    rows = [
+        (UUID(int=2001), person_team, person_uuid, created_at - relativedelta(months=1)),
+        (UUID(int=2002), person_team, person_uuid, created_at - timedelta(hours=1)),
+        (kept, person_team, kept_person_uuid, created_at - timedelta(hours=1)),
+        (UUID(int=2004), deleted_team, person_uuid, created_at - relativedelta(months=1)),
+        (UUID(int=2005), deleted_team, kept_person_uuid, created_at - timedelta(hours=1)),
+    ]
+
+    try:
+        cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")).result()
+        cluster.any_host(
+            Query(
+                f"INSERT INTO {EVENTS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, person_id, timestamp, inserted_at) VALUES",
+                [(uuid, team_id, "$pageview", "d", person_id, ts, ts) for uuid, team_id, person_id, ts in rows],
+            )
+        ).result()
+        cluster.any_host(table.create).result()
+        cluster.any_host(insert_deletions).result()
+        cluster.any_host(partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(dictionary.load).result()
+        cluster.any_host(partial(adhoc.create, shards=1, max_execution_time=0, max_memory_usage=0)).result()
+        cluster.any_host(adhoc.load).result()
+
+        context = build_op_context()
+        delete_mutations = delete_events(context, cluster, dictionary, adhoc, [EVENTS_JSON_DATA_TABLE])
+        wait_for_delete_mutations_in_shards(context, cluster, delete_mutations)
+
+        for surviving in cluster.map_all_hosts(Query(f"SELECT uuid FROM {EVENTS_JSON_DATA_TABLE}")).result().values():
+            assert [row[0] for row in surviving] == [kept]
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(adhoc.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+@pytest.mark.django_db
 def test_a_skipped_target_keeps_its_rows_while_the_rest_are_swept(cluster: ClickhouseCluster):
     # Seven ops resolve the sweep, and each one that misses the resolved list puts the run back to
     # sweeping a target the config took out. Only a dispatched mutation shows that from the
@@ -1234,18 +1381,23 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
 
 
 @pytest.mark.parametrize(
-    "blocking_job",
+    "guarded_job,blocking_job",
     [
-        deletes_job,
+        (deletes_job, deletes_job),
         # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
         # before the sensor launches the run, so the guard checks squash again at run start.
-        squash_person_overrides,
+        (deletes_job, squash_person_overrides),
+        (deletes_job, monthly_retention_events_cleanup_job),
+        (monthly_retention_events_cleanup_job, deletes_job),
+        (monthly_retention_events_cleanup_job, squash_person_overrides),
     ],
 )
-def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking_job: dagster.JobDefinition):
-    assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
+def test_the_deletes_guard_yields_to_an_executing_run_that_mutates_events(
+    guarded_job: dagster.JobDefinition, blocking_job: dagster.JobDefinition
+):
+    assert "ensure_no_concurrent_deletes_run" in guarded_job.graph.node_names()
 
-    @dagster.job(name=deletes_job.name)
+    @dagster.job(name=guarded_job.name)
     def guard_only_job() -> None:
         ensure_no_concurrent_deletes_run()
 
@@ -1264,6 +1416,7 @@ def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking
         # A run that has not started yet blocks here even though the in-job guard ignores it: it
         # is a collision about to happen, and the manual trigger has launched nothing yet.
         (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
+        (monthly_retention_events_cleanup_job, dagster.DagsterRunStatus.STARTED),
     ],
 )
 def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(

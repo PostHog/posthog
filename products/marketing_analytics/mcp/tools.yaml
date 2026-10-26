@@ -25,6 +25,21 @@ tools:
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-conversion-recommendations:
+        operation: marketing_analytics_conversion_recommendations_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read conversion recommendations
+        description: >
+            Read the project's persisted conversion recommendations and latest analysis state without starting AI.
+            Previous results remain available during an update. Present source evidence, questions, and limitations for
+            the user to review before configuring a goal. This tool does not create or modify goals.
+        feature_flag: marketing-analytics-conversion-setup-ai
     marketing-analytics-create-conversion-goal:
         operation: marketing_analytics_conversion_goals_create_create
         enabled: true
@@ -115,6 +130,41 @@ tools:
             short-circuit with a note. Requires conversion_goal_id — call marketing-analytics-conversion-goals first and
             pass the conversion_goal_id of the goal you want.
         feature_flag: marketing-analytics-mcp
+    marketing-analytics-setup-plan:
+        operation: marketing_analytics_setup_plan_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Suggest marketing sources and setup improvements
+        description: >
+            Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which
+            data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify
+            missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a optional
+            deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account
+            on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals.
+            This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned
+            connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If
+            degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as
+            approximate. Requires a project with the Marketing analytics setup plan enabled.
+        feature_flag: marketing-analytics-setup-plan-mcp
+    marketing-analytics-start-conversion-recommendations:
+        operation: marketing_analytics_conversion_recommendations_start_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Analyze conversion candidates
+        description: >
+            Start the first 30-day analysis once with refresh=false. Only use refresh=true after the user explicitly
+            requests an update; later runs analyze 14 days. Active runs are reused. This creates proposals, never goals.
+            Read marketing-analytics-conversion-recommendations for results. Requires project admin access.
+        requires_ai_consent: true
+        feature_flag: marketing-analytics-conversion-setup-ai
     marketing-analytics-suggest-conversion-goals:
         operation: marketing_analytics_suggest_conversion_goals_retrieve
         enabled: true
@@ -168,7 +218,11 @@ tools:
             Change one conversion goal in place, identified by its conversion_goal_id — call
             marketing-analytics-conversion-goals first to get it. The patch goes inside a single `goal` object; only the
             fields you send are changed and the goal keeps its position in the list. Use this to retarget a goal, rename
-            it, or set counts_as_customer / counts_as_revenue on a goal that already exists.
+            it, or set counts_as_customer / counts_as_revenue on a goal that already exists. Omit kind for partial
+            updates. Changing kind replaces the goal: send conversion_goal_name, schema_map, and the complete target for
+            the new kind (event for EventsNode; id for ActionsNode; id, table_name, id_field, timestamp_field, and
+            distinct_id_field for DataWarehouseNode). Read the existing goal first and carry over the fields you want to
+            keep. The conversion_goal_id belongs at the top level, outside goal.
         feature_flag: marketing-analytics-mcp
     marketing-analytics-utm-audit:
         operation: marketing_analytics_utm_audit_retrieve

@@ -1,0 +1,159 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The group-by query to execute.",
+            "properties": {
+                "dateRange": {
+                    "description": "Date range to aggregate over. Defaults to last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "filterGroup": {
+                    "description": "Property filters applied before grouping. Same shape as the query-logs endpoint.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "starts_with",
+                                    "not_starts_with",
+                                    "ends_with",
+                                    "not_ends_with",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "lt",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "is_set",
+                                    "is_not_set"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                                "enum": ["log", "log_attribute", "log_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                            }
+                        },
+                        "required": ["key", "type", "operator"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "groupBy": {
+                    "description": "The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.",
+                    "type": "string"
+                },
+                "groupBys": {
+                    "description": "Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).",
+                                "type": "string"
+                            },
+                            "source": {
+                                "default": "log",
+                                "description": "Where this dimension's key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n* `log` - log\n* `resource` - resource\n* `column` - column",
+                                "enum": ["log", "resource", "column"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key"],
+                        "type": "object"
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "groupBySource": {
+                    "default": "log",
+                    "description": "Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n* `log` - log\n* `resource` - resource\n* `column` - column",
+                    "enum": ["log", "resource", "column"],
+                    "type": "string"
+                },
+                "limit": {
+                    "default": 100,
+                    "description": "Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.",
+                    "maximum": 500,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "orderGroupsBy": {
+                    "default": "log_count",
+                    "description": "Aggregate to rank groups by (descending): \"log_count\" for the noisiest groups, \"error_count\" for the most failing, \"last_seen\" for the most recent.\n\n* `log_count` - log_count\n* `error_count` - error_count\n* `last_seen` - last_seen",
+                    "enum": ["log_count", "error_count", "last_seen"],
+                    "type": "string"
+                },
+                "personId": {
+                    "description": "Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "type": "string"
+                },
+                "searchTerm": {
+                    "description": "Full-text search term to filter log bodies before grouping.",
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "description": "Restrict grouping to these service names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "sessionId": {
+                    "description": "Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "type": "string"
+                },
+                "severityLevels": {
+                    "description": "Filter by log severity levels before grouping.",
+                    "items": {
+                        "description": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                        "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

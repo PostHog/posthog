@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
+    codebase_detection = detect(npm=("twenty-sdk", "twenty-client-sdk"))
+
     api_docs_url = "https://docs.twenty.com/developers/extend/api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -111,7 +114,7 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             name=ExternalDataSourceType.TWENTY,
             category=DataWarehouseSourceCategory.CRM,
             label="Twenty",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["crm", "sales", "open source", "salesforce"],
             caption="""Enter your Twenty API key to pull your CRM data into the PostHog Data warehouse.
 

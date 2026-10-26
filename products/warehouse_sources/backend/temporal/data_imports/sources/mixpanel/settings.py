@@ -36,14 +36,27 @@ class MixpanelRegion(StrEnum):
 class RegionHosts:
     query_base: str  # query/app API base
     export_base: str  # raw export API base
+    ingestion_base: str  # ingestion API base, which also serves lookup tables
 
 
 # Mixpanel splits the heavy raw export traffic onto a separate `data*` host per
 # data-residency region.
 REGION_HOSTS: dict[str, RegionHosts] = {
-    MixpanelRegion.US: RegionHosts(query_base="https://mixpanel.com", export_base="https://data.mixpanel.com"),
-    MixpanelRegion.EU: RegionHosts(query_base="https://eu.mixpanel.com", export_base="https://data-eu.mixpanel.com"),
-    MixpanelRegion.IN: RegionHosts(query_base="https://in.mixpanel.com", export_base="https://data-in.mixpanel.com"),
+    MixpanelRegion.US: RegionHosts(
+        query_base="https://mixpanel.com",
+        export_base="https://data.mixpanel.com",
+        ingestion_base="https://api.mixpanel.com",
+    ),
+    MixpanelRegion.EU: RegionHosts(
+        query_base="https://eu.mixpanel.com",
+        export_base="https://data-eu.mixpanel.com",
+        ingestion_base="https://api-eu.mixpanel.com",
+    ),
+    MixpanelRegion.IN: RegionHosts(
+        query_base="https://in.mixpanel.com",
+        export_base="https://data-in.mixpanel.com",
+        ingestion_base="https://api-in.mixpanel.com",
+    ),
 }
 
 # First sync of the raw export endpoint only pulls this far back to avoid replaying
@@ -51,8 +64,14 @@ REGION_HOSTS: dict[str, RegionHosts] = {
 # last-seen event time.
 DEFAULT_EXPORT_LOOKBACK_DAYS = 365
 
+# Funnel and retention reports are recomputed over a rolling window on every sync, because
+# Mixpanel keeps revising recent buckets while conversion and return windows are still open.
+REPORT_LOOKBACK_DAYS = 90
+# Daily retention intervals returned per cohort, on top of Mixpanel's 0th interval.
+RETENTION_INTERVAL_COUNT = 30
 
-@dataclass
+
+@dataclass(frozen=True)
 class MixpanelEndpointConfig:
     name: str
     primary_keys: list[str]
@@ -61,6 +80,7 @@ class MixpanelEndpointConfig:
     # written (event time / creation date), never `updated`/`last_seen`.
     partition_key: Optional[str] = None
     partition_format: PartitionFormat = "month"
+    description: Optional[str] = None
 
 
 MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
@@ -74,6 +94,7 @@ MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
         primary_keys=["$insert_id", "event", "distinct_id", "time"],
         partition_key="time",
         partition_format="month",
+        description="Only syncs the last 365 days on initial sync",
         incremental_fields=[
             {
                 "label": "time",
@@ -98,6 +119,36 @@ MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
     # App API: project annotations. Small, single request, full refresh.
     "annotations": MixpanelEndpointConfig(
         name="annotations",
+        primary_keys=["id"],
+    ),
+    # Query API: saved funnel definitions (id + name). Single request, full refresh.
+    "funnels": MixpanelEndpointConfig(
+        name="funnels",
+        primary_keys=["funnel_id"],
+    ),
+    # Query API: daily step conversion for every saved funnel, one row per funnel, day and step.
+    "funnel_steps": MixpanelEndpointConfig(
+        name="funnel_steps",
+        description="Recomputes the last 90 days on every sync",
+        primary_keys=["funnel_id", "date", "step_index"],
+        partition_key="date",
+    ),
+    # Query API: daily recurring retention across all events, one row per cohort day and interval.
+    "retention": MixpanelEndpointConfig(
+        name="retention",
+        description="Recomputes the last 90 days on every sync",
+        primary_keys=["date", "interval_index"],
+        partition_key="date",
+    ),
+    # App API: Lexicon data dictionary, one row per event or profile schema. Full refresh.
+    "lexicon_schemas": MixpanelEndpointConfig(
+        name="lexicon_schemas",
+        primary_keys=["entityType", "name"],
+    ),
+    # Ingestion API: lookup table ids and names. Mixpanel has no endpoint that reads the rows of a
+    # lookup table, so only the list is synced. Full refresh.
+    "lookup_tables": MixpanelEndpointConfig(
+        name="lookup_tables",
         primary_keys=["id"],
     ),
 }

@@ -34,7 +34,7 @@ const config: BIConfig = {
     ],
     filters: [],
     chartType: ChartDisplayType.ActionsBar,
-    limit: 100,
+    limit: 50_000,
 }
 const dates = [
     '2025-10-01',
@@ -56,9 +56,9 @@ const meta: Meta = {
 }
 export default meta
 
-export const PartialYears: StoryObj = {
-    render: () => (
-        <div className="flex h-96 w-[48rem] flex-col">
+function ChartYears({ dates: chartDates, width = '48rem' }: { dates: string[]; width?: string }): JSX.Element {
+    return (
+        <div className="flex h-96 flex-col" style={{ width }}>
             <DataTableVisualization
                 query={{
                     ...buildBIQuery(config)!.node,
@@ -76,11 +76,25 @@ export const PartialYears: StoryObj = {
                         ['toStartOfMonth(timestamp)', 'DateTime'],
                         ['sum_revenue', 'Float64'],
                     ],
-                    results: dates.map((date, index) => [date, 100 + (index % 4) * 50]),
+                    results: chartDates.map((date, index) => [date, 100 + (index % 4) * 50]),
                 }}
                 context={{ insightProps: { dashboardItemId: 'new-SQL-bi-years' } }}
                 readOnly
             />
         </div>
+    )
+}
+
+export const PartialYears: StoryObj = { render: () => <ChartYears dates={dates} /> }
+
+export const ManyYearsNarrow: StoryObj = {
+    render: () => (
+        <ChartYears
+            dates={Array.from(
+                { length: 360 },
+                (_, i) => `${2000 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`
+            )}
+            width="520px"
+        />
     ),
 }

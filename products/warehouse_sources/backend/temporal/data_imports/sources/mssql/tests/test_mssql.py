@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
     _FIREWALL_BLOCKED_ERROR,
+    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -531,6 +532,16 @@ class TestConnectTimeouts:
         assert "timeout" not in mock_connect.call_args.kwargs
         assert [call.args[0] for call in cursor.execute.call_args_list] == expected_statements
 
+    @pytest.mark.parametrize("overrides,expected", [({}, None), ({"require_encryption": "true"}, "require")])
+    def test_connect_requires_encryption_only_when_asked(self, mocker, overrides, expected):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect")
+
+        with MSSQLImplementation().connect(_make_config(**overrides)):
+            pass
+
+        assert mock_connect.call_args.kwargs["encryption"] == expected
+
 
 class _RaisingTunnel:
     """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
@@ -672,6 +683,26 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real DB-Lib 20017/20002 pair: the server closed the connection mid-handshake, which
+        # FreeTDS reports as both an EOF and a generic "connection failed".
+        dropped_connection_error = pymssql.OperationalError(
+            20017,
+            b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server (127.0.0.1)\n"
+            b"DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=dropped_connection_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _GENERIC_CONNECTION_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

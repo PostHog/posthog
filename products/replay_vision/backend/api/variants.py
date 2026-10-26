@@ -49,6 +49,10 @@ class VariantAnalysisLineSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text="How many of this variant's summaries the analysis read show the theme, as the scout counted them."
     )
+    read = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.",
+    )
     example_observation_ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="Observations of this variant the scout cited for the theme. Ids it can't back are dropped.",
@@ -61,6 +65,10 @@ class VariantAnalysisDifferenceSerializer(serializers.Serializer):
     counts = serializers.DictField(
         child=serializers.IntegerField(),
         help_text="Summaries the analysis read that show the theme, per variant key, as the scout counted them.",
+    )
+    read = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.",
     )
 
 

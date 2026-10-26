@@ -35,6 +35,8 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
+import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
+import { HogFunctionDraftStatusBar } from './HogFunctionDraftStatusBar'
 import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
@@ -67,6 +69,7 @@ export function HogFunctionConfiguration({
         survey,
     } = useValues(logic)
     const { loadHogFunction } = useActions(logic)
+    const { draftActionPending } = useValues(hogFunctionDraftLogic(logicProps))
 
     // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
     // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
@@ -82,14 +85,14 @@ export function HogFunctionConfiguration({
             : null
     )
 
-    // An approved `cdp-functions-partial-update` mutates the function server-side while this form keeps
-    // pre-update state, so the scene (and the approval-card diff for any later proposal, e.g. a revert)
-    // would show stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which
+    // An approved `cdp-functions-partial-update` (or a publish or discard of its staged draft) mutates
+    // the function server-side while this form keeps pre-update state, so the scene (and the
+    // approval-card diff for any later proposal, e.g. a revert) would show stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which
     // also discards unsaved manual edits; tool results land in the open scene. A plain tool-stream
     // listener, not `useMcpToolApplyBack`: the refetch is idempotent, so it must not be dropped by the
     // apply-back claim gating (claims snapshot the targets mounted at prompt-send and release each turn).
     useToolStreamListener({
-        tools: ['cdp-functions-partial-update'],
+        tools: ['cdp-functions-partial-update', 'cdp-functions-publish', 'cdp-functions-discard-draft'],
         onEvent: (event) => {
             if (event.phase !== 'completed' || !hogFunction?.id) {
                 return
@@ -99,6 +102,10 @@ export function HogFunctionConfiguration({
             const innerInput = resolveToolCall(event.invocation).innerInput
             const targetId = typeof innerInput?.id === 'string' ? innerInput.id : null
             if (targetId && targetId !== hogFunction.id) {
+                return
+            }
+            // A publish without confirm only previews, so a reload would reset unsaved edits for nothing.
+            if (event.toolName === 'cdp-functions-publish' && innerInput?.confirm !== true) {
                 return
             }
             loadHogFunction()
@@ -133,6 +140,7 @@ export function HogFunctionConfiguration({
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
+                {hogFunction?.type === 'destination' ? <HogFunctionDraftStatusBar logicProps={logicProps} /> : null}
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
@@ -176,86 +184,91 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
-                <Form
-                    logic={hogFunctionConfigurationLogic}
-                    props={logicProps}
-                    formKey="configuration"
-                    className="deprecated-space-y-3"
-                >
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                <div className="flex items-center justify-between">
-                                    <LemonLabel>Status</LemonLabel>
-                                    {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
-                                </div>
-                                <LemonField name="enabled">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            onChange={() => onChange(!value)}
-                                            checked={value}
-                                            disabled={loading}
-                                            bordered
-                                            fullWidth
-                                            label={type === 'transformation_log' ? 'Enable' : 'Enable destination'}
-                                            tooltip={
-                                                <>
-                                                    {type === 'transformation_log'
-                                                        ? value
-                                                            ? 'Enabled. Log records will be processed.'
-                                                            : 'Disabled. Log records will not be processed.'
-                                                        : value
-                                                          ? 'Enabled. Events will be processed.'
-                                                          : 'Disabled. Events will not be processed.'}
-                                                </>
-                                            }
-                                        />
-                                    )}
-                                </LemonField>
-
-                                {templateInfo}
-                            </div>
-
-                            {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
-                            {showFilters && <HogFunctionFilters />}
-                            {survey && <SurveyResponseKeysReference questions={survey.questions} />}
-                            {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
-                        </div>
-
-                        <div className="deprecated-space-y-4 flex-2 min-w-100">
-                            {mightDropEvents && (
-                                <div>
-                                    <LemonBanner type="info">
-                                        {type === 'transformation_log' ? (
-                                            <>
-                                                <b>Warning:</b> This transformation can drop log records irreversibly
-                                                (any record it returns null for is discarded). Double check your code
-                                                before enabling.
-                                            </>
-                                        ) : (
-                                            <>
-                                                <b>Warning:</b> This transformation can filter out events, dropping them
-                                                irreversibly. Make sure to double check your configuration, and use
-                                                filters to limit the events that this transformation is applied to.
-                                            </>
+                <div className="relative">
+                    {/* Publish and discard end in a reload that resets the form, so edits made meanwhile would be lost. */}
+                    {draftActionPending ? <SpinnerOverlay /> : null}
+                    <Form
+                        logic={hogFunctionConfigurationLogic}
+                        props={logicProps}
+                        formKey="configuration"
+                        className="deprecated-space-y-3"
+                    >
+                        <div className="flex flex-wrap gap-4 items-start">
+                            <div className="flex flex-col flex-1 gap-4 min-w-100">
+                                <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+                                    <div className="flex items-center justify-between">
+                                        <LemonLabel>Status</LemonLabel>
+                                        {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    </div>
+                                    <LemonField name="enabled">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                disabled={loading}
+                                                bordered
+                                                fullWidth
+                                                label={type === 'transformation_log' ? 'Enable' : 'Enable destination'}
+                                                tooltip={
+                                                    <>
+                                                        {type === 'transformation_log'
+                                                            ? value
+                                                                ? 'Enabled. Log records will be processed.'
+                                                                : 'Disabled. Log records will not be processed.'
+                                                            : value
+                                                              ? 'Enabled. Events will be processed.'
+                                                              : 'Disabled. Events will not be processed.'}
+                                                    </>
+                                                }
+                                            />
                                         )}
-                                    </LemonBanner>
+                                    </LemonField>
+
+                                    {templateInfo}
                                 </div>
-                            )}
-                            <HogFunctionInputs />
 
-                            <HogFunctionMappings />
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
+                                {showFilters && <HogFunctionFilters />}
+                                {survey && <SurveyResponseKeysReference questions={survey.questions} />}
+                                {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
+                            </div>
 
-                            {canEditSource && <HogFunctionCode />}
-                            {showTesting ? <HogFunctionTest /> : null}
-                            {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            <div className="flex gap-2 justify-end">
-                                <HogFunctionConfigurationClearChangesButton />
-                                <HogFunctionConfigurationSaveButton />
+                            <div className="deprecated-space-y-4 flex-2 min-w-100">
+                                {mightDropEvents && (
+                                    <div>
+                                        <LemonBanner type="info">
+                                            {type === 'transformation_log' ? (
+                                                <>
+                                                    <b>Warning:</b> This transformation can drop log records
+                                                    irreversibly (any record it returns null for is discarded). Double
+                                                    check your code before enabling.
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <b>Warning:</b> This transformation can filter out events, dropping
+                                                    them irreversibly. Make sure to double check your configuration, and
+                                                    use filters to limit the events that this transformation is applied
+                                                    to.
+                                                </>
+                                            )}
+                                        </LemonBanner>
+                                    </div>
+                                )}
+                                <HogFunctionInputs />
+
+                                <HogFunctionMappings />
+
+                                {canEditSource && <HogFunctionCode />}
+                                {showTesting ? <HogFunctionTest /> : null}
+                                {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
+                                <div className="flex gap-2 justify-end">
+                                    <HogFunctionConfigurationClearChangesButton />
+                                    <HogFunctionConfigurationSaveButton />
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </Form>
+                    </Form>
+                </div>
             </BindLogic>
         </div>
     )

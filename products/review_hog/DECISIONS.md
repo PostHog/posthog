@@ -198,6 +198,119 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-16 — push gate skips follow-ups that rarely surface anything (live)
+
+- **What.** Three live push gate rules run after `draft`: `late_follow_up` (the push would start review 9 or a later
+  one), `small_pr` (the PR has fewer than 150 reviewable lines, the size the lens parts use), and `quiet_small_push`
+  (the last review kept no finding and the push changes at most 30 own code lines). They take over a shadow match of an
+  earlier rule. A skipped push leaves the baseline in place, so the next review covers its changes, and skipped small
+  pushes add up until one crosses 30 lines. Every gate decision now carries `reviewable_lines` and `previous_findings`.
+- **Why.** Automatic follow-ups make up most of the Standard spend, and most of them surface nothing. The findings of
+  the previous review predict what a follow-up surfaces better than the PR size does: inside each PR size band, a
+  follow-up after a review with two or more findings surfaced three to five times the must-fix findings of a follow-up
+  after a review that kept none.
+- **Evidence.** A replay of automatic follow-ups under the current posting rules, with model cost joined per turn
+  (review-eval `experiments/2026-10-16-follow-up-value`):
+  - The three rules match about two in five of those follow-ups and about a third of their cost.
+  - They hold back about one in six follow-up must-fix labels and follow-up findings. The labels are the model's own,
+    and a skipped push stays in the next review's scope, so both shares are upper bounds.
+  - Follow-ups after a push the gate expects another push for surfaced the most per review, so `next_push_likely`
+    stays a shadow rule.
+- **Not chosen.**
+  - Skipping first reviews of small PRs: a first review of a 30 to 99 line PR still surfaces must-fix findings.
+  - System One below 0.7: it saves less per must-fix label held back than the push-size rule.
+  - A cap from review 5: it saves about half as much and holds back almost as many must-fix labels.
+
+### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow)
+
+- **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It
+  matches a push that changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` (10) code lines net: the additions plus deletions
+  of the GitHub compare between the last reviewed head and the push head, over files `_NON_CODE_FILE` does not match.
+  A capped file list or a file without counts makes the net lines unknown, and the rule does not match. A per-PR
+  counter in Redis allows `SMALL_CHANGE_MAX_DEFERRALS` (2) deferrals in a row: the next small push runs the review and
+  sets the counter to 0, and so does any push the rule does not match. Without Redis the rule does not match. A retried
+  turn at the same head reuses the count of its first attempt. The count is stored with a compare-and-set: when another
+  turn stored a count first or the write fails, the small push runs the review (`small_change_not_stored`). `SKIP_SMALL_CHANGE = False`, so the rule only logs:
+  every decision carries `net_code_lines` and `small_change_deferrals` on `reviewhog_push_gate_decided`.
+- **Why.** Since Oct 14 14:33 UTC, 71% of automatic follow-up runs surfaced nothing. The chance that a run surfaces
+  something grows with the net code lines of the push, and small pushes rarely surface anything.
+- **Evidence.**
+  - Surfacing rate by net code lines of the push (run 3+, 367 runs; run 2 under the changed-code rule looks the
+    same):
+
+    | Net code lines               | 0   | 1-10 | 11-30 | 31-100 | 101-300 | >300 |
+    | ---------------------------- | --- | ---- | ----- | ------ | ------- | ---- |
+    | Runs that surfaced something | 6%  | 3%   | 12%   | 23%    | 35%     | 56%  |
+
+  - An offline replay of 527 follow-ups on 243 PRs (review-eval `experiments/2026-10-15-gate-surfacing`): deferring at
+    10 net lines with two deferrals in a row at most saves about 16% of follow-up spend (9% of all Standard spend). It
+    withholds 7 of 167 surfaced findings at the deferred push (3 of them on docs-only pushes) and 0 of 40 must-fix
+    labels (95% upper bound 10%).
+  - A 30-line threshold saves 25% but withholds 3 must-fix labels.
+  - A fitted probability model did not beat the size buckets (Brier 0.145 vs 0.148). A cost-per-probability term
+    changed 7 of 125 deferrals.
+  - `own_code_lines` counts churn: a rebase counts every commit again, which made large pushes look small-yield in an
+    earlier read. The rule uses net lines for that reason.
+
+- **Not chosen.**
+  - A 30-line threshold: it withholds must-fix findings.
+  - A probability model: no better than the size buckets.
+  - A per-repo cost term: it changes few deferrals.
+  - System One: its below-threshold pushes carried must-fix labels at the same rate as the rest.
+- **Before it goes live.**
+  - A few days of shadow decisions. In shadow mode the review still runs and moves the baseline, so net lines are per
+    push, not added up over deferred pushes as in live mode.
+  - The final-push gap: in the replay 62 of 243 PRs ended on a deferred push, 33 of them merged. That needs a review
+    started when stamphog asks for evidence on a deferred head, and a visible "latest push not reviewed yet" state on
+    the PR.
+  - One baseline for the gate and the posting filter.
+
+### ✅ BUILT 2026-10-15 — automatic Standard follow-ups post only changed-code findings from run 2 on
+
+- **What.** `FLASH_WHOLE_PR_TURNS` goes from 2 to 1. Run 1 still reviews the whole pull request with the doubled
+  first-review cap. From run 2 on, an automatic Standard (Flash) turn drops every P2 and P3 finding more than
+  `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` lines from code the push changed, as `old_code`. Must-fix findings post
+  anywhere. A requested review (`@posthog review`, the label, the UI) still reviews the whole pull request.
+- **Why.** The per-PR loop complaints came from run 2 and later turns that re-reviewed unchanged code: each fix push
+  drew new should-fix findings on code the push never touched, so the author fixed and pushed again. After the
+  Oct 14 changes, run 2 produced 135 of 241 follow-up findings and 7 of its must-fix findings.
+- **Evidence.** An offline replay of 215 run-2 turns (155 after the Oct 14 cutover, 60 before) through the
+  production rule code (review-eval `experiments/2026-10-15-run2-scope-replay`):
+  - The rule suppresses 147 posted findings on 80 turns, all labeled should-fix by the model.
+  - A blind Sonnet judge graded them 91 real, 54 unsure, 2 not real, and none must-fix.
+  - 18 must-fix findings on unchanged code stay posted.
+  - 13% of the suppressed findings were caused by the push: the 3-line margin misses a changed caller that breaks an
+    unchanged callee. A 10-line margin rescues 4 of those 19 and adds 17 unrelated findings, so the margin stays.
+- **Not chosen.**
+  - A lower run-2 cap: unrelated findings still get through, only fewer of them.
+  - Run 2 as a whole-PR review only when run 1 hit its cap: cap saturation says nothing about the new push.
+  - A wider margin: see the Evidence numbers above.
+
+### ✅ BUILT 2026-10-13 — Flash follow-ups drop only P3 findings on unchanged code (`reviewhog-flash-2-3`)
+
+- **What.** The `old_code` rule from `reviewhog-flash-2-1` now drops only P3 findings on code unchanged since the last
+  reviewed head. A P2 on old code goes through dedup like any other finding, so it posts unless it repeats a finding
+  an earlier turn posted.
+- **Why.** Reading the findings the rule dropped showed that many P2s on old code named specific bugs the earlier
+  turn had missed, such as unhandled errors on request paths and races, while no other drop rule removed real
+  findings. Other review bots on the same PRs raised issues in old code that authors then fixed. The rule existed to
+  stop repeats, and dedup against earlier turns' findings already removes a repeat of a finding that posted.
+- **Kept.** P3 findings on old code still drop: they are the trickle the rule was built for, and Flash posts P3s
+  rarely.
+- **Supersedes** the idea of letting an old-code finding through only when two turns raise it independently, which
+  would have kept most of these bugs dropped.
+
+### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
+
+- **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual
+  Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms run wherever it is on.
+  `backend/internal_features.py` and the `internal_feature` refusal code are removed.
+- **Why.** The gate was never created in production, so after the deploy all of those parts stopped with no error.
+  The flag then went to 100% for every organization, which left a second flag with no remaining audience and a
+  silent off switch for most of the product. Removing it keeps the behavior of the 100% rollout and removes the
+  failure mode. The resolution hardening TODO in ARCHITECTURE.md still applies: the `review-hog` flag does not
+  establish repository or comment trust.
+
 ### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
 
 - **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and
@@ -311,6 +424,61 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
 - **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
   not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
+### ✅ BUILT 2026-10-09 — settings rework: project rules, repository ownership, the PR owner rule, and first-class enablement
+
+Decided with the maintainer on 2026-10-09 (settings audit and settings mockup). Built in two layers: the data model
+and API (storage, ownership, the Flash decision), then the behavior rules. The record of the settled spec:
+
+- **Storage.** Personal preferences live in `ReviewUserSettings.preferences`, a sparse JSON dict typed in
+  `backend/preferences.py`: an absent key inherits, unknown keys and invalid values are ignored on read, and a write
+  equal to the inherited value removes the key. Keys: `default_review_mode` (follow / flash / off), `resolve_comments`
+  (default off, personal only), `urgency_threshold` and `celebrate_clean_reviews` (Full only, layered code default →
+  project default → user value), and the two Inbox opt-ins. The old columns stay on the model, unused. A GET creates no
+  row. Project rules live in `ReviewProjectSettings`: `flash_for` (everyone / listed / off, default off = opt-in only),
+  `bot_prs` (skip / run), and the two project defaults. People lists are `ReviewRepositoryPerson` rows; a row without
+  a repository belongs to the project rule.
+- **Ownership.** A repository belongs to at most one project, like GitHub's install picker: a
+  `ReviewInstallationClaim` per (project, installation) is `all` (at most one project per installation) or
+  `selected`, and a selected `ReviewRepository` row (unique across projects, matched by GitHub repository id, then by
+  name) wins over another project's `all` claim. Global uniqueness, not one project per GitHub organization, because
+  several projects often share one installation. The repository list in the settings reads the core GitHub
+  integration's cached repository list; the core `installation_repositories` webhook refreshes it.
+- **Flash decision**, highest first: the user's choice for the repository → the user's default unless follow → the
+  repository exception → the project rule. Bots and authors without an active member follow `bot_prs` only; a bot
+  review runs as the user who connected the installation, with default settings and no writes.
+- **PR owner** (`backend/pr_owner.py`): the author when the login maps to an active member; a self-driving PR (opened
+  by the PostHog app) belongs to its Inbox report's canonical reviewer; else nobody.
+- **Whose settings shape a review.** Automatic: the owner's rules (Flash reads no personal settings). Review button
+  and MCP: the person who asks. Label: the owner, else the connector with default settings. Inbox: the report
+  reviewer. The `review_labeled_prs` opt-out is gone: a label always runs.
+- **Resolution** runs only after a Full review, only when the owner opted in, whoever triggered, and only with the
+  `review-hog-internal` flag (`review_request_rules.ResolutionGate`). No owner, no writes. The resolve-only action
+  answers 409 `resolution_not_opted_in`, and `_prepare_run` checks the gate again. Guards: a protected head branch
+  holds the stage before any push (`CommitHold.BRANCH_PROTECTED`), and `is_app_bot_author` fails closed in production
+  when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset.
+- **Flash vs Full.** Flash ignores `urgency_threshold`: it publishes every kept finding and records `consider` in
+  `published_urgency_thresholds`. No Flash after Full: once a PR has a published Full review, automatic dispatch, the
+  turn's recheck, and manual Flash requests (API, MCP) refuse it (`flash_after_full`). Full may resolve Flash threads.
+- **Push gate.** New rule `reviewhog_commits_only`: an automatic follow-up skips when the ReviewHog app authored every
+  new commit since the last automatically reviewed head (resolution fixes). It emits `reviewhog_push_gate_decided`
+  like the other rules.
+- **First-class enablement.** No per-deploy team constant decides behavior: `REVIEWHOG_TEAM_IDS`,
+  `REVIEWHOG_RUN_USER_ID`, and `REVIEWHOG_TRIGGER_TOKEN` are gone. One feature flag, `review-hog-internal`, evaluated
+  per project like `review-hog`, gates the internal-only parts: automatic reviews, the label trigger, resolution, manual
+  Flash, the tiered review arms, and the Inbox and Stamphog controls. The `review-hog` flag stays the product switch.
+  The label trigger moved from the GitHub Action (deleted) to the GitHub App's own `labeled` delivery through the
+  existing `review_hog_authored_prs` consumer, which now routes by action (`accept_pull_request_event`). A person or
+  `stamphog[bot]` may label; another bot's label gets the explaining comment and is removed with the app token. The
+  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. No
+  migration seeds a claim: a project admin sets the claim in the settings UI. Customer setup: enable the flag →
+  connect GitHub → claim the installation → set the project rule.
+- **Facade.** `facade/github.py::owning_team_id(installation_id, repository)` exposes ownership, so a PR comment
+  command dispatcher can pick the project.
+- **One request entry.** `requested_reviews.request_pr_review()` serves the UI, MCP and the `@posthog review` comment,
+  and applies the owner rule, the resolution gate and the Flash-after-Full check for all of them. A comment run
+  follows the same owner rule.
+- **Open follow-ups.** Claims and rows of an uninstalled installation are not cleaned up yet.
 
 ### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
 

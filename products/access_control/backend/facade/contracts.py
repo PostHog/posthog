@@ -26,6 +26,10 @@ class PropertyAccessLevel(str, Enum):
         return self in (PropertyAccessLevel.READ_WRITE, PropertyAccessLevel.READ)
 
 
+class UserNotOrganizationMemberError(ValueError):
+    """The user has no membership in the organization, so their property access cannot be resolved."""
+
+
 # --- Output DTOs ---
 
 
@@ -133,3 +137,14 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class TerraformLock:
+    """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
+    wrote access rules to the project at least once. An enabled lock with no account refuses all
+    writes until that first write."""
+
+    managed: bool
+    terraform_last_applied_at: datetime | None
+    has_terraform_account: bool
