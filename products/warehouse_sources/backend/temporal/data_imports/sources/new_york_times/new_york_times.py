@@ -54,7 +54,7 @@ class NewYorkTimesPageCapError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NewYorkTimesResumeConfig:
     # Zero-based Article Search page index to fetch next. Snapshot endpoints never populate this.
     page: int = 0

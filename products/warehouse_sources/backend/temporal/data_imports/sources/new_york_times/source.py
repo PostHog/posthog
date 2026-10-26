@@ -115,7 +115,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_incremental and endpoint_config.supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 detected_primary_keys=endpoint_config.primary_keys,

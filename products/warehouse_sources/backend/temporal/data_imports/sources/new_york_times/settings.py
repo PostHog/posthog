@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class NewYorkTimesEndpointConfig:
     name: str
     path: str
@@ -16,6 +16,9 @@ class NewYorkTimesEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Only True where NYT exposes a genuine server-side timestamp filter (Article Search's begin_date).
     supports_incremental: bool = False
+    # False where every incremental sync re-reads the watermark's whole month or edition. Append never
+    # dedupes on the primary key, so those re-read rows would pile up as duplicates.
+    supports_append: bool = True
     # True for Article Search, which pages via a `page` query param (10 results/page, capped at 100 pages).
     # Snapshot endpoints return a single fixed-size list with no pagination.
     paginated: bool = False
@@ -82,6 +85,7 @@ NEW_YORK_TIMES_ENDPOINTS: dict[str, NewYorkTimesEndpointConfig] = {
         partition_key="pub_date",
         incremental_fields=_PUB_DATE_INCREMENTAL,
         supports_incremental=True,
+        supports_append=False,
         default_lookback_days=365,
         should_sync_default=False,
     ),
@@ -108,6 +112,7 @@ NEW_YORK_TIMES_ENDPOINTS: dict[str, NewYorkTimesEndpointConfig] = {
         partition_key="published_date",
         incremental_fields=_PUBLISHED_DATE_INCREMENTAL,
         supports_incremental=True,
+        supports_append=False,
     ),
     # Most Popular — point-in-time snapshots (most viewed/emailed/shared over the last 7 days). No
     # server-side updated-since cursor, so these are full refresh; merge dedupes on `uri`.
