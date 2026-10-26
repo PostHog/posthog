@@ -463,8 +463,9 @@ tools:
             for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add
             `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first.
             `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the
-            report removal succeeded but the instruction is not saved: send the same request again. The instruction
-            does not change other existing reports.
+            report removal succeeded but the instruction is not saved: send the same request again. Sending an area
+            that an active instruction already covers returns that instruction with a 200. The instruction does not
+            change other existing reports.
         feature_flag: signals-reviewer-exclusions-mcp
     inbox-reviewer-exclusions-update:
         operation: signals_reviewer_exclusions_partial_update
@@ -476,7 +477,8 @@ tools:
         title: Change one of your reviewer exclusions
         description: >
             Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps
-            the earlier version in the history. A revoked instruction cannot change: create a new one instead.
+            the earlier version in the history, and a request that changes nothing records no new version. A revoked
+            instruction cannot change: create a new one instead.
         feature_flag: signals-reviewer-exclusions-mcp
     inbox-reviewer-exclusions-revoke:
         operation: signals_reviewer_exclusions_revoke_create

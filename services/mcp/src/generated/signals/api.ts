@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 74 enabled ops
+ * PostHog API - MCP 79 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1350,6 +1350,119 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
  * @summary List the ranking model's public outcomes
  */
 export const SignalsReportsRankingOutcomesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const SignalsReviewerExclusionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsCreateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsCreateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsCreateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsCreateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyInstructionMax)
+        .describe('Why you stay off this area, for the people who read it later.'),
+    report_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional report to take you off first. The report removal and the instruction save are separate steps.'
+        ),
+})
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsPartialUpdateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsPartialUpdateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsPartialUpdateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyInstructionMax)
+        .optional()
+        .describe('New text for the instruction.'),
+})
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRevokeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
     project_id: zod
         .string()
         .describe(

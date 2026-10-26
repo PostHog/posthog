@@ -26,8 +26,13 @@ from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import SignalReviewerExclusion
 from products.signals.backend.repo_corrections import sanitized_repository
-from products.signals.backend.reviewer_exclusions import create_exclusion, revise_exclusion, revoke_exclusion
-from products.signals.backend.reviewer_rules import ReviewerWriteError, StaleReviewerProposal
+from products.signals.backend.reviewer_exclusions import (
+    DuplicateExclusion,
+    create_exclusion,
+    revise_exclusion,
+    revoke_exclusion,
+)
+from products.signals.backend.reviewer_rules import ReviewerWriteError
 from products.signals.backend.views import remove_suggested_reviewer
 
 logger = structlog.get_logger(__name__)
@@ -79,8 +84,11 @@ class ReviewerExclusionAreaSerializer(serializers.Serializer):
         return value
 
     def validate_path_prefix(self, value: str) -> str:
-        if value.startswith(("/", "./")) or value.endswith("/"):
-            raise serializers.ValidationError("Use a relative path with no leading or trailing slash.")
+        # Matching compares whole path segments, so `.`, `..` or an empty segment never matches.
+        if value and any(segment in {"", ".", ".."} for segment in value.split("/")):
+            raise serializers.ValidationError(
+                "Use a relative path such as `src/billing`, with no leading or trailing slash and no `.` or `..` parts."
+            )
         return value
 
 
@@ -169,6 +177,10 @@ class SignalReviewerExclusionViewSet(
         summary="Stay off automatic reviewer selection in an area",
         request=ReviewerExclusionCreateSerializer,
         responses={
+            200: OpenApiResponse(
+                response=ReviewerExclusionCreateResultSerializer,
+                description="An active instruction already covers this area, so nothing new is saved.",
+            ),
             201: ReviewerExclusionCreateResultSerializer,
             207: OpenApiResponse(
                 response=ReviewerExclusionCreateResultSerializer,
@@ -176,7 +188,6 @@ class SignalReviewerExclusionViewSet(
             ),
             400: ReviewerExclusionErrorSerializer,
             404: ReviewerExclusionErrorSerializer,
-            409: ReviewerExclusionErrorSerializer,
         },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -189,14 +200,12 @@ class SignalReviewerExclusionViewSet(
         if report_id := data.get("report_id"):
             try:
                 remove_suggested_reviewer(team=self.team, report_id=str(report_id), user=user, request=request)
-            except StaleReviewerProposal as e:
-                return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
             except ReviewerWriteError as e:
                 return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             report_removed = True
 
         try:
-            exclusion = create_exclusion(
+            exclusion, created = create_exclusion(
                 team_id=self.team_id,
                 actor_id=user.id,
                 instruction=data["instruction"],
@@ -223,8 +232,10 @@ class SignalReviewerExclusionViewSet(
         return _create_result(
             exclusion=exclusion,
             report_removed=report_removed,
-            detail="Saved. Automatic reviewer selection no longer picks you in this area.",
-            response_status=status.HTTP_201_CREATED,
+            detail="Saved. Automatic reviewer selection no longer picks you in this area."
+            if created
+            else "Already saved. Automatic reviewer selection does not pick you in this area.",
+            response_status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
     @extend_schema(
@@ -237,6 +248,15 @@ class SignalReviewerExclusionViewSet(
         payload = ReviewerExclusionUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        try:
+            revised = self._revise(exclusion, data)
+        except DuplicateExclusion as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if revised is None:
+            return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ReviewerExclusionSerializer(revised).data)
+
+    def _revise(self, exclusion: SignalReviewerExclusion, data: dict[str, Any]) -> SignalReviewerExclusion | None:
         with transaction.atomic():
             # Check the merged area against the locked row, so a concurrent amend cannot break the constraint.
             locked = (
@@ -246,18 +266,17 @@ class SignalReviewerExclusionViewSet(
                 .first()
             )
             if locked is None:
-                return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
+                return None
             if data.get("path_prefix", locked.path_prefix) and not data.get("repository", locked.repository):
-                return Response({"detail": "Give a repository for a path."}, status=status.HTTP_400_BAD_REQUEST)
-            revised = revise_exclusion(
+                raise serializers.ValidationError({"path_prefix": "Give a repository for a path."})
+            return revise_exclusion(
                 team_id=self.team_id,
                 exclusion_id=exclusion.id,
-                actor_id=cast(User, request.user).id,
+                actor_id=cast(User, self.request.user).id,
                 instruction=data.get("instruction"),
                 repository=data.get("repository"),
                 path_prefix=data.get("path_prefix"),
             )
-        return Response(ReviewerExclusionSerializer(revised).data)
 
     @extend_schema(
         summary="Revoke one of your reviewer exclusions",

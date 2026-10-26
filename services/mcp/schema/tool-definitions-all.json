@@ -8179,7 +8179,7 @@
         }
     },
     "inbox-reviewer-exclusions-create": {
-        "description": "Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area, for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first. `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the report removal succeeded but the instruction is not saved: send the same request again. The instruction does not change other existing reports.",
+        "description": "Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area, for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first. `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the report removal succeeded but the instruction is not saved: send the same request again. Sending an area that an active instruction already covers returns that instruction with a 200. The instruction does not change other existing reports.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Stay off automatic reviewer selection in an area",
@@ -8243,7 +8243,7 @@
         "feature_flag": "signals-reviewer-exclusions-mcp"
     },
     "inbox-reviewer-exclusions-update": {
-        "description": "Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps the earlier version in the history. A revoked instruction cannot change: create a new one instead.",
+        "description": "Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps the earlier version in the history, and a request that changes nothing records no new version. A revoked instruction cannot change: create a new one instead.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Change one of your reviewer exclusions",

@@ -16,6 +16,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.presentation.reviewer_exclusions import SignalReviewerExclusionViewSet
 from products.signals.backend.reviewer_exclusions import create_exclusion
+from products.signals.backend.reviewer_rules import ReviewerWriteError
 
 
 class TestReviewerExclusionAPI(APIBaseTest):
@@ -54,7 +55,7 @@ class TestReviewerExclusionAPI(APIBaseTest):
         ]
     )
     def test_member_cannot_reach_another_members_instruction(self, _name: str, method: str, suffix: str) -> None:
-        theirs = create_exclusion(
+        theirs, _ = create_exclusion(
             team_id=self.team.id, actor_id=self.teammate.id, instruction="Off.", subject_user_uuid=self.teammate.uuid
         )
 
@@ -102,7 +103,35 @@ class TestReviewerExclusionAPI(APIBaseTest):
 
         assert retried.status_code == status.HTTP_201_CREATED
         assert retried.json()["instruction_saved"] is True
+
+        repeated = self.client.post(self.url, payload, format="json")
+
+        assert repeated.status_code == status.HTTP_200_OK
+        assert repeated.json()["exclusion"]["id"] == retried.json()["exclusion"]["id"]
         assert SignalReviewerExclusion.objects.for_team(self.team.id).count() == 1
+
+    def test_failed_save_without_a_report_is_an_error(self) -> None:
+        with patch(
+            "products.signals.backend.presentation.reviewer_exclusions.create_exclusion",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            response = self.client.post(self.url, {"instruction": "I moved teams."}, format="json")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_rejected_report_removal_saves_no_instruction(self) -> None:
+        report = self._report_with_reviewers(self.user)
+
+        with patch(
+            "products.signals.backend.presentation.reviewer_exclusions.remove_suggested_reviewer",
+            side_effect=ReviewerWriteError("Stored reviewer data is invalid."),
+        ):
+            response = self.client.post(
+                self.url, {"instruction": "I moved teams.", "report_id": str(report.id)}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReviewerExclusion.objects.for_team(self.team.id).exists()
 
     def test_amend_then_revoke_keeps_history_and_leaves_reports_alone(self) -> None:
         created = self.client.post(self.url, {"instruction": "Off billing."}, format="json").json()["exclusion"]
@@ -112,6 +141,8 @@ class TestReviewerExclusionAPI(APIBaseTest):
         amended = self.client.patch(detail, {"repository": "org/app", "path_prefix": "src/billing"}, format="json")
         assert amended.status_code == status.HTTP_200_OK
         assert (amended.json()["path_prefix"], amended.json()["revision"]) == ("src/billing", 2)
+        unchanged = self.client.patch(detail, {"repository": "Org/App", "path_prefix": "src/billing"}, format="json")
+        assert unchanged.json()["revision"] == 2
 
         revoked = self.client.post(f"{detail}revoke/")
         assert revoked.status_code == status.HTTP_200_OK
@@ -135,6 +166,8 @@ class TestReviewerExclusionAPI(APIBaseTest):
                 ("repository_url", {"repository": "https://github.com/org/app"}),
                 ("repository_trailing_slash", {"repository": "org/app/"}),
                 ("path_leading_slash", {"repository": "org/app", "path_prefix": "/src"}),
+                ("path_dot_segment", {"repository": "org/app", "path_prefix": "src/./billing"}),
+                ("path_empty_segment", {"repository": "org/app", "path_prefix": "src//billing"}),
             ]
         ]
     )
