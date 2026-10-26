@@ -20,7 +20,6 @@ from django.utils import timezone as django_timezone
 
 import requests
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -73,7 +72,6 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
-    posthog_feature_flag_enabled,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
@@ -2637,30 +2635,6 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
-# Shared with FEATURE_FLAGS in frontend/src/lib/constants.tsx.
-ISP_SENDING_HEALTH_FLAG = "workflows-isp-sending-health"
-
-
-def _isp_breakdown_enabled(team: Team) -> bool:
-    # The shared helper suppresses the $feature_flag_called exposure event (this gate runs on every
-    # reputation request, not once per person) and honors _FORCE_ENABLED_FLAGS like other internal
-    # gates. It does not catch, so the try/except stays to fail closed when a flag-eval errors.
-    try:
-        return posthog_feature_flag_enabled(
-            ISP_SENDING_HEALTH_FLAG,
-            str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        logger.warning(
-            "workflows.isp_sending_health_flag_check_failed_defaulting_off",
-            team_id=team.id,
-            exc_info=True,
-        )
-        return False
-
-
 @frozen
 class IspDomains:
     """Which of this project's sending domains the breakdown may cover, and what to say about them."""
@@ -4264,8 +4238,6 @@ class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
         ),
     )
 
-
-SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 
 # `trigger` and `abort_action` are read-only on the workflow serializer, so publish would drop them.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
@@ -6027,22 +5999,6 @@ class HogFlowViewSet(
 
         return Response(self.get_serializer(locked).data)
 
-    def _require_self_optimising_enabled(self) -> None:
-        # Invisible while the flag is off, rather than 403: an endpoint that admits it exists gets built against.
-        if not posthoganalytics.feature_enabled(
-            SELF_OPTIMISING_FEATURE_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                    "created_at": self.team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        ):
-            raise exceptions.NotFound()
-
     @extend_schema(
         methods=["GET"],
         parameters=[
@@ -6065,7 +6021,6 @@ class HogFlowViewSet(
         Creating one stages nothing: a proposal only reaches the workflow's draft once a human
         approves it, and only reaches the live config once someone publishes that draft.
         """
-        self._require_self_optimising_enabled()
         instance = self._edit_state()
 
         # DRF routes HEAD to the GET handler, and the scope gate reads it as a read.
@@ -6201,7 +6156,6 @@ class HogFlowViewSet(
     )
     @action(detail=True, methods=["GET"], url_path=r"proposals/(?P<proposal_id>[^/.]+)", filter_backends=[])
     def proposal_detail(self, request: Request, proposal_id: Optional[str] = None, *args, **kwargs):
-        self._require_self_optimising_enabled()
         instance = self._workflow_ref()
         proposal = self._get_proposal_or_404(instance, proposal_id)
         return Response(WorkflowProposalSerializer(proposal, context={"hog_flow": instance}).data)
@@ -6234,7 +6188,6 @@ class HogFlowViewSet(
     )
     def approve_proposal(self, request: Request, proposal_id: Optional[str] = None, *args, **kwargs):
         # Approval only stages into the draft, like restore_revision; publish still previews and confirms.
-        self._require_self_optimising_enabled()
         param_serializer = WorkflowProposalApproveRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 
@@ -6306,7 +6259,6 @@ class HogFlowViewSet(
         as a result — a verdict off twenty sends is the loop's most embarrassing failure mode.
         Comparing two windows is not a controlled experiment; that is what the A/B step is for.
         """
-        self._require_self_optimising_enabled()
         instance = self._workflow_ref()
         proposal = self._get_proposal_or_404(instance, proposal_id)
         # The read below goes to ClickHouse, which refuses an untagged query.
@@ -6367,7 +6319,6 @@ class HogFlowViewSet(
         filter_backends=[],
     )
     def reject_proposal(self, request: Request, proposal_id: Optional[str] = None, *args, **kwargs):
-        self._require_self_optimising_enabled()
         param_serializer = WorkflowProposalRejectRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 
@@ -6397,7 +6348,6 @@ class HogFlowViewSet(
         Turning it off stops new suggestions. Suggestions already made are left alone: someone
         still has them to resolve.
         """
-        self._require_self_optimising_enabled()
         instance = self._workflow_ref()
 
         if request.method == "POST":
@@ -6971,7 +6921,7 @@ class HogFlowViewSet(
         # sending domain, so object-level grants alone don't earn it.
         isp_domains = (
             _isp_domains(self.team, self.user_access_control, self.user_permissions)
-            if can_read_all_workflows and _isp_breakdown_enabled(self.team)
+            if can_read_all_workflows
             else IspDomains(readable=(), withheld=(), shared=())
         )
 

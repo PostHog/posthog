@@ -11,7 +11,6 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -4418,8 +4417,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 draftSource &&
                 !cache.aiEmailDraftRequested &&
                 (!props.id || props.id === 'new') &&
-                prefilledEmailContent(originalWorkflow) &&
-                values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]
+                prefilledEmailContent(originalWorkflow)
             ) {
                 cache.aiEmailDraftRequested = true
                 actions.loadAiEmailDraft(draftSource)

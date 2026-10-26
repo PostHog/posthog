@@ -2017,7 +2017,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_conditional_branch_cohort_filter_compiles(self, _name, operator, expected_call, _mock_flag):
+    def test_hog_flow_conditional_branch_cohort_filter_compiles(self, _name, operator, expected_call):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         cohort_property: dict[str, Any] = {"key": "id", "type": "cohort", "value": cohort.id}
         if operator:
@@ -2041,9 +2041,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_conditional_branch_rejects_ineligible_cohorts(
-        self, _name, cohort_kind, expected_detail, _mock_flag
-    ):
+    def test_hog_flow_conditional_branch_rejects_ineligible_cohorts(self, _name, cohort_kind, expected_detail):
         if cohort_kind == "static":
             cohort_id = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True).id
         elif cohort_kind == "dynamic":
@@ -2065,7 +2063,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert expected_detail in response.json()["detail"]
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
+    def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
         action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
@@ -2142,7 +2140,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand([("entered",), ("left",)])
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_saves_cohort_trigger_on_realtime_cohort(self, transition, _mock_flag):
+    def test_hog_flow_saves_cohort_trigger_on_realtime_cohort(self, transition):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
 
         response = self.client.post(
@@ -2221,7 +2219,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_rejects_hand_authored_incohort_calls(self, _name, include_structured_leaf, _mock_flag):
+    def test_hog_flow_rejects_hand_authored_incohort_calls(self, _name, include_structured_leaf):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [{"key": "inCohort(999999)", "type": "hogql"}]
         if include_structured_leaf:
@@ -2240,7 +2238,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _name, expression, _mock_flag):
+    def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _name, expression):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         properties: list[dict[str, Any]] = [
             {"key": "id", "type": "cohort", "value": cohort.id},
@@ -2261,7 +2259,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_conditional_branch_malformed_filters_get_a_400(self, _name, filters, _mock_flag):
+    def test_hog_flow_conditional_branch_malformed_filters_get_a_400(self, _name, filters):
         hog_flow = self._hog_flow_with_condition_filters("conditional_branch", filters)
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -2269,7 +2267,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
+    def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
         action = Action.objects.create(
@@ -2293,7 +2291,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "is a static cohort" in response.json()["detail"]
 
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
+    def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         action = Action.objects.create(
             team=self.team,
@@ -2317,9 +2315,7 @@ class TestHogFlowAPI(APIBaseTest):
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
-    def test_hog_flow_rejects_in_cohort_operator_smuggled_through_hogql(
-        self, _name, hogql_key, expected_detail, _mock_flag
-    ):
+    def test_hog_flow_rejects_in_cohort_operator_smuggled_through_hogql(self, _name, hogql_key, expected_detail):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
             "conditional_branch",
@@ -6557,9 +6553,8 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("clicks", "email_link_clicked", "click rate", 0.25),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(
-        self, _name, named_metric, expected_label, expected_value, _mock_flag
+        self, _name, named_metric, expected_label, expected_value
     ):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
@@ -6627,10 +6622,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("reversed", "{end}/{start}", 157, "-7d"),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
-    def test_posthog_measures_the_window_the_suggestion_names(
-        self, _name, window, expected_sends, expected_window, _mock_flag
-    ):
+    def test_posthog_measures_the_window_the_suggestion_names(self, _name, window, expected_sends, expected_window):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
@@ -6695,12 +6687,11 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert measured["target"]["n"] == expected_sends
         assert measured["window"] == expected_window.format(**bounds)
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
         side_effect=Exception("clickhouse is down"),
     )
-    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals, _mock_flag):
+    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )

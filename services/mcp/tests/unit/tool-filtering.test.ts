@@ -1096,7 +1096,6 @@ describe('Tool Filtering - Feature Flags', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
             'scout-trials',
-            'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
