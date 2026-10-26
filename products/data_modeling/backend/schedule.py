@@ -25,6 +25,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import (
@@ -40,6 +41,21 @@ from products.data_modeling.backend.models.node import Node
 # A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
 # schedule, optionally followed by ":{anchor}". Parsers must handle all three shapes.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+_TRANSIENT_RPC_STATUSES = (
+    RPCStatusCode.UNAVAILABLE,
+    RPCStatusCode.DEADLINE_EXCEEDED,
+    RPCStatusCode.RESOURCE_EXHAUSTED,
+)
+
+
+def is_transient_temporal_error(exc: BaseException) -> bool:
+    """True when Temporal could not answer at all, so a retry can succeed with no change on our side."""
+    if isinstance(exc, RPCError):
+        return exc.status in _TRANSIENT_RPC_STATUSES
+    # A failed connect (TLS handshake, DNS, refused) happens before any RPC, so the Rust bridge
+    # raises an untyped RuntimeError instead of an RPCError.
+    return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
 
 
 def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
