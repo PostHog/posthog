@@ -28,6 +28,7 @@ import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { tryGetDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
+import { getDashboardWidgetFilterKeys } from '@posthog/products-dashboards/frontend/widget_types/widgetManifest'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 import {
     applyIssueMetadataToWidgetListResult,
@@ -1381,12 +1382,8 @@ export interface dashboardLogicActions {
     setWidgetEditorTileId: (tileId: number | null) => {
         tileId: number | null
     }
-    setWidgetFiltersKeys: (
-        tileIds: number[],
-        filtersKey: string
-    ) => {
-        filtersKey: string
-        tileIds: number[]
+    setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => {
+        filtersKeys: Record<number, string>
     }
     setWidgetRefreshStatuses: (
         tileIds: number[],
@@ -1981,7 +1978,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         /** A newly added tile whose widget settings open as soon as it renders. */
         setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
-        setWidgetFiltersKeys: (tileIds: number[], filtersKey: string) => ({ tileIds, filtersKey }),
+        setWidgetFiltersKeys: (filtersKeys: Record<number, string>) => ({ filtersKeys }),
         cancelWidgetRefresh: (tileIds: number[]) => ({ tileIds }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
@@ -3325,10 +3322,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         widgetFiltersKeys: [
             {} as Record<number, string>,
             {
-                setWidgetFiltersKeys: (state, { tileIds, filtersKey }) => ({
-                    ...state,
-                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, filtersKey])),
-                }),
+                setWidgetFiltersKeys: (state, { filtersKeys }) => ({ ...state, ...filtersKeys }),
             },
         ],
         widgetEditorTileId: [
@@ -5541,9 +5535,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 if (
-                    tilesFollowingDashboardFilters.has(tileId) &&
                     values.widgetFiltersKeys[tileId] !== undefined &&
-                    values.widgetFiltersKeys[tileId] !== filtersKey
+                    values.widgetFiltersKeys[tileId] !== filtersKeyByTileId[tileId]
                 ) {
                     return true
                 }
@@ -5585,6 +5578,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardId = props.id
             const queue = tileLoadQueue(cache)
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
+                const chunkFilterKeys = [...new Set(chunk.flatMap((tileId) => filterKeysByTileId.get(tileId) ?? []))]
                 try {
                     const results = await queue.run(
                         () => fetchRunWidgets(projectId, dashboardId, chunk, { signal }),

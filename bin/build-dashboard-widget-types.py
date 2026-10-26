@@ -110,6 +110,7 @@ def main() -> int:
             "formFields": list(spec.form_fields),
             "live": spec.is_live,
             "creationFlag": spec.creation_flag,
+            "dashboardFilterKeys": list(spec.dashboard_filter_keys),
         }
 
     FORM_FIELDS_JSON.write_text(json.dumps({"widgets": form_fields_manifest}, indent=2) + "\n", encoding="utf-8")

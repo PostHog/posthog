@@ -349,7 +349,6 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 RUN_WIDGETS_QUERY_CONCURRENCY = 4
-RUN_WIDGETS_DASHBOARD_FILTER_KEYS = ("date_from", "date_to", "metricFilters")
 
 # One subscribe-nudge notification per (user, dashboard) within this window.
 SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -367,7 +366,18 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
-    receives_dashboard_filters: bool
+    dashboard_filter_keys: tuple[str, ...]
+    dashboard_filters: DashboardFilter | None
+
+
+def _widget_dashboard_filters(filters: dict[str, Any], keys: tuple[str, ...]) -> DashboardFilter | None:
+    widget_filters = {key: filters[key] for key in keys if filters.get(key)}
+    if not widget_filters:
+        return None
+    try:
+        return DashboardFilter.model_validate(widget_filters)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError({"filters_override": "Invalid dashboard filters."}) from error
 
 
 def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -380,7 +390,6 @@ def _run_widget_query(
     *,
     dashboard_id: int,
     distinct_id: str,
-    dashboard_filters: DashboardFilter | None = None,
     force_refresh: bool = False,
 ) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
@@ -403,8 +412,12 @@ def _run_widget_query(
         try:
             query_fn = work_item["query_fn"]
             dashboard_kwargs: dict[str, Any] = (
-                {"dashboard_id": dashboard_id, "dashboard_filters": dashboard_filters, "force_refresh": force_refresh}
-                if work_item["receives_dashboard_filters"]
+                {
+                    "dashboard_id": dashboard_id,
+                    "dashboard_filters": work_item["dashboard_filters"],
+                    "force_refresh": force_refresh,
+                }
+                if work_item["dashboard_filter_keys"]
                 else {}
             )
             result = query_fn(
@@ -3963,15 +3976,17 @@ class DashboardsViewSet(
                     "query_fn": registry_entry["query_fn"],
                     "config": widget.config,
                     "user": cast(User, request.user),
-                    "receives_dashboard_filters": bool(spec and spec.receives_dashboard_filters),
+                    "dashboard_filter_keys": spec.dashboard_filter_keys if spec else (),
+                    "dashboard_filters": None,
                 }
             )
 
-        dashboard_filters = (
-            self._run_widgets_dashboard_filters(request, dashboard)
-            if any(work_item["receives_dashboard_filters"] for work_item in query_work_items)
-            else None
-        )
+        if any(work_item["dashboard_filter_keys"] for work_item in query_work_items):
+            dashboard_filters = self._run_widgets_dashboard_filters(request, dashboard)
+            for work_item in query_work_items:
+                work_item["dashboard_filters"] = _widget_dashboard_filters(
+                    dashboard_filters, work_item["dashboard_filter_keys"]
+                )
 
         force_refresh = str_to_bool(request.query_params.get("refresh", "false"))
 
@@ -3990,7 +4005,6 @@ class DashboardsViewSet(
                             work_item,
                             dashboard_id=dashboard.id,
                             distinct_id=distinct_id,
-                            dashboard_filters=dashboard_filters,
                             force_refresh=force_refresh,
                         ),
                     ): work_item["tile_id"]
@@ -4005,18 +4019,10 @@ class DashboardsViewSet(
         return Response({"results": results})
 
     @staticmethod
-    def _run_widgets_dashboard_filters(request: Request, dashboard: Dashboard) -> DashboardFilter | None:
+    def _run_widgets_dashboard_filters(request: Request, dashboard: Dashboard) -> dict[str, Any]:
         # Same merge as insight tiles: saved dashboard filters, then the viewer's unsaved overrides. Shared and
-        # embedded access never honors a client override. Widgets take the date range and metric label filters
-        # only: metric variables can run their own options queries.
-        filters = filters_override_requested_by_client(request, dashboard)
-        widget_filters = {key: filters[key] for key in RUN_WIDGETS_DASHBOARD_FILTER_KEYS if filters.get(key)}
-        if not widget_filters:
-            return None
-        try:
-            return DashboardFilter.model_validate(widget_filters)
-        except PydanticValidationError as error:
-            raise exceptions.ValidationError({"filters_override": "Invalid dashboard filters."}) from error
+        # embedded access never honors a client override. Each widget then takes only its own filter keys.
+        return filters_override_requested_by_client(request, dashboard)
 
     @extend_schema(
         parameters=[
