@@ -1669,6 +1669,7 @@ class FunnelConversionWindowTimeUnit(StrEnum):
 class FunnelLayout(StrEnum):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
+    METRIC = "metric"
 
 
 class FunnelMathType(StrEnum):

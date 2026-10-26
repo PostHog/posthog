@@ -258,6 +258,9 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isMetricInsightQuery(query)) {
+                defaultW = 3
+                defaultH = 3
             } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
@@ -270,9 +273,6 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isMetricInsightQuery(query)) {
-                defaultW = 3
-                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {

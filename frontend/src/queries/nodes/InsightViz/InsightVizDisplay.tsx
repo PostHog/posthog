@@ -37,7 +37,7 @@ import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { isFunnelsMetricQuery, shouldQueryBeAsync } from '~/queries/utils'
 import {
     ChartDisplayType,
     ExporterFormat,
@@ -463,7 +463,8 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            !disableTable
+            !disableTable &&
+            !isFunnelsMetricQuery(querySource)
         ) {
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (

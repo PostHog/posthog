@@ -818,6 +818,17 @@ class TestInsightQueryScreenshotWidth(SimpleTestCase):
                 600,
             ),
             (
+                "funnel_metric",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "funnelsFilter": {"funnelVizType": "trends", "layout": "metric"},
+                    },
+                },
+                600,
+            ),
+            (
                 "bare_metric_query_without_wrapper",
                 {"kind": "TrendsQuery", "trendsFilter": {"display": "Metric"}},
                 800,
