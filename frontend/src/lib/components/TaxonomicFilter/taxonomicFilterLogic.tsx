@@ -1250,6 +1250,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     showNumericalPropsOnly,
                     allowNonCapturedEvents,
                 } = propertyFilters
+                const fuzzyEventSearch =
+                    !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -1261,7 +1263,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
-                            fuzzy_search: !allowNonCapturedEvents,
+                            fuzzy_search: fuzzyEventSearch,
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
@@ -2014,7 +2016,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.EventCustom,
                             exclude_hidden: true,
-                            fuzzy_search: !allowNonCapturedEvents,
+                            fuzzy_search: fuzzyEventSearch,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
