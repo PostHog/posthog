@@ -291,7 +291,6 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         items,
         visibleKeys,
         container,
-        bulkFloor: true,
         enabled: context.ready,
         rangeKey: overrideId,
     })
@@ -425,7 +424,6 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         dataScope: context.dataScope,
         screenKey: `insight:${shortId}`,
         items,
-        bulkFloor: false,
         enabled: context.ready,
         rangeKey: `${overrideId}|${compareId ?? ''}`,
     })
@@ -508,7 +506,6 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
         dataScope: context.dataScope,
         screenKey: 'web',
         items,
-        bulkFloor: false,
         enabled: context.ready,
         rangeKey: queryId,
     })

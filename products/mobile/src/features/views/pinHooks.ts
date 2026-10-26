@@ -635,7 +635,6 @@ export function useViewsList(): ViewsListState {
         items,
         visibleKeys: visibility.visibleKeys,
         lists,
-        bulkFloor: true,
         enabled: context.ready,
     })
     return {

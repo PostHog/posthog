@@ -1,7 +1,7 @@
 import { recordServerDate, resetServerClock } from '@/api/serverClock'
 import type { Freshness } from '@/model/views'
 
-import { blockedState, dueAt, isEligible, statusLine } from './freshness'
+import { blockedState, dueAt, isEligible, refreshHintText, statusLine } from './freshness'
 
 const T = Date.parse('2026-10-14T12:00:00Z')
 const MIN = 60_000
@@ -55,7 +55,9 @@ describe('freshness', () => {
         ['inside the 2 s margin', 'Wed, 14 Oct 2026 12:05:01 GMT', {}, false],
         ['a device clock ahead of the server', 'Wed, 14 Oct 2026 11:50:00 GMT', {}, false],
         ['an item without a good value', 'Wed, 14 Oct 2026 13:00:00 GMT', { lastRefreshAt: null }, false],
-        ['an item read under a minute ago', 'Wed, 14 Oct 2026 13:00:00 GMT', { readAt: T + 10 * MIN - 30_000 }, false],
+        ['an item read under a minute ago', 'Wed, 14 Oct 2026 13:00:00 GMT', { readAt: T + 10 * MIN - 30_000 }, true],
+        ['no known refresh window', 'Wed, 14 Oct 2026 13:00:00 GMT', { nextAllowedRefreshAt: null }, false],
+        ['an invalid refresh window', 'Wed, 14 Oct 2026 13:00:00 GMT', { nextAllowedRefreshAt: 'invalid' }, false],
     ])('isEligible %s', (_name, serverDate, overrides, expected) => {
         jest.useFakeTimers({ now: T + 10 * MIN })
         recordServerDate(serverDate)
@@ -111,15 +113,30 @@ describe('freshness', () => {
             'an item read under a minute ago',
             [snap({ nextAllowedRefreshAt: new Date(T - MIN).toISOString(), readAt: T - 20_000 })],
             null,
-            { blocked: true, until: T + 40_000, reason: 'item_window' },
+            { blocked: false, until: null, reason: null },
         ],
         [
-            'a bulk floor past the item windows',
+            'a shared dashboard floor past the item windows',
             [snap({ nextAllowedRefreshAt: new Date(T - MIN).toISOString() })],
             T + 4 * MIN,
-            { blocked: true, until: T + 4 * MIN, reason: 'bulk_floor' },
+            { blocked: true, until: T + 4 * MIN, reason: 'dashboard_floor' },
+        ],
+        [
+            'no known refresh window',
+            [snap({ nextAllowedRefreshAt: null })],
+            null,
+            { blocked: true, until: null, reason: 'item_window' },
         ],
     ])('blockedState for %s', (_name, snapshots, floor, expected) => {
-        expect(blockedState({ snapshots, bulkFloorUntil: floor, now: T })).toEqual(expected)
+        expect(blockedState({ snapshots, dashboardFloorUntil: floor, now: T })).toEqual(expected)
+    })
+
+    test.each([
+        [null, 'Showing the latest available data.'],
+        [Number.NaN, 'Showing the latest available data.'],
+        [T - MIN, 'Showing the latest available data.'],
+        [T + MIN, 'You can refresh again in 1 min.'],
+    ])('refresh hint for %s never invents a countdown', (until, expected) => {
+        expect(refreshHintText(until, T)).toBe(expected)
     })
 })

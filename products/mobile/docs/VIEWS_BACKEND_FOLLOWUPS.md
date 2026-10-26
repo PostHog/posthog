@@ -46,9 +46,9 @@ With a server-side check, the app can do that refresh for them.
 **What the app does today:**
 
 - Open, focus and foreground never force. They send `refresh=blocking`, which computes only past `cache_target_age`.
-- The button and pull to refresh send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin.
-- The list and dashboards also have a bulk floor: one forced pass per 5 minutes per screen.
-- One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one request per item per 60 s. It pauses on `Retry-After`.
+- Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
+- Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
+- One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.
 - Token buckets in `src/api/budget.ts` cap each budget family at 25% of the published limits.
 - The window check lives in the app only, so forcing on focus would depend on every app version getting it right.
 
