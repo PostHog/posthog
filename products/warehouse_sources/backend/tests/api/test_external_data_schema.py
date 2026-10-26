@@ -5174,15 +5174,39 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
             assert schema.sync_type_config["reset_pipeline"] is True
             assert schema.initial_sync_complete is False
 
-    def test_a_cdc_mask_reset_keeps_a_reset_that_waits_for_a_slot(self) -> None:
-        schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True)
+    @parameterized.expand(
+        [
+            (
+                "repair_staged_a_reset_that_waits_for_a_slot",
+                ExternalDataSchema.SyncType.CDC,
+                {"cdc_reset_pending": {"trigger": True, "awaiting_slot": True, "generation": 3}},
+                [],
+                {"cdc_reset_pending": {"trigger": True, "awaiting_slot": True, "generation": 4}},
+            ),
+            (
+                "a_run_cleared_an_earlier_reset",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                {},
+                ["reset_pipeline"],
+                {"reset_pipeline": True},
+            ),
+        ]
+    )
+    def test_a_mask_rebuild_survives_a_config_write_before_the_save(
+        self,
+        _name: str,
+        sync_type: str,
+        concurrent_updates: dict[str, Any],
+        concurrent_removes: list[str],
+        expected: dict[str, Any],
+    ) -> None:
+        schema = self._create(sync_type=sync_type, should_sync=True)
+        update_sync_type_config_keys(schema.id, schema.team_id, updates={"reset_pipeline": True})
         original_save = ExternalDataSchemaSerializer._save_merging_sync_type_config
 
-        def repair_stages_a_reset_first(serializer: ExternalDataSchemaSerializer, *args: Any) -> ExternalDataSchema:
+        def concurrent_write_first(serializer: ExternalDataSchemaSerializer, *args: Any) -> ExternalDataSchema:
             update_sync_type_config_keys(
-                schema.id,
-                schema.team_id,
-                updates={"cdc_reset_pending": {"trigger": True, "awaiting_slot": True, "generation": 3}},
+                schema.id, schema.team_id, updates=concurrent_updates, removes=concurrent_removes
             )
             return original_save(serializer, *args)
 
@@ -5191,17 +5215,18 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
                 ExternalDataSchemaSerializer,
                 "_save_merging_sync_type_config",
                 autospec=True,
-                side_effect=repair_stages_a_reset_first,
+                side_effect=concurrent_write_first,
             ),
             mock.patch(f"{self.VIEWS}.source_type_supports_cdc", return_value=False),
             mock.patch(f"{self.VIEWS}.sync_cdc_extraction_schedule"),
             mock.patch(f"{self.VIEWS}.hand_reset_to_capture"),
+            mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"),
         ):
             response = self._patch(schema, {"masked_columns": ["password"]})
 
         assert response.status_code == 200, response.json()
         schema.refresh_from_db()
-        assert schema.sync_type_config["cdc_reset_pending"] == {"trigger": True, "awaiting_slot": True, "generation": 4}
+        assert {key: schema.sync_type_config.get(key) for key in expected} == expected
 
     def test_rejected_when_the_masking_key_is_public(self) -> None:
         schema = self._create()

@@ -515,6 +515,17 @@ def masked_columns_error(
     return None
 
 
+def _stage_mask_rebuild(config: dict[str, Any]) -> None:
+    config["reset_pipeline"] = True
+
+
+def _stage_disabled_cdc_mask_snapshot(config: dict[str, Any]) -> None:
+    config["cdc_mode"] = "snapshot"
+    config["reset_pipeline"] = True
+    config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+    config.pop(CDC_RESET_PENDING_KEY, None)
+
+
 def _validate_masked_columns(
     instance: ExternalDataSchema, validated_data: dict[str, Any], data: dict[str, Any]
 ) -> bool:
@@ -1600,25 +1611,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Rows already synced hold the old values, and the column changes type between the source
         # type and text, so a mask change rebuilds the table. CDC takes a new snapshot further down.
+        # The rebuild is staged on the locked row: a run can clear an earlier reset, or repair can stage
+        # one, between this request's read and its save.
         stage_locked_config: Callable[[dict[str, Any]], None] | None = None
         if masked_columns_changed:
             will_sync = should_sync if should_sync is not None else instance.should_sync
             if not is_cdc:
                 validated_data.setdefault("sync_type_config", instance.sync_type_config)
-                validated_data["sync_type_config"]["reset_pipeline"] = True
+                stage_locked_config = _stage_mask_rebuild
                 if will_sync:
                     trigger_refresh = True
             elif will_sync:
                 # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
-                # Staged on the locked row, which may hold a reset that repair set to wait for a slot.
                 stage_locked_config = stage_handed_over_reset
             else:
                 # Capture does not read a table that does not sync, so the new snapshot is staged in this
                 # save. A self-managed publication takes no snapshot of its own when the table is turned on.
-                instance.sync_type_config["cdc_mode"] = "snapshot"
-                instance.sync_type_config["reset_pipeline"] = True
-                instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
-                instance.sync_type_config.pop(CDC_RESET_PENDING_KEY, None)
+                stage_locked_config = _stage_disabled_cdc_mask_snapshot
                 instance.initial_sync_complete = False
                 validated_data["initial_sync_complete"] = False
 
