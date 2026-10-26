@@ -77,17 +77,101 @@
     },
   },
   packageRules: [
-    // Keep in sync with the cooldowns in pnpm-workspace.yaml and pyproject.toml, or lock file updates fail
+    // pnpm and uv refuse versions younger than 7 days, so a shorter wait proposes updates
+    // whose lock file update fails. Crates get the same wait
     {
       matchDatasources: ['npm', 'pypi', 'crate'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
       minimumReleaseAge: '7 days',
     },
-    // Keeps the dashboard under GitHub's issue size limit
+    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
+    {
+      matchDatasources: ['npm'],
+      matchPackageNames: [
+        'posthog-js',
+        'posthog-js-lite',
+        'posthog-node',
+        '@posthog/*',
+        '@earendil-works/*',
+        'typebox',
+        '@oxfmt/*',
+        '@shadcn/react',
+        'kea-typegen',
+        '@typescript/native-preview*',
+        'shiki',
+        'shadcn',
+        '@shikijs/*',
+      ],
+      minimumReleaseAge: null,
+    },
+    // Keep in sync with exclude-newer-package in pyproject.toml
+    {
+      matchDatasources: ['pypi'],
+      matchPackageNames: [
+        'brotli',
+        'certifi',
+        'hogql-parser',
+        'hogql-parser-rs',
+        'deltalite',
+        'posthoganalytics',
+        'pixelhog',
+        'django',
+        'modal',
+        'posthog-hogland',
+        'google-ads',
+        'grpcio',
+      ],
+      minimumReleaseAge: null,
+    },
+    // One non-major group per lock file keeps the dashboard under GitHub's issue size limit.
+    // Package files that share a lock file share a group, so merging one group PR does not
+    // conflict the others
+    {
+      matchManagers: ['npm', 'pep621', 'cargo'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: '{{manager}} non-major',
+    },
+    // Directories with their own lock file, outside the root pnpm, uv and Cargo workspaces
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
-      groupName: "{{manager}} non-major in {{#if packageFileDir}}{{lookup (split packageFileDir '/') 0}}{{else}}root{{/if}}",
+      matchFileNames: [
+        '**/go.mod',
+        'cli/**',
+        'funnel-udf/**',
+        'rust/common/hogvm/node/Cargo.toml',
+        'services/llm-gateway/**',
+        'services/stripe-mock/**',
+        'tools/hedgebox-dummy/**',
+        'frontend/@posthog/lemon-ui/**',
+        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
+        '.depot/actions/paths-filter/**',
+        '.github/actions/paths-filter/**',
+        '.github/actions/shared-image-releases/**',
+        'products/canvas/packages/canvas_builder/**',
+        'products/visual_review/cli/**',
+        'rust/batch-import-worker/scripts/**',
+      ],
+      groupName: '{{manager}} non-major in {{packageFileDir}}',
+    },
+    // Workspaces with their own lock file and nested package files
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['products/desktop/**', 'packages/agent/**'],
+      groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
+    },
+    // A 0.x minor release can break, so it gets its own PR
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '/^v?0\\./',
+      groupName: null,
+    },
+    // Python and pnpm version bumps change the toolchain for every package, so each gets its own PR
+    {
+      matchDepTypes: ['requires-python', 'packageManager'],
+      groupName: null,
     },
     {
       matchDepNames: ['chrome-headless-shell'],
