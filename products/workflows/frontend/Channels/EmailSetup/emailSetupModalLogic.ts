@@ -17,11 +17,6 @@ export type EmailSetupSurface = 'channels' | 'onboarding_wizard' | 'workflow_edi
 
 export type EmailSetupStep = 'details' | 'dns_records' | 'verified'
 
-const EMAIL_SETUP_STEPS: EmailSetupStep[] = ['details', 'dns_records', 'verified']
-
-const furtherStep = (current: EmailSetupStep, reached: EmailSetupStep): EmailSetupStep =>
-    EMAIL_SETUP_STEPS.indexOf(reached) > EMAIL_SETUP_STEPS.indexOf(current) ? reached : current
-
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
     surface: EmailSetupSurface
@@ -208,7 +203,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             'details' as EmailSetupStep,
             {
                 setSavedIntegration: (state, { integration }) =>
-                    integration ? furtherStep(state, 'dns_records') : state,
+                    integration && state === 'details' ? 'dns_records' : state,
                 verifyDomainSuccess: (state, { verification }) =>
                     verification?.status === 'success' ? 'verified' : state,
             },
