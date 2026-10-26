@@ -1154,12 +1154,15 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     ],
 )
 @pytest.mark.parametrize(
-    "attempt,backfill,reportable",
+    "attempt,backfill,is_byok,outcome",
     [
-        pytest.param(1, False, False, id="first attempt"),
-        pytest.param(3, False, True, id="last attempt"),
-        pytest.param(3, True, False, id="backfill third attempt"),
-        pytest.param(5, True, True, id="backfill last attempt"),
+        pytest.param(1, False, False, "unreported", id="first attempt"),
+        pytest.param(3, False, False, "reported", id="last attempt"),
+        pytest.param(3, True, False, "unreported", id="backfill third attempt"),
+        pytest.param(5, True, False, "reported", id="backfill last attempt"),
+        pytest.param(1, False, True, "unreported", id="byok first attempt"),
+        pytest.param(3, False, True, "skipped", id="byok last attempt"),
+        pytest.param(5, True, True, "unreported", id="byok backfill last attempt"),
     ],
 )
 def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
@@ -1169,7 +1172,8 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     retry_after: int,
     attempt: int,
     backfill: bool,
-    reportable: bool,
+    is_byok: bool,
+    outcome: str,
 ) -> None:
     env = ActivityEnvironment()
     env.info = dataclasses.replace(
@@ -1203,22 +1207,30 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
             provider=provider,
             model="gpt-6-luna" if provider == "openai" else "example-judge-v1",
             provider_key=key,
-            is_byok=True,
+            is_byok=is_byok,
         )
-        with pytest.raises(ApplicationError) as error:
-            env.run(
-                lambda: call_llm_judge(
-                    evaluation=evaluation,
-                    system_prompt="",
-                    user_prompt="Hello!",
-                    allows_na=False,
-                    backfill=backfill,
-                )
+
+        def run_judge() -> EvaluationActivityResult:
+            return call_llm_judge(
+                evaluation=evaluation,
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
             )
-        assert not error.value.non_retryable
-        assert isinstance(error.value, NonReportableError) is not reportable
-        assert error.value.next_retry_delay == timedelta(seconds=retry_after)
-        assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
+
+        if outcome == "skipped":
+            skipped = env.run(run_judge)
+            assert skipped["skip_reason"] == "provider_rate_limited"
+            assert "terminal_user_error" not in skipped
+            assert "provider_key_state" not in skipped
+        else:
+            with pytest.raises(ApplicationError) as error:
+                env.run(run_judge)
+            assert not error.value.non_retryable
+            assert isinstance(error.value, NonReportableError) is (outcome == "unreported")
+            assert error.value.next_retry_delay == timedelta(seconds=retry_after)
+            assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
         assert transport.call_count == 1
 
         result = call_llm_judge(

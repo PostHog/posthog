@@ -847,10 +847,26 @@ def call_llm_judge(
             skip_reason="request_rejected",
         )
     except RetryableRateLimitError as e:
-        increment_errors("rate_limit", provider=provider)
         retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
-        # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
         last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
+        if is_byok:
+            # The customer sets the limits on their own key, so no attempt reaches error tracking.
+            # A backfill still fails its run, because the backfill decides whether to pause or stop.
+            increment_user_errors("provider_rate_limited", provider=provider)
+            if last and not backfill:
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning=require_user_error_spec("provider_rate_limited").safe_message,
+                    skip_reason="provider_rate_limited",
+                )
+            raise NonReportableApplicationError(
+                str(e),
+                {"error_type": "provider_unavailable", "provider": provider},
+                next_retry_delay=retry_delay,
+            ) from e
+        increment_errors("rate_limit", provider=provider)
+        # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
         error_class = ApplicationError if last else NonReportableApplicationError
         raise error_class(
             str(e),
