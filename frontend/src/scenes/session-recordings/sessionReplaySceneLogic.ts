@@ -17,8 +17,6 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
-import { picksInListFromFlag } from 'products/replay_vision/frontend/replay_scanners/picksInList'
-
 export const SCENE_PLAYLIST_LOGIC_PROPS: SessionRecordingPlaylistLogicProps = {
     logicKey: 'scene',
     updateSearchParams: true,
@@ -132,9 +130,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         picksInList: [
             (s) => [s.featureFlags, s.dataProcessingAccepted],
             (featureFlags: FeatureFlagsSet, dataProcessingAccepted: boolean): boolean =>
-                dataProcessingAccepted &&
-                featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] !== 'test' &&
-                picksInListFromFlag(featureFlags[FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]),
+                dataProcessingAccepted && featureFlags[FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026] !== 'test',
         ],
         breadcrumbs: [
             (s) => [s.tab],

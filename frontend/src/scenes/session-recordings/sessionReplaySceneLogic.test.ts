@@ -31,30 +31,20 @@ describe('sessionReplaySceneLogic', () => {
     })
 
     describe('picks in the recordings list', () => {
-        const land = (variant: string, path: string, otherFlags: Record<string, string> = {}): void => {
+        const land = (path: string, flags: Record<string, string> = {}): void => {
             logic.unmount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]: variant,
-                ...otherFlags,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], flags)
             router.actions.push(path)
             logic = sessionReplaySceneLogic()
             logic.mount()
         }
 
         it.each([
-            ['the in-list arm', 'in-list', true],
-            ['control', 'control', false],
-            ['the watch-tab arm', 'watch-tab', false],
-            ['the both arm', 'both', false],
-        ])('shows picks for %s: %p', (_, variant, expected) => {
-            land(variant, '/replay/home')
+            ['the current replay UI', {}, true],
+            ['the replay redesign', { [FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026]: 'test' }, false],
+        ])('shows picks on %s: %p', (_, flags, expected) => {
+            land('/replay/home', flags)
             expect(logic.values.picksInList).toBe(expected)
-        })
-
-        it('leaves users on the replay redesign out of the experiment', () => {
-            land('in-list', '/replay/home', { [FEATURE_FLAGS.REPLAY_UI_REDESIGN_2026]: 'test' })
-            expect(logic.values.picksInList).toBe(false)
         })
 
         it('hides the picks when the organization has not approved AI data processing', () => {
@@ -66,7 +56,7 @@ describe('sessionReplaySceneLogic', () => {
             })
             playlistLogic = sessionRecordingsPlaylistLogic(SCENE_PLAYLIST_LOGIC_PROPS)
             playlistLogic.mount()
-            land('in-list', '/replay/home')
+            land('/replay/home')
             expect(logic.values.picksInList).toBe(false)
         })
 
@@ -75,7 +65,7 @@ describe('sessionReplaySceneLogic', () => {
             ['Recordings', '/replay/home', 'home'],
             ['an unknown route', '/replay/what-to-watch', 'home'],
         ])('switches to %s', (_, path, tab) => {
-            land('in-list', '/replay/home')
+            land('/replay/home')
             router.actions.push(path)
             expect(logic.values.tab).toBe(tab)
         })
