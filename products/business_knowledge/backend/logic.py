@@ -589,8 +589,9 @@ def list_for_team(
     added_by: str | None = None,
     library_id: UUID | None = None,
     unfiled: bool = False,
-) -> list[KnowledgeSource]:
-    # Annotate counts in one round-trip so the serializer doesn't N+1.
+) -> QuerySet[KnowledgeSource]:
+    # Annotate counts in one round-trip so the serializer doesn't N+1. Stays lazy so the view pages it in SQL:
+    # sources have no cap, so loading the whole list per request would grow without bound.
     queryset = KnowledgeSource.objects.filter(team_id=team_id)
     if library_id is not None:
         queryset = queryset.filter(library_links__library_id=library_id)
@@ -607,7 +608,7 @@ def list_for_team(
         if term:
             queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
     # `id` breaks created_at ties so paging over the list can't skip or repeat a source.
-    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id"))
+    return queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id")
 
 
 @with_team_scope(canonical=True)
@@ -2677,13 +2678,14 @@ def search_knowledge(
     query_embedding: list[float] | None = None,
     library_id: UUID | None = None,
     trace: RetrievalTrace | None = None,
+    billing_team_id: int | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
     Run one knowledge search, billed as one query when ``trace`` is given.
 
     Every product surface passes its ``RetrievalTrace``, so every retrieval bills, whatever it returns.
-    Only offline evals and tests search without a trace. ``team_id`` must be the canonical team.
-    A search that raises bills nothing.
+    Only offline evals and tests search without a trace. A search that raises bills nothing.
+    The query bills to ``billing_team_id`` (the canonical team) when given, else to ``team_id``.
     """
     results = _search_knowledge(
         team_id,
@@ -2694,7 +2696,11 @@ def search_knowledge(
         library_id=library_id,
     )
     if trace is not None:
-        billing.record_query(team_id=team_id, trace_id=trace.trace_id, surface=trace.surface)
+        billing.record_query(
+            team_id=billing_team_id if billing_team_id is not None else team_id,
+            trace_id=trace.trace_id,
+            surface=trace.surface,
+        )
     return results
 
 
@@ -2897,7 +2903,8 @@ async def async_search_knowledge_for_team(
 
     Raises ``RetrievalLimitedError`` when the team is over its query quota, as the sync path does.
     """
-    # Rows are stored under the parent team, so search and bill against it, as the sync path does.
+    # Quota and billing use the canonical team. The search itself stays on `team.id`: callers here only
+    # authorize `team`, so switching the search to a parent project would widen what they can read.
     canonical_team_id = await database_sync_to_async(resolve_effective_team_id, thread_sensitive=False)(team.id)
     await database_sync_to_async(_ensure_retrieval_allowed, thread_sensitive=False)(canonical_team_id, team.api_token)
     embedding: list[float] | None = None
@@ -2911,12 +2918,13 @@ async def async_search_knowledge_for_team(
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return await database_sync_to_async(search_knowledge, thread_sensitive=False)(
-        canonical_team_id,
+        team.id,
         query,
         limit=limit,
         use_semantic=embedding is not None,
         query_embedding=embedding,
         trace=trace,
+        billing_team_id=canonical_team_id,
     )
 
 

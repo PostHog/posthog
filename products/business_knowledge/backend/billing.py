@@ -12,11 +12,11 @@ read it. Each row is also mirrored to the `usage-ingestion` service so the usage
 real-time mode later without touching these producers.
 """
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+import os
 from datetime import UTC, datetime
 from functools import partial
-from threading import BoundedSemaphore
+from queue import Full, Queue
+from threading import Lock, Thread
 from typing import cast
 from uuid import UUID
 
@@ -26,6 +26,7 @@ from django.db.models.functions import Coalesce
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.organization import Organization
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
@@ -46,46 +47,71 @@ _UNITS = {
 }
 
 
-@dataclass(frozen=True)
+@frozen
 class KnowledgeUsage:
     chunks: int
     queries: int
 
 
-# The mirror is a blocking gRPC call with retries, so it runs on a small pool off the request path:
-# searches and ingestion never wait for it. When the backlog is full, the record is dropped with a log
-# line; the committed ledger row is still billed.
-_MIRROR_MAX_BACKLOG = 1_000
-_mirror_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bk-usage-mirror")
-_mirror_slots = BoundedSemaphore(_MIRROR_MAX_BACKLOG)
+# The mirror is a blocking gRPC call with retries, so daemon workers send it off the request path:
+# searches and ingestion never wait for it, and a slow gateway never holds up a worker's shutdown.
+# Records still queued at exit, or dropped when the queue is full, are lost from the mirror only; the
+# committed ledger row is what billing reads.
+_MIRROR_WORKERS = 2
+_mirror_queue: Queue[UsageRecord] = Queue(maxsize=1_000)
+_mirror_lock = Lock()
+_mirror_pid: int | None = None
 
 
 def _send(record: UsageRecord) -> None:
+    report_usage([record], site=_REPORT_SITE)
+
+
+def _mirror_worker() -> None:
+    while True:
+        record = _mirror_queue.get()
+        try:
+            _send(record)
+        except Exception:
+            # One failed send must not end the worker.
+            logger.warning("business_knowledge.usage_mirror_failed", usage_key=record.usage_key, exc_info=True)
+        finally:
+            _mirror_queue.task_done()
+
+
+def _start_mirror_workers() -> None:
+    # Threads do not survive a fork, so each process starts its own on first use.
+    global _mirror_pid
+    if _mirror_pid == os.getpid():
+        return
+    with _mirror_lock:
+        if _mirror_pid == os.getpid():
+            return
+        for index in range(_MIRROR_WORKERS):
+            Thread(target=_mirror_worker, name=f"bk-usage-mirror-{index}", daemon=True).start()
+        _mirror_pid = os.getpid()
+
+
+def _enqueue(record: UsageRecord) -> None:
+    _start_mirror_workers()
     try:
-        report_usage([record], site=_REPORT_SITE)
-    finally:
-        _mirror_slots.release()
+        _mirror_queue.put_nowait(record)
+    except Full:
+        logger.warning("business_knowledge.usage_mirror_backlog_full", usage_key=record.usage_key)
 
 
 def _mirror(record_id: str, team_id: int, usage_key: KnowledgeUsageKey, quantity: int) -> None:
-    # Best effort: the ledger row is already committed and is what billing reads today.
-    if not _mirror_slots.acquire(blocking=False):
-        logger.warning("business_knowledge.usage_mirror_backlog_full", usage_key=usage_key.value)
-        return
-    # Built now so the record's timestamp is the commit time, not the time the pool gets to it.
-    record = UsageRecord(
-        record_id=record_id,
-        producer_id=PRODUCER_ID,
-        team_id=team_id,
-        usage_key=usage_key.value,
-        unit=_UNITS[usage_key],
-        quantity=quantity,
+    # Built now so the record's timestamp is the commit time, not the time a worker gets to it.
+    _enqueue(
+        UsageRecord(
+            record_id=record_id,
+            producer_id=PRODUCER_ID,
+            team_id=team_id,
+            usage_key=usage_key.value,
+            unit=_UNITS[usage_key],
+            quantity=quantity,
+        )
     )
-    try:
-        _mirror_pool.submit(_send, record)
-    except RuntimeError:
-        # The pool is shut down while the process exits.
-        _mirror_slots.release()
 
 
 def _mirror_on_commit(record_id: str, team_id: int, usage_key: KnowledgeUsageKey, quantity: int) -> None:
@@ -107,7 +133,7 @@ def record_chunks_ingested(
     """
     if quantity <= 0:
         return
-    row = KnowledgeUsageRecord.objects.create(
+    row = KnowledgeUsageRecord.objects.unscoped().create(
         team_id=team_id,
         usage_key=KnowledgeUsageKey.CHUNKS,
         quantity=quantity,
@@ -126,7 +152,8 @@ def record_query(*, team_id: int, trace_id: str, surface: str) -> None:
     second ledger row and sends nothing. Resending would bill twice in `usage-ingestion` when the retry
     lands on a later UTC day, because it only collapses duplicates within one day.
     """
-    _, created = KnowledgeUsageRecord.objects.get_or_create(
+    # Unscoped: the idempotency key is global, and the row's team is the canonical team passed in.
+    _, created = KnowledgeUsageRecord.objects.unscoped().get_or_create(
         usage_key=KnowledgeUsageKey.QUERIES,
         idempotency_key=trace_id,
         defaults={"team_id": team_id, "quantity": 1, "surface": surface},
@@ -135,10 +162,16 @@ def record_query(*, team_id: int, trace_id: str, surface: str) -> None:
         _mirror_on_commit(trace_id, team_id, KnowledgeUsageKey.QUERIES, 1)
 
 
-def _usage_by_team(usage_key: KnowledgeUsageKey, begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def _usage_by_team(
+    usage_key: KnowledgeUsageKey,
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
+) -> list[tuple[int, int]]:
     # Bucket by write time so a late row is never dropped from an already-run daily report.
     rows = (
-        KnowledgeUsageRecord.objects.filter(created_at__gte=begin, created_at__lt=end, usage_key=usage_key)
+        KnowledgeUsageRecord.objects.unscoped()
+        .filter(created_at__gte=begin, created_at__lt=end, usage_key=usage_key)
         .values("team_id")
         .annotate(total=Coalesce(Sum("quantity"), 0, output_field=IntegerField()))
         .values_list("team_id", "total")
@@ -146,15 +179,23 @@ def _usage_by_team(usage_key: KnowledgeUsageKey, begin: datetime, end: datetime)
     return cast(list[tuple[int, int]], list(rows))
 
 
-def get_chunks_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_chunks_by_team(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract.
+) -> list[tuple[int, int]]:
     return _usage_by_team(KnowledgeUsageKey.CHUNKS, begin, end)
 
 
-def get_queries_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_queries_by_team(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract.
+) -> list[tuple[int, int]]:
     return _usage_by_team(KnowledgeUsageKey.QUERIES, begin, end)
 
 
-@dataclass(frozen=True)
+@frozen
 class UsagePeriod:
     start: datetime
     end: datetime
@@ -179,7 +220,8 @@ def current_usage_period(organization: Organization, now: datetime | None = None
 def get_team_usage(team_id: int, begin: datetime, end: datetime) -> KnowledgeUsage:
     """Usage for one canonical team in `[begin, end)`, for the in-product usage meter."""
     totals = dict(
-        KnowledgeUsageRecord.objects.filter(team_id=team_id, created_at__gte=begin, created_at__lt=end)
+        KnowledgeUsageRecord.objects.for_team(team_id, canonical=True)
+        .filter(created_at__gte=begin, created_at__lt=end)
         .values("usage_key")
         .annotate(total=Coalesce(Sum("quantity"), 0, output_field=IntegerField()))
         .values_list("usage_key", "total")

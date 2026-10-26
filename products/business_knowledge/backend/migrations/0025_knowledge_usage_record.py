@@ -1,3 +1,4 @@
+import django.db.models.manager
 from django.db import migrations, models
 
 import posthog.uuidt
@@ -36,6 +37,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_business_knowledge_knowledgeusagerecord",
+                "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(fields=["created_at", "team_id"], name="bk_usage_created_team"),
                     models.Index(fields=["team_id", "usage_key", "created_at"], name="bk_usage_team_key_created"),
@@ -48,5 +50,8 @@ class Migration(migrations.Migration):
                     )
                 ],
             },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
         ),
     ]

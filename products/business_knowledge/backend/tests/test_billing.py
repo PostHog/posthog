@@ -1,6 +1,8 @@
+import asyncio
 from datetime import timedelta
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -10,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.team import Team
 from posthog.usage_ingestion.client import UsageRecord
 
 from products.business_knowledge.backend import billing, logic, quota
@@ -31,7 +34,9 @@ RETRIEVAL_LIMITED = "products.business_knowledge.backend.quota.is_retrieval_limi
 class _BillingTest(APIBaseTest):
     def _rows(self, usage_key: KnowledgeUsageKey) -> list[KnowledgeUsageRecord]:
         return list(
-            KnowledgeUsageRecord.objects.filter(team_id=self.team.id, usage_key=usage_key).order_by("created_at")
+            KnowledgeUsageRecord.objects.unscoped()
+            .filter(team_id=self.team.id, usage_key=usage_key)
+            .order_by("created_at")
         )
 
     def _generated_input(
@@ -86,7 +91,7 @@ class TestIngestionBilling(_BillingTest):
     def test_chunks_are_mirrored_to_usage_ingestion_after_commit(self) -> None:
         with (
             patch.object(billing, "report_usage") as report_usage,
-            patch.object(billing._mirror_pool, "submit", side_effect=lambda fn, *args: fn(*args)),
+            patch.object(billing, "_enqueue", side_effect=billing._send),
             self.captureOnCommitCallbacks(execute=True),
         ):
             billing.record_chunks_ingested(
@@ -137,7 +142,7 @@ class TestRetrievalBilling(_BillingTest):
 
         with (
             patch.object(billing, "report_usage") as report_usage,
-            patch.object(billing._mirror_pool, "submit", side_effect=lambda fn, *args: fn(*args)),
+            patch.object(billing, "_enqueue", side_effect=billing._send),
             self.captureOnCommitCallbacks(execute=True),
         ):
             logic.search_knowledge(self.team.id, "refunds", trace=trace)
@@ -163,6 +168,35 @@ class TestRetrievalBilling(_BillingTest):
             logic.search_knowledge_for_team(self.team, "refunds", trace=RetrievalTrace(surface="api"))
 
         assert self._rows(KnowledgeUsageKey.QUERIES) == []
+
+    def test_async_search_from_a_child_environment_searches_the_child_and_bills_the_parent(self) -> None:
+        # PostHog AI only authorizes the environment it runs in, so the search must not widen to the parent
+        # project. Quota and billing still belong to the parent, where usage is counted.
+        child = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
+        )
+
+        def run_inline(fn, **_kwargs):
+            async def call(*args, **kwargs):
+                return fn(*args, **kwargs)
+
+            return call
+
+        with (
+            patch.object(logic, "database_sync_to_async", side_effect=run_inline),
+            patch.object(logic, "resolve_effective_team_id", return_value=self.team.id),
+            patch.object(logic, "_ensure_retrieval_allowed") as ensure_allowed,
+            patch.object(logic, "async_generate_embedding", side_effect=RuntimeError("no embeddings")),
+            patch.object(logic, "_search_knowledge", return_value=[]) as search,
+            patch.object(billing, "record_query") as record_query,
+        ):
+            asyncio.run(
+                logic.async_search_knowledge_for_team(child, "refunds", trace=RetrievalTrace(surface="posthog_ai"))
+            )
+
+        ensure_allowed.assert_called_once_with(self.team.id, child.api_token)
+        assert search.call_args.args[0] == child.id
+        assert record_query.call_args.kwargs["team_id"] == self.team.id
 
     def test_stable_trace_ids_repeat_for_the_same_parts_only(self) -> None:
         assert stable_trace_id("a", 1) == stable_trace_id("a", 1)
@@ -206,6 +240,7 @@ class TestUrlSourceEditsAtTheLimit(_BillingTest):
 
 
 class TestUsageAggregation(_BillingTest):
+    @time_machine.travel("2026-10-15T12:00:00Z", tick=False)
     def test_usage_is_summed_per_team_inside_the_window(self) -> None:
         now = timezone.now()
         for quantity in (3, 4):
@@ -214,7 +249,9 @@ class TestUsageAggregation(_BillingTest):
             )
         billing.record_query(team_id=self.team.id, trace_id="trace-1", surface="api")
         billing.record_query(team_id=self.team.id, trace_id="trace-old", surface="api")
-        KnowledgeUsageRecord.objects.filter(idempotency_key="trace-old").update(created_at=now - timedelta(days=40))
+        KnowledgeUsageRecord.objects.unscoped().filter(idempotency_key="trace-old").update(
+            created_at=now - timedelta(days=40)
+        )
 
         begin, end = now - timedelta(days=1), now + timedelta(days=1)
         assert billing.get_chunks_by_team(begin, end) == [(self.team.id, 7)]
@@ -271,6 +308,23 @@ class TestUsageAPI(_BillingTest):
         }
         assert body["queries"]["used"] == 1
         assert body["queries"]["limited"] is False
+
+    def test_usage_treats_an_empty_billing_summary_as_unsynced(self, _ff) -> None:
+        # A billing sync that omits these meters stores `{}`, which must not read as zero organization usage.
+        self.organization.usage = {"business_knowledge_chunks": {}, "business_knowledge_queries": {}}
+        self.organization.save(update_fields=["usage"])
+        billing.record_chunks_ingested(
+            team_id=self.team.id, quantity=5, surface="text", source_id=None, document_id=None
+        )
+
+        with patch(INGESTION_LIMITED, return_value=False), patch(RETRIEVAL_LIMITED, return_value=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/usage/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["chunks"]["used"] == 5
+        assert body["chunks"]["organization_used"] is None
+        assert body["queries"]["organization_used"] is None
 
     def test_search_returns_403_when_the_query_limit_is_reached(self, _ff) -> None:
         with patch(RETRIEVAL_LIMITED, return_value=True):

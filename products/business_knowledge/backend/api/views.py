@@ -573,13 +573,22 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["business_knowledge:read"],
     )
     def usage(self, request: Request, **kwargs) -> Response:
+        # Usage is recorded under the parent project, so a child environment's own token scope and grant are not enough.
+        if self.team.parent_team_id and not (
+            CanonicalTeamTokenPermission().has_permission(request, self)
+            and canonical_user_access_control(self).check_access_level_for_resource("business_knowledge", "viewer")
+        ):
+            raise exceptions.PermissionDenied(
+                detail="You need access to business knowledge in this project to see its usage."
+            )
         canonical_team_id = self.team.parent_team_id or self.team.id
         period = billing.current_usage_period(self.organization)
         used = billing.get_team_usage(canonical_team_id, period.start, period.end)
         org_usage = self.organization.usage or {}
 
         def meter(key: str, project_used: int, free_allowance: int, limited: bool) -> dict[str, Any]:
-            synced = org_usage.get(key)
+            # A sync that omits this meter stores `{}`, which is no more synced than a missing key.
+            synced = org_usage.get(key) or None
             # Billing syncs the period total up to yesterday as `usage` and today's count separately.
             organization_used = (
                 (synced.get("usage") or 0) + (synced.get("todays_usage") or 0) if synced is not None else None

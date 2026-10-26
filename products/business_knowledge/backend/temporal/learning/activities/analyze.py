@@ -547,6 +547,7 @@ def _finish_without_knowledge(
         "pii": "rejected_pii",
         "already_known": "rejected_already_known",
         "low_confidence": "rejected_not_useful",
+        "learned_cap_reached": "rejected_learned_cap",
         "usage_limit_reached": "rejected_usage_limit",
         "stale_candidate": "rejected_stale_candidate",
     }.get(rejection_code, "rejected_not_useful")

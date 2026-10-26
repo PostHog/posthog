@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
 
 
@@ -35,8 +36,14 @@ class KnowledgeUsageRecord(UUIDModel):
     document_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Fail-closed like other team data. Billing reads span every team, so they use `.unscoped()`.
+    objects = TeamScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
+
     class Meta:
         db_table = "posthog_business_knowledge_knowledgeusagerecord"
+        # Django internals read through the unscoped manager, as on ProductTeamModel.
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(
                 fields=["usage_key", "idempotency_key"],
