@@ -14,14 +14,14 @@ The implementation includes no active request, so merging the release tooling al
 From `products/mobile`, choose one:
 
 ```sh
-# First hosted release: raise version in app.config.ts above 1.3.0 first.
-pnpm release:request native --id native-140 --initial --notes "Describe the changes testers should verify."
+# First hosted release: raise version in app.config.ts above 1.4.0 first.
+pnpm release:request native --id native-150 --initial --notes "Describe the changes testers should verify."
 
 # Later native release: raise version again; name the last completed request.
-pnpm release:request native --id native-150 --previous native-140 --notes "Describe the native changes."
+pnpm release:request native --id native-160 --previous native-150 --notes "Describe the native changes."
 
 # JavaScript/assets only: keep the installed native runtime version.
-pnpm release:request ota --id chart-legend-fix --previous native-150 --notes "Fix the chart legend."
+pnpm release:request ota --id chart-legend-fix --previous native-160 --notes "Fix the chart legend."
 
 pnpm release:check
 pnpm release:test
@@ -42,7 +42,7 @@ The workflow compares Expo fingerprints for both platforms against the recorded 
 Native build results must also provide matching EAS fingerprints before either binary is submitted.
 A new native dependency, native configuration change, widget/plugin change or other fingerprint difference blocks OTA and requires a native request with a higher app version.
 Remote EAS variables that affect native configuration must stay stable for a runtime; change them only with a new native release.
-The first hosted native release must raise `version` above the existing `1.3.0` baseline in `releases/config.json`.
+The first hosted native release must raise `version` above the existing `1.4.0` baseline in `releases/config.json`.
 This deliberately establishes new binaries and a verified baseline instead of guessing compatibility with older manually built apps.
 
 ### What runs after merge
