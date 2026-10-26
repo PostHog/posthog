@@ -7814,6 +7814,30 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
+    export type CostPlanStepKind = typeof CostPlanStepKind[keyof typeof CostPlanStepKind];
+
+
+    export const CostPlanStepKind = {
+      Scan: 'scan',
+      Filter: 'filter',
+      Join: 'join',
+    } as const;
+
+    export interface CostPlanStep {
+      /** Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps. */
+      ai_fix_prompt?: string | null;
+      /** The rest of the story for a reader who expands the line. */
+      detail?: string | null;
+      /** Prose advice for a reader. Not replacement text. */
+      fix?: string | null;
+      kind: CostPlanStepKind;
+      /** One line, the way an EXPLAIN prints it. */
+      message: string;
+      rows?: number | null;
+      /** The table the step reads or filters, as the query names it. */
+      table?: string | null;
+    }
+
     export interface HogQLNotice {
       end?: number | null;
       fix?: string | null;
@@ -7955,12 +7979,14 @@ export namespace Schemas {
       /** Sum of the rows of every table entry that has one. */
       rows: number;
       tables: TableScanEstimate[];
-      /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured. */
+      /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so. */
       upper_bound: boolean;
     }
 
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
+      /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+      cost_plan?: CostPlanStep[] | null;
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
@@ -98275,6 +98301,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
+      /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+      cost_plan?: CostPlanStep[] | null;
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;

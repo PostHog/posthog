@@ -630,6 +630,21 @@
             },
             "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose \"experiment\", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
         },
+        "ExplainSQLSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The SQL query to estimate before running it."
+                },
+                "connectionId": {
+                    "description": "Optional id of a data warehouse connection. When set, the query is estimated against that source's tables, the same as execute-sql with a connectionId.",
+                    "type": "string"
+                }
+            },
+            "required": ["query"]
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."

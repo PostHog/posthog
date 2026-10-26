@@ -4190,6 +4190,19 @@ export namespace Schemas {
             | BehavioralPropertyFilter
         > | null;
     }>;
+    export type CostPlanStepKind = "scan" | "filter" | "join";
+    export type CostPlanStep = {
+        ai_fix_prompt?: (string | null) | undefined;
+        detail?: (string | null) | undefined;
+        fix?: (string | null) | undefined;
+        kind: CostPlanStepKind;
+        /**
+         * One line, the way an EXPLAIN prints it.
+         */
+        message: string;
+        rows?: (number | null) | undefined;
+        table?: (string | null) | undefined;
+    };
     export type HogQLNotice = {
         end?: (number | null) | undefined;
         fix?: (string | null) | undefined;
@@ -4294,12 +4307,13 @@ export namespace Schemas {
         rows: number;
         tables: Array<TableScanEstimate>;
         /**
-         * True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured.
+         * True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so.
          */
         upper_bound: boolean;
     };
     export type HogQLMetadataResponse = {
         ch_table_names?: (Array<string> | null) | undefined;
+        cost_plan?: (Array<CostPlanStep> | null) | undefined;
         errors: Array<HogQLNotice>;
         index_usage?: (Array<PredicateIndexUsage> | null) | undefined;
         isUsingIndices?: (QueryIndexUsage | null) | undefined;
