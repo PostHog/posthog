@@ -810,6 +810,18 @@
                         "type": "string",
                         "description": "Caller-generated UUID for one input/output execution. Reuse for exact retries."
                     },
+                    "model_version": {
+                        "description": "Model used for this item. Omitted or null values inherit the experiment's model.",
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "maxLength": 255
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
                     "case_key": {
                         "description": "Stable case identifier for matching inputs across experiments.",
                         "anyOf": [

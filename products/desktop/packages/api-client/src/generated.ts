@@ -234,7 +234,6 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
-        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -346,6 +345,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -1953,6 +1953,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -6180,6 +6181,11 @@ export namespace Schemas {
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
     /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = "sections" | "tabs";
+    /**
      * * `blue` - Blue
      * * `purple` - Purple
      * * `green` - Green
@@ -6202,6 +6208,7 @@ export namespace Schemas {
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
@@ -6285,6 +6292,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_display?: (TileGroupDisplayEnum & unknown) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -12382,6 +12393,8 @@ export namespace Schemas {
      * * `FileUpload` - FileUpload
      * * `Dripify` - Dripify
      * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13792,7 +13805,9 @@ export namespace Schemas {
         | "Particle"
         | "FileUpload"
         | "Dripify"
-        | "AwsS3Tables";
+        | "AwsS3Tables"
+        | "Beacons"
+        | "WooPayments";
     /**
      * * `web` - web
      * * `api` - api
@@ -15212,6 +15227,8 @@ export namespace Schemas {
          * * `FileUpload` - FileUpload
          * * `Dripify` - Dripify
          * * `AwsS3Tables` - AwsS3Tables
+         * * `Beacons` - Beacons
+         * * `WooPayments` - WooPayments
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15830,6 +15847,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -19538,6 +19559,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
@@ -22580,6 +22602,7 @@ export namespace Endpoints {
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;

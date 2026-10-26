@@ -3374,19 +3374,37 @@ class SignalReportTaskActionListResponseSerializer(serializers.Serializer):
 class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=ReportTaskActionKind.choices,
-        help_text="The action to run. Use a value from the actions list.",
+        help_text="The action to run. Use a value from the actions list, or `ask` to send your own `message`.",
     )
     suggested_prompt_index = serializers.IntegerField(
         required=False,
         min_value=0,
         help_text="Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
     )
+    message = serializers.CharField(
+        required=False,
+        max_length=2000,
+        help_text=(
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want "
+            "done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the "
+            "action's fixed request and keeps its instructions and gates: pass it when you know something "
+            "the report does not, such as a merge order, a failure that is already on the base branch, or "
+            "an expected conflict. Not accepted for `suggested_prompt`."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs["action"] == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
+        action = attrs["action"]
+        if action == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
             raise serializers.ValidationError(
                 {"suggested_prompt_index": "Give the index of the suggested prompt to send."}
             )
+        if action == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("message"):
+            raise serializers.ValidationError(
+                {"message": "A suggested prompt sends its own text. Use `ask` to send your own message."}
+            )
+        if action == ReportTaskActionKind.ASK and not attrs.get("message"):
+            raise serializers.ValidationError({"message": "Give the message to send with `ask`."})
         return attrs
 
 

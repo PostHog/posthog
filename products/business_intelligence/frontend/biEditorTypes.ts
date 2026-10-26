@@ -49,6 +49,7 @@ import { localFieldError } from './biLocalFields'
 import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIChartFields, getBIPaneFields, isBIPanes } from './biPaneConfig'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
+import { isBIPivotTable } from './biTableLayout'
 
 export enum BIEditorView {
     SQL = 'sql',
@@ -1296,7 +1297,7 @@ function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: 
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
     const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
-    if (config.chartType === ChartDisplayType.TwoDimensionalHeatmap) {
+    if (isBIPivotTable(config)) {
         return [rowDimensions, columnDimensions].flatMap((side, index) =>
             side.map(({ field, alias }, position) => ({
                 field,
@@ -1524,7 +1525,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     const generatedDimensionAliases = needsGeneratedDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
-    const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const isPivotTable = isBIPivotTable(config)
     const hasSeriesBreakdown =
         dimensions.length === 2 &&
         [

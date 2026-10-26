@@ -71,6 +71,7 @@ export function OfflineItemInspector({
                                     {item.id}
                                 </span>
                                 {item.trial && <span>{`Trial ${item.trial}`}</span>}
+                                {item.model_version && <span>{`Model: ${item.model_version}`}</span>}
                                 {item.application_trace_id && (
                                     <Link to={urls.aiObservabilityTrace(item.application_trace_id)}>
                                         Application trace
