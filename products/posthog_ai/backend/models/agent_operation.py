@@ -67,6 +67,9 @@ class AgentOperation(TeamScopedRootMixin, UUIDModel):
     # after a reply resumes the work.
     handled_output_run_id = models.UUIDField(null=True, blank=True)
     pending_permission_request = models.JSONField(null=True, blank=True)
+    # The run log shows an answered approval as open until the sandbox records the answer, so a read
+    # in between must not bring it back.
+    answered_permission_request_id = models.CharField(max_length=200, null=True, blank=True)
     progress_snapshot = models.JSONField(default=dict, blank=True)
 
     deadline_at = models.DateTimeField()

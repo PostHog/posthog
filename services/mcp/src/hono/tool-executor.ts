@@ -75,6 +75,7 @@ import {
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
+import type { ToolCallStreamHooks } from './progress-stream'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
@@ -131,8 +132,12 @@ function shouldSuppressStructuredContent(args: {
 }
 
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
-function stateForToolCall(state: ResolvedState, intent: string | undefined): ResolvedState {
-    const scoped = { ...state, context: { ...state.context } }
+function stateForToolCall(
+    state: ResolvedState,
+    intent: string | undefined,
+    stream: ToolCallStreamHooks
+): ResolvedState {
+    const scoped = { ...state, context: { ...state.context, ...stream } }
     scoped.context.api = state.context.api.withAnalyticsSuppression(() => {
         scoped.suppressAnalytics = true
     })
@@ -227,6 +232,7 @@ export class ToolExecutor {
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
         hooks?: ToolCallHooks
+        stream: ToolCallStreamHooks = {}
     ): Promise<unknown> {
         const toolName = params?.name as string
         if (!toolName) {
@@ -263,7 +269,7 @@ export class ToolExecutor {
                 state = await hooks.resolveConversation(preparedCall.conversationId)
             }
         }
-        const callState = stateForToolCall(state, analyticsMeta.intent)
+        const callState = stateForToolCall(state, analyticsMeta.intent, stream)
         const callParams = { ...params, arguments: args }
 
         const targetToolName =

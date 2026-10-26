@@ -6,5 +6,5 @@ import { AgentOperationApp } from '../components/AgentOperationApp'
 
 const container = document.getElementById('root')
 if (container) {
-    createRoot(container).render(<AgentOperationApp variant="run" />)
+    createRoot(container).render(<AgentOperationApp />)
 }

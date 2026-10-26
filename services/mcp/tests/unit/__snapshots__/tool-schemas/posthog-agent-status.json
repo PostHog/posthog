@@ -18,7 +18,7 @@
         },
         "wait_seconds": {
             "default": 25,
-            "description": "How long this status request waits for a change, from 0 to 50 seconds. The request returns early when the operation changes. This limit applies to one status request, not to the task.",
+            "description": "How long this status request waits for a change, from 0 to 50 seconds. The request returns early when the operation changes. When your client receives progress updates, any value above 0 follows the run until it finishes or needs the user, up to 10 minutes. This limit applies to one status request, not to the task.",
             "maximum": 50,
             "minimum": 0,
             "type": "integer"

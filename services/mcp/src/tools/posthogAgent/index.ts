@@ -14,8 +14,10 @@ import {
     type AgentOperation,
     agentOperationsPath,
     formatAgentOperationText,
+    followAgentOperation,
     getAgentOperation,
     STATUS_DEFAULT_WAIT_SECONDS,
+    STATUS_FOLLOW_SECONDS,
     STATUS_MAX_WAIT_SECONDS,
     waitForAgentOperationChange,
 } from './operations'
@@ -83,7 +85,7 @@ export const PostHogAgentStatusSchema = z.object({
         .max(STATUS_MAX_WAIT_SECONDS)
         .default(STATUS_DEFAULT_WAIT_SECONDS)
         .describe(
-            `How long this status request waits for a change, from 0 to ${STATUS_MAX_WAIT_SECONDS} seconds. The request returns early when the operation changes. This limit applies to one status request, not to the task.`
+            `How long this status request waits for a change, from 0 to ${STATUS_MAX_WAIT_SECONDS} seconds. The request returns early when the operation changes. When your client receives progress updates, any value above 0 follows the run until it finishes or needs the user, up to ${STATUS_FOLLOW_SECONDS / 60} minutes. This limit applies to one status request, not to the task.`
         ),
 })
 
@@ -142,11 +144,17 @@ export const postHogAgentStatusHandler = async (
     context: Context,
     params: z.infer<typeof PostHogAgentStatusSchema>
 ): Promise<ToolResultPayload> => {
-    const operation = await waitForAgentOperationChange(
-        (cursor) => getAgentOperation(context, params.project_id, params.operation_id, cursor),
-        params.cursor,
-        params.wait_seconds
-    )
+    const fetchOperation = (cursor: string | undefined): Promise<AgentOperation> =>
+        getAgentOperation(context, params.project_id, params.operation_id, cursor)
+    // A client that receives progress updates keeps the call open, so one call can follow the whole run.
+    const operation =
+        context.reportProgress && params.wait_seconds > 0
+            ? await followAgentOperation(fetchOperation, params.cursor, {
+                  seconds: STATUS_FOLLOW_SECONDS,
+                  report: context.reportProgress,
+                  signal: context.signal,
+              })
+            : await waitForAgentOperationChange(fetchOperation, params.cursor, params.wait_seconds)
     return operationPayload(operation)
 }
 
@@ -180,26 +188,23 @@ const postHogAgentRun = (): ToolBase<typeof PostHogAgentRunSchema, RunResult> =>
         handler: postHogAgentRunHandler,
     })
 
-const postHogAgentStatus = (): ToolBase<typeof PostHogAgentStatusSchema, ToolResultPayload> =>
-    withUiApp('posthog-agent-status', {
-        name: POSTHOG_AGENT_STATUS_TOOL_NAME,
-        schema: PostHogAgentStatusSchema,
-        handler: postHogAgentStatusHandler,
-    })
+const postHogAgentStatus = (): ToolBase<typeof PostHogAgentStatusSchema, ToolResultPayload> => ({
+    name: POSTHOG_AGENT_STATUS_TOOL_NAME,
+    schema: PostHogAgentStatusSchema,
+    handler: postHogAgentStatusHandler,
+})
 
-const postHogAgentReply = (): ToolBase<typeof PostHogAgentReplySchema, ToolResultPayload> =>
-    withUiApp('posthog-agent-status', {
-        name: POSTHOG_AGENT_REPLY_TOOL_NAME,
-        schema: PostHogAgentReplySchema,
-        handler: postHogAgentReplyHandler,
-    })
+const postHogAgentReply = (): ToolBase<typeof PostHogAgentReplySchema, ToolResultPayload> => ({
+    name: POSTHOG_AGENT_REPLY_TOOL_NAME,
+    schema: PostHogAgentReplySchema,
+    handler: postHogAgentReplyHandler,
+})
 
-const postHogAgentCancel = (): ToolBase<typeof PostHogAgentCancelSchema, ToolResultPayload> =>
-    withUiApp('posthog-agent-status', {
-        name: POSTHOG_AGENT_CANCEL_TOOL_NAME,
-        schema: PostHogAgentCancelSchema,
-        handler: postHogAgentCancelHandler,
-    })
+const postHogAgentCancel = (): ToolBase<typeof PostHogAgentCancelSchema, ToolResultPayload> => ({
+    name: POSTHOG_AGENT_CANCEL_TOOL_NAME,
+    schema: PostHogAgentCancelSchema,
+    handler: postHogAgentCancelHandler,
+})
 
 export const POSTHOG_AGENT_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     [POSTHOG_AGENT_RUN_TOOL_NAME]: postHogAgentRun,
