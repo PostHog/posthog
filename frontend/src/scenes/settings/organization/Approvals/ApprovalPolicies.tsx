@@ -390,7 +390,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
 
                         <p className="text-xs text-secondary">
                             {actionKey === ApprovalActionKey.EXPERIMENT_UPDATE
-                                ? "With no conditions, any change to an experiment's rollout or release conditions needs approval."
+                                ? "With no conditions, any change to an experiment's rollout, variant split or holdout exclusion needs approval. Changes to its release conditions do not."
                                 : "With no conditions, any change to a flag's rollout needs approval. So does any change to its release conditions, unless an experiment, survey, product tour or early access feature manages the flag."}
                         </p>
                     </div>
