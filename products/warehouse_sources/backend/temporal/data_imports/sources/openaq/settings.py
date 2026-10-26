@@ -23,7 +23,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenAQEndpointConfig:
     name: str
     kind: EndpointKind

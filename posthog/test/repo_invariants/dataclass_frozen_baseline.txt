@@ -828,7 +828,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openai_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openalex/openalex.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/openaq.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/openaq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/openfda.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openfda/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
