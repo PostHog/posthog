@@ -2824,11 +2824,14 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+        group_display?: TileGroupDisplay
         groups?: Record<string, DashboardTileGroupApi>
     }
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
+
+export type TileGroupDisplay = 'sections' | 'tabs'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
