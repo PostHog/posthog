@@ -8511,9 +8511,9 @@ Today (3): `catalog_events`, `package_versions`, `packages`
 
 Diffed against: <https://api.nuget.org/v3/index.json>
 
-- [ ] `VulnerabilityInfo/6.7.0 (https://api.nuget.org/v3/vulnerabilities/index.json → vulnerability.base.json + vulnerability.update.json)` — Lookup keyed by the exact package IDs we already sync: advisory URL, severity, and affected version range — turns packages/package_versions into a security posture table (high)
-- [ ] `catalogEntry.dependencyGroups (registration leaf / catalog leaf child object)` — Per-version dependency graph (target framework + dependency id/range) already present in the leaves we fetch, but never flattened into a queryable table (medium)
-- [ ] `SearchQueryService/3.5.0 (query by owner/tag, not just tracked ids)` — Lets a user sync every package for an owner or tag instead of hand-listing package ids, and exposes verified/prefix-reserved and total download counts across a portfolio (low)
+- [x] `VulnerabilityInfo/6.7.0 (https://api.nuget.org/v3/vulnerabilities/index.json → vulnerability.base.json + vulnerability.update.json)` — Lookup keyed by the exact package IDs we already sync: advisory URL, severity, and affected version range — turns packages/package_versions into a security posture table (high)
+- [x] `catalogEntry.dependencyGroups (registration leaf / catalog leaf child object)` — Per-version dependency graph (target framework + dependency id/range) already present in the leaves we fetch, but never flattened into a queryable table (medium)
+- [ ] `SearchQueryService/3.5.0 (query by owner/tag, not just tracked ids)` — Lets a user sync every package for an owner or tag instead of hand-listing package ids, and exposes verified/prefix-reserved and total download counts across a portfolio (low) — skipped: a package-selection mode rather than a new table; `packages` already carries `verified` and `totalDownloads`
 
 Note: Source is package-id-scoped: the user configures a list of package ids and packages/package_versions are built from search + registration. NuGet v3's remaining service-index resources (Autocomplete, RepositorySignatures, PackagePublish, SymbolPackagePublish, ReportAbuse, PackageBaseAddress) are plumbing or write paths and correctly excluded.
 
