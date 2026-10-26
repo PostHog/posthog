@@ -641,6 +641,21 @@ class TestStandingExclusions(BaseTest):
             ("pin_conflict", [exclusion_id]) if area_known else ("unresolved", [])
         ]
 
+    def test_confirmed_list_is_kept_without_reading_instructions(self) -> None:
+        self.write(self.me)
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=SuggestedReviewers(root=[]),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reviewer_edit=ReviewerEdit(action="confirm", expected_state=self.rules.read().state),
+        )
+        self.exclude()
+        with CaptureQueriesContext(connection) as queries:
+            self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+        assert not [query for query in queries.captured_queries if "signalreviewerexclusion" in query["sql"]]
+
     def test_finding_paths_are_read_only_for_a_path_instruction_in_the_report_repository(self) -> None:
         self.exclude(repository="org/other", path_prefix="src/billing")
         self.exclude(repository="org/app")
