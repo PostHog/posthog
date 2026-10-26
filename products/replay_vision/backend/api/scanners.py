@@ -1692,7 +1692,7 @@ def select_watch_feed_candidates(
 
 
 def refresh_feed_viewed(rows: list[dict[str, Any]], viewer_id: int, as_of: datetime) -> list[dict[str, Any]]:
-    """Cached rows with `feed_viewed` as of `as_of`, since another load in the bucket may have cached them."""
+    """Cached rows with `feed_viewed` as of `as_of`."""
     viewed = set(
         ReplayObservationView.objects.filter(
             user_id=viewer_id, created_at__lte=as_of, observation_id__in=[row["id"] for row in rows]
@@ -2739,8 +2739,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        dismissals = ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of)
-        walkable = candidates.exclude(id__in=dismissals.values("observation_id"))
+        dismissed_ids = sorted(
+            ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
+                "observation_id", flat=True
+            )
+        )
+        walkable = candidates.exclude(id__in=dismissed_ids)
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a feed slot.
         candidates = accessible_observations(
             self.user_access_control, self.team_id, walkable.filter(scanner_id__in=allowed_ids)
@@ -2771,7 +2775,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                             int(as_of.timestamp()) // WATCH_FEED_PICKS_BUCKET_S,
                             params["date_from"],
                             params.get("date_to"),
-                            sorted(map(str, dismissals.values_list("observation_id", flat=True))),
+                            list(map(str, dismissed_ids)),
                             sorted(map(str, allowed_ids)),
                             params.get("search"),
                             params.get("scanner_type"),
@@ -2779,9 +2783,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     ).encode()
                 ).hexdigest()
             )
-            candidate_rows = cache.get(picks_key)
-            if candidate_rows is not None:
-                candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
+            cached = cache.get(picks_key)
+            if cached is not None:
+                picked_as_of, candidate_rows = cached
+                # Another load in the bucket ranked these, so its views may be older than this one's.
+                if picked_as_of != as_of:
+                    candidate_rows = refresh_feed_viewed(candidate_rows, viewer_id, as_of)
             else:
                 # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
                 candidate_rows = select_embedding_picks(
@@ -2793,7 +2800,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     candidate_rows += select_embedding_filler(
                         walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
                     )
-                cache.set(picks_key, candidate_rows, WATCH_FEED_PICKS_CACHE_TTL_S)
+                cache.set(picks_key, (as_of, candidate_rows), WATCH_FEED_PICKS_CACHE_TTL_S)
         else:
             candidate_rows = select_watch_feed_candidates(
                 walkable, allowed_ids, viewed, self.user_access_control, self.team_id

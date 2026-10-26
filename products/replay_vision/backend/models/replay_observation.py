@@ -42,6 +42,11 @@ class ObservationTrigger(models.TextChoices):
     BACKFILL = "backfill", "Backfill"
 
 
+def watch_rank_contrast() -> Cast:
+    """A ranked row's score; `rlo_ranked_contrast_idx` orders by it."""
+    return Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
+
+
 def watch_group_root() -> Coalesce:
     """A ranked row's duplicate group: the observation it duplicates, or itself. `rlo_ranked_group_idx` indexes it."""
     return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
@@ -189,7 +194,7 @@ class ReplayObservation(UUIDModel):
             # The pick query reads each scanner's top rows by score from here.
             models.Index(
                 F("scanner"),
-                Cast(KeyTextTransform("contrast", "watch_rank"), models.FloatField()).desc(),
+                watch_rank_contrast().desc(),
                 F("id").desc(),
                 include=["team", "created_at", "completed_at", "watch_rank"],
                 name="rlo_ranked_contrast_idx",

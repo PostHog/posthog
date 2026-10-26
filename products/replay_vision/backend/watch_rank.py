@@ -16,10 +16,10 @@ from typing import Any, Literal
 
 from django.core.cache import cache
 from django.db import connections
-from django.db.models import CharField, Count, Exists, F, FloatField, Func, QuerySet, Value, Window
+from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Window
 from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
+from django.db.models.functions import Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import numpy as np
@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.utils import dict_from_cursor_fetchall
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
@@ -39,7 +40,12 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_SCOPE_PREWHERE,
     observation_scope_params,
 )
-from products.replay_vision.backend.models.replay_observation import ReplayObservation, watch_group_root
+from products.replay_vision.backend.models.replay_observation import (
+    ReplayObservation,
+    jsonb_typeof,
+    watch_group_root,
+    watch_rank_contrast,
+)
 from products.replay_vision.backend.scanner_access import accessible_observations
 from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
@@ -362,7 +368,7 @@ def _pick_window_rows(
     A row's percentile needs only its rank from the top and its scanner's row count, so the query counts each
     scanner on a narrow index and then reads just its top fifth by score, instead of sorting the whole window.
     """
-    contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
+    contrast = watch_rank_contrast()
     scanner_counts = (
         ranked.values("scanner_id")
         .annotate(scanner_rows=Count("id"))
@@ -374,7 +380,7 @@ def _pick_window_rows(
         .annotate(
             scanner_rank=Window(RowNumber(), order_by=[contrast.desc(), F("id").desc()]),
             watch_group_root=watch_group_root(),
-            pick_category=KeyTextTransform("category", "watch_rank"),
+            pick_category=F("watch_category"),
         )
         .order_by(contrast.desc(), "-id")
         .values("id", "created_at", "scanner_rank", "watch_group_root", "pick_category")
@@ -385,8 +391,7 @@ def _pick_window_rows(
     sql = f"""
         WITH scanner_counts AS ({counts_sql})
         SELECT id, watch_percentile, watch_group_root FROM (
-            SELECT scanner_top.id, scanner_top.created_at, scanner_top.scanner_rank, scanner_top.watch_group_root,
-                scanner_top.pick_category,
+            SELECT scanner_top.*,
                 ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
                     / scanner_counts.scanner_rows::double precision AS watch_percentile
             FROM scanner_counts
@@ -406,8 +411,7 @@ def _pick_window_rows(
     )
     with connections[ranked.db].cursor() as cursor:
         cursor.execute(sql, params)
-        columns = [column.name for column in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return dict_from_cursor_fetchall(cursor)
 
 
 def select_embedding_picks(
@@ -423,7 +427,6 @@ def select_embedding_picks(
     The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
     longer window reaches further back instead of re-ranking the same newest rows.
     """
-    category = KeyTextTransform("category", "watch_rank")
     group_root = watch_group_root()
     ranked = walkable.filter(
         # The explicit null and anchor checks let Postgres match the partial `rlo_ranked_*` indexes.
@@ -432,8 +435,8 @@ def select_embedding_picks(
         watch_rank__anchor_version=ANCHOR_VERSION,
     )
     current_ranks = ranked.alias(
-        watch_category=category,
-        contrast_type=Func(KeyTransform("contrast", "watch_rank"), function="jsonb_typeof", output_field=CharField()),
+        watch_category=KeyTextTransform("category", "watch_rank"),
+        contrast_type=jsonb_typeof(KeyTransform("contrast", "watch_rank")),
     ).filter(contrast_type="number")
     # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
     fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
