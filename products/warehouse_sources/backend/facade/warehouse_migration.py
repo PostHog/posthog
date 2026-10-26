@@ -63,8 +63,11 @@ def _migrations(team_id: int) -> QuerySet[_WarehouseMigration]:
     return _WarehouseMigration.objects.for_team(team_id).defer("snapshot")
 
 
-def list_migrations(team_id: int) -> list[contracts.WarehouseMigration]:
-    return [_to_migration(migration) for migration in _migrations(team_id).order_by("-created_at")]
+def list_migrations(team_id: int, *, limit: int, offset: int) -> tuple[list[contracts.WarehouseMigration], int]:
+    """One page of the team's migrations, newest first, and the total count."""
+    migrations = _migrations(team_id)
+    page = migrations.order_by("-created_at", "-id")[offset : offset + limit]
+    return [_to_migration(migration) for migration in page], migrations.count()
 
 
 def get_migration(team_id: int, migration_id: UUID) -> contracts.WarehouseMigration | None:

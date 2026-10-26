@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.facade import (
 )
 
 _UUID_PATTERN = "[0-9a-f-]+"
+DEFAULT_PAGE_SIZE = 100
 
 
 class ProposedRowFilterSerializer(serializers.Serializer):
@@ -148,7 +150,7 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
 _ITEM_ID = OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")
 
 
-class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Import a team's Fivetran setup and plan the PostHog sources that replace it."""
 
     scope_object = "external_data_source"
@@ -158,6 +160,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["list", "retrieve", "items", "connect_link"]
     # A non-UUID id gets a 404 instead of a lookup error.
     lookup_value_regex = _UUID_PATTERN
+    pagination_class = PrecountedLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -166,7 +169,12 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(responses={200: WarehouseMigrationSerializer(many=True)})
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(WarehouseMigrationSerializer(migrations.list_migrations(self.team_id), many=True).data)
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        page, count = migrations.list_migrations(
+            self.team_id, limit=paginator.get_limit(request) or DEFAULT_PAGE_SIZE, offset=paginator.get_offset(request)
+        )
+        paginator.set_count(count)
+        return self.get_paginated_response(WarehouseMigrationSerializer(self.paginate_queryset(page), many=True).data)
 
     @extend_schema(responses={200: WarehouseMigrationSerializer})
     def retrieve(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
@@ -214,7 +222,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(WarehouseMigrationSerializer(migration).data)
 
     @extend_schema(responses={200: WarehouseMigrationItemSerializer(many=True)})
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def items(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
         items = migrations.list_migration_items(self.team_id, UUID(pk))
         if items is None:
