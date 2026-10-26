@@ -1,4 +1,6 @@
 import re
+import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal, Optional
@@ -24,6 +26,25 @@ _FORMAT_LABELS = {
     "Delta": "Delta",
     "DeltaS3Wrapper": "Delta",
 }
+# Mirrors ClickHouse's chooseCompressionMethod.
+_COMPRESSION_BY_EXTENSION = {
+    "gz": "gzip",
+    "gzip": "gzip",
+    "deflate": "deflate",
+    "br": "br",
+    "brotli": "br",
+    "xz": "xz",
+    "lzma": "xz",
+    "zst": "zstd",
+    "zstd": "zstd",
+    "lz4": "lz4",
+    "bz2": "bz2",
+    "snappy": "snappy",
+}
+_URL_GLOB_CHARACTERS = frozenset("*?{}")
+_BROTLI_FILE_NAME_RE = re.compile(r"\.(?:br|brotli)(?![\w.-])", re.IGNORECASE)
+_BROTLI_EXTENSION_RE = re.compile(r"(?:br|brotli)[*?]*", re.IGNORECASE)
+_MAX_BRACE_EXPANSIONS = 1000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,6 +127,33 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
     )
 
 
+def compression_for_url_pattern(url: str) -> str | None:
+    """None when the pattern can match files with different extensions."""
+    _, dot, extension = url.rsplit("/", 1)[-1].rpartition(".")
+    if _URL_GLOB_CHARACTERS.intersection(extension):
+        return None
+    return _COMPRESSION_BY_EXTENSION.get(extension.lower(), "none") if dot else "none"
+
+
+def _brace_expansions(pattern: str) -> Iterator[str]:
+    match = re.search(r"\{([^{}]*)\}", pattern)
+    if match is None:
+        yield pattern
+        return
+    for alternative in match.group(1).split(","):
+        yield from _brace_expansions(pattern[: match.start()] + alternative + pattern[match.end() :])
+
+
+def _reads_brotli_files(url: str) -> bool:
+    urls = list(itertools.islice(_brace_expansions(url), _MAX_BRACE_EXPANSIONS + 1))
+    if len(urls) > _MAX_BRACE_EXPANSIONS:
+        return _BROTLI_FILE_NAME_RE.search(url) is not None
+    return any(
+        dot and _BROTLI_EXTENSION_RE.fullmatch(extension)
+        for _, dot, extension in (expanded.rsplit("/", 1)[-1].rpartition(".") for expanded in urls)
+    )
+
+
 def build_function_call(
     url: str,
     format: str,
@@ -115,6 +163,7 @@ def build_function_call(
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
+    compression: Optional[str] = None,
 ) -> str:
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
@@ -202,6 +251,11 @@ def build_function_call(
 
         return return_expr(expr)
 
+    if _reads_brotli_files(url):
+        raise ExposedHogQLError(
+            "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
+        )
+
     # Azure
     if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
         regex_result = re.search(r"(https:\/\/.+\.blob\.core\.windows\.net)\/(.+?)\/(.*)", url)
@@ -222,8 +276,9 @@ def build_function_call(
         escaped_access_key = add_param(access_key)
         escaped_access_secret = add_param(access_secret)
         escaped_format = add_param(format, False)
+        escaped_compression = add_param(compression, False) if compression else "'auto'"
 
-        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, 'auto'"
+        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, {escaped_compression}"
 
         if structure:
             escaped_structure = add_param(structure, False)
@@ -252,6 +307,12 @@ def build_function_call(
 
     if structure:
         expr += f", {escaped_structure}"
+    elif compression:
+        # s3() only reads the codec after a structure argument.
+        expr += ", 'auto'"
+
+    if compression:
+        expr += f", {add_param(compression, False)}"
 
     return return_expr(expr)
 

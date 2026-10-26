@@ -1010,10 +1010,12 @@ export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
 export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -1025,16 +1027,17 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'verified_manually',
             'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -1063,7 +1066,6 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
  * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
-export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
 export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
 
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
@@ -1088,9 +1090,9 @@ export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()
@@ -1284,10 +1286,12 @@ export const signalsReportsBulkStateCreateBodyIdsMax = 100
 
 export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -1299,16 +1303,17 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'verified_manually',
             'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -2501,7 +2506,6 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
-export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -2576,9 +2580,9 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()

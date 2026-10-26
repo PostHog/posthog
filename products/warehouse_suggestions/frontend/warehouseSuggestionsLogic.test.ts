@@ -503,17 +503,14 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
-    it('counts time and bytes savings separately', async () => {
-        mockList.mockResolvedValue(page([materialize('a', 1800), materialize('b', 1200), materialize('c', 0, 3e12)]))
+    it('sums time and bytes across every view, including views that save both', async () => {
+        mockList.mockResolvedValue(
+            page([materialize('a', 1800, 2e12), materialize('b', 1200), materialize('c', 0, 3e12)])
+        )
 
         await mountLogic()
 
-        expect(logic.values.savingsSummary).toEqual({
-            timeViews: 2,
-            savedSeconds: 3000,
-            bytesViews: 1,
-            savedBytes: 3e12,
-        })
+        expect(logic.values.savingsSummary).toEqual({ views: 3, saving: { seconds: 3000, bytes: 5e12 } })
     })
 
     it('drops an accepted row from the counts at once and from the list after it leaves', async () => {
@@ -526,7 +523,7 @@ describe('warehouseSuggestionsLogic', () => {
             logic.actions.acceptSuggestion('a', { refresh_interval_seconds: 86400 })
             await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
 
-            expect(logic.values.savingsSummary.savedSeconds).toEqual(1200)
+            expect(logic.values.savingsSummary.saving.seconds).toEqual(1200)
             expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['a', 'b'])
 
             jest.advanceTimersByTime(ROW_LEAVE_MS)
@@ -658,12 +655,12 @@ describe('warehouseSuggestionsLogic', () => {
     }
 
     it.each([MATERIALIZE, unmaterialize('unread', 3000, 1500)])(
-        'sends the strip toast View for $kind to the view in the SQL editor',
+        'sends the strip toast View for $kind to the materialization tab of its model page',
         async (accepted) => {
             await acceptAndClickView('models', accepted)
 
             expect(router.values.location.pathname + router.values.location.search).toContain(
-                urls.sqlEditor({ view_id: accepted.subject_id })
+                `${urls.nodeDetail(accepted.subject_id, 'materialization')}?lookup=saved_query`
             )
         }
     )

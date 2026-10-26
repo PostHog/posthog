@@ -81,8 +81,8 @@ def history_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     # `flag_variants_mismatch` reports a flag without variants, and the variants have to come back first.
     if not any(variant.key for variant in flag.variants):
         return not_applicable(NEEDS_VARIANTS)
-    # Only the health endpoint loads the history, and it does for every state that reaches here, so None there
-    # means that the load failed.
+    # The health endpoint loads the history for every state that reaches here, and so does the exposure answer before
+    # `srm` reads it, so None means that the load failed.
     if ctx.flag_history is None:
         return not_checked("Couldn't check because the flag history failed to load")
     return ctx.flag_history

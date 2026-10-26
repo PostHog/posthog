@@ -44,6 +44,7 @@ import {
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
     signalsReportsPriorityUpdate,
+    signalsReportsStateCreate,
     signalsReportsReviewersUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
@@ -58,11 +59,13 @@ import type {
     SignalReportCheckApi,
     SignalReportFeedbackStateApi,
     SignalReportApi,
+    SignalReportStateRequestApi,
     _UserApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
+import type { SignalReportStateEnumApi } from '../../generated/api.schemas'
 import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
@@ -358,6 +361,7 @@ export interface inboxReportDetailLogicValues {
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
     reportSignalsLoading: boolean
+    reportStateSaving: boolean
     reportSummary: string | null
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
@@ -391,6 +395,9 @@ export interface inboxReportDetailLogicActions {
     }
     cancelReportCheckDone: (checkId: string) => {
         checkId: string
+    }
+    changeReportState: (state: SignalReportStateRequestApi['state']) => {
+        state: SignalReportStateEnumApi
     }
     closeDraftThread: () => {
         value: true
@@ -638,6 +645,9 @@ export interface inboxReportDetailLogicActions {
     setReportClaimed: (claimed: boolean) => {
         claimed: boolean
     }
+    setReportStateSaving: (saving: boolean) => {
+        saving: boolean
+    }
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
@@ -790,6 +800,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setReport: (report: SignalReport | null) => ({ report }),
         updatePriority: (priority: ReportPriorityApi) => ({ priority }),
         setPrioritySaving: (saving: boolean) => ({ saving }),
+        changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
+        setReportStateSaving: (saving: boolean) => ({ saving }),
         setReportClaimed: (claimed: boolean) => ({ claimed }),
         setClaimSaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
@@ -1058,6 +1070,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
+        reportStateSaving: [false, { setReportStateSaving: (_, { saving }) => saving }],
         claimSaving: [false, { setClaimSaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
@@ -1535,6 +1548,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors, cache }) => ({
+        changeReportState: async ({ state }) => {
+            if (values.reportStateSaving) {
+                return
+            }
+            actions.setReportStateSaving(true)
+            try {
+                await signalsReportsStateCreate(String(ApiConfig.getCurrentProjectId()), props.reportId, { state })
+                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                const scene = inboxSceneLogic.findMounted()
+                if (scene?.values.selectedReportId === props.reportId) {
+                    scene.actions.loadSelectedReport({ id: props.reportId })
+                }
+            } catch {
+                lemonToast.error("Couldn't update this report. Refresh it and try again.")
+            } finally {
+                actions.setReportStateSaving(false)
+            }
+        },
         updatePriority: async ({ priority }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
