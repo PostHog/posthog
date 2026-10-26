@@ -24,9 +24,9 @@ if TYPE_CHECKING:
 COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
 # A full refresh starts over at batch 0 and appends after it, so its runs never share a write.
 CROSS_RUN_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append"})
-# The loader holds a set decoded in Arrow, then copies it once more while it deduplicates and
-# partitions, so the memory a set takes is about twice its Arrow size.
-_ARROW_COPIES_HELD = 2
+# The loader holds a set decoded in Arrow through the upsert. Deduplication copies the rows only when
+# a key repeats, and the loader frees the set as read before the upsert, so one copy is held.
+_ARROW_COPIES_HELD = 1
 _MB = 1024 * 1024
 
 

@@ -14,6 +14,7 @@ import threading
 import dataclasses
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from http import HTTPStatus
 from io import StringIO
@@ -147,7 +148,7 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # Dockerfile.sandbox-slim's NODE_MAJOR / uv COPY --from pins (and with Dockerfile.sandbox-base,
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
-SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.4"
 # Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
 # use the same directory whatever HOME the sandbox process gets.
 SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
@@ -617,8 +618,13 @@ def _build_slim_template_image() -> modal.Image:
     changes pays a one-time Modal-side build; every create after that reuses the cached
     image layers.
     """
+    # Modal caches each layer by its definition, so the apt packages below, nodejs included,
+    # keep the versions of their first build. The ISO week in the first layer changes the
+    # definition once a week, so the first create of each week rebuilds them from the newest packages.
+    year, week, _ = datetime.now(UTC).isocalendar()
     return (
         modal.Image.debian_slim()
+        .run_commands(f"echo 'Refresh the apt packages for {year}-W{week:02d}'")
         # bash is required by the NodeSource setup script below; debian_slim doesn't guarantee it.
         .apt_install("git", "ca-certificates", "curl", "bash")
         .run_commands(

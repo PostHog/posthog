@@ -337,6 +337,26 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(context.count("</posthog_reference_context>"), 1)
         self.assertIn("\\u003c", context)
 
+    @parameterized.expand([(False,), (True,)])
+    def test_outcome_event_carries_no_customer_names(self, privacy_mode: bool) -> None:
+        self.selector.mode = "shadow"
+        metric_id = str(uuid4())
+        scored = [
+            (Candidate(id="Secret skill", kind="skill", title="Secret skill", text="t", reference="r"), 0.2),
+            (Candidate(id=metric_id, kind="metric", title="Secret metric", text="t", reference="r"), 0.9),
+        ]
+        with (
+            patch("products.context_layer.backend.selection.is_privacy_mode_enabled", return_value=privacy_mode),
+            patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture,
+        ):
+            self.selector.capture_outcome("selected", 0.8, scored)
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["reason"], "selected")
+        self.assertEqual([c["score"] for c in properties["candidates"]], [0.9, 0.2])
+        serialized = json.dumps(properties)
+        self.assertNotIn("Secret", serialized)
+        self.assertEqual(metric_id in serialized, not privacy_mode)
+
 
 class TestSelectionPermissions(SimpleTestCase):
     def test_session_credentials_cannot_prepare_context(self) -> None:

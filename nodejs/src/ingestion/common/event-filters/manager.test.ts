@@ -143,6 +143,12 @@ describe('EventFilterManager', () => {
         await stop()
     })
 
+    it('fails to start when the first load fails', async () => {
+        mockPostgres.query.mockRejectedValue(new Error('connection refused'))
+
+        await expect(buildManager()).rejects.toThrow('connection refused')
+    })
+
     it('keeps the loaded filters when a background reload fails', async () => {
         mockPostgres.query.mockResolvedValueOnce({
             rows: [

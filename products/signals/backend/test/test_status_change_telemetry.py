@@ -53,6 +53,7 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
         assert kwargs["properties"].get("resolution_reason") is None
+        assert kwargs["properties"].get("dismissal_cause") is None
 
     @parameterized.expand(
         [

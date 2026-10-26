@@ -446,6 +446,14 @@ export interface TaskSessionStorageAccess {
 export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
 export type CommentScope = (typeof COMMENT_SCOPES)[number];
 
+export type SuggestedReviewerEdit = {
+  action: Extract<
+    NonNullable<Schemas.SignalReportArtefactWrite["action"]>,
+    "add" | "remove"
+  >;
+  targets: NonNullable<Schemas.SignalReportArtefactWrite["targets"]>;
+};
+
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
  * real JSON value despite the generated serializer's historically narrow type. */
@@ -6137,6 +6145,7 @@ export class PostHogAPIClient {
     reportId: string,
     artefactId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6149,7 +6158,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -6168,6 +6177,7 @@ export class PostHogAPIClient {
   async setSignalReportReviewers(
     reportId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
@@ -6177,7 +6187,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 

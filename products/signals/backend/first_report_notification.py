@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.text import Truncator
 
 import structlog
 
@@ -18,14 +19,17 @@ from posthog.transactional_email import (
     is_transactional_email_configured,
     send_transactional_email,
 )
-from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.constants import SIGNALS_FIRST_REPORT_EMAIL_TEMPLATE_ID
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
+from products.signals.backend.report_priority import latest_report_priorities
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.slack_formatting import strip_chart_references
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -109,7 +113,12 @@ def _claim(team_id: int) -> SignalFirstReportNotification | None:
                 "project_id": team_id,
                 "report_id": str(report.id),
                 "report_title": report.title,
-                "report_url": absolute_uri(f"/project/{team_id}/inbox/reports/{report.id}"),
+                # The email shows plain text, so a chart link keeps only its label.
+                "report_summary": Truncator(
+                    summary_lead(strip_chart_references(report.summary or ""), SUMMARY_LEAD_LIMIT)
+                ).chars(320),
+                "report_priority": latest_report_priorities(team_id, [str(report.id)]).get(str(report.id), ""),
+                "report_url": build_report_url(team_id, report.id, ReportLinkSource.FIRST_REPORT_EMAIL),
                 "activation_id": str(notification.id),
             }
         # The transactional API has no idempotency key. A crash or uncertain response must leave

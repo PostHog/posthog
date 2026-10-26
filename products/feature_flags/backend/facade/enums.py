@@ -10,8 +10,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
     allowlist includes.
     """
 
-    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays
-    # hidden unless the flag-evaluations-hogql-table flag is on for the organization.
+    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays hidden.
     EVENTS = 0, "Events"
     # The Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only
     # $feature_flag_called read flag_evaluations. Other readers, such as experiment exposures, still read events.

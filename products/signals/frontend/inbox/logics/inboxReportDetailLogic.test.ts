@@ -6,8 +6,11 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiConfig } from 'lib/api'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -75,7 +78,7 @@ describe('inboxReportDetailLogic', () => {
         }
     })
 
-    describe('priority editing', () => {
+    describe('report editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 
         beforeEach(async () => {
@@ -173,6 +176,37 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(save).toHaveBeenCalledTimes(1)
         })
+
+        it.each([200, 500])(
+            'guards Monitoring submissions and releases the guard after response %s',
+            async (responseStatus) => {
+                let completeSave: () => void = () => {}
+                const pendingSave = new Promise<void>((resolve) => {
+                    completeSave = resolve
+                })
+                const save = jest.fn(async (request: MockResolverInfo): Promise<[number, SignalReport]> => {
+                    expect(request.params.team_id).toBe(String(ApiConfig.getCurrentProjectId()))
+                    await pendingSave
+                    return [responseStatus, { ...REPORT, status: SignalReportStatus.POTENTIAL }]
+                })
+                const originalProjectId = ApiConfig.getCurrentProjectId()
+                ApiConfig.setCurrentProjectId(456)
+                try {
+                    useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': save } })
+                    logic.actions.changeReportState('potential')
+                    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+                    expect(logic.values.reportStateSaving).toBe(true)
+                    logic.actions.changeReportState('potential')
+                    completeSave()
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(save).toHaveBeenCalledTimes(1)
+                    expect(logic.values.reportStateSaving).toBe(false)
+                } finally {
+                    completeSave()
+                    ApiConfig.setCurrentProjectId(originalProjectId)
+                }
+            }
+        )
 
         it('keeps the saved priority after a failure and allows retrying', async () => {
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })
@@ -371,7 +405,7 @@ describe('inboxReportDetailLogic', () => {
             })
 
             expect(logic.values.displayReviewers).toEqual([reviewer])
-            logic.actions.updateReviewers([], [])
+            logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [], 'remove')
             expect(logic.values.displayReviewers).toEqual([])
 
             try {
@@ -394,12 +428,70 @@ describe('inboxReportDetailLogic', () => {
                 },
             })
 
-            logic.actions.updateReviewers([], [])
+            logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [], 'remove')
             expect(logic.values.displayReviewers).toEqual([])
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.displayReviewers).toEqual([reviewer])
             expect(logic.values.isUpdatingReviewers).toBe(false)
+        })
+
+        it.each(['add', 'remove'] as const)(
+            'sends %s targets and a full list to the project endpoint',
+            async (action) => {
+                logic.unmount()
+                initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: 99, project_id: MOCK_DEFAULT_PROJECT.id })
+                logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                const added = { ...reviewer, github_login: 'another-reviewer' }
+                const targets = [{ github_login: reviewer.github_login! }]
+                const fullList = action === 'add' ? [reviewer, added] : [added]
+                const save = jest.fn(async (req) => {
+                    expect(new URL(req.url).pathname).toBe(
+                        `/api/projects/${MOCK_DEFAULT_PROJECT.id}/signals/reports/${REPORT.id}/reviewers/`
+                    )
+                    expect(await req.json()).toEqual({
+                        action,
+                        targets,
+                        content: fullList.map(({ github_login }) => ({ github_login })),
+                    })
+                    return { ...artefact, content: fullList }
+                })
+                useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/reviewers/': save } })
+                logic.actions.updateReviewers(targets, fullList, action)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(save).toHaveBeenCalledTimes(1)
+            }
+        )
+
+        it('retains saved reviewers and broadcasts their membership if the refresh fails', async () => {
+            const savedReviewer = { ...reviewer, user_uuid: 'saved-reviewer-uuid' }
+            const bulk = inboxBulkActionsLogic()
+            bulk.mount()
+            const broadcast = jest.spyOn(bulk.actions, 'reportReviewersChanged')
+            useMocks({
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': {
+                        ...artefact,
+                        content: [savedReviewer],
+                    },
+                },
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': [500, { detail: 'Refresh failed' }],
+                },
+            })
+            silenceKeaLoadersErrors()
+            try {
+                logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [], 'remove')
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.displayReviewers).toEqual([savedReviewer])
+                expect(logic.values.isUpdatingReviewers).toBe(false)
+                expect(broadcast).toHaveBeenCalledWith(REPORT.id, [savedReviewer.user_uuid])
+            } finally {
+                resumeKeaLoadersErrors()
+                bulk.unmount()
+            }
         })
     })
 

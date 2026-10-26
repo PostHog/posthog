@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ByokModelPickerNotice } from '../../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../../ModelPicker'
 import { modelPickerLogic } from '../../modelPickerLogic'
+import { booleanOutputConfigError } from '../constants'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { JudgeMethod } from '../types'
 
@@ -23,7 +24,7 @@ export function EvaluationModelPicker(): JSX.Element {
         judgeMethod,
         judgeModelGroups: groups,
     } = useValues(llmEvaluationLogic)
-    const { selectModelFromPicker, setJudgeMethod } = useActions(llmEvaluationLogic)
+    const { selectModelFromPicker, setJudgeMethod, patchOutputConfig } = useActions(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Evals always run on the team's own provider key, so only BYOK models are offered.
@@ -95,7 +96,7 @@ export function EvaluationModelPicker(): JSX.Element {
                                     ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
                                     : evaluation.output_type === 'numeric'
                                       ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                      : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (
@@ -103,6 +104,37 @@ export function EvaluationModelPicker(): JSX.Element {
                         )}
                     </div>
                 </LemonField.Pure>
+                {evaluation?.evaluation_type === 'llm_judge' &&
+                    evaluation.output_type === 'boolean' &&
+                    usesDecisionModel && (
+                        <LemonField.Pure
+                            label="Decision threshold"
+                            htmlFor="llma-evaluation-decision-threshold"
+                            error={booleanOutputConfigError(evaluation.output_config)}
+                        >
+                            <LemonInput
+                                id="llma-evaluation-decision-threshold"
+                                type="number"
+                                value={Number(
+                                    ((evaluation.output_config.decision_threshold ?? 0.5) * 100).toPrecision(15)
+                                )}
+                                onChange={(percentage) =>
+                                    patchOutputConfig({
+                                        decision_threshold: percentage == null ? NaN : percentage / 100,
+                                    })
+                                }
+                                min={0}
+                                max={100}
+                                step="any"
+                                suffix={<span>%</span>}
+                                data-attr="llma-evaluation-decision-threshold"
+                            />
+                            <p className="text-muted text-sm">
+                                A probability at or above this threshold produces a true result. Applies to new runs;
+                                past results stay unchanged.
+                            </p>
+                        </LemonField.Pure>
+                    )}
             </div>
         </div>
     )

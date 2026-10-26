@@ -49,6 +49,9 @@ enum StoreKey<'a> {
     MigrationHistoryPrefix,
     SealAck(&'a str),
     SealAcksPrefix,
+    DrainReport { topic: &'a str, group: &'a str },
+    DrainReportsForTopic(&'a str),
+    DrainReportsPrefix,
 }
 
 impl StoreKey<'_> {
@@ -88,6 +91,11 @@ impl StoreKey<'_> {
             StoreKey::MigrationHistoryPrefix => format!("{prefix}migrations/history/"),
             StoreKey::SealAck(pod) => format!("{prefix}seal_acks/{pod}"),
             StoreKey::SealAcksPrefix => format!("{prefix}seal_acks/"),
+            StoreKey::DrainReport { topic, group } => {
+                format!("{prefix}changelog/drained/{topic}/{group}")
+            }
+            StoreKey::DrainReportsForTopic(topic) => format!("{prefix}changelog/drained/{topic}/"),
+            StoreKey::DrainReportsPrefix => format!("{prefix}changelog/drained/"),
         }
     }
 }

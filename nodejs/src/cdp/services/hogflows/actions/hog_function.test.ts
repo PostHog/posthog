@@ -32,9 +32,22 @@ import { RecipientTokensService } from '../../messaging/recipient-tokens.service
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
-import { HogFunctionHandler } from './hog_function'
+import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
 
 describe('HogFunctionHandler', () => {
+    describe('messageOptOutsAfterStep', () => {
+        const optOut = { identifier: 'sam@example.com', categoryId: '$all' }
+
+        it.each([
+            ['records an opt-out step', 'template-posthog-opt-out-of-messages', [optOut]],
+            ['ignores any other step', 'template-webhook', undefined],
+        ])('%s', (_name, templateId, expected) => {
+            expect(
+                messageOptOutsAfterStep(undefined, templateId, { identifier: ' sam@example.com ', category_id: '$all' })
+            ).toEqual(expected)
+        })
+    })
+
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler

@@ -336,49 +336,57 @@ def test_a_mirrored_sync_of_a_bucket_that_did_not_change_reads_nothing(tmp_path:
 
 
 @pytest.mark.parametrize(
-    "sync_type, has_stored_cursor, expected_ids, expected_columns",
+    "sync_type, has_stored_cursor, mirrors, expected_ids, expected_columns, expected_reset",
     [
-        (ExternalDataSchemaSyncType.APPEND, True, [2], {"id", "_delta_version"}),
-        (ExternalDataSchemaSyncType.APPEND, False, [1, 2], {"id", "_delta_version"}),
+        (ExternalDataSchemaSyncType.APPEND, True, False, [2], {"id", "_delta_version"}, False),
+        (ExternalDataSchemaSyncType.APPEND, False, False, [1, 2], {"id", "_delta_version"}, False),
         # A full refresh ignores the stored cursor, and still records the version it wrote.
-        (ExternalDataSchemaSyncType.FULL_REFRESH, True, [1, 2], {"id"}),
+        (ExternalDataSchemaSyncType.FULL_REFRESH, True, False, [1, 2], {"id"}, False),
+        # An incremental sync names each row's data file, so the loader can replace rows by file.
+        (ExternalDataSchemaSyncType.INCREMENTAL, True, True, [2], {"id", "_delta_version", "_file_name"}, False),
+        # Without the flag the loader can't delete by file, so the run rebuilds the table.
+        (ExternalDataSchemaSyncType.INCREMENTAL, True, False, [1, 2], {"id", "_delta_version", "_file_name"}, True),
     ],
 )
 def test_delta_sync_reads_from_the_stored_cursor_and_stages_the_next_one(
     tmp_path: Path,
     sync_type: ExternalDataSchemaSyncType,
     has_stored_cursor: bool,
+    mirrors: bool,
     expected_ids: list[int],
     expected_columns: set[str],
+    expected_reset: bool,
 ) -> None:
     table_path = str(tmp_path / "customer-data" / "exports" / "sales")
     write_deltalake(table_path, pa.table({"id": [1]}))
     source = _LocalAmazonS3Source(tmp_path)
     config = make_config()
     [schema] = source.get_schemas(config, team_id=1)
-    first = source_inputs(schema.name)
-    first.schema_metadata = schema.schema_metadata
-    first_cursor = SourceCursorManager.from_sync_type_config(source, {}, structlog.get_logger())
-    first.source_cursor = first_cursor
-    list(cast(Iterable[pa.Table], source.source_for_pipeline(config, first).items()))
+    reads_versions = sync_type != ExternalDataSchemaSyncType.FULL_REFRESH
+
+    def sync(stored: dict[str, Any]) -> tuple[SourceResponse, list[dict[str, Any]], SourceCursorManager]:
+        inputs = source_inputs(
+            schema.name,
+            incremental_field=schema.incremental_fields[0]["field"] if reads_versions else None,
+            incremental_field_type=IncrementalFieldType.Integer if reads_versions else None,
+        )
+        inputs.schema_metadata = schema.schema_metadata
+        inputs.sync_type = sync_type
+        cursor = SourceCursorManager.from_sync_type_config(source, stored, structlog.get_logger())
+        inputs.source_cursor = cursor
+        with patch.object(source_base, "_mirrors_files", return_value=mirrors):
+            response = source.source_for_pipeline(config, inputs)
+            rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
+        return response, rows, cursor
+
+    _, _, first_cursor = sync({})
     stored = {"source_cursor": first_cursor.staged_payload()} if has_stored_cursor else {}
     write_deltalake(table_path, pa.table({"id": [2]}), mode="append")
-
-    appends = sync_type == ExternalDataSchemaSyncType.APPEND
-    inputs = source_inputs(
-        schema.name,
-        incremental_field=schema.incremental_fields[0]["field"] if appends else None,
-        incremental_field_type=IncrementalFieldType.Integer if appends else None,
-    )
-    inputs.schema_metadata = schema.schema_metadata
-    inputs.sync_type = sync_type
-    cursor = SourceCursorManager.from_sync_type_config(source, stored, structlog.get_logger())
-    inputs.source_cursor = cursor
-    response = source.source_for_pipeline(config, inputs)
-    rows = [row for table in cast(Iterable[pa.Table], response.items()) for row in table.to_pylist()]
+    response, rows, cursor = sync(stored)
 
     assert sorted(row["id"] for row in rows) == expected_ids
     assert all(set(row) == expected_columns for row in rows)
-    assert response.destination_reset_required is False
+    assert response.destination_reset_required is expected_reset
+    assert (response.replace_scope is not None) == (sync_type == ExternalDataSchemaSyncType.INCREMENTAL)
     staged = cursor.staged_payload()
     assert staged is not None and staged["data"]["version"] == 1

@@ -1,8 +1,10 @@
+import React from 'react'
+
 import { IconCheck, IconX } from '@posthog/icons'
 
 import { MultiQuestionForm as MultiQuestionFormType } from '~/queries/schema/schema-assistant-messages'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+import { MessageTemplate, QuillAssistantBubble, useQuillThread } from 'products/posthog_ai/frontend/api/primitives'
 
 interface MultiQuestionFormRecapProps {
     form: MultiQuestionFormType
@@ -13,7 +15,7 @@ interface MultiQuestionFormRecapProps {
 
 /**
  * Displays a completed multi-question form recap in the chat thread.
- * The interactive form is handled by MultiQuestionFormInput in InputFormArea.tsx.
+ * The interactive form is handled by MultiQuestionFormInput in MultiQuestionFormInput.tsx.
  */
 export function MultiQuestionFormRecap({
     form,
@@ -21,6 +23,9 @@ export function MultiQuestionFormRecap({
     formStatus,
 }: MultiQuestionFormRecapProps): JSX.Element | null {
     const questions = form.questions
+    const quill = useQuillThread()
+    // The recap is ghost prose in the quill thread and a bordered bubble in the lemon one.
+    const Shell = quill ? QuillAssistantBubble : LemonRecapShell
 
     if (!questions || questions.length === 0) {
         return null
@@ -28,7 +33,7 @@ export function MultiQuestionFormRecap({
 
     if (formStatus === 'dismiss_form') {
         return (
-            <MessageTemplate type="ai">
+            <Shell>
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-1.5 text-xs text-muted">
                         <IconX />
@@ -36,12 +41,12 @@ export function MultiQuestionFormRecap({
                     </div>
                     <div className="text-sm text-muted">The user chose not to answer these questions.</div>
                 </div>
-            </MessageTemplate>
+            </Shell>
         )
     }
 
     return (
-        <MessageTemplate type="ai">
+        <Shell>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                     <IconCheck className="text-success" />
@@ -92,6 +97,10 @@ export function MultiQuestionFormRecap({
                     })}
                 </div>
             </div>
-        </MessageTemplate>
+        </Shell>
     )
+}
+
+function LemonRecapShell({ children }: { children: React.ReactNode }): JSX.Element {
+    return <MessageTemplate type="ai">{children}</MessageTemplate>
 }

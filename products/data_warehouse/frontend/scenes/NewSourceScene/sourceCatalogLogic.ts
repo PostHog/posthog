@@ -82,6 +82,15 @@ const SELF_MANAGED_KEYWORDS = [
     'own storage',
 ]
 
+// A "Coming soon" tile for a service we already connect under another tile is a dead end: the user
+// registers interest and leaves without the connector that works today. Each key is hidden while
+// its value is in the catalog and connectable.
+const LIVE_ALTERNATIVE_TO_COMING_SOON: Partial<Record<string, string>> = {
+    [ExternalDataSourceTypeEnumApi.MicrosoftAdvertising]: ExternalDataSourceTypeEnumApi.BingAds,
+    // The managed Amazon S3 source is flag-gated, but the self-managed S3 connector links a bucket.
+    [ExternalDataSourceTypeEnumApi.AmazonS3]: 'aws',
+}
+
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
 export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
@@ -439,7 +448,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 const eventSources =
                     !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? EVENT_SOURCE_CATALOG_ITEMS : []
 
-                return [...managed, ...selfManaged, ...fileUpload, ...eventSources]
+                const items = [...managed, ...selfManaged, ...fileUpload, ...eventSources]
+                const connectableNames = new Set(
+                    items.filter((item) => item.status !== 'coming_soon').map((item) => item.name)
+                )
+                return items.filter((item) => {
+                    const liveAlternative = LIVE_ALTERNATIVE_TO_COMING_SOON[item.name]
+                    return !(item.status === 'coming_soon' && liveAlternative && connectableNames.has(liveAlternative))
+                })
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
