@@ -19,7 +19,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
+from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
 from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
@@ -32,6 +32,7 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
+from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
@@ -193,13 +194,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("source_owned", "source", {}),
-            ("platform_owned", "platform", {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3}),
+            ("source_owned", "source", False),
+            ("platform_owned", "platform", True),
         ]
     )
-    def test_a_firing_records_what_production_sends_beside_it(
-        self, _name: str, owner: str, chart: dict[str, Any]
-    ) -> None:
+    def test_a_firing_records_what_production_sends_beside_it(self, _name: str, owner: str, wants_chart: bool) -> None:
         alert = self._alert()
         configuration = self._copy(alert, owner=owner)
         expected = {
@@ -207,21 +206,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_name": alert.insight.name,
             "insight_short_id": alert.insight.short_id,
             "alert_id": str(alert.id),
-            **chart,
+            **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 
-        with patch(
-            f"{_MODULE}.render_alert_insight_chart",
-            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
-        ) as render:
+        with patch(f"{_MODULE}.render_alert_insight_chart") as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )
 
         assert outcome is not None
         assert outcome.groups[0].source_detail == expected
-        # A render costs up to a minute and a half, so the parallel run must never pay for one.
-        assert render.called is (owner == "platform")
+        # A render takes up to a minute and a half, so it never runs while the check holds its pool slot.
+        render.assert_not_called()
 
     @parameterized.expand(
         [
