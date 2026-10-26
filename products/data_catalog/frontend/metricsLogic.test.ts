@@ -126,12 +126,16 @@ describe('metricsLogic', () => {
             .mockResolvedValueOnce(overwritten)
 
         logic.actions.openMetricFromInsightModal()
-        logic.actions.createMetricFromInsight({
-            name: 'weekly_active_users',
-            display_name: '',
-            description: 'Weekly active users',
-            source_insight_short_id: 'abc123',
-        })
+        logic.actions.createMetricFromInsight(
+            {
+                name: 'weekly_active_users',
+                display_name: '',
+                description: 'Weekly active users',
+                unit: '',
+                source_insight_short_id: 'abc123',
+            },
+            true
+        )
         await expectLogic(logic).toFinishAllListeners()
 
         expect((dataCatalogMetricsCreate as jest.Mock).mock.calls[0][1].overwrite).toBe(false)
@@ -334,12 +338,16 @@ describe('metricsLogic', () => {
         )
 
         logic.actions.openMetricFromInsightModal()
-        logic.actions.createMetricFromInsight({
-            name: 'from_insight',
-            display_name: '',
-            description: 'Snapshotted from an insight',
-            source_insight_short_id: 'abc123',
-        })
+        logic.actions.createMetricFromInsight(
+            {
+                name: 'from_insight',
+                display_name: '',
+                description: 'Snapshotted from an insight',
+                unit: '',
+                source_insight_short_id: 'abc123',
+            },
+            false
+        )
         await expectLogic(logic).toFinishAllListeners()
 
         const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
