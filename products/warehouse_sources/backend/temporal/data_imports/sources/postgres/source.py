@@ -267,6 +267,21 @@ PostgresErrors = {
         "IP address instead of a hostname. Update the host to the hostname your database "
         "provider gave you and try again."
     ),
+    # Twin of the `get_non_retryable_errors` (sync-time) key below: Neon's proxy routes a
+    # connection using the Postgres "endpoint ID" carried in the TLS SNI extension, and SNI is
+    # dropped whenever the host is dialed as a bare IP literal. `pinned_host_kwargs` preserves an
+    # IP literal as-is, so this fires both for a host entered as a raw IP and for an SSH tunnel,
+    # which always connects through its own loopback bind address. Map it here too so credential
+    # validation returns an actionable message instead of capturing this expected user/upstream
+    # condition.
+    "Endpoint ID is not specified": (
+        "Your database provider (Neon) couldn't route the connection because it didn't receive "
+        'routing information ("Endpoint ID is not specified"). This happens when the host is '
+        "configured as an IP address instead of a hostname, or when connecting through an SSH "
+        "tunnel, which can't carry that information to Neon. Update the host to the hostname your "
+        "database provider gave you, or connect directly instead of through an SSH tunnel, then "
+        "try again."
+    ),
     # Some poolers (for example Supabase's transaction pooler on port 6543) reject bad credentials
     # during the SASL/SCRAM exchange with "FATAL: SASL authentication failed" instead of libpq's
     # "password authentication failed for user", so none of the password keys above substring-match
@@ -842,6 +857,22 @@ class PostgresSource(
                 'routing ("requires connecting via ..."). This usually happens when the host is '
                 "configured as an IP address instead of a hostname. Update the host for this "
                 "source to the hostname your database provider gave you, then re-enable the sync."
+            ),
+            # Neon's proxy routes a connection using the Postgres "endpoint ID" carried in the TLS
+            # SNI extension. SNI is dropped whenever the host is dialed as a bare IP literal.
+            # `pinned_host_kwargs` preserves an IP literal as-is, so this fires both for a host
+            # entered as a raw IP and for an SSH tunnel, which always connects through its own
+            # loopback bind address (`_require_loopback` in mixins.py) regardless of the hostname
+            # configured for the source. Deterministic for this host/transport combination, so
+            # retrying just re-hits the same rejection. `PostgresErrors` already handles this on
+            # the validation path; map it here too so a sync that hits it stops retrying.
+            "Endpoint ID is not specified": (
+                "Your database provider (Neon) couldn't route the connection because it didn't "
+                'receive routing information ("Endpoint ID is not specified"). This happens when '
+                "the host is configured as an IP address instead of a hostname, or when connecting "
+                "through an SSH tunnel, which can't carry that information to Neon. Update the "
+                "host for this source to the hostname your database provider gave you, or connect "
+                "directly instead of through an SSH tunnel, then re-enable the sync."
             ),
             "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
