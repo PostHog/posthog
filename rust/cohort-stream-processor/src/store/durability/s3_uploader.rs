@@ -17,7 +17,7 @@ use tracing::{info, warn};
 use super::config::DurabilityConfig;
 use super::error::UploadCancelledError;
 use super::lineage::CheckpointLineage;
-use super::s3_client::create_s3_client;
+use super::s3_client::{create_s3_client, retry_file};
 use super::uploader::CheckpointUploader;
 use crate::observability::metrics::CHECKPOINT_FILES_UPLOADED_TOTAL;
 
@@ -260,8 +260,10 @@ impl CheckpointUploader for S3Uploader {
                 let token = upload_token.clone();
                 let pace = &pace;
                 async move {
-                    self.upload_file_cancellable(&src, &dest, &token, pace)
-                        .await?;
+                    retry_file(&dest, &token, || {
+                        self.upload_file_cancellable(&src, &dest, &token, pace)
+                    })
+                    .await?;
                     Ok::<String, anyhow::Error>(dest)
                 }
             })
@@ -324,8 +326,51 @@ impl CheckpointUploader for S3Uploader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
+    use object_store::memory::InMemory;
     use tempfile::TempDir;
     use tokio::io::AsyncWriteExt;
+
+    use crate::store::durability::flaky_store::FlakyStore;
+    use crate::store::durability::{plan_checkpoint, CheckpointMetadata, PodOrdinal};
+    use crate::store::DbIdentity;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_file_whose_put_fails_once_is_sent_again_and_the_upload_finishes() {
+        let attempt = TempDir::new().unwrap();
+        std::fs::write(attempt.path().join("000007.sst"), b"sst bytes").unwrap();
+        std::fs::write(attempt.path().join("MANIFEST-000005"), b"manifest").unwrap();
+        let plan = plan_checkpoint(
+            attempt.path(),
+            CheckpointMetadata::new(
+                PodOrdinal::STANDALONE,
+                Utc.with_ymd_and_hms(2026, 10, 25, 10, 49, 0).unwrap(),
+                DbIdentity::for_test("db"),
+            ),
+            "checkpoints".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
+        let sst_key = plan.info.get_file_key("000007.sst");
+        let store = Arc::new(FlakyStore::new(InMemory::new(), &sst_key));
+        let uploader = S3Uploader {
+            store: store.clone(),
+            config: DurabilityConfig::default(),
+        };
+
+        uploader.upload_checkpoint_with_plan(&plan).await.unwrap();
+
+        assert!(store.tripped());
+        let uploaded = store
+            .get(&ObjectPath::from(sst_key))
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert_eq!(uploaded.as_ref(), b"sst bytes");
+    }
 
     #[tokio::test]
     async fn read_chunk_cancellable_returns_data_without_token() {
