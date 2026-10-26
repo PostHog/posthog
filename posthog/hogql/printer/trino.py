@@ -439,14 +439,14 @@ class TrinoPrinter(PostgresPrinter):
             for subsequent in node.subsequent_select_queries
         ):
             return None
-        branches = [
+        queries = [
             node.initial_select_query,
             *(subsequent.select_query for subsequent in node.subsequent_select_queries),
         ]
-        if not all(isinstance(branch, ast.SelectQuery) and self._is_constant_row(branch) for branch in branches):
+        branches = [query for query in queries if isinstance(query, ast.SelectQuery)]
+        if len(branches) != len(queries) or not all(self._is_constant_row(branch) for branch in branches):
             return None
-        first = node.initial_select_query
-        assert isinstance(first, ast.SelectQuery)
+        first = branches[0]
         if not all(isinstance(projection, ast.Alias) for projection in first.select):
             return None
         names = [projection.alias for projection in first.select if isinstance(projection, ast.Alias)]
@@ -454,7 +454,6 @@ class TrinoPrinter(PostgresPrinter):
             return None
         rows = []
         for branch in branches:
-            assert isinstance(branch, ast.SelectQuery)
             row = [
                 self.visit(projection.expr if isinstance(projection, ast.Alias) else projection)
                 for projection in branch.select
