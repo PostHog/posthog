@@ -6180,6 +6180,11 @@ export namespace Schemas {
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
     /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = "sections" | "tabs";
+    /**
      * * `blue` - Blue
      * * `purple` - Purple
      * * `green` - Green
@@ -6202,6 +6207,7 @@ export namespace Schemas {
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
@@ -6285,6 +6291,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_display?: (TileGroupDisplayEnum & unknown) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -15830,6 +15840,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -19538,6 +19552,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
@@ -22580,6 +22595,7 @@ export namespace Endpoints {
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;

@@ -38,6 +38,17 @@ export const LayoutCompactionEnumApi = {
 } as const
 
 /**
+ * * `sections` - sections
+ * * `tabs` - tabs
+ */
+export type TileGroupDisplayEnumApi = (typeof TileGroupDisplayEnumApi)[keyof typeof TileGroupDisplayEnumApi]
+
+export const TileGroupDisplayEnumApi = {
+    Sections: 'sections',
+    Tabs: 'tabs',
+} as const
+
+/**
  * * `blue` - Blue
  * * `purple` - Purple
  * * `green` - Green
@@ -101,6 +112,11 @@ export interface DashboardCustomizationApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+     *
+     * * `sections` - sections
+     * * `tabs` - tabs */
+    group_display?: TileGroupDisplayEnumApi
     /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
     groups?: DashboardCustomizationApiGroups
     /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
@@ -530,6 +546,11 @@ export interface DashboardApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+     *
+     * * `sections` - sections
+     * * `tabs` - tabs */
+    group_display?: TileGroupDisplayEnumApi
     /**
      * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable
@@ -1330,6 +1351,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
+    /** How tile groups show. sections shows each group as a band that opens and closes. tabs shows one group at a time, and tiles outside any group get their own first tab.
+     *
+     * * `sections` - sections
+     * * `tabs` - tabs */
+    group_display?: TileGroupDisplayEnumApi
     /**
      * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
      * @nullable

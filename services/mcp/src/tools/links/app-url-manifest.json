@@ -2024,6 +2024,11 @@
         "params": [],
         "scope": "project"
     },
+    "workflowsEmailDomain": {
+        "template": "/workflows/channels/email/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "workflowsLibraryMessage": {
         "template": "/workflows/library/messages/{id}",
         "params": ["id"],

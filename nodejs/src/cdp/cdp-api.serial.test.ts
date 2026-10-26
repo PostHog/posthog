@@ -14,6 +14,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -2308,6 +2309,24 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        it('sends to a recipient whose only suppression is a spam complaint', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, body.to],
+                'test-insert-suppression'
+            )
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
         it.each([
             ['a workflow with another trigger', 'schedule', 'active'],
             ['a transactional email that is not active', 'api', 'draft'],
@@ -2744,6 +2763,7 @@ describe('CDP API', () => {
                     Promise.resolve({
                         invocation,
                         finished: true,
+                        emailSendResult: { status: 'accepted' },
                         logs: [],
                         metrics: [
                             {
@@ -2767,7 +2787,23 @@ describe('CDP API', () => {
             emailSpy.mockRestore()
         })
 
-        it('sends the email inline via EmailService instead of routing to the email queue', async () => {
+        it.each([
+            { status: 'accepted' },
+            { status: 'skipped', reason: 'The recipient has no reachable mail servers.' },
+        ])('returns the inline email outcome %j without routing to the email queue', async (emailSendResult) => {
+            emailSpy.mockImplementation((invocation: any) =>
+                Promise.resolve({
+                    invocation,
+                    finished: true,
+                    emailSendResult,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            )
             const res = await supertest(app).post(`/api/projects/${team.id}/hog_flows/${hogFlowId}/invocations`).send({
                 globals,
                 configuration: {},
@@ -2776,6 +2812,7 @@ describe('CDP API', () => {
 
             expect(res.status).toBe(200)
             expect(res.body.status).toBe('success')
+            expect(res.body.emailSendResult).toEqual(emailSendResult)
             expect(res.body.errors).toEqual([])
             // EmailService was called inline — proving the test endpoint forced inline delivery
             // even though the team would normally be routed to the email queue.

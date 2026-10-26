@@ -7663,10 +7663,10 @@ Diffed against: <https://raw.githubusercontent.com/AdobeDocs/marketo-apis/main/s
 - [x] `Channels (GET /rest/asset/v1/channels.json)` — supply program statuses and success flags for conversion analysis (high). Added as `channels` (full refresh).
 - [x] `Program members (GET /rest/v1/programs/{programId}/members.json)` — measure program participation, member status, and marketing success by lead (high). Added as `program_members` (fan-out over programs in 7-day `updatedAt` windows from the start date, incremental on `updatedAt`).
 - [x] `List members (GET /rest/v1/lists/{listId}/leads.json)` — materialize static-list membership for audience and campaign analysis (high). Added as `list_members` (fan-out over static lists, full refresh).
-- [ ] `Opportunities (GET /rest/v1/opportunities.json)` — connect marketing activity with pipeline and revenue outcomes (high)
-- [ ] `Companies (GET /rest/v1/companies.json)` — resolve company references on leads for account-level marketing analysis (high)
-- [ ] `SalesPersons (GET /rest/v1/salespersons.json)` — resolve sales-owner references for lead routing and performance analysis (high)
-- [ ] `Opportunity roles (GET /rest/v1/opportunities/roles.json)` — join people to opportunities for revenue attribution (medium)
+- [ ] `Opportunities (GET /rest/v1/opportunities.json)` — connect marketing activity with pipeline and revenue outcomes (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalOpportunityId`, `marketoGUID` and custom string/integer fields, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `Companies (GET /rest/v1/companies.json)` — resolve company references on leads for account-level marketing analysis (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalCompanyId`, `id` and `company`, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `SalesPersons (GET /rest/v1/salespersons.json)` — resolve sales-owner references for lead routing and performance analysis (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalSalesPersonId`, `id` and `email`, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `Opportunity roles (GET /rest/v1/opportunities/roles.json)` — join people to opportunities for revenue attribution (medium). Skipped: a lookup by key, not a list. Like opportunities, the endpoint requires `filterType` + `filterValues` matched against the role's searchable fields, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
 - [ ] `Custom objects (GET /rest/v1/customobjects/{customObjectName}.json)` — include account-specific business records linked to leads or companies (medium)
 - [ ] `NamedAccounts (GET /rest/v1/namedaccounts.json)` — analyze target accounts and account-based marketing coverage (medium)
 
@@ -7734,19 +7734,19 @@ Note: Read the vendor SDK's controller docs (32 controllers) and enumerated the 
 
 ## Medusa — gaps
 
-Today (13): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `PriceLists`, `Products`, `ProductVariants`, `Regions`, `Returns`, `StockLocations`
+Today (17): `Claims`, `CustomerGroups`, `Customers`, `DraftOrders`, `Exchanges`, `InventoryItems`, `Orders`, `Payments`, `PriceLists`, `ProductCategories`, `Products`, `ProductVariants`, `Promotions`, `Regions`, `Reservations`, `Returns`, `StockLocations`
 
 Diffed against: <https://raw.githubusercontent.com/medusajs/medusa/develop/www/apps/api-reference/specs/admin/openapi.yaml>
 
 - [x] `Stock locations (GET /admin/stock-locations)` — resolve location_id on returns and support stock analysis by warehouse (high). Added as `StockLocations`.
 - [x] `Claims (GET /admin/claims)` — resolve claim_id on returns and analyze reasons for after-sale claims (high). Added as `Claims`.
 - [x] `Exchanges (GET /admin/exchanges)` — resolve exchange_id on returns and measure replacement activity (high). Added as `Exchanges`.
-- [ ] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high)
+- [x] `Payments (GET /admin/payments)` — track captured and refunded payments for revenue reconciliation (high). Added as `Payments`.
 - [x] `Inventory items (GET /admin/inventory-items)` — measure available, reserved, and stocked quantities, including nested location levels (high). Added as `InventoryItems` (full refresh: the list route has no timestamp filters).
-- [ ] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium)
-- [ ] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium)
+- [x] `Reservations (GET /admin/reservations)` — analyze inventory commitments and their impact on available stock (medium). Added as `Reservations`.
+- [x] `Promotions (GET /admin/promotions)` — compare discount rules with order revenue and promotional performance (medium). Added as `Promotions`.
 - [ ] `Campaigns (GET /admin/campaigns)` — measure promotion budgets and campaign usage (medium)
-- [ ] `Product categories (GET /admin/product-categories)` — group catalog performance by category hierarchy (medium)
+- [x] `Product categories (GET /admin/product-categories)` — group catalog performance by category hierarchy (medium). Added as `ProductCategories`.
 
 Note: Parsed the official v2 OpenAPI root and fetched referenced path files to verify GET methods. Checked official query defaults: products already embed types, collections, tags, and sales channels, so duplicate lookups are excluded. Inventory lists include location levels; no collection route exists for fulfillments. Excluded auth, keys, settings, and uploads; route availability depends on the deployed Medusa version.
 
@@ -8399,15 +8399,15 @@ Note: newsdata.io/documentation is a client-rendered SPA that returns no endpoin
 
 ## NewYorkTimes — gaps
 
-Today (5): `article_search`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `top_stories`
+Today (8): `archive`, `article_search`, `books_best_sellers`, `most_popular_emailed`, `most_popular_shared`, `most_popular_viewed`, `times_wire`, `top_stories`
 
 Diffed against: <https://github.com/nytimes/public_api_specs>
 
-- [ ] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high)
-- [ ] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high)
-- [ ] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium)
+- [x] `archive (/svc/archive/v1/{year}/{month}.json)` — full month-by-month article metadata dump back to 1851 - the natural bulk warehouse table, versus article_search's paginated 100-page cap (high). Added as `archive`; first sync and full refresh cover the last 12 months, incremental restarts at the watermark's month.
+- [x] `timeswire (/svc/news/v3/content.json)` — continuous feed of newly published items with updated timestamps, the incremental-friendly article stream (high). Added as `times_wire` on `/content/all/all/{time-period}.json`: `/content.json` looks up one item by URL, the feed is the `{time-period}` route.
+- [x] `books best-seller list (/svc/books/v3/lists/{date}/{list}.json)` — weekly best-seller rankings, the Books API's headline dataset (medium). Added as `books_best_sellers` (fan-out over `/lists/names.json`, one row per book per list edition).
 - [ ] `books list names (/svc/books/v3/lists/names.json)` — lookup table resolving the list encoded names, dates and update cadence used by every other books endpoint (medium)
-- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium)
+- [ ] `books best-sellers history (/svc/books/v3/lists/best-sellers/history.json)` — per-title ranking history across weeks, the time series behind the lists (medium); skipped: no stable row id and no date filter, and a full pull is ~29,000 titles at 20 per page, more requests than the Books API's daily limit. `books_best_sellers` holds the same rankings per edition.
 - [ ] `community user-content (/svc/community/v3/user-content/by-date.json)` — reader comments joined to articles - the only engagement signal in the NYT APIs (medium)
 - [ ] `movie reviews (/svc/movies/v2/reviews/search.json)` — critics' reviews with pick flags, a distinct content corpus from article_search (low)
 - [ ] `movie critics (/svc/movies/v2/critics/{resource-type}.json)` — lookup resolving the critic bylines attached to movie reviews (low)
@@ -8433,12 +8433,12 @@ Today (10): `activities`, `categories`, `client_folders`, `fields`, `leads`, `pi
 
 Diffed against: <https://www.nocrm.io/api>
 
-- [ ] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high)
-- [ ] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high)
-- [ ] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium)
+- [x] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high). Added as `lead_action_histories` (fan-out over `leads`).
+- [x] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high). Added as `follow_ups` (fan-out over `users`, since the endpoint requires a `lead_id` or `user_id`).
+- [x] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium). Added as `lead_comments` (fan-out over `leads`).
 - [ ] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium)
 - [ ] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium)
-- [ ] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium)
+- [x] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium). Skipped: the API has no list endpoint for tasks, only `PUT /follow_ups/{follow_up_id}/tasks/{task_id}`; `follow_ups` rows carry `tasks_count` and `tasks_done_count`.
 - [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low)
 - [ ] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low)
 
@@ -8446,14 +8446,14 @@ Note: The API reference is a single large HTML page; extracted all /api/v2/\* pa
 
 ## Northflank — gaps
 
-Today (5): `addons`, `jobs`, `projects`, `services`, `volumes`
+Today (9): `addons`, `job_runs`, `jobs`, `plans`, `projects`, `service_builds`, `services`, `usage`, `volumes`
 
 Diffed against: <https://northflank.com/docs/sitemap.xml>
 
-- [ ] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
-- [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
-- [ ] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
-- [ ] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
+- [x] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
+- [x] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
+- [x] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
+- [x] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
 - [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/build` — build history for jobs, the job-side counterpart to service builds (medium)
 - [ ] `GET /v1/projects/{projectId}/workflows/{workflowId}/runs` — workflow execution history, the release automation audit trail (medium)
 - [ ] `GET /v1/projects/{projectId}/pipelines` — pipeline definitions that services and release flows belong to - the missing grouping dimension (medium)
@@ -8525,10 +8525,10 @@ Today (5): `Domains`, `Emails`, `Inboxes`, `Messages`, `Webhooks`
 
 Diffed against: <https://nuntly.com/docs/llms-full.txt>
 
-- [ ] `Retrieve Email Events (GET /emails/{id}/events)` — measure delivery, open, click, bounce, and complaint events over time for each synced email (high)
-- [ ] `List Inbox Threads (GET /inboxes/{inboxId}/threads)` — resolve threadId on synced messages and analyze conversation activity, unread states, and assigned agents (high)
-- [ ] `List Namespaces (GET /namespaces)` — resolve namespaceId on synced inboxes to external customer identifiers for tenant-level reporting (high)
-- [ ] `List Contacts (GET /contacts)` — build the audience dimension for recipient, subscription, and broadcast analysis (medium)
+- [x] `Retrieve Email Events (GET /emails/{id}/events)` — measure delivery, open, click, bounce, and complaint events over time for each synced email (high)
+- [x] `List Inbox Threads (GET /inboxes/{inboxId}/threads)` — resolve threadId on synced messages and analyze conversation activity, unread states, and assigned agents (high)
+- [x] `List Namespaces (GET /namespaces)` — resolve namespaceId on synced inboxes to external customer identifiers for tenant-level reporting (high)
+- [x] `List Contacts (GET /contacts)` — build the audience dimension for recipient, subscription, and broadcast analysis (medium)
 - [ ] `List Broadcasts (GET /broadcasts)` — analyze broadcast lifecycle, audience targeting, scheduling, and failures beyond transactional email delivery (medium)
 - [ ] `List Broadcast Recipients (GET /broadcasts/{broadcastId}/recipients)` — measure recipient-level broadcast delivery outcomes and connect campaigns to contacts and sent emails (medium)
 - [ ] `List Segments and Segment Members (GET /segments; GET /segments/{segmentId}/members)` — analyze audience membership and compare campaign outcomes across customer segments (medium)
@@ -8795,12 +8795,12 @@ Note: Parsed every GET operation in the official API reference, including nested
 
 ## OpenExchangeRates — gaps
 
-Today (4): `currencies`, `historical`, `latest`, `usage`
+Today (6): `currencies`, `historical`, `latest`, `ohlc`, `time_series`, `usage`
 
 Diffed against: <https://docs.openexchangerates.org/reference/api-introduction>
 
-- [ ] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
-- [ ] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
+- [x] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
+- [x] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
 
 Note: Small API. Remaining endpoints are convert (a single-value calculator, not a table), plus bid-ask and alternative-currencies which are request options on latest/historical rather than separate resources.
 

@@ -13,6 +13,7 @@ from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
@@ -76,6 +77,10 @@ INVALID_STORE_CODE_ERROR = (
     "Your store code isn't valid. Use the store view code from Stores > Settings > All Stores in your "
     "Adobe Commerce admin, not its numeric ID, or leave the field blank."
 )
+UNEXPECTED_RESPONSE_ERROR = (
+    "Your Adobe Commerce store couldn't handle PostHog's request. Check the store URL and store code, then try again."
+)
+SERVER_ERROR = "Your Adobe Commerce store returned a server error. Check that the store is online, then try again."
 # Reached only after the tracked session's own transport-level retries for 429/5xx are exhausted
 # (see `_mint`), so this is self-recovering — matched by `AdobeCommerceSource.get_retryable_errors`
 # to keep it out of error tracking. The status code is left out of the constant since it varies.
@@ -650,7 +655,8 @@ def validate_credentials(
             return False, "Adobe Commerce rejected the admin username and password."
         if status == 404:
             return False, "No Adobe Commerce REST API found at that store URL. Check the URL and store code."
-        return False, f"Could not sign in to Adobe Commerce (HTTP {status})."
+        capture_exception(e)
+        return False, UNEXPECTED_RESPONSE_ERROR
     except (AdobeCommerceRetryableError, requests.exceptions.RequestException) as e:
         return False, str(e)
 
@@ -684,4 +690,5 @@ def validate_credentials(
         return False, "No Adobe Commerce REST API found at that store URL. Check the URL and store code."
     if last_status == 0:
         return False, last_error or "Could not connect to your Adobe Commerce store."
-    return False, f"Adobe Commerce returned HTTP {last_status}."
+    capture_exception(ValueError(f"Adobe Commerce credential probe returned HTTP {last_status}"))
+    return False, SERVER_ERROR if last_status is not None and last_status >= 500 else UNEXPECTED_RESPONSE_ERROR

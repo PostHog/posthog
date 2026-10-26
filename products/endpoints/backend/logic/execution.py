@@ -42,7 +42,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import _process_query_request
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, _process_query_request
 from posthog.api.services.query import process_query_model
 from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
@@ -653,7 +653,10 @@ class EndpointExecutionService(PydanticModelMixin):
                 reason=EndpointRateLimitReason.CONCURRENCY,
                 scope=EndpointRateLimitReason.CONCURRENCY.value,
             )
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many concurrent requests. Please try again later.",
+            )
         except APIQueriesBudgetExceeded:
             # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
             # execution counter alone: the budget path counts its own refusals.
