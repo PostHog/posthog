@@ -1,5 +1,7 @@
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Final
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any, Final, Optional
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -8,6 +10,7 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -299,10 +302,50 @@ class HogFlow(Taggable, UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+# Every reload makes each worker drop the team's whole workflow list, so a bulk write sends a few large ones.
+RELOAD_BATCH_SIZE = 500
+_deferred_reloads: ContextVar[Optional[dict[int, set[str]]]] = ContextVar("hog_flow_deferred_reloads", default=None)
+
+
+@contextmanager
+def defer_hog_flow_reloads() -> Iterator[None]:
+    """Collect the worker reloads of the saves inside the block and send them together when it ends."""
+    if _deferred_reloads.get() is not None:
+        yield
+        return
+    pending: dict[int, set[str]] = {}
+    token = _deferred_reloads.set(pending)
+    try:
+        yield
+    finally:
+        _deferred_reloads.reset(token)
+        for team_id, hog_flow_ids in pending.items():
+            ordered = sorted(hog_flow_ids)
+            for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+
+
+def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
+    # The saves have already committed, so a failed publish must not fail the request that made them.
+    # Workers also expire their cached workflows on a timer, so a lost reload only delays the change.
+    for attempt in range(2):
+        try:
+            reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=hog_flow_ids)
+            return
+        except Exception as e:
+            if attempt == 1:
+                logger.exception("hog_flow_deferred_reload_failed", team_id=team_id, hog_flow_count=len(hog_flow_ids))
+                capture_exception(e)
+
+
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+        return
+    pending = _deferred_reloads.get()
+    if pending is not None:
+        pending.setdefault(instance.team_id, set()).add(str(instance.id))
         return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
 
