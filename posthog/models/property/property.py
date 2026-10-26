@@ -92,11 +92,23 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_wit
 # Single source of truth for the starts_with/ends_with operator family, so each backend
 # allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
 STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
-# Built from the generated PropertyOperator enum so a new semver operator needs no edit here.
+
+
 # A Choices class, so an API ChoiceField gets a stable OpenAPI enum name from it.
-SemverOperator = models.TextChoices(
-    "SemverOperator", [(op.name, (op.value, op.value)) for op in PropertyOperator if op.value.startswith("semver_")]
-)
+# Labels equal values to keep the generated API descriptions unchanged.
+# test_semver_operators.py fails when the generated PropertyOperator enum gains a semver operator.
+class SemverOperator(models.TextChoices):
+    SEMVER_EQ = PropertyOperator.SEMVER_EQ.value, PropertyOperator.SEMVER_EQ.value
+    SEMVER_NEQ = PropertyOperator.SEMVER_NEQ.value, PropertyOperator.SEMVER_NEQ.value
+    SEMVER_GT = PropertyOperator.SEMVER_GT.value, PropertyOperator.SEMVER_GT.value
+    SEMVER_GTE = PropertyOperator.SEMVER_GTE.value, PropertyOperator.SEMVER_GTE.value
+    SEMVER_LT = PropertyOperator.SEMVER_LT.value, PropertyOperator.SEMVER_LT.value
+    SEMVER_LTE = PropertyOperator.SEMVER_LTE.value, PropertyOperator.SEMVER_LTE.value
+    SEMVER_TILDE = PropertyOperator.SEMVER_TILDE.value, PropertyOperator.SEMVER_TILDE.value
+    SEMVER_CARET = PropertyOperator.SEMVER_CARET.value, PropertyOperator.SEMVER_CARET.value
+    SEMVER_WILDCARD = PropertyOperator.SEMVER_WILDCARD.value, PropertyOperator.SEMVER_WILDCARD.value
+
+
 SEMVER_OPERATORS: tuple[str, ...] = tuple(SemverOperator.values)
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
