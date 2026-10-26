@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -18,10 +19,19 @@ const SWITCH_DATA_ATTR: Record<OtherRegionReason, string> = {
 
 /**
  * A person who already uses PostHog in the other cloud region gets "no account" or "wrong
- * password" here, and could otherwise create a second, empty account. A pending OAuth connection is
- * pinned to this region, so the notice stays hidden for it.
+ * password" here, and could otherwise create a second, empty account. Most new people are in the
+ * right region, so before signup this is one small line. After a rejected password it is a banner.
+ * A pending OAuth connection is pinned to this region, so the notice stays hidden for it.
  */
-export function OtherRegionNotice({ email, reason }: { email: string; reason: OtherRegionReason }): JSX.Element | null {
+export function OtherRegionNotice({
+    email,
+    reason,
+    className,
+}: {
+    email: string
+    reason: OtherRegionReason
+    className?: string
+}): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
 
@@ -32,21 +42,33 @@ export function OtherRegionNotice({ email, reason }: { email: string; reason: Ot
     const otherRegion = otherRegionOf(preflight.region)
     const search = new URLSearchParams(location.search)
     search.set('email', email)
+    const switchUrl = otherRegionLoginUrl(preflight.region, `?${search.toString()}`)
+
+    if (reason === 'no_account') {
+        return (
+            <p className={clsx('m-0 text-xs text-secondary text-center', className)}>
+                <span>Already have an account? Maybe it's in our</span>{' '}
+                <Link
+                    to={switchUrl}
+                    disableClientSideRouting
+                    data-attr={SWITCH_DATA_ATTR[reason]}
+                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                >
+                    {countryCodeToFlag(otherRegion)} {otherRegion} region
+                </Link>
+                <span>?</span>
+            </p>
+        )
+    }
 
     return (
-        <AuthBanner variant="note" className="mb-5" icon={countryCodeToFlag(otherRegion)}>
+        <AuthBanner variant="note" className={clsx('mb-5', className)} icon={countryCodeToFlag(otherRegion)}>
             <p className="m-0">
-                <strong className="text-primary">
-                    {reason === 'no_account'
-                        ? `No account here in the ${preflight.region} region.`
-                        : 'Wrong region, maybe?'}
-                </strong>{' '}
-                <span>
-                    {`${reason === 'no_account' ? 'Already using PostHog? ' : ''}Your account might live in the ${otherRegion}.`}
-                </span>
+                <strong className="text-primary">Wrong region, maybe?</strong>{' '}
+                <span>Your account might live in the {otherRegion}.</span>
             </p>
             <Link
-                to={otherRegionLoginUrl(preflight.region, `?${search.toString()}`)}
+                to={switchUrl}
                 disableClientSideRouting
                 data-attr={SWITCH_DATA_ATTR[reason]}
                 className="inline-block mt-1 font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"

@@ -66,7 +66,6 @@ export function SignupCredentialsStep(): JSX.Element {
                 }
                 sub={greeting}
             />
-            <OtherRegionNotice email={signupEmail} reason="no_account" />
             {passkeyError && (
                 <AuthBanner variant="danger" className="mb-4">
                     {passkeyError}
@@ -140,6 +139,7 @@ export function SignupCredentialsStep(): JSX.Element {
                 >
                     Create account
                 </LemonButton>
+                <OtherRegionNotice email={signupEmail} reason="no_account" />
             </Form>
             {/* A verified company domain with auto-join adds people who sign in with Google, GitHub or
                 GitLab to their team's organization. An email signup creates a new organization instead. */}
