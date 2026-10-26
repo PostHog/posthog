@@ -93,6 +93,7 @@ function AgentOperationContent({ data, app }: { data: AgentOperation; app: App |
         data: operation,
         error,
         setData,
+        retry,
     } = useToolPolling<AgentOperation>({
         app,
         initialData: data,
@@ -115,6 +116,7 @@ function AgentOperationContent({ data, app }: { data: AgentOperation; app: App |
             onOpenLink={(url) => (app ? void app.openLink({ url }) : window.open(url, '_blank', 'noopener,noreferrer'))}
             canControl={!!app}
             pollError={error}
+            onRetryPoll={retry}
             onCancel={() => void cancel.run('cancel', 'posthog-agent-cancel', agentViewCancelArguments(current))}
             cancelling={cancel.pending !== null}
             cancelError={cancel.error}

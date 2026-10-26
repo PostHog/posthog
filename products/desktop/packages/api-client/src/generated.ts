@@ -23098,6 +23098,7 @@ export namespace Endpoints {
                 repository: string;
                 search: string;
                 sources: Array<
+                    | "agent_mcp"
                     | "autoresearch"
                     | "error_tracking"
                     | "eval_clusters"

@@ -470,9 +470,12 @@ function QuestionCard({
     )
 }
 
-function planTaskStatus(item: AgentOperationPlanItem, live: boolean): 'pending' | 'active' | 'done' {
+function planTaskStatus(item: AgentOperationPlanItem, live: boolean): 'pending' | 'active' | 'done' | 'failed' {
     if (item.status === 'completed') {
         return 'done'
+    }
+    if (item.status === 'failed') {
+        return 'failed'
     }
     return item.status === 'in_progress' && live ? 'active' : 'pending'
 }
@@ -497,6 +500,7 @@ function PlanList({
             <ChatTaskListContent>
                 {plan.map((item, index) => (
                     <ChatTask key={index} status={planTaskStatus(item, live)}>
+                        {item.status === 'failed' && <span className="sr-only">Failed: </span>}
                         {item.content}
                     </ChatTask>
                 ))}
@@ -723,6 +727,7 @@ export interface AgentOperationViewProps {
     onOpenLink: (url: string) => void
     canControl: boolean
     pollError: string | null
+    onRetryPoll?: () => void
     onCancel: () => void
     cancelling: boolean
     cancelError: string | null
@@ -741,6 +746,7 @@ export function AgentOperationView({
     onOpenLink,
     canControl,
     pollError,
+    onRetryPoll,
     onCancel,
     cancelling,
     cancelError,
@@ -766,7 +772,7 @@ export function AgentOperationView({
     const canReply = canControl && operation.state === 'needs_input'
     const canCancel = canControl && !terminal && operation.state !== 'cancelling'
     const reason = operation.state_reason ? REASON_LABELS[operation.state_reason] : undefined
-    const error = cancelError ?? replyError ?? pollError
+    const error = cancelError ?? replyError
 
     return (
         <Card className="relative m-2 flex flex-col gap-4 overflow-hidden p-4">
@@ -856,6 +862,18 @@ export function AgentOperationView({
                 <Text size="xs" variant="destructive">
                     {error}
                 </Text>
+            )}
+            {!error && pollError && !terminal && (
+                <div role="status" className="flex flex-wrap items-center gap-2">
+                    <Text size="xs" variant="muted" render={<span />}>
+                        Can't reach PostHog. Retrying…
+                    </Text>
+                    {onRetryPoll && (
+                        <Button variant="link" size="xs" className="px-0" onClick={onRetryPoll}>
+                            Retry now
+                        </Button>
+                    )}
+                </div>
             )}
 
             <Footer operation={operation} onOpenLink={onOpenLink} />

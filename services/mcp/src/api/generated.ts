@@ -12128,6 +12128,8 @@ export namespace Schemas {
       default_reasoning_effort: string | null;
       /** Models a pipeline may set as agent_model. */
       models: AgentModelOption[];
+    }
+
     /**
      * * `queued` - Queued
      * * `running` - Running
@@ -117234,6 +117236,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `agent_mcp` - agent_mcp
      * * `autoresearch` - autoresearch
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
@@ -117264,6 +117267,7 @@ export namespace Schemas {
 
 
     export const TaskListSourceEnum = {
+      AgentMcp: 'agent_mcp',
       Autoresearch: 'autoresearch',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
@@ -128050,6 +128054,8 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
     export type AgentOperationsRetrieveParams = {
     /**
      * The cursor from the previous response. The response then has only the steps after it.
@@ -139837,6 +139843,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `agent_mcp` - agent_mcp
      * * `autoresearch` - autoresearch
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
@@ -139867,6 +139874,7 @@ export namespace Schemas {
 
 
     export const TasksListSourcesItem = {
+      AgentMcp: 'agent_mcp',
       Autoresearch: 'autoresearch',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',

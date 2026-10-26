@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { markExecPayload, type ToolResultPayload } from '@/lib/build-tool-result'
 import { withUiApp } from '@/resources/ui-apps'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context, type ToolBase, type ZodObjectAny } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import {
     POSTHOG_AGENT_CANCEL_TOOL_NAME,
@@ -28,19 +29,32 @@ const OPERATION_ID_DESCRIPTION = 'The operation id that posthog-agent-run return
 const OPERATION_PROJECT_ID_DESCRIPTION =
     'The project id of the operation, from the `project.id` field of the operation.'
 
+// Match the limits of the agent operation serializers in products/posthog_ai/backend.
+const MAX_TEXT_LENGTH = 4096
+const MAX_CLIENT_REQUEST_ID_LENGTH = 128
+const MAX_REPOSITORY_LENGTH = 255
+
 const projectIdSchema = z.coerce.number().int().positive()
+const clientRequestIdSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_CLIENT_REQUEST_ID_LENGTH)
+    .describe(CLIENT_REQUEST_ID_DESCRIPTION)
 
 export const PostHogAgentRunSchema = z.object({
     goal: z
         .string()
         .trim()
         .min(1)
+        .max(MAX_TEXT_LENGTH)
         .describe(
             'The goal for PostHog Agent, in plain language. Include what the user wants to know or get done, and what a good answer contains.'
         ),
-    client_request_id: z.string().trim().min(1).max(200).describe(CLIENT_REQUEST_ID_DESCRIPTION),
+    client_request_id: clientRequestIdSchema,
     context: z
         .string()
+        .max(MAX_TEXT_LENGTH)
         .optional()
         .describe(
             'Optional background text for the goal, for example relevant code, a local diff summary, or earlier findings. PostHog Agent cannot read local files.'
@@ -54,6 +68,7 @@ export const PostHogAgentRunSchema = z.object({
         ),
     repository: z
         .string()
+        .max(MAX_REPOSITORY_LENGTH)
         .regex(/^[\w.-]+\/[\w.-]+$/, 'Use the format organization/repository.')
         .optional()
         .describe(
@@ -62,6 +77,7 @@ export const PostHogAgentRunSchema = z.object({
     ref: z
         .string()
         .min(1)
+        .max(MAX_REPOSITORY_LENGTH)
         .optional()
         .describe(
             'Optional branch, tag, or commit in the repository. The default branch is used when it is omitted. The commit stays fixed for the whole operation.'
@@ -96,8 +112,9 @@ export const PostHogAgentReplySchema = z.object({
         .string()
         .trim()
         .min(1)
+        .max(MAX_TEXT_LENGTH)
         .describe('The answer to the question of the operation, an approval decision, or a correction from the user.'),
-    client_request_id: z.string().trim().min(1).max(200).describe(CLIENT_REQUEST_ID_DESCRIPTION),
+    client_request_id: clientRequestIdSchema,
 })
 
 export const PostHogAgentCancelSchema = z.object({
@@ -107,11 +124,14 @@ export const PostHogAgentCancelSchema = z.object({
 
 type RunResult = AgentOperation & { _posthogUrl: string; [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
-/** Text for the model and the whole operation as structured content, without a UI app for each call. */
-function operationPayload(operation: AgentOperation): ToolResultPayload {
+/**
+ * The model gets only the text, which fences what PostHog AI wrote. Clients prefer `structuredContent` over
+ * the text, so the raw operation for the PostHog Agent view rides in the app-only `_meta` channel instead.
+ */
+export function operationPayload(operation: AgentOperation): ToolResultPayload {
     return markExecPayload({
         content: [{ type: 'text', text: formatAgentOperationText(operation) }],
-        structuredContent: { ...operation },
+        _meta: { [APP_DATA_META_KEY]: { ...operation } },
     })
 }
 
@@ -144,8 +164,8 @@ export const postHogAgentStatusHandler = async (
     context: Context,
     params: z.infer<typeof PostHogAgentStatusSchema>
 ): Promise<ToolResultPayload> => {
-    const fetchOperation = (cursor: string | undefined): Promise<AgentOperation> =>
-        getAgentOperation(context, params.project_id, params.operation_id, cursor)
+    const fetchOperation = (cursor: string | undefined, signal: AbortSignal): Promise<AgentOperation> =>
+        getAgentOperation(context, params.project_id, params.operation_id, cursor, signal)
     // A client that receives progress updates keeps the call open, so one call can follow the whole run.
     const operation =
         context.reportProgress && params.wait_seconds > 0
@@ -154,7 +174,9 @@ export const postHogAgentStatusHandler = async (
                   report: context.reportProgress,
                   signal: context.signal,
               })
-            : await waitForAgentOperationChange(fetchOperation, params.cursor, params.wait_seconds)
+            : await waitForAgentOperationChange(fetchOperation, params.cursor, params.wait_seconds, {
+                  signal: context.signal,
+              })
     return operationPayload(operation)
 }
 

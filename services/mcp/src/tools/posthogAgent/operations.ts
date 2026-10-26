@@ -1,45 +1,10 @@
+import type { Schemas } from '@/api/generated'
 import type { Context } from '@/tools/types'
 
-export type AgentOperationState =
-    | 'queued'
-    | 'running'
-    | 'needs_input'
-    | 'cancelling'
-    | 'succeeded'
-    | 'failed'
-    | 'cancelled'
-    | 'expired'
-
-export interface AgentOperationPlanItem {
-    content: string
-    status: 'pending' | 'in_progress' | 'completed'
-}
-
-export interface AgentOperationResult {
-    status: 'complete' | 'needs_input' | 'failed'
-    answer: string
-    question: string | null
-    assumptions: string[]
-    evidence: { label: string; url: string | null }[]
-    artifacts: { type: string; name: string; url: string | null }[]
-    follow_ups: string[]
-}
-
-export type AgentOperationApprovals = 'client' | 'none'
-
-export interface AgentOperationApprovalOption {
-    option_id: string
-    kind: string
-    name: string
-}
-
-export interface AgentOperationApproval {
-    request_id: string
-    title: string
-    /** What the step will run, such as the PostHog command, when the sandbox reports it. */
-    detail?: string | null
-    options: AgentOperationApprovalOption[]
-}
+export type AgentOperation = Schemas.AgentOperation
+export type AgentOperationState = Schemas.AgentOperationStateEnum
+export type AgentOperationPlanItem = Schemas.AgentOperationPlanItem
+export type AgentOperationApproval = Schemas.AgentOperationApproval
 
 /** Reply messages that answer a pending approval. */
 export const APPROVAL_REPLIES = {
@@ -91,34 +56,6 @@ export function agentViewCancelArguments(operation: AgentViewOperation): Record<
     })
 }
 
-export interface AgentOperation {
-    id: string
-    state: AgentOperationState
-    state_reason: string | null
-    goal: string
-    project: { id: number; name: string }
-    conversation_id: string | null
-    task_id: string | null
-    run_id: string | null
-    repository: string | null
-    resolved_commit: string | null
-    posthog_url: string
-    plan: AgentOperationPlanItem[]
-    new_steps: string[]
-    /** Steps recorded so far for the whole operation. */
-    steps_total: number
-    summary: string | null
-    cursor: string
-    retry_after_seconds: number
-    question: string | null
-    approvals: AgentOperationApprovals
-    approval: AgentOperationApproval | null
-    result: AgentOperationResult | null
-    created_at: string
-    deadline_at: string | null
-    finished_at: string | null
-}
-
 export const TERMINAL_AGENT_OPERATION_STATES: ReadonlySet<AgentOperationState> = new Set([
     'succeeded',
     'failed',
@@ -150,16 +87,20 @@ export function agentOperationsPath(
     return path
 }
 
+export type FetchAgentOperation = (cursor: string | undefined, signal: AbortSignal) => Promise<AgentOperation>
+
 export function getAgentOperation(
     context: Context,
     projectId: string | number,
     operationId: string,
-    cursor: string | undefined
+    cursor: string | undefined,
+    signal?: AbortSignal
 ): Promise<AgentOperation> {
     return context.api.request<AgentOperation>({
         method: 'GET',
         path: agentOperationsPath(projectId, operationId),
         query: { cursor },
+        ...(signal ? { signal } : {}),
     })
 }
 
@@ -171,6 +112,65 @@ export interface WaitClock {
 const realClock: WaitClock = {
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}
+
+/** A status call has nothing to return without its first read, so that read gets at least this long. */
+const FIRST_FETCH_MIN_MS = 20_000
+/** A read near the end of the budget still gets this long before the call returns the last snapshot. */
+const LATER_FETCH_MIN_MS = 1_000
+
+const STATUS_TIMEOUT_MESSAGE =
+    'PostHog did not answer the status request in time. The operation keeps running. Call posthog-agent-status again.'
+
+/**
+ * Read the operation, or resolve `null` when `timeoutMs` passes or `signal` aborts. The API client waits
+ * out rate limits and slow responses on its own schedule, so this stops a read from outliving the status budget.
+ */
+async function fetchWithin(
+    fetchOperation: FetchAgentOperation,
+    cursor: string | undefined,
+    timeoutMs: number,
+    signal: AbortSignal | undefined
+): Promise<AgentOperation | null> {
+    const controller = new AbortController()
+    const expired = new Promise<null>((resolve) => {
+        controller.signal.addEventListener('abort', () => resolve(null), { once: true })
+    })
+    const abort = (): void => controller.abort()
+    const timer = setTimeout(abort, timeoutMs)
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) {
+        abort()
+    }
+    try {
+        return await Promise.race([fetchOperation(cursor, controller.signal), expired])
+    } catch (error) {
+        if (controller.signal.aborted) {
+            return null
+        }
+        throw error
+    } finally {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abort)
+    }
+}
+
+async function fetchFirst(
+    fetchOperation: FetchAgentOperation,
+    cursor: string | undefined,
+    budgetMs: number,
+    signal: AbortSignal | undefined
+): Promise<AgentOperation> {
+    const operation = await fetchWithin(fetchOperation, cursor, Math.max(budgetMs, FIRST_FETCH_MIN_MS), signal)
+    if (!operation) {
+        throw new Error(STATUS_TIMEOUT_MESSAGE)
+    }
+    return operation
+}
+
+export interface WaitOptions {
+    clock?: WaitClock
+    signal?: AbortSignal | undefined
 }
 
 function hasProgress(
@@ -191,13 +191,13 @@ function hasProgress(
  * The operation keeps running after the budget ends. The caller gets the same cursor back in that case.
  */
 export async function waitForAgentOperationChange(
-    fetchOperation: (cursor: string | undefined) => Promise<AgentOperation>,
+    fetchOperation: FetchAgentOperation,
     cursor: string | undefined,
     waitSeconds: number,
-    clock: WaitClock = realClock
+    { clock = realClock, signal }: WaitOptions = {}
 ): Promise<AgentOperation> {
     const deadline = clock.now() + waitSeconds * 1000
-    let operation = await fetchOperation(cursor)
+    let operation = await fetchFirst(fetchOperation, cursor, waitSeconds * 1000, signal)
     const baselineState = operation.state
 
     for (;;) {
@@ -213,7 +213,16 @@ export async function waitForAgentOperationChange(
             return operation
         }
         await clock.sleep(delayMs)
-        operation = await fetchOperation(cursor)
+        const next = await fetchWithin(
+            fetchOperation,
+            cursor,
+            Math.max(deadline - clock.now(), LATER_FETCH_MIN_MS),
+            signal
+        )
+        if (!next) {
+            return operation
+        }
+        operation = next
     }
 }
 
@@ -238,11 +247,9 @@ function progressMessage(operation: AgentOperation, latestStep: string | undefin
     return latestStep ?? 'PostHog AI is working'
 }
 
-export interface FollowOptions {
+export interface FollowOptions extends WaitOptions {
     seconds: number
     report: (message: string) => void
-    signal?: AbortSignal | undefined
-    clock?: WaitClock
 }
 
 /**
@@ -251,12 +258,12 @@ export interface FollowOptions {
  * returned operation carries every step seen on the way, so the caller does not miss any.
  */
 export async function followAgentOperation(
-    fetchOperation: (cursor: string | undefined) => Promise<AgentOperation>,
+    fetchOperation: FetchAgentOperation,
     cursor: string | undefined,
     { seconds, report, signal, clock = realClock }: FollowOptions
 ): Promise<AgentOperation> {
     const deadline = clock.now() + seconds * 1000
-    let operation = await fetchOperation(cursor)
+    let operation = await fetchFirst(fetchOperation, cursor, seconds * 1000, signal)
     const steps = [...operation.new_steps]
     let lastMessage = ''
 
@@ -271,11 +278,21 @@ export async function followAgentOperation(
             (operation.state === 'needs_input' && !waitsForViewApproval(operation))
         const intervalMs =
             Math.max(FOLLOW_MIN_POLL_SECONDS, Math.min(operation.retry_after_seconds, FOLLOW_MAX_POLL_SECONDS)) * 1000
+        const snapshot = { ...operation, new_steps: steps.slice(-MAX_FOLLOWED_STEPS) }
         if (stopped || signal?.aborted || clock.now() + intervalMs > deadline) {
-            return { ...operation, new_steps: steps.slice(-MAX_FOLLOWED_STEPS) }
+            return snapshot
         }
         await clock.sleep(intervalMs)
-        operation = await fetchOperation(operation.cursor)
+        const next = await fetchWithin(
+            fetchOperation,
+            operation.cursor,
+            Math.max(deadline - clock.now(), LATER_FETCH_MIN_MS),
+            signal
+        )
+        if (!next) {
+            return snapshot
+        }
+        operation = next
         steps.push(...operation.new_steps)
     }
 }

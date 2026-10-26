@@ -343,6 +343,8 @@ export class ApiClient {
         responseType?: 'json' | 'text'
         /** Per-attempt deadline for a JSON response. Defaults to the path-based deadline. */
         timeoutMs?: number
+        /** Aborts the request, for example when the caller's own deadline passes. */
+        signal?: AbortSignal
     }): Promise<T> {
         const pathname = opts.path.split(/[?#]/, 1)[0]!
         if (
@@ -376,6 +378,7 @@ export class ApiClient {
             method: opts.method,
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
             ...(opts.headers ? { headers: opts.headers } : {}),
+            ...(opts.signal ? { signal: opts.signal } : {}),
         }
 
         if (opts.responseType === 'text') {

@@ -231,7 +231,7 @@ export class ToolExecutor {
     async handleToolCall(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        hooks?: ToolCallHooks
+        hooks?: ToolCallHooks,
         stream: ToolCallStreamHooks = {}
     ): Promise<unknown> {
         const toolName = params?.name as string

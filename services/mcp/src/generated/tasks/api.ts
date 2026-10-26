@@ -265,6 +265,7 @@ export const TasksListQueryParams = () => zod.object({
         .array(
             zod
                 .enum([
+                    'agent_mcp',
                     'autoresearch',
                     'error_tracking',
                     'eval_clusters',
@@ -292,7 +293,7 @@ export const TasksListQueryParams = () => zod.object({
                     'workflow',
                 ])
                 .describe(
-                    '\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
+                    '\* `agent_mcp` - agent_mcp\n\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
                 )
         )
         .optional()

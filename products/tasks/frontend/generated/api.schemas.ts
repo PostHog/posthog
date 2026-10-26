@@ -5077,6 +5077,7 @@ export interface SlackThreadContextResponseApi {
 }
 
 /**
+ * * `agent_mcp` - agent_mcp
  * * `autoresearch` - autoresearch
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
@@ -5106,6 +5107,7 @@ export interface SlackThreadContextResponseApi {
 export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof TaskListSourceEnumApi]
 
 export const TaskListSourceEnumApi = {
+    AgentMcp: 'agent_mcp',
     Autoresearch: 'autoresearch',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
@@ -5681,6 +5683,7 @@ export const TasksListPrState = {
 } as const
 
 /**
+ * * `agent_mcp` - agent_mcp
  * * `autoresearch` - autoresearch
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
@@ -5710,6 +5713,7 @@ export const TasksListPrState = {
 export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof TasksListSourcesItem]
 
 export const TasksListSourcesItem = {
+    AgentMcp: 'agent_mcp',
     Autoresearch: 'autoresearch',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',

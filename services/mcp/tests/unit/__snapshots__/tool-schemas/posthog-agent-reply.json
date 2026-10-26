@@ -3,12 +3,13 @@
     "properties": {
         "client_request_id": {
             "description": "A new unique identifier for this request, for example a UUID. If the response is lost, send the same call again with the same value. Do not reuse the value for a different request.",
-            "maxLength": 200,
+            "maxLength": 128,
             "minLength": 1,
             "type": "string"
         },
         "message": {
             "description": "The answer to the question of the operation, an approval decision, or a correction from the user.",
+            "maxLength": 4096,
             "minLength": 1,
             "type": "string"
         },
