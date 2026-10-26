@@ -294,6 +294,17 @@ export const DataCatalogMetricsApproveCreateParams = () => zod.object({
         ),
 })
 
+export const DataCatalogMetricsApproveCreateBody = () => zod
+    .object({
+        expected_updated_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                "The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version."
+            ),
+    })
+    .describe('Input for approving one metric.')
+
 /**
  * Re-snapshot the linked insight's current query into the definition.
  */

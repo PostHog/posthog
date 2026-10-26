@@ -7,15 +7,22 @@ from products.dashboards.backend.constants import (
     LOGS_LIST_DEFAULT_LIMIT,
     LOGS_LIST_MAX_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
+    METRICS_TABLE_DEFAULT_LIMIT,
+    METRICS_TABLE_MAX_LIMIT,
 )
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
-from products.dashboards.backend.widget_specs.configs import ACTIVITY_EVENTS_LIST_WIDGET_TYPE, LOGS_LIST_WIDGET_TYPE
+from products.dashboards.backend.widget_specs.configs import (
+    ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
+    LOGS_LIST_WIDGET_TYPE,
+    METRICS_TABLE_WIDGET_TYPE,
+)
 from products.dashboards.backend.widget_specs.registry import WIDGET_SPECS
 
-# Activity events and logs allow a larger page than other list widgets; other types share the default bounds.
+# Activity events, logs and the metrics table allow a larger page than other list widgets; other types share the default bounds.
 WIDGET_LIMIT_BOUNDS = {
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE: (ACTIVITY_EVENTS_MAX_LIMIT, ACTIVITY_EVENTS_DEFAULT_LIMIT),
     LOGS_LIST_WIDGET_TYPE: (LOGS_LIST_MAX_LIMIT, LOGS_LIST_DEFAULT_LIMIT),
+    METRICS_TABLE_WIDGET_TYPE: (METRICS_TABLE_MAX_LIMIT, METRICS_TABLE_DEFAULT_LIMIT),
 }
 
 

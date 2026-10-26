@@ -2204,15 +2204,32 @@ class TestCreateWebhookPermissionErrorCopy:
             assert unreachable_phrase not in (result.error or "")
 
 
-class TestCreateWebhookLimitErrorCopy:
-    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
-    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
-    def test_webhook_limit_error_gives_actionable_message(self):
+class TestCreateWebhookFailureCopy:
+    # Regression test: these failures used to surface Stripe's raw error verbatim, so the user
+    # couldn't tell the cause or how to recover.
+    @parameterized.expand(
+        [
+            (
+                "webhook_limit",
+                stripe_lib.InvalidRequestError(
+                    "You have reached the maximum of 100 test webhook endpoints.", param=None
+                ),
+                "webhook endpoint limit",
+            ),
+            (
+                "network_error",
+                stripe_lib.APIConnectionError(
+                    "Unexpected error communicating with Stripe. If this problem persists, let us know at "
+                    "support@stripe.com.\n\n(Network error: ConnectionError: connection refused)"
+                ),
+                "couldn't reach Stripe",
+            ),
+        ]
+    )
+    def test_failure_gives_actionable_message(self, _name, error, expected_phrase):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
-                "You have reached the maximum of 100 test webhook endpoints.", param=None
-            )
+            mock_client.webhook_endpoints.create.side_effect = error
 
             result = create_webhook(
                 api_key="sk_test_123",
@@ -2222,8 +2239,9 @@ class TestCreateWebhookLimitErrorCopy:
             )
 
         assert result.success is False
-        assert "webhook endpoint limit" in (result.error or "")
+        assert expected_phrase in (result.error or "")
         assert "manually" in (result.error or "")
+        assert "support@stripe.com" not in (result.error or "")
 
 
 class TestRepinWebhookApiVersion:

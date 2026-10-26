@@ -15,6 +15,7 @@ export function PercentageInput({
     id?: string
     step?: number
     className?: string
+    'aria-label'?: string
     'data-attr'?: string
 }): JSX.Element {
     const [localValue, setLocalValue] = useState(String(value))
@@ -62,6 +63,7 @@ export function PercentageInput({
                         setLocalValue(String(clamped))
                     }
                 }}
+                aria-label={rest['aria-label']}
                 data-attr={rest['data-attr']}
             />
             <span className="LemonInput__suffix">%</span>

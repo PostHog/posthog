@@ -69,6 +69,8 @@ export function SuggestedReviewers({
     updateReviewers({
       artefactId: artefact.id,
       content: toSuggestedReviewerWriteContent(next),
+      action: "remove",
+      targets: toSuggestedReviewerWriteContent([target]),
       optimisticReviewers: next,
     });
   };
@@ -103,6 +105,8 @@ export function SuggestedReviewers({
         ...toSuggestedReviewerWriteContent(reviewers),
         { user_uuid: option.uuid },
       ],
+      action: "add",
+      targets: [{ user_uuid: option.uuid }],
       optimisticReviewers: [...reviewers, optimisticEntry],
     });
   };

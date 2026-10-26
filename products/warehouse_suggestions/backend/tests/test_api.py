@@ -19,7 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_suggestions.backend.facade.contracts import (
     DeprecatePayload,
     MaterializePayload,
@@ -130,6 +130,8 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         )
 
     def test_list_dismiss_and_resume(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, table=self.table, name="charges")
         low = self._suggest(self.view.id, score=2.0)
         high = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE, score=9.0)
         unmaterialize = ingest_surfaced(
@@ -157,6 +159,11 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert rows[str(unmaterialize.id)]["payload"]["read_seconds"] == 5.0
         assert "query_fingerprint" not in rows[str(unmaterialize.id)]["payload"]
         assert all(row["can_act"] for row in listed.json()["results"])
+        assert (rows[str(high.id)]["subject_source_id"], rows[str(high.id)]["subject_schema_id"]) == (
+            str(source.id),
+            str(schema.id),
+        )
+        assert (rows[str(low.id)]["subject_source_id"], rows[str(low.id)]["subject_schema_id"]) == (None, None)
 
         dismissed = self.client.post(
             f"{self.url}/{low.id}/dismiss/",

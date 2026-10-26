@@ -26,8 +26,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )
@@ -83,7 +83,7 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert stored.status == UserActivitySummary.Status.OK
-        assert stored.summary_text == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert stored.summary_text == "Builds the signup funnel.\nThemes: Signup funnel"
         assert stored.input_watermark == NOW - datetime.timedelta(days=1)
         assert stored.next_eligible_at == NOW + datetime.timedelta(days=1)
         assert (stored.tokens_in, stored.tokens_out) == (100, 20)
@@ -102,6 +102,16 @@ class TestUpdateActivitySummary(BaseTest):
         assert self._versions() == [1, 2]
         first = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=1)
         assert (first.summary_text, first.input_watermark) == (stored.summary_text, stored.input_watermark)
+        # The second update read only the rows after the watermark, but its computed fields cover the full window.
+        assert latest.computed is not None
+        assert {entry["id"] for entry in latest.computed["owned"]} == {
+            "Funnel 0",
+            "Funnel 1",
+            "Funnel 2",
+            "Signup funnel",
+        }
+        second = UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=latest, version=2)
+        assert second.computed == latest.computed
 
     def test_a_person_who_only_reads_gets_a_summary_from_what_they_opened(self) -> None:
         other = User.objects.create_and_join(self.organization, "other@example.com", None)
@@ -202,7 +212,7 @@ class TestUpdateActivitySummary(BaseTest):
         assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
         sent = json.dumps(llm.requests[0]["messages"])
         assert ("Old stored summary." not in sent) == rebuilt
-        assert ("Old dashboard" in sent) == rebuilt
+        assert ("Old dashboard" in sent.split("Recent activity")[1]) == rebuilt
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)

@@ -38,6 +38,7 @@ UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
 EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
+ENGAGEMENT_EXPORT_PUBLISHED_EVENT = "inbox_ranking_engagement_export_published"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -217,6 +218,32 @@ def serving_manifest_event(
         if mirror.skip_reason is not None:
             properties["mirror_skip_reason"] = mirror.skip_reason
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
+
+
+def engagement_export_event(
+    *,
+    written: bool,
+    skip_reason: str | None,
+    rows: int,
+    excluded_rows: int,
+    local_share: float | None,
+    bytes_written: int,
+    schema_version: int,
+) -> TrainingEvent:
+    """What the day's engagement export sent to the mirror store. It carries counts only, never a
+    report id or a team id."""
+    return TrainingEvent(
+        event=ENGAGEMENT_EXPORT_PUBLISHED_EVENT,
+        properties={
+            "written": written,
+            "skip_reason": skip_reason,
+            "rows": rows,
+            "excluded_rows": excluded_rows,
+            "local_share": local_share,
+            "bytes": bytes_written,
+            "schema_version": schema_version,
+        },
+    )
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:
