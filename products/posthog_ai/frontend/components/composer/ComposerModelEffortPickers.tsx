@@ -122,13 +122,14 @@ const PICKER_CHROME: Record<
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     return (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger>
                 <span>{title}</span>
                 <span className="flex-1 text-right text-muted">{current}</span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <DropdownMenuSubContent className={cn(chrome.composerMenu && COMPOSER_MENU_CLASS)}>
                 <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
                     {children}
                 </DropdownMenuRadioGroup>

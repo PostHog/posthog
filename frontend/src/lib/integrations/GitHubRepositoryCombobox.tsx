@@ -32,6 +32,8 @@ export interface GitHubRepositoryComboboxProps {
     loadAll?: boolean
     fullWidth?: boolean
     triggerClassName?: string
+    contentSide?: 'top' | 'bottom'
+    contentClassName?: string
     defaultOpen?: boolean
 }
 
@@ -55,6 +57,8 @@ export function GitHubRepositoryCombobox({
     loadAll = false,
     fullWidth = false,
     triggerClassName,
+    contentSide = 'bottom',
+    contentClassName,
     defaultOpen = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
@@ -112,7 +116,12 @@ export function GitHubRepositoryCombobox({
                     </Button>
                 }
             />
-            <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
+            <ComboboxContent
+                anchor={triggerRef}
+                side={contentSide}
+                sideOffset={6}
+                className={contentClassName ?? 'min-w-[280px]'}
+            >
                 <ComboboxSearchField
                     itemsLabel="repositories"
                     loading={loading}

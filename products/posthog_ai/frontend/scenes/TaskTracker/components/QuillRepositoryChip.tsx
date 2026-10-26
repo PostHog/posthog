@@ -5,7 +5,9 @@ import { Button, ButtonGroup } from '@posthog/quill-primitives'
 
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { cn } from 'lib/utils/css-classes'
 
+import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass'
 import type { RepositoryConfig } from '../../../types/taskTypes'
 import { QuillGitHubAccountMenu } from './QuillGitHubAccountMenu'
 import { QuillRepositorySummary } from './QuillRepositorySummary'
@@ -63,6 +65,8 @@ export function QuillRepositoryChip({
                         onChange({ ...value, repository: repository ?? undefined, branch: undefined })
                     }
                     placeholder="Choose a repository"
+                    contentSide="top"
+                    contentClassName={cn('min-w-[280px]', COMPOSER_MENU_CLASS)}
                     defaultOpen={autoOpen}
                 />
                 {removeButton}

@@ -27,6 +27,8 @@ export interface GitHubBranchComboboxProps {
     placeholder?: string
     allowCustomValues?: boolean
     triggerClassName?: string
+    contentSide?: 'top' | 'bottom'
+    contentClassName?: string
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
@@ -48,6 +50,8 @@ export function GitHubBranchCombobox({
     placeholder = 'Select branch...',
     allowCustomValues = true,
     triggerClassName,
+    contentSide = 'bottom',
+    contentClassName,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
     const { branches, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -114,7 +118,12 @@ export function GitHubBranchCombobox({
                     </Button>
                 }
             />
-            <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
+            <ComboboxContent
+                anchor={triggerRef}
+                side={contentSide}
+                sideOffset={6}
+                className={contentClassName ?? 'min-w-[280px]'}
+            >
                 <ComboboxSearchField itemsLabel="branches" loading={loading} disabled={disabled} onRefresh={refresh} />
                 <ComboboxEmpty>
                     {showInlineLoadingState ? 'Loading branches...' : (error ?? 'No branches found.')}
