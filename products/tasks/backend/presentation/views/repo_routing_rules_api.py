@@ -22,15 +22,6 @@ _AUTH_CLASSES: list[type[BaseAuthentication]] = [
     OAuthAccessTokenAuthentication,
 ]
 
-# The repo selection prompt truncates each rendered rule at this length, so a longer rule
-# would silently lose its distinguishing terms. The Slack `rules add` path enforces the
-# same limit.
-MAX_RULE_TEXT_LENGTH = RepoRoutingRule.MAX_RULE_TEXT_LENGTH
-
-# Every rule rides in the repo selection prompt, so an unbounded set would bloat it. The cap
-# is a guardrail well above realistic use, not a product limit.
-MAX_RULES_PER_TEAM = RepoRoutingRule.MAX_RULES_PER_TEAM
-
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -48,10 +39,10 @@ class NotSandboxForWrites(BasePermission):
 
 class RepoRoutingRuleSerializer(serializers.ModelSerializer):
     rule_text = serializers.CharField(
-        max_length=MAX_RULE_TEXT_LENGTH,
+        max_length=RepoRoutingRule.MAX_RULE_TEXT_LENGTH,
         help_text=(
             "Plain-text description of the requests that should route to the repository, "
-            f"e.g. 'anything about the internal dashboard'. At most {MAX_RULE_TEXT_LENGTH} characters."
+            f"e.g. 'anything about the internal dashboard'. At most {RepoRoutingRule.MAX_RULE_TEXT_LENGTH} characters."
         ),
     )
     repository = serializers.CharField(
@@ -103,9 +94,9 @@ class RepoRoutingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # the cap check and take the same priority, breaking "earlier rules win" ordering.
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [self.team_id, "repo_routing_rules"])
-            if RepoRoutingRule.objects.filter(team_id=self.team_id).count() >= MAX_RULES_PER_TEAM:
+            if RepoRoutingRule.objects.filter(team_id=self.team_id).count() >= RepoRoutingRule.MAX_RULES_PER_TEAM:
                 raise serializers.ValidationError(
-                    f"A project can have at most {MAX_RULES_PER_TEAM} routing rules. Remove one to add another."
+                    f"A project can have at most {RepoRoutingRule.MAX_RULES_PER_TEAM} routing rules. Remove one to add another."
                 )
             # Append at the end, matching the Slack `rules add` path: earlier rules win ties.
             max_priority = RepoRoutingRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"]

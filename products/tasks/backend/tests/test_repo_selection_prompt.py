@@ -69,18 +69,17 @@ def test_routing_rules_block_orders_filters_and_lowercases(team) -> None:
 
 @pytest.mark.django_db
 def test_routing_rules_block_includes_up_to_max_rules_cap(team) -> None:
-    # Verify that rules past the legacy cap of 20 (up to MAX_RULES_PER_TEAM = 50) are included
     RepoRoutingRule.objects.bulk_create(
         RepoRoutingRule(team=team, rule_text=f"Rule {i}", repository="acme/a", priority=i)
-        for i in range(30)
+        for i in range(RepoRoutingRule.MAX_RULES_PER_TEAM)
     )
 
     block = _routing_rules_block(team.id, ["acme/a"])
     assert block is not None
     lines = block.splitlines()
-    assert len(lines) == 30
+    assert len(lines) == RepoRoutingRule.MAX_RULES_PER_TEAM
     assert lines[0] == "1. Rule 0 → `acme/a`"
-    assert lines[-1] == "30. Rule 29 → `acme/a`"
+    assert lines[-1] == f"{RepoRoutingRule.MAX_RULES_PER_TEAM}. Rule {RepoRoutingRule.MAX_RULES_PER_TEAM - 1} → `acme/a`"
 
 
 def test_prompt_labels_candidate_visibility() -> None:
