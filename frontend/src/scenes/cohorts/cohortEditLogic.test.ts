@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
@@ -33,6 +34,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     TimeUnitType,
 } from '~/types'
 
@@ -1265,6 +1267,45 @@ describe('cohortEditLogic', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })
         })
+
+        it.each([
+            ['email', PropertyOperator.IsSet, PropertyOperator.IsSet],
+            ['birth_date', PropertyOperator.IsDateBefore, PropertyOperator.IsDateBefore],
+            ['email', PropertyOperator.IContains, PropertyOperator.IsDateExact],
+        ])(
+            'switching a %s row on %s to a DateTime property leaves the operator %s',
+            async (startKey, startOperator, expectedOperator) => {
+                propertyDefinitionsModel.mount()
+                propertyDefinitionsModel.actions.updatePropertyDefinitions({
+                    'person/email': { id: 'email', name: 'email', property_type: PropertyType.String },
+                    'person/birth_date': { id: 'birth_date', name: 'birth_date', property_type: PropertyType.DateTime },
+                    'person/signup_date': {
+                        id: 'signup_date',
+                        name: 'signup_date',
+                        property_type: PropertyType.DateTime,
+                    },
+                })
+                logic.actions.setCriteria(
+                    {
+                        type: BehavioralFilterKey.Person,
+                        value: BehavioralEventType.HaveProperty,
+                        key: startKey,
+                        operator: startOperator,
+                    },
+                    0,
+                    0
+                )
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCriteria({ key: 'signup_date' }, 0, 0)
+                }).toFinishAllListeners()
+
+                const group = logic.values.cohort.filters.properties.values[0] as CohortCriteriaGroupFilter
+                expect(group.values[0]).toEqual(
+                    expect.objectContaining({ key: 'signup_date', operator: expectedOperator })
+                )
+            }
+        )
 
         it('duplicate group', async () => {
             const expectedGroupValue = partial({

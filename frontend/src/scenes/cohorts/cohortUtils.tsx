@@ -774,6 +774,10 @@ export function personOperatorOptionsType(propertyType?: PropertyType | null): F
         : FieldOptionsType.CohortMathOperators
 }
 
+export function isPersonOperatorShown(operator: PropertyOperator, propertyType?: PropertyType | null): boolean {
+    return operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+}
+
 export type PropertyDefinitionLookup = (
     key: string,
     type: PropertyDefinitionType
@@ -795,8 +799,7 @@ export function isRecentPersonFilterUnsupported(
     if (isOperatorDate(operator) && typeof value === 'string' && isStringDateRegex.test(value)) {
         return true
     }
-    const isOperatorShownFor = (propertyType?: PropertyType): boolean =>
-        operator in FIELD_VALUES[personOperatorOptionsType(propertyType)].values
+    const isOperatorShownFor = (propertyType?: PropertyType): boolean => isPersonOperatorShown(operator, propertyType)
     const definition = lookupDefinition(filter.key, propertyFilterTypeToPropertyDefinitionType(filter.type))
     if (typeof definition === 'object' && definition !== null) {
         return !isOperatorShownFor(definition.property_type)
