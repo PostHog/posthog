@@ -362,6 +362,7 @@ def _request_reviews(
     parsed: PullRequestRef,
     pr: dict[str, Any],
     reviewers: list[str],
+    standing: StandingExclusions,
 ) -> list[str]:
     assignees = list(dict.fromkeys(str(login).lower() for login in (pr.get("assignees") or []) if login))
     owner = assignees[0] if len(assignees) == 1 else None
@@ -371,6 +372,14 @@ def _request_reviews(
     existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("requested_reviewers") or [])] if login}
     candidates = [owner] if owner else reviewers
     wanted = [login for login in candidates if login.lower() not in existing]
+    if not wanted:
+        return []
+    # The sole assignee can be an earlier automatic owner who has since excluded themselves. The
+    # person who chose the work is still asked.
+    allowed = standing.allowed_logins(wanted)
+    if owner and not allowed and owner == (human_claimant_login(team_id=team_id, report_id=report_id) or "").lower():
+        allowed = wanted
+    wanted = allowed
     if not wanted:
         return []
 
@@ -930,7 +939,8 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         report_id=report_id,
         parsed=parsed,
         pr={**pr, "assignees": [*(pr.get("assignees") or []), *assigned]},
-        reviewers=standing.refreshed().allowed_logins(reviewers),
+        reviewers=reviewers,
+        standing=standing.refreshed(),
     )
     return assigned
 
@@ -1023,11 +1033,12 @@ def _assign_one_dri(
         return []
     current = ReviewerRules.read_for_report(team_id=team_id, report_id=report_id)
     # An instruction saved during the GitHub calls must still stop the assignment.
+    fresh = standing.refreshed()
     if (
         current.state != snapshot.state
         or human_claimant_login(team_id=team_id, report_id=report_id) != claimant
-        or standing.refreshed().allowed_logins(ranked_reviewer_logins(team_id=team_id, report_id=report_id))
-        != reviewers
+        or fresh.allowed_logins(ranked_reviewer_logins(team_id=team_id, report_id=report_id)) != reviewers
+        or not (owner.login == claimant or fresh.allowed_logins([owner.login]))
     ):
         return []
     return _apply_automatic_owners(

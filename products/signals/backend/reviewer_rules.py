@@ -410,11 +410,15 @@ class ReviewerRules:
             and (corrections.pinned or corrections.excluded or corrections.needs_review)
         ):
             proposed = snapshot.reviewers
-        elif exclusions_bind and not protected:
+        elif (
+            exclusions_bind
+            and not protected
+            and (standing := StandingExclusions.load(team_id=self.team.id, report_id=self.report_id)).exclusions
+        ):
             # Writers without the protected flow store login-only entries, so match on resolved
             # identities and keep each entry as it was written.
             resolved = self._resolve_identities(self.team.id, proposed)
-            review = StandingExclusions.load(team_id=self.team.id, report_id=self.report_id).review(resolved)
+            review = standing.review(resolved)
             if review.unresolved:
                 exclusion_events.append(("unresolved", []))
                 proposed = snapshot.reviewers

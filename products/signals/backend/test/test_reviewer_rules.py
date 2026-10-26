@@ -580,6 +580,21 @@ class TestStandingExclusions(BaseTest):
             else []
         )
 
+    def test_unreadable_findings_do_not_block_a_path_instruction(self) -> None:
+        for content in ["{not json", '{"signal_id": "s2", "relevant_code_paths": ["src/search/\\u0000.py"]}']:
+            SignalReportArtefact.objects.create(
+                team=self.team, report=self.report, type="signal_finding", content=content
+            )
+        self.exclude(repository="org/app", path_prefix="src/billing")
+        self.write(self.me, self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+
+    def test_login_only_writer_skips_identity_resolution_without_instructions(self) -> None:
+        self.enabled = False
+        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        with self.assertNumQueries(25):
+            self.write(self.me, SuggestedReviewerEntry(github_login="member"), source="custom_agent")
+
     def test_revoked_instruction_stops_suppressing_and_keeps_history(self) -> None:
         exclusion_id = self.exclude()
         revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository="org/app")

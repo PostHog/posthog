@@ -17,9 +17,9 @@ import json
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import JSONField, QuerySet
-from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast
+from django.db.models import QuerySet
+
+import structlog
 
 from posthog.dataclasses import frozen
 
@@ -30,6 +30,8 @@ from products.signals.backend.models import (
     SignalReviewerExclusionRevision,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+
+logger = structlog.get_logger(__name__)
 
 
 class DuplicateExclusion(ValueError):
@@ -186,20 +188,25 @@ class StandingExclusions:
 
     @staticmethod
     def _read_paths(findings: QuerySet[SignalReportArtefact]) -> tuple[str, ...]:
-        """The paths of each signal's current finding. Re-research supersedes a signal's older findings."""
-        content = Cast("content", JSONField())
-        current_paths = (
-            findings.filter(content__startswith="{")
-            .annotate(
-                _signal_id=KeyTextTransform("signal_id", content),
-                _paths=KeyTransform("relevant_code_paths", content),
-            )
-            .order_by("_signal_id", "-created_at", "-id")
-            .distinct("_signal_id")
-            .values_list("_signal_id", "_paths")
-        )
+        """The paths of each signal's current finding. Re-research supersedes a signal's older findings.
+
+        Content parses in Python because a JSONB cast fails the whole read on one malformed row.
+        """
+        current: dict[str | None, object] = {}
+        for content in (
+            findings.filter(content__startswith="{").order_by("-created_at", "-id").values_list("content", flat=True)
+        ):
+            try:
+                data = json.loads(content)
+            except ValueError:
+                logger.warning("signals.reviewer_exclusions.unreadable_finding")
+                continue
+            if not isinstance(data, dict):
+                continue
+            signal_id = data.get("signal_id")
+            current.setdefault(None if signal_id is None else str(signal_id), data.get("relevant_code_paths"))
         paths: dict[str, None] = {}
-        for _signal_id, found in current_paths:
+        for found in current.values():
             for path in found if isinstance(found, list) else ():
                 if isinstance(path, str) and _normalized_path(path):
                     paths[_normalized_path(path)] = None

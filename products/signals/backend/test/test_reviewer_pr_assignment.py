@@ -915,6 +915,21 @@ class TestDirectlyResponsibleIndividual:
         assert [call.args[2] for call in github.request_pull_request_reviews.call_args_list] == [[expected_owner]]
 
     @pytest.mark.django_db
+    def test_an_excluded_earlier_owner_is_not_asked_to_review(self, org_and_team: tuple[Organization, Team]) -> None:
+        org, team = org_and_team
+        report, users = self._setup(org, team, ["alice"])
+        github = self._github(existing_assignees=[], assignable=None)
+        assert self._assign(team, report, github) == [["alice"]]
+        github.request_pull_request_reviews.reset_mock()
+        create_exclusion(
+            team_id=team.id, actor_id=users["alice"].id, instruction="Off.", subject_user_uuid=users["alice"].uuid
+        )
+
+        self._assign(team, report, github)
+
+        github.request_pull_request_reviews.assert_not_called()
+
+    @pytest.mark.django_db
     @pytest.mark.parametrize("source", ["claimant", "reviewer-uuid", "reviewer-login"])
     @pytest.mark.parametrize("unavailable", ["inactive", "project"])
     def test_ineligible_members_receive_no_assignment_or_review_request(
@@ -938,14 +953,29 @@ class TestDirectlyResponsibleIndividual:
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
-        "change", ["assigned", "unassigned", "closed", "history-unavailable", "report", "claimant", "exclusion"]
+        "change",
+        [
+            "assigned",
+            "unassigned",
+            "closed",
+            "history-unavailable",
+            "report",
+            "claimant",
+            "exclusion",
+            "owner-exclusion",
+        ],
     )
     def test_changes_during_github_checks_stop_dri_assignment(
-        self, org_and_team: tuple[Organization, Team], change: str
+        self, org_and_team: tuple[Organization, Team], ownership: MagicMock, change: str
     ) -> None:
         org, team = org_and_team
         report, users = self._setup(org, team, ["alice"])
         github = self._github(existing_assignees=[], assignable=None)
+        if change == "owner-exclusion":
+            ownership.return_value = PathOwnership(
+                team_by_path={"posthog/api/a.py": "team-x"}, registry={}, resolved=True
+            )
+            github.list_team_members.return_value = {"success": True, "logins": ["carol"]}
 
         def check(_repo: str, _login: str) -> dict[str, bool]:
             if change == "assigned":
@@ -961,12 +991,10 @@ class TestDirectlyResponsibleIndividual:
                 SignalReportArtefact.objects.create(team=team, report=report, type="suggested_reviewers", content="[]")
             elif change == "claimant":
                 self._claim(team, report, users, kind="user", login="bob")
-            elif change == "exclusion":
+            elif change in ("exclusion", "owner-exclusion"):
+                subject = users["alice" if change == "exclusion" else "carol"]
                 create_exclusion(
-                    team_id=team.id,
-                    actor_id=users["alice"].id,
-                    instruction="Off.",
-                    subject_user_uuid=users["alice"].uuid,
+                    team_id=team.id, actor_id=subject.id, instruction="Off.", subject_user_uuid=subject.uuid
                 )
             return {"success": True, "assignable": True}
 
