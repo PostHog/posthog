@@ -45,13 +45,17 @@ def content_for(message: AlertMessage) -> str:
 def _footer(message: AlertMessage) -> str:
     # The alert link is always short. A data link long enough to crowd out the details is left out.
     *others, view_alert = message.links
-    links: list[str] = []
+    entries = [f"[{escape_markdown(link.label)}](<{link.url}>)" for link in others]
+    kept: set[int] = set()
     budget = MAX_FOOTER_LINKS_CHARS - len(view_alert.url)
-    for link in others:
-        entry = f"[{escape_markdown(link.label)}](<{link.url}>)"
-        if len(link.url) <= MAX_FOOTER_LINK_URL_CHARS and len(entry) + 3 <= budget:
-            links.append(entry)
+    # The data link takes its share of the budget before the rule's links, so they give way first.
+    rule_count = len(message.rule_links)
+    for index in (*range(rule_count, len(others)), *range(rule_count)):
+        entry = entries[index]
+        if len(others[index].url) <= MAX_FOOTER_LINK_URL_CHARS and len(entry) + 3 <= budget:
+            kept.add(index)
             budget -= len(entry) + 3
+    links = [entry for index, entry in enumerate(entries) if index in kept]
     links.append(f"[{escape_markdown(view_alert.label)}](<{view_alert.url}>)")
     footer = "\n\n"
     if message.context:

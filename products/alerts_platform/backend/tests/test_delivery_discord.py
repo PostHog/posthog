@@ -74,6 +74,19 @@ class TestDiscordMessage(SimpleTestCase):
         assert "**Failed checks:** 3" in content
         assert content.endswith(f"[View alert](<{ALERT_URL}>)")
 
+    def test_rule_links_give_way_to_the_data_link(self) -> None:
+        data_link = MessageLink(label="View logs", url="https://app.example.com/project/1/logs?" + "q" * 400)
+        message = alert_message(
+            annotations={f"link_{index}_url": "https://example.com/" + "q" * 100 for index in range(2)},
+            data_link=data_link,
+        )
+
+        content = content_for(message)
+
+        assert f"[View logs](<{data_link.url}>)" in content
+        assert "[Link 0]" in content
+        assert "[Link 1]" not in content
+
 
 class TestDiscordTransport(SimpleTestCase):
     @parameterized.expand(
