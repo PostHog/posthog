@@ -17,6 +17,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
+import { ONE_TIME_RRULE } from '../Workflows/hogflows/steps/components/rrule-helpers'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
@@ -569,6 +570,59 @@ describe('broadcastWizardLogic', () => {
 
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
         expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+    })
+
+    it('removes the old schedule before writing the replacement when the send time changes', async () => {
+        const scheduleCalls: string[] = []
+        latest = {
+            ...savedBroadcast({ name: 'Weekly digest', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' }),
+            schedules: [
+                {
+                    id: 'schedule-old',
+                    rrule: ONE_TIME_RRULE,
+                    starts_at: dayjs().add(1, 'day').startOf('minute').toISOString(),
+                    timezone: 'UTC',
+                    status: 'active',
+                } as any,
+            ],
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': () => {
+                    scheduleCalls.push('create')
+                    return [201, { id: 'schedule-new' }]
+                },
+            },
+            delete: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/:schedule_id/': () => {
+                    scheduleCalls.push('delete')
+                    return [204, {}]
+                },
+            },
+            patch: {
+                // The shared mock answers with an empty schedules list, which would hide the one
+                // the replacement has to remove.
+                '/api/projects/:team_id/hog_flows/:id/': () => [200, latest],
+            },
+        })
+        logic.unmount()
+        router.actions.push('/broadcasts/broadcast-1')
+        logic = broadcastWizardLogic({ id: 'broadcast-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(dayjs().add(3, 'day').startOf('minute').toISOString())
+        logic.actions.setStep('review')
+
+        await expectLogic(logic, () => {
+            logic.actions.openInWorkflowEditorConfirmed()
+        })
+            .toDispatchActions(['saveBroadcastFinished'])
+            .toFinishAllListeners()
+
+        // A workflow holds one schedule, so a create sent first is refused.
+        expect(scheduleCalls).toEqual(['delete', 'create'])
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {

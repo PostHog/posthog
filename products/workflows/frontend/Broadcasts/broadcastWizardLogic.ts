@@ -1902,8 +1902,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         patchWithoutClobbering(projectId, toActivate, { status: 'active' }, saved.updated_at)
                     )
                 // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
-                // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
-                // skips drafts, so a failure part way never leaves two live schedules or none.
+                // launch replaces them. The old one goes first because a workflow holds one schedule.
+                // The flow stays a draft until the swap is done, and the scheduler skips drafts, so a
+                // failure part way leaves the broadcast unscheduled rather than scheduled twice.
                 const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
                 // Stop before touching schedules if the assistant saved meanwhile. Otherwise the guarded
                 // activation below would 409 after the old schedule is already gone.
@@ -1927,10 +1928,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                             : 'Broadcast is sending'
                     )
                 } else {
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     for (const id of oldScheduleIds) {
                         await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
                     }
+                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
                     activated = await activate()
                     lemonToast.success('Broadcast scheduled')
                 }
@@ -2300,11 +2301,13 @@ async function saveDraftSchedule(
     if (unchanged) {
         return
     }
-    if (wanted) {
-        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
-    }
+    // The old schedule goes first because a workflow holds one schedule, so a create sent while
+    // the old one is still there is refused.
     for (const schedule of existing) {
         await hogFlowsSchedulesDestroy(projectId, broadcastId, schedule.id)
+    }
+    if (wanted) {
+        await hogFlowsSchedulesCreate(projectId, broadcastId, wanted as any)
     }
 }
 
