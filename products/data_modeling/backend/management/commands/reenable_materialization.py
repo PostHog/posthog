@@ -2,10 +2,11 @@
 
 schedule_materialization used to clear is_materialized on any error, a Temporal outage included,
 and nothing turns it back on. Give this command the saved query ids from the captured
-scheduling errors. It skips a query that is deleted or materialized again, and schedules the
-rest. A query that fails to schedule again goes back to off, so the summary reports it.
-The flag goes back on only after every Temporal call succeeds. A run that stops in the middle,
-by SIGKILL too, leaves the query in progress off, so the next run tries it again.
+scheduling errors. It skips a query that is deleted or whose DAG node materializes again, and
+schedules the rest. A query that fails to schedule again goes back to off, so the summary
+reports it. The flag and the node go back on only after every Temporal call succeeds. A run that
+stops in the middle, by SIGKILL too, leaves the query in progress off, so the next run tries it
+again.
 
     python manage.py reenable_materialization --ids-file ids.txt              # dry-run
     python manage.py reenable_materialization --ids-file ids.txt --apply
@@ -18,9 +19,11 @@ from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
+from products.data_modeling.backend.logic.tier_run_report import MATERIALIZING_TYPES
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
 
@@ -41,12 +44,14 @@ class Command(BaseCommand):
         ids = self._parse_ids(options["saved_query_ids"], options["ids_file"])
         apply: bool = options["apply"]
 
+        materializing_node = Node.objects.filter(saved_query_id=OuterRef("pk"), type__in=MATERIALIZING_TYPES)
         candidates = list(
-            DataWarehouseSavedQuery.objects.filter(id__in=ids, deleted=False, is_materialized=False).order_by(
-                "team_id", "id"
-            )
+            DataWarehouseSavedQuery.objects.filter(id__in=ids)
+            .exclude(deleted=True)
+            .exclude(Exists(materializing_node))
+            .order_by("team_id", "id")
         )
-        self.stdout.write(f"{len(candidates)} of {len(ids)} saved query id(s) are live and not materialized.")
+        self.stdout.write(f"{len(candidates)} of {len(ids)} saved query id(s) are live and have no materializing node.")
         for saved_query in candidates:
             self.stdout.write(f"team={saved_query.team_id} saved_query={saved_query.id} name={saved_query.name}")
 
@@ -70,10 +75,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Re-enabled {reenabled}, failed {failed}.")
 
     def _reenable(self, saved_query: DataWarehouseSavedQuery) -> None:
-        # Only queries that are off become candidates, so the flag reaches the database only after
-        # every Temporal call. A run that stops before then leaves the query off for the next run, and
-        # no row lock waits on Temporal. Until then the flag is on in memory only, where the failure
-        # paths of schedule_materialization switch it off.
+        # The flag reaches the database only after every Temporal call. A run that stops before then
+        # leaves the query off for the next run, and no row lock waits on Temporal. Until then the flag
+        # is on in memory only, where the failure paths of schedule_materialization switch it off.
         saved_query.is_materialized = True
         # The default reconcile logs a failure and does not raise it, so a query that no tier runs
         # counts as re-enabled. Reconcile below instead, where a failure raises.

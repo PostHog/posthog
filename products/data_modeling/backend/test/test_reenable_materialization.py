@@ -19,7 +19,13 @@ RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 
 
 class TestReenableMaterialization(BaseTest):
-    def _saved_query(self, name: str, *, with_node: bool = True, deleted: bool = False) -> DataWarehouseSavedQuery:
+    def _saved_query(
+        self,
+        name: str,
+        *,
+        node_type: NodeType | None = NodeType.VIEW,
+        deleted: bool = False,
+    ) -> DataWarehouseSavedQuery:
         saved_query = DataWarehouseSavedQuery.objects.create(
             name=name,
             team=self.team,
@@ -28,8 +34,8 @@ class TestReenableMaterialization(BaseTest):
             sync_frequency_interval=timedelta(hours=12),
             deleted=deleted,
         )
-        if with_node:
-            Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+        if node_type is not None:
+            Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=node_type)
         return saved_query
 
     def setUp(self):
@@ -64,7 +70,8 @@ class TestReenableMaterialization(BaseTest):
     ):
         switched_off = self._saved_query("switched_off")
         deleted = self._saved_query("deleted", deleted=True)
-        nodeless = self._saved_query("nodeless", with_node=False)
+        nodeless = self._saved_query("nodeless", node_type=None)
+        already_materialized = self._saved_query("already_materialized", node_type=NodeType.MAT_VIEW)
         out = StringIO()
         with (
             mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
@@ -74,12 +81,12 @@ class TestReenableMaterialization(BaseTest):
         ):
             call_command(
                 "reenable_materialization",
-                saved_query_ids=",".join(str(sq.id) for sq in (switched_off, deleted, nodeless)),
+                saved_query_ids=",".join(str(sq.id) for sq in (switched_off, deleted, nodeless, already_materialized)),
                 apply=True,
                 stdout=out,
             )
 
-        for saved_query in (switched_off, deleted, nodeless):
+        for saved_query in (switched_off, deleted, nodeless, already_materialized):
             saved_query.refresh_from_db()
         node = Node.objects.get(saved_query=switched_off)
         assert create.call_args.kwargs["schedule"].action.args[0]["node_ids"] == [str(node.id)]
@@ -87,6 +94,8 @@ class TestReenableMaterialization(BaseTest):
         assert node.type == expected_node_type
         assert deleted.is_materialized is False
         assert nodeless.is_materialized is False
+        assert already_materialized.is_materialized is False
+        assert "2 of 4 saved query id(s)" in out.getvalue()
         assert expected_summary in out.getvalue()
 
     @parameterized.expand([("ctrl_c", KeyboardInterrupt), ("exit", SystemExit)])
