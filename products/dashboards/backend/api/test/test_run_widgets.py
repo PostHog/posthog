@@ -9,6 +9,7 @@ from django.test.utils import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import RecordingOrder, RecordingOrderDirection
 
@@ -133,10 +134,13 @@ class TestWidgetRegistry(SimpleTestCase):
             ("variables", {"clauses": [], "variables": {"service": {"selection": "checkout"}}}),
             ("oversized_sql", {"clauses": [], "language": "sql", "sql": "x" * 10_001}),
             ("too_many_series", {"clauses": [{"name": f"s{i}", "metricName": "cpu"} for i in range(11)]}),
+            ("oversized_formula", {"clauses": [], "formula": "a" * 70_000}),
+            ("malformed_kind", {"kind": [], "clauses": []}),
+            ("malformed_nested_node", {"clauses": [], "x": {"kind": "RetentionQuery", "version": "a"}}),
         ]
     )
     def test_validate_metrics_config_rejects_what_a_stored_widget_must_not_hold(self, _label: str, query: dict) -> None:
-        with self.assertRaises(Exception):
+        with self.assertRaises(DRFValidationError):
             validate_widget_config(METRICS_WIDGET_TYPE, {"query": {"kind": "MetricsQuery", **query}})
 
     def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:

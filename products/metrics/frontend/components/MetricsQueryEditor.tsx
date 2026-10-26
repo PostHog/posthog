@@ -5,7 +5,8 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import type { MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 
-import { MetricsQueryControls, type MetricsQueryControlsProps } from './MetricsQueryControls'
+import type { MetricsQueryControlsProps } from './MetricsQueryControls'
+import { MetricsQueryEditorControls } from './MetricsQueryEditorControls'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
 /** The `/metrics` viewer's builder, editing a `MetricsQuery` in the insight editor or a metric widget. */
@@ -17,6 +18,7 @@ export function MetricsQueryEditor({
     onRerun,
     dataAttrPrefix = 'metrics-query-editor',
     allPanels,
+    onUnrunTextChange,
 }: {
     editorKey: string
     query: MetricsQuery
@@ -28,6 +30,8 @@ export function MetricsQueryEditor({
     dataAttrPrefix?: MetricsQueryControlsProps['dataAttrPrefix']
     /** Offers every panel, the heatmap included, whatever the panels flag says. */
     allPanels?: boolean
+    /** Gets whether the PromQL or SQL editor holds text that has not run yet, so it is not in `query`. */
+    onUnrunTextChange?: (unrun: boolean) => void
 }): JSX.Element {
     // The query seeds the logic once. After that the builder only writes the query, so the two cannot loop.
     const logicProps = useMemo(() => ({ key: editorKey, initialQuery: query }), [editorKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -35,6 +39,7 @@ export function MetricsQueryEditor({
     return (
         <BindLogic logic={metricsViewerLogic} props={logicProps}>
             <MetricsQuerySync query={query} setQuery={setQuery} />
+            {onUnrunTextChange ? <MetricsQueryUnrunTextReporter onChange={onUnrunTextChange} /> : null}
             <MetricsQueryEditorControls
                 dataAttrPrefix={dataAttrPrefix}
                 fallbackQuery={query}
@@ -46,21 +51,10 @@ export function MetricsQueryEditor({
     )
 }
 
-function MetricsQueryEditorControls({
-    allPanels,
-    ...props
-}: Pick<
-    MetricsQueryControlsProps,
-    'dataAttrPrefix' | 'fallbackQuery' | 'onSwitchLanguage' | 'onRerun' | 'allPanels'
->): JSX.Element {
-    const { heatmapEligible } = useValues(metricsViewerLogic)
-    return (
-        <MetricsQueryControls
-            {...props}
-            allPanels={allPanels}
-            heatmap={allPanels ? { eligible: heatmapEligible } : undefined}
-        />
-    )
+function MetricsQueryUnrunTextReporter({ onChange }: { onChange: (unrun: boolean) => void }): null {
+    const { queryTextChanged } = useValues(metricsViewerLogic)
+    useEffect(() => onChange(queryTextChanged), [queryTextChanged]) // eslint-disable-line react-hooks/exhaustive-deps
+    return null
 }
 
 /** Writes the builder's query back to the insight as it changes. */
@@ -79,13 +73,23 @@ function MetricsQuerySync({ query, setQuery }: { query: MetricsQuery; setQuery: 
         const {
             formula: _formula,
             interval: _interval,
-            display: _display,
+            display: storedDisplay,
             language: _language,
             promql: _promql,
             sql: _sql,
             ...rest
         } = query
-        setQuery({ ...rest, ...metricsQueryNode })
+        // The same goes for display settings: thresholds or a unit from an import or the API survive an edit.
+        const {
+            type: _type,
+            goalLines: _goalLines,
+            yAxis: _yAxis,
+            reduce: _reduce,
+            statSummary: _statSummary,
+            ...displayNotOwnedByBuilder
+        } = storedDisplay ?? {}
+        const display = { ...displayNotOwnedByBuilder, ...metricsQueryNode.display }
+        setQuery({ ...rest, ...metricsQueryNode, ...(Object.keys(display).length ? { display } : {}) })
     }, [metricsQueryNode]) // eslint-disable-line react-hooks/exhaustive-deps
     return null
 }

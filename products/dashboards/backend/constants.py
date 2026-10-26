@@ -39,6 +39,7 @@ METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
 # Metrics widgets store a whole query in their config; these caps keep a stored config small.
 METRICS_WIDGET_MAX_CLAUSES = 10
 METRICS_WIDGET_MAX_QUERY_TEXT_LENGTH = 10_000
+METRICS_WIDGET_MAX_QUERY_JSON_LENGTH = 64_000
 
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10

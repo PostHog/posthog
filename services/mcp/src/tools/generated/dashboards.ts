@@ -864,6 +864,7 @@ const dashboardWidgetsRun = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_widgets/`,
             query: {
                 filters_override: params.filters_override,
+                refresh: params.refresh,
                 tile_ids: params.tile_ids,
             },
         })

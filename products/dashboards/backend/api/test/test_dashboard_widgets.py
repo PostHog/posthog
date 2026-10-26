@@ -24,7 +24,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
+from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, DashboardWidgetType
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -1115,7 +1115,7 @@ class TestDashboardWidgets(APIBaseTest):
     )
     @override_settings(IN_UNIT_TESTING=True)
     def test_shared_dashboard_tile_serializer_omits_widget_payload(
-        self, widget_type: str, config: dict, private_key: str
+        self, widget_type: DashboardWidgetType, config: dict, private_key: str
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True):
