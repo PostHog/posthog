@@ -24,6 +24,7 @@ from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.workload import Workload
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
 from posthog.storage import object_storage
@@ -39,7 +40,14 @@ _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_mater
 
 def _printed_sql(sql: str = "SELECT 1") -> frame_materialize._PrintedFrameSQL:
     return frame_materialize._PrintedFrameSQL(
-        sql=sql, values={}, passes=1, print_seconds=0.0, describe_seconds=0.0, resolve_seconds=0.0
+        sql=sql,
+        values={},
+        passes=1,
+        print_seconds=0.0,
+        describe_seconds=0.0,
+        resolve_seconds=0.0,
+        workload=Workload.OFFLINE,
+        clickhouse_url=None,
     )
 
 
@@ -536,6 +544,40 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
         assert printed.passes == expected_passes
         assert ("toString" in printed.sql) is (expected_passes == 2)
 
+    @parameterized.expand(
+        [
+            (
+                "reads_events_json",
+                "select event from events",
+                Workload.NEW_EVENTS_CLUSTER,
+                "https://native.example.com:8443/",
+            ),
+            ("reads_no_events", "select 1 as n", Workload.OFFLINE, None),
+        ]
+    )
+    def test_the_print_carries_where_the_frame_runs(
+        self, _name: str, query: str, workload: Workload, clickhouse_url: str | None
+    ):
+        # Both execution paths take their cluster from the print, so a routed project's frame over
+        # events_json has to come out pointing at the events cluster, and one that reads no events
+        # has to stay on the offline pool.
+        self.team.modifiers = {"useNewEventsSchema": True}
+        self.team.save()
+        instance_settings = {
+            "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [self.team.pk],
+        }
+        with (
+            patch("posthog.models.event.new_events_schema.get_instance_setting", instance_settings.get),
+            self.settings(CLICKHOUSE_HTTP_URL="https://main.example.com:8443/"),
+        ):
+            printed = frame_materialize._print_clickhouse_sql(
+                lambda _sql, _values: [("n", "UInt8")], self.team, self.user, query, output_format=None
+            )
+
+        assert printed.workload is workload
+        assert printed.clickhouse_url == clickhouse_url
+
     def test_both_print_passes_share_one_database(self):
         # The executor keeps the database it builds on a private copy of the context, so the
         # shared context only carries one if it is handed back. Getting that wrong is
@@ -593,7 +635,7 @@ def test_bounded_offline_client_stays_token_aware_for_a_file_backed_user(monkeyp
     monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.NOTEBOOKS: creds})
 
     with patch.object(frame_materialize, "make_ch_pool") as mock_pool:
-        frame_materialize._bounded_offline_client(team_id=1)
+        frame_materialize._bounded_offline_client(team_id=1, workload=Workload.OFFLINE)
 
     call_kwargs = mock_pool.call_args.kwargs
     assert call_kwargs["send_receive_timeout"] == frame_materialize._INSERT_SEND_RECEIVE_TIMEOUT_SECONDS
