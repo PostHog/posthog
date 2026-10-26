@@ -221,12 +221,31 @@ class TestFanOut:
             "/api/v1/workspaces/ws-b/members",
         ]
         assert result.params("offset") == ["0", "0", "100", "0"]
-        # A workspace's pages are yielded together, so a resume never restarts mid-workspace.
-        assert result.items == [members_page1 + members_page2]
+        assert result.items == [members_page1, members_page2]
         assert result.saved_states == [
+            OpenRouterResumeConfig(parent_id="ws-a", offset=100),
             OpenRouterResumeConfig(parent_id="ws-a"),
             OpenRouterResumeConfig(parent_id="ws-b"),
         ]
+
+    def test_workspace_members_resume_partway_through_a_workspace(self):
+        result = _driver().run(
+            "workspace_members",
+            [
+                ScriptedResponse(json={"data": [{"id": "ws-a"}, {"id": "ws-b"}, {"id": "ws-c"}]}),
+                ScriptedResponse(json={"data": [{"workspace_id": "ws-b", "user_id": "u100"}]}),
+                ScriptedResponse(json={"data": []}),
+            ],
+            resume_state=OpenRouterResumeConfig(parent_id="ws-b", offset=100),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/workspaces",
+            "/api/v1/workspaces/ws-b/members",
+            "/api/v1/workspaces/ws-c/members",
+        ]
+        assert result.params("offset") == ["0", "100", "0"]
 
     def test_model_endpoints_resume_after_saved_model_and_tag_rows_with_it(self):
         endpoint = {"model_id": "openai/gpt-oss-20b", "tag": "azure"}

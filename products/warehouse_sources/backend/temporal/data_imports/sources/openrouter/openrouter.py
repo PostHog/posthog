@@ -35,13 +35,15 @@ class OpenRouterPageCapError(Exception):
 
 @dataclasses.dataclass(frozen=False)
 class OpenRouterResumeConfig:
-    # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces).
+    # Offset already fetched for offset-paginated endpoints (api_keys/organization_members/workspaces),
+    # or within the current parent for fan-out endpoints.
     offset: int | None = None
     # Last fully-synced UTC day (YYYY-MM-DD) for the /activity day-by-day pull.
     date: str | None = None
     # `after` cursor of the next page for cursor-paginated endpoints (batches).
     after: str | None = None
-    # Last parent id whose child rows were all yielded, for fan-out endpoints (parent ids run sorted).
+    # Fan-out endpoints walk parent ids sorted. This is the last parent with yielded rows; `offset` is
+    # set while that parent still has child pages left.
     parent_id: str | None = None
 
 
@@ -277,16 +279,16 @@ def _list_parent_ids(
     return sorted(ids)
 
 
-def _get_child_rows(
+def _get_child_pages(
     session: requests.Session,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: OpenRouterEndpointConfig,
     parent_id: str,
-) -> list[dict[str, Any]]:
+    offset: int,
+) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
+    """Yield each child page of one parent with the offset to resume from, or None after the last page."""
     path = config.path.replace("{parent_id}", quote(parent_id, safe="/:"))
-    rows: list[dict[str, Any]] = []
-    offset = 0
     for _ in range(MAX_PAGES):
         params: dict[str, Any] = dict(config.params)
         if config.pagination is not None:
@@ -299,26 +301,28 @@ def _get_child_rows(
         except requests.HTTPError as e:
             # The parent was deleted after we listed it.
             if e.response is not None and e.response.status_code == 404:
-                return rows
+                yield [], None
+                return
             raise
 
         page = data.get("data")
         if config.child_rows_key is not None:
             page = page.get(config.child_rows_key) if isinstance(page, dict) else None
         page = page or []
-        rows.extend(page)
+        if config.parent_id_column is not None:
+            page = [{**row, config.parent_id_column: parent_id} for row in page]
 
-        if config.pagination is None or not page:
-            break
-        if config.pagination == "offset_limit" and len(page) < config.page_size:
-            break
+        is_last = (
+            config.pagination is None
+            or not page
+            or (config.pagination == "offset_limit" and len(page) < config.page_size)
+        )
         offset += len(page)
-    else:
-        raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} of {parent_id}")
+        yield page, None if is_last else offset
+        if is_last:
+            return
 
-    if config.parent_id_column is not None:
-        rows = [{**row, config.parent_id_column: parent_id} for row in rows]
-    return rows
+    raise OpenRouterPageCapError(f"OpenRouter: hit the {MAX_PAGES}-page cap for {config.name} of {parent_id}")
 
 
 def _get_fan_out_rows(
@@ -329,21 +333,26 @@ def _get_fan_out_rows(
     config: OpenRouterEndpointConfig,
     parent: OpenRouterEndpointConfig,
 ) -> Iterator[list[dict[str, Any]]]:
+    # A saved parent id with an offset is a parent we stopped partway through; without one it's finished.
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    resume_after = resume.parent_id if resume is not None else None
+    resume_parent = resume.parent_id if resume is not None else None
+    resume_offset = resume.offset if resume is not None else None
 
     parent_ids = _list_parent_ids(session, headers, logger, resumable_source_manager, parent)
     for parent_id in parent_ids:
-        if resume_after is not None and parent_id <= resume_after:
-            continue
+        offset = 0
+        if resume_parent is not None:
+            if parent_id < resume_parent or (parent_id == resume_parent and resume_offset is None):
+                continue
+            if parent_id == resume_parent and resume_offset is not None:
+                offset = resume_offset
 
-        # One parent's rows are yielded together, so the saved parent id never covers a partial parent.
-        rows = _get_child_rows(session, headers, logger, config, parent_id)
-        resumable_source_manager.save_state(OpenRouterResumeConfig(parent_id=parent_id))
-        if rows:
-            yield rows
-        else:
-            resumable_source_manager.safe_point()
+        for page, next_offset in _get_child_pages(session, headers, logger, config, parent_id, offset):
+            resumable_source_manager.save_state(OpenRouterResumeConfig(parent_id=parent_id, offset=next_offset))
+            if page:
+                yield page
+            else:
+                resumable_source_manager.safe_point()
 
 
 def _get_task_classification_rows(
