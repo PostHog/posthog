@@ -266,6 +266,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     metricName=s.metric_name,
                     clause=s.clause,
                     unit=s.unit or None,
+                    histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
             ]
@@ -273,19 +274,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
-        # property filters do not apply. Its date range, variables and label filters do.
-        # Variables reach all three languages. Label filters reach builder clauses only:
-        # PromQL and SQL text is not rewritten for them.
+        # property filters do not apply. Its date range and variables do, in all three languages.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
-        if dashboard_filter.metricFilters:
-            self.query.clauses = [
-                clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
-                for clause in self.query.clauses
-            ]
         if dashboard_filter.metricVariables:
             self._apply_variables(dashboard_filter)
 

@@ -147,6 +147,20 @@ def load_flag_history(
         return None
 
 
+def load_split_history(
+    experiment: Experiment, *, reader_access: ExperimentHealthReaderAccess
+) -> FlagHistory | FlagHistoryNotChecked | None:
+    """
+    The flag history as `load_flag_history` returns it, with the exposure questions of the split changes only. The
+    questions that only the other kinds read are absent. Never raises.
+    """
+    try:
+        return _load_flag_history(experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}))
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def cache_failed_scan(cache_key: str, error: Exception) -> None:
     """Caches the answer of a failed scan as UNKNOWN, and reports an error that is not expected."""
     # The page calls the endpoint on every load, so a scan that fails must not run again on every load.
@@ -443,7 +457,10 @@ class _ConditionAggregationMismatch(Exception):
 
 
 def _load_flag_history(
-    experiment: Experiment, reader_access: ExperimentHealthReaderAccess
+    experiment: Experiment,
+    reader_access: ExperimentHealthReaderAccess,
+    *,
+    asked: frozenset[ExperimentHealthFlagChangeKind] = frozenset(_KINDS),
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     launched_at = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
@@ -508,7 +525,7 @@ def _load_flag_history(
         exposed_units_before_last={},
     )
     times = _change_times(changes)
-    if not times:
+    if not any(changes_of_kind(changes, _KINDS[kind]) for kind in asked):
         return history
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
@@ -528,7 +545,7 @@ def _load_flag_history(
     units_windows = {
         kind: timeline.units_window(start=launched_at, end=of_kind[-1].changed_at)
         for kind, change_type in _KINDS.items()
-        if (of_kind := changes_of_kind(changes, change_type))
+        if kind in asked and (of_kind := changes_of_kind(changes, change_type))
     }
     gate = _ExposureGate(
         experiment,
@@ -548,13 +565,17 @@ def _load_flag_history(
     exposed_units_before_last = {
         kind: gate.exposed_units(units_windows[kind])
         for kind, change_type in _KINDS.items()
-        if history.counted(change_type)
+        if kind in asked and history.counted(change_type)
     }
     return replace(
         history,
         exposed_units_before_last=exposed_units_before_last,
-        exposed_between=_exposed_between_set_backs(gate, timeline, history),
-        exposed_during_overrides=_exposed_during_overrides(gate, timeline, history),
+        exposed_between=_exposed_between_set_backs(gate, timeline, history, asked),
+        exposed_during_overrides=(
+            _exposed_during_overrides(gate, timeline, history)
+            if ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS in asked
+            else {}
+        ),
     )
 
 
@@ -653,23 +674,34 @@ def _exposed_between(gate: _ExposureGate, timeline: _Timeline, *, start: datetim
 
 
 def _exposed_between_set_backs(
-    gate: _ExposureGate, timeline: _Timeline, history: FlagHistory
+    gate: _ExposureGate,
+    timeline: _Timeline,
+    history: FlagHistory,
+    asked: frozenset[ExperimentHealthFlagChangeKind],
 ) -> dict[ExperimentHealthFlagChangeKind, bool | None]:
     """Asks, per kind, whether anyone was exposed between the first and the last counted change, when the last sets
     back what the first changed."""
     exposed_between: dict[ExperimentHealthFlagChangeKind, bool | None] = {}
     split = history.counted(SplitChange)
-    if split and same_assignment(split[0].before, split[-1].after):
+    if ExperimentHealthFlagChangeKind.SPLIT in asked and split and same_assignment(split[0].before, split[-1].after):
         exposed_between[ExperimentHealthFlagChangeKind.SPLIT] = _exposed_between(
             gate, timeline, start=split[0].changed_at, end=split[-1].changed_at
         )
     bucketing = bucketing_net_effect(history.counted(BucketingChange))
-    if bucketing and bucketing.shape == BucketingChangeShape.REVERTED:
+    if (
+        ExperimentHealthFlagChangeKind.BUCKETING in asked
+        and bucketing
+        and bucketing.shape == BucketingChangeShape.REVERTED
+    ):
         exposed_between[ExperimentHealthFlagChangeKind.BUCKETING] = _exposed_between(
             gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at
         )
     conditions = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
-    if conditions and conditions.shape == ConditionsChangeShape.REVERTED:
+    if (
+        ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS in asked
+        and conditions
+        and conditions.shape == ConditionsChangeShape.REVERTED
+    ):
         exposed_between[ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS] = _exposed_between(
             gate, timeline, start=conditions.first.changed_at, end=conditions.last.changed_at
         )

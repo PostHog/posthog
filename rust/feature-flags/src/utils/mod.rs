@@ -1,4 +1,5 @@
 pub mod bot_detection;
+pub mod bounded_json5;
 pub mod deadline;
 pub mod graph_utils;
 pub mod json_size;

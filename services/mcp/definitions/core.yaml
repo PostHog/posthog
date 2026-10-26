@@ -274,8 +274,14 @@ tools:
         title: Get project
         description: |
             Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool
-            that returns the project API token, which is safe to put in client-side code. Project listing, project
-            updates and the session context leave it out, so ask for a single project when you need the token.
+            that returns the project API token. Project listing, project updates and the session context leave it out,
+            so ask for a single project when you need the token.
+
+            When you install or configure a PostHog SDK, use `api_token` as the project token and `api_host` as the
+            SDK's `api_host` (the ingestion host for this project's region). The token is public, so it can ship in
+            client-side bundles, but treat it as configuration: read it from the app's environment variable and write
+            the real value to the local env file (for example `.env.local` or `.env`). Never hard-code the token or the
+            host in source files, and never use them as fallback defaults.
         param_overrides:
             id:
                 description: Project ID. If omitted, returns the caller's active project.

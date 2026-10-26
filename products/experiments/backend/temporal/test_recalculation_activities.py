@@ -11,6 +11,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -47,6 +48,7 @@ from products.experiments.backend.temporal.recalculation_activities import calcu
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
+    _capacity_retry_delay_seconds,
     _discover_experiment_metrics_sync,
     _record_metric_out_of_time_failure_sync,
     _update_recalculation_progress_sync,
@@ -966,7 +968,7 @@ class TestCalculateActivity(BaseTest):
     def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
         # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
         # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
-        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # (overriding the retry policy's 5s schedule with the capacity backoff band), must never
         # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
         # persist nothing before the final attempt.
         exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
@@ -1382,6 +1384,25 @@ class TestCalculateActivity(BaseTest):
             Product.EXPERIMENTS,
             Feature.CACHE_WARMUP,
         )
+
+
+class TestCapacityRetryDelay(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_attempt", 1, 10, 20),
+            ("third_attempt", 3, 40, 80),
+            ("beyond_the_cap", 7, 300, 300),
+        ]
+    )
+    def test_band_doubles_per_attempt_up_to_the_cap(self, name: str, attempt: int, low: float, high: float):
+        # The first retry must stay fast and the band must grow, or a brief contention costs minutes again
+        # and a sustained one is polled constantly. The cap keeps the sum of the waits inside the metric's
+        # schedule_to_close budget.
+        with patch(
+            "products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=low
+        ) as uniform:
+            assert _capacity_retry_delay_seconds(attempt) == low
+        uniform.assert_called_once_with(low, high)
 
 
 @pytest.mark.django_db(transaction=True)
