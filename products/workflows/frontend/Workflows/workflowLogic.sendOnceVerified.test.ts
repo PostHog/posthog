@@ -741,6 +741,44 @@ describe('workflowLogic send once verified', () => {
             expect(patchBodies.at(-1)).not.toHaveProperty('status')
         })
 
+        it('stages a content edit queued while the auto-save takes the go-live', async () => {
+            await mountWaiting()
+            let releaseFetch!: () => void
+            const fetchHeld = new Promise<void>((resolve) => {
+                releaseFetch = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': async () => {
+                        await fetchHeld
+                        return [200, storedWorkflow]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        if (body.base_updated_at !== storedWorkflow.updated_at) {
+                            return [409, { detail: 'stale_update', code: 'stale_update' }]
+                        }
+                        storedWorkflow = { ...storedWorkflow, name: body.name, updated_at: '2026-05-03T09:00:00Z' }
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+            storedWorkflow = wentLive
+
+            logic.actions.setWorkflowValue('name', 'Renamed while waiting')
+            await jest.advanceTimersByTimeAsync(3_000)
+            logic.actions.setWorkflowValue('exit_condition', 'exit_on_conversion')
+            await jest.advanceTimersByTimeAsync(3_000)
+            releaseFetch()
+            await jest.advanceTimersByTimeAsync(0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(patchBodies.at(-1)).toMatchObject({ exit_condition: 'exit_on_conversion', stage_draft: true })
+        })
+
         it('drops a status answer that lands after the editor closed', async () => {
             await mountWaiting()
             let releaseCheck!: () => void

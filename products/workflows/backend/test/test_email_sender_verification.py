@@ -19,6 +19,7 @@ from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 from structlog.testing import capture_logs
 
+from posthog.models import Team
 from posthog.models.integration import EmailIntegration, Integration
 from posthog.redis import get_client
 
@@ -511,14 +512,22 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
         sender = self._sender("example.com", verified=True)
         flow_ids = {self._waiting_flow(sender), self._waiting_flow(sender)}
         real_lock = lock_unverified_senders
+        real_get_team = Team.objects.get
         lock_calls = 0
+        database_down = False
 
         def connection_lost_on_the_second_workflow(**kwargs: Any) -> frozenset[int]:
-            nonlocal lock_calls
+            nonlocal lock_calls, database_down
             lock_calls += 1
             if lock_calls == 2:
+                database_down = True
                 raise OperationalError("connection lost")
             return real_lock(**kwargs)
+
+        def get_team(*args: Any, **kwargs: Any) -> Team:
+            if database_down:
+                raise OperationalError("connection lost")
+            return real_get_team(*args, **kwargs)
 
         task_kwargs = {"team_id": self.team.id, "sender_ids": [sender.id]}
         with (
@@ -526,6 +535,7 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
                 "products.workflows.backend.services.hog_flow_writes.lock_unverified_senders",
                 side_effect=connection_lost_on_the_second_workflow,
             ),
+            patch.object(Team.objects, "get", side_effect=get_team),
             self.assertRaises(Retry),
         ):
             enable_waiting_workflows_task.apply(kwargs=task_kwargs)
