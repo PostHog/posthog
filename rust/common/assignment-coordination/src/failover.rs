@@ -18,15 +18,17 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Whether an etcd error says the member serving this client cannot serve.
 ///
 /// etcd reports "no leader", "request timed out" and "leader changed" as
-/// Unavailable, and a connection closed under a call surfaces as Cancelled.
-/// Errors about the request itself (NOSPACE, a failed compare, a compacted
-/// revision, a missing key) say nothing about the member.
+/// Unavailable. A connection that fails under a call comes back with a
+/// transport error as its source, whatever the code. Errors about the
+/// request itself (NOSPACE, a failed compare, a compacted revision, a
+/// missing key) say nothing about the member.
 pub fn is_member_level(err: &etcd_client::Error) -> bool {
     match err {
-        etcd_client::Error::GRpcStatus(status) => matches!(
-            status.code(),
-            Code::Unavailable | Code::DeadlineExceeded | Code::Cancelled
-        ),
+        etcd_client::Error::GRpcStatus(status) => {
+            matches!(status.code(), Code::Unavailable | Code::DeadlineExceeded)
+                || std::error::Error::source(status)
+                    .is_some_and(|source| source.is::<tonic::transport::Error>())
+        }
         etcd_client::Error::TransportError(_) | etcd_client::Error::IoError(_) => true,
         _ => false,
     }
@@ -257,7 +259,6 @@ mod tests {
     fn member_level_errors_are_the_ones_a_different_member_could_avoid() {
         assert!(is_member_level(&status(Code::Unavailable)));
         assert!(is_member_level(&status(Code::DeadlineExceeded)));
-        assert!(is_member_level(&status(Code::Cancelled)));
         assert!(is_member_level(&etcd_client::Error::IoError(
             std::io::Error::from(std::io::ErrorKind::ConnectionReset)
         )));
