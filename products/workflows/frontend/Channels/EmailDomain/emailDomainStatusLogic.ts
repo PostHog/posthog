@@ -23,6 +23,7 @@ export const POLL_SLOW_MS = 30_000
 export const POLL_MAX_MS = 30 * 60_000
 
 const STATUS_ERRORS_THAT_END_POLLING = [400, 403, 404]
+const MAX_VERIFICATION_RECORD_ATTEMPTS = 3
 // A DMARC or apex SPF record often exists before the person adds anything, so finding one proves nothing about setup.
 const RECORD_KINDS_THAT_PREDATE_SETUP: EmailDomainSetupRecordKindEnumApi[] = ['dmarc', 'spf']
 
@@ -288,10 +289,15 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 actions.schedulePoll()
                 return
             }
-            // A browser poll only reports the provider's answer. email/verify records it, because that POST has a
-            // CSRF check. One try per mount keeps a provider that answers verified but never records out of a loop.
-            if (status?.status === 'verified' && !status.verified && !cache.verificationRecordTried) {
-                cache.verificationRecordTried = true
+            // A poll only reports the provider's answer, and email/verify records it. The attempt cap keeps a
+            // provider that answers verified but never records out of a loop.
+            const recordAttempts: number = cache.verificationRecordAttempts ?? 0
+            if (
+                status?.status === 'verified' &&
+                !status.verified &&
+                recordAttempts < MAX_VERIFICATION_RECORD_ATTEMPTS
+            ) {
+                cache.verificationRecordAttempts = recordAttempts + 1
                 actions.recordVerification()
                 return
             }

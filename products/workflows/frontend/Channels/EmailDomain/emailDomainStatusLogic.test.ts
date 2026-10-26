@@ -149,6 +149,18 @@ describe('emailDomainStatusLogic', () => {
         expect(backend.requestsTo('email_verify')).toHaveLength(1)
     })
 
+    it('records the verification on a later poll when email verify fails once', async () => {
+        backend.verifyAtProviderOnly(DOMAIN)
+        backend.failOnce('email_verify', { status: 500, body: { detail: 'SES is down' } })
+
+        await mountAndLoad()
+        expect(logic.values.status?.verified).toBe(false)
+
+        await jest.advanceTimersByTimeAsync(MINUTE)
+        expect(backend.requestsTo('email_verify')).toHaveLength(2)
+        expect(logic.values.status?.verified).toBe(true)
+    })
+
     it('stops polling once the domain is verified and refreshes the channel list and the default sender', async () => {
         backend.verifyDomain(DOMAIN)
         await mountAndLoad()
