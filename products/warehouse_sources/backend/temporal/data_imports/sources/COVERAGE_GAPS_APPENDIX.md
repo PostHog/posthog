@@ -8643,10 +8643,10 @@ Today (5): `booking_calendars`, `bookings`, `contacts`, `teams`, `users`
 
 Diffed against: <https://developers.oncehub.com/booking-calendars-api.yaml>
 
-- [ ] `GET /v2/event-types (Booking Pages API)` — Lookup resolving the meeting type referenced by bookings — duration, location and conferencing per meeting, the natural breakdown dimension for booking volume (high)
-- [ ] `GET /v2/booking-pages (Booking Pages API)` — The classic-product equivalent of booking_calendars; accounts still on Booking Pages have bookings whose parent object is unresolvable today (high)
-- [ ] `GET /v2/master-pages (Booking Pages API)` — Groups booking pages into a single scheduling entry point — the rollup level teams actually report on (medium)
-- [ ] `GET /v2/users/{id}/scheduling-availability` — Per-user availability windows, the denominator for booked-hours-versus-available-hours utilization (low)
+- [x] `GET /v2/event-types (Booking Pages API)` — Lookup resolving the meeting type referenced by bookings — duration, location and conferencing per meeting, the natural breakdown dimension for booking volume (high)
+- [x] `GET /v2/booking-pages (Booking Pages API)` — The classic-product equivalent of booking_calendars; accounts still on Booking Pages have bookings whose parent object is unresolvable today (high)
+- [x] `GET /v2/master-pages (Booking Pages API)` — Groups booking pages into a single scheduling entry point — the rollup level teams actually report on (medium)
+- [x] `GET /v2/users/{id}/scheduling-availability` — Per-user availability windows, the denominator for booked-hours-versus-available-hours utilization (low)
 
 Note: OnceHub publishes two parallel OpenAPI specs against the same /v2 base: booking-calendars-api.yaml (synced today) and booking-pages-api.yaml (the classic surface, https://developers.oncehub.com/booking-pages-api.yaml) — the latter is where event-types, booking-pages and master-pages live, and both share /bookings, /users, /teams and /contacts. Excluded: /webhooks, /notifications/sms, /one-time-links (ephemeral), /booking-calendars/{id}/time-slots (live availability query, not a warehouse table), and the write-only lifecycle actions (cancel, reassign, no-show, request-reschedule).
 
