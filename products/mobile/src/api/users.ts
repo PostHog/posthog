@@ -12,6 +12,7 @@ export interface OrganizationApi {
     teams: TeamApi[]
     /** Null means not approved, as the server treats anything but `true`. */
     is_ai_data_processing_approved?: boolean | null
+    membership_level?: number | null
 }
 
 export interface OrganizationBasicApi {
@@ -39,6 +40,9 @@ export function fetchMe(init: { signal?: AbortSignal } = {}): Promise<MeApi> {
 }
 
 /** Needs `organization:read`. */
-export function fetchOrganization(organizationId: string): Promise<OrganizationApi> {
-    return apiJson<OrganizationApi>(`/api/organizations/${encodeURIComponent(organizationId)}/`)
+export function fetchOrganization(
+    organizationId: string,
+    init: { signal?: AbortSignal } = {}
+): Promise<OrganizationApi> {
+    return apiJson<OrganizationApi>(`/api/organizations/${encodeURIComponent(organizationId)}/`, init)
 }

@@ -1,12 +1,15 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import { Linking, Text } from 'react-native'
 
+import { fetchOrganization } from '@/api/users'
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { OverlayHost } from '@/ui/OverlayPortal'
 
 import { aiConsentKey, useAiConsentStore } from './aiConsentStore'
 import { ChatAccessGate } from './ChatAccessGate'
+
+jest.mock('@/api/users', () => ({ fetchOrganization: jest.fn() }))
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 jest.mock('react-native-reanimated', () => ({
@@ -21,13 +24,20 @@ jest.mock(
 const HOST = 'https://us.posthog.com'
 const USER_UUID = 'user-uuid-1'
 
-function signIn(approved: boolean): void {
+function signIn(approved: boolean, membershipLevel: number | null = 8): void {
+    jest.mocked(fetchOrganization).mockResolvedValue({
+        id: 'org-1',
+        name: 'Hedgebox',
+        teams: [{ id: 7, name: 'Hedgebox' }],
+        is_ai_data_processing_approved: approved,
+        membership_level: membershipLevel,
+    })
     useAuthStore.setState({
         status: 'signed_in',
         signedIn: true,
         host: HOST,
         user: { id: 1, uuid: USER_UUID, distinctId: 'distinct-1', email: 'max@example.com', name: 'Max' },
-        organizations: [{ id: 'org-1', name: 'Hedgebox', aiDataProcessingApproved: approved }],
+        organizations: [{ id: 'org-1', name: 'Hedgebox', aiDataProcessingApproved: approved, membershipLevel }],
         projects: [{ id: 7, name: 'Hedgebox', organizationId: 'org-1', organizationName: 'Hedgebox' }],
         projectId: 7,
     })
@@ -100,6 +110,16 @@ describe('ChatAccessGate', () => {
         expect(open).toHaveBeenCalledWith(`${HOST}/project/7/settings/organization-details#organization-ai-consent`)
         expect(screen.getByTestId('chat-ai-org-notice')).toHaveTextContent(/PostHog AI is off for Hedgebox/)
     })
+
+    test.each([1, null])(
+        'members and unknown roles get admin guidance without a settings link (%s)',
+        async (membership) => {
+            signIn(false, membership)
+            await renderGate()
+            expect(screen.queryByTestId('chat-ai-org-settings')).toBeNull()
+            expect(screen.getByTestId('chat-ai-org-notice')).toHaveTextContent(/Ask an admin or owner/)
+        }
+    )
 
     test('Continue stores consent and reveals the composer', async () => {
         signIn(true)

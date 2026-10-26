@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 import { BottomSheet } from '@/ui/BottomSheet'
 import { Eyebrow } from '@/ui/Eyebrow'
@@ -10,15 +10,17 @@ import { iconSizes, radii, type } from '@/ui/tokens'
 
 interface AiConsentSheetProps {
     visible: boolean
+    pending?: boolean
     onContinue: () => void
     /** Also runs when the sheet is dragged down or the scrim is tapped. */
     onNotNow: () => void
     onOpenPrivacyPolicy: () => void
 }
 
-/** Asks once per person on this device before the chat sends anything to PostHog AI. */
+/** The shared disclosure for chat, task handoff and replay summarization. */
 export function AiConsentSheet({
     visible,
+    pending = false,
     onContinue,
     onNotNow,
     onOpenPrivacyPolicy,
@@ -29,12 +31,13 @@ export function AiConsentSheet({
         <BottomSheet visible={visible} onClose={onNotNow} accessibilityLabel="PostHog AI" testID="chat-ai-consent">
             <View style={styles.content}>
                 <Text style={styles.title} accessibilityRole="header">
-                    Before you chat with PostHog AI
+                    Before you use PostHog AI
                 </Text>
                 <View style={styles.section}>
                     <Eyebrow>What is sent</Eyebrow>
                     <Text style={styles.body}>
-                        Your messages, any reports you attach, and the project data the agent reads to answer you.
+                        Your messages, attached reports, files and photos, selected session recordings, and project data
+                        used by the agent. The data sent depends on the action you choose.
                     </Text>
                 </View>
                 <View style={styles.section}>
@@ -67,8 +70,14 @@ export function AiConsentSheet({
                         pressedBackground={colors.inkHover}
                         style={[styles.button, styles.primary]}
                         testID="chat-ai-consent-continue"
+                        disabled={pending}
+                        accessibilityState={{ disabled: pending, busy: pending }}
                     >
-                        <Text style={styles.primaryText}>Continue</Text>
+                        {pending ? (
+                            <ActivityIndicator color={colors.onInk} />
+                        ) : (
+                            <Text style={styles.primaryText}>Continue</Text>
+                        )}
                     </Pressable44>
                 </View>
             </View>

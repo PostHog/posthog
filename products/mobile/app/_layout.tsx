@@ -14,6 +14,7 @@ import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGat
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
 import '@/features/chat/draftPersistence'
+import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
@@ -108,6 +109,7 @@ export default function RootLayout(): ReactElement {
                         ) : (
                             <BootSplash />
                         )}
+                        <AiApprovalDialog />
                     </QueryClientProvider>
                 </KeyboardProvider>
             </SafeAreaProvider>

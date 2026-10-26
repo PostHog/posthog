@@ -59,6 +59,10 @@ Expo Go produces an `exp://` redirect that no app registers, so sign in needs a 
 Self-hosted hosts must be https. Plain http is accepted only for loopback (`localhost`, `127.0.0.0/8`, `::1`), which is also the only place the server allows http redirects, and only in internal builds (dev, preview, or any Metro session).
 A store build rejects `http://localhost`.
 
+## AI approval roles
+
+The selected organization's current server membership determines the approval controls: admins and owners can open the existing web settings; members are asked to contact an admin or owner. Unknown roles never get an approval control. The web's automatic Request access notification is not available through the current OAuth API, so mobile does not offer that action. See [CHAT.md](CHAT.md#ai-consent) for the shared approval flow.
+
 ## Scopes
 
 The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
@@ -145,7 +149,7 @@ If AsyncStorage cannot be read on launch, the auth routing gate settles with its
 | `signedIn` | `status === 'signed_in'` |
 | `region`, `host`, `clientId`, `method` | the session's instance and how it signed in (`oauth` or `personal_api_key`) |
 | `user` | `{ uuid, distinctId, email, name }` |
-| `organizations` | `{ id, name }[]` |
+| `organizations` | `{ id, name, aiDataProcessingApproved?, membershipLevel? }[]`; membership level is the requesting user's server-provided role |
 | `projects` | `{ id, name, organizationId, organizationName }[]`, current organization first |
 | `projectId`, `projectName` | the current project; `projectPath()` reads `projectId` |
 | `accountLoading`, `accountError` | the last account reload |

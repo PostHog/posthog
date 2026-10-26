@@ -22,6 +22,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 import { DEMO_ANSWER_REPLY, DEMO_REPLY, demoSessionLog, demoSessionRunId } from '@/demo/sessionThreads'
+import { useAiApproval } from '@/features/ai/aiApproval'
 import {
     CommandFailedError,
     deliverPermissionResponse,
@@ -555,6 +556,7 @@ function sessionScope(): string {
 
 export function useSession(options: SessionOptions): Session {
     const { taskId, runId: requestedRunId } = options
+    const approval = useAiApproval('chat', taskId ?? 'new')
     const scope = useAuthStore((state) =>
         JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
     )
@@ -1420,16 +1422,24 @@ export function useSession(options: SessionOptions): Session {
     )
 
     const submit = useCallback(
-        (
+        async (
             text: string,
             context: ChatContext,
             options: ChatRunOptions = DEFAULT_CHAT_RUN_OPTIONS,
             sendOptions: SendOptions = {}
-        ): Promise<boolean> =>
-            taskIdRef.current
+        ): Promise<boolean> => {
+            const mine = epoch.current
+            if (!scopeIsCurrent() || !text.trim() || sendingRef.current || !(await approval.request())) {
+                return false
+            }
+            if (!scopeIsCurrent() || epoch.current !== mine) {
+                return false
+            }
+            return taskIdRef.current
                 ? followUp(text, context, options, sendOptions)
-                : startNew(text, context, options, sendOptions),
-        [followUp, startNew]
+                : startNew(text, context, options, sendOptions)
+        },
+        [followUp, startNew, approval.request, scopeIsCurrent]
     )
 
     const answer = useCallback(
@@ -1482,6 +1492,9 @@ export function useSession(options: SessionOptions): Session {
             sendingRef.current = true
             setSending(true)
             try {
+                if (!(await approval.request()) || epoch.current !== mine || !scopeIsCurrent()) {
+                    return
+                }
                 const outcome = await deliverPermissionResponse({ taskId, runId: current.runId }, plan.params, {
                     signal: controller.signal,
                 })
@@ -1511,7 +1524,7 @@ export function useSession(options: SessionOptions): Session {
                 }
             }
         },
-        [demo, playDemoFrames, refreshRun, scopeIsCurrent, setPartial, updateLive]
+        [demo, playDemoFrames, refreshRun, scopeIsCurrent, setPartial, updateLive, approval.request]
     )
 
     const stop = useCallback((): void => {
@@ -1616,7 +1629,7 @@ export function useSession(options: SessionOptions): Session {
             pullRequestFromUrl
         ),
         ...(live?.errorMessage ? { runError: live.errorMessage } : {}),
-        isSending,
+        isSending: isSending || approval.pending,
         isStopping,
         ...(notice ? { notice } : {}),
         ...(unsentText ? { unsentText } : {}),

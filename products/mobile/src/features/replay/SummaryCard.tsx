@@ -88,9 +88,15 @@ function SummaryBody({ card, aiStatus, pending, onSummarize, onCheckAgain }: Sum
                             <Text style={styles.title}>AI summaries are off for this organization</Text>
                         </View>
                         <Text style={styles.text}>
-                            Turn them on in PostHog on the web. To watch this session now, use Open full replay at the
-                            top.
+                            Review AI access to summarize this session. To watch the full recording now, use Open full
+                            replay at the top.
                         </Text>
+                        <CardButton
+                            label="Review AI access"
+                            onPress={onSummarize}
+                            disabled={pending}
+                            testID="session-summary-ai-access"
+                        />
                     </View>
                 )
             }

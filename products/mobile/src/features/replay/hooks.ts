@@ -16,6 +16,7 @@ import { type ProjectScope, retryUnlessMissing } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
+import { useAiApproval } from '@/features/ai/aiApproval'
 import { type OrgAiStatus, projectOrganization } from '@/features/chat/aiAccess'
 import { useAppActive } from '@/features/handoff/useTaskRun'
 import { reportScopeError, useFeatureAccess, type ViewsAccess } from '@/features/views/useViewsAccess'
@@ -149,6 +150,7 @@ function outcomeNotice(outcome: ScanOutcomeApi | null): string | null {
 }
 
 export function useSessionSummaryFlow(sessionId: string): SessionSummaryFlow {
+    const approval = useAiApproval('replay', sessionId)
     const { scope, ready } = useReplayContext()
     const queryClient = useQueryClient()
     const active = useScreenActive()
@@ -204,7 +206,10 @@ export function useSessionSummaryFlow(sessionId: string): SessionSummaryFlow {
         setNotice(null)
         void (async () => {
             try {
-                const outcome = await scoped(() => requestSessionSummary(sessionId))
+                if (!(await approval.request())) {
+                    return
+                }
+                const outcome = await scoped(() => requestSessionSummary(sessionId, approval.signal))
                 trackSummarizeRequested(sessionId, outcome)
                 if (outcome === 'started' || outcome === 'already_running') {
                     const now = Date.now()
@@ -223,7 +228,7 @@ export function useSessionSummaryFlow(sessionId: string): SessionSummaryFlow {
                 setPending(false)
             }
         })()
-    }, [ready, sessionId, queryClient, queryKey])
+    }, [ready, sessionId, queryClient, queryKey, approval.request, approval.signal])
 
     const checkAgain = useCallback((): void => {
         setTimedOut(false)

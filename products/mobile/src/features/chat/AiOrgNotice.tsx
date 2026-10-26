@@ -10,13 +10,19 @@ interface AiOrgNoticeProps {
     /** `not_approved`: an admin has not allowed third-party AI. `unknown`: the app could not load the setting. */
     reason: 'not_approved' | 'unknown'
     organizationName: string | null
+    canApprove?: boolean
+    onCancel?: () => void
     /** Null hides Open settings. */
     onOpenSettings: (() => void) | null
     onCheckAgain: () => void
     checking: boolean
 }
 
-function copyFor(reason: AiOrgNoticeProps['reason'], organizationName: string | null): { title: string; body: string } {
+function copyFor(
+    reason: AiOrgNoticeProps['reason'],
+    organizationName: string | null,
+    canApprove: boolean
+): { title: string; body: string } {
     if (reason === 'unknown') {
         return {
             title: "Couldn't check PostHog AI access",
@@ -25,7 +31,9 @@ function copyFor(reason: AiOrgNoticeProps['reason'], organizationName: string | 
     }
     return {
         title: `PostHog AI is off for ${organizationName ?? 'this organization'}`,
-        body: 'An organization admin needs to allow third-party AI services in the organization settings before you can chat.',
+        body: canApprove
+            ? 'As an admin or owner, you can allow third-party AI services in organization settings.'
+            : 'Ask an admin or owner to allow third-party AI services in organization settings, then check again.',
     }
 }
 
@@ -33,13 +41,15 @@ function copyFor(reason: AiOrgNoticeProps['reason'], organizationName: string | 
 export function AiOrgNotice({
     reason,
     organizationName,
+    canApprove = false,
+    onCancel,
     onOpenSettings,
     onCheckAgain,
     checking,
 }: AiOrgNoticeProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const copy = copyFor(reason, organizationName)
+    const copy = copyFor(reason, organizationName, canApprove)
     return (
         <View style={styles.notice} testID="chat-ai-org-notice">
             <Text style={styles.title} accessibilityRole="header">
@@ -73,6 +83,16 @@ export function AiOrgNotice({
                     )}
                 </Pressable44>
             </View>
+            {onCancel ? (
+                <Pressable44
+                    onPress={onCancel}
+                    accessibilityLabel="Not now"
+                    style={styles.cancel}
+                    testID="ai-approval-cancel"
+                >
+                    <Text style={styles.secondaryText}>Not now</Text>
+                </Pressable44>
+            ) : null}
         </View>
     )
 }
@@ -97,6 +117,7 @@ const useStyles = createStyles(({ colors }) => ({
         ...type.bodySmall,
         color: colors.muted,
     },
+    cancel: { alignItems: 'center', justifyContent: 'center', height: 44 },
     actions: {
         flexDirection: 'row',
         gap: 10,

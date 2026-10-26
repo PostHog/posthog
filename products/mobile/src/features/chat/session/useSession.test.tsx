@@ -5,6 +5,7 @@ import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 import { getSessionTokens, setSessionTokens } from '@/auth/tokens'
+import { useAiApproval } from '@/features/ai/aiApproval'
 import { setAnalyticsClient } from '@/lib/analytics'
 
 import type { PendingAttachment } from '../attachments/types'
@@ -17,6 +18,13 @@ import { useSession } from './useSession'
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
+jest.mock('@/features/ai/aiApproval', () => ({
+    useAiApproval: jest.fn(() => ({
+        request: jest.fn(async () => true),
+        pending: false,
+        signal: new AbortController().signal,
+    })),
+}))
 jest.mock('expo-notifications', () => ({}))
 jest.mock('@/auth/useProjectScope', () => {
     const scope = { host: 'https://app.example.com', projectId: 2 }
@@ -146,6 +154,11 @@ describe('useSession', () => {
     const originalAppState = AppState.currentState
     beforeEach(() => {
         AppState.currentState = 'active'
+        jest.mocked(useAiApproval).mockReturnValue({
+            request: jest.fn(async () => true),
+            pending: false,
+            signal: new AbortController().signal,
+        })
         mocked.openTaskRunStream.mockReset().mockImplementation(
             (_taskId, _runId, options) =>
                 new Promise<Response>((_resolve, reject) => {
@@ -157,6 +170,33 @@ describe('useSession', () => {
         AppState.currentState = originalAppState
         jest.clearAllMocks()
     })
+
+    test.each([false, true])(
+        'a denied AI approval prevents uploads and message delivery (existing task: %s)',
+        async (existing) => {
+            jest.mocked(useAiApproval).mockReturnValue({
+                request: jest.fn(async () => false),
+                pending: false,
+                signal: new AbortController().signal,
+            })
+            mocked.getTask.mockResolvedValue(task(run({ status: 'completed' })))
+            mocked.getTaskRunLogs.mockResolvedValue([])
+            const { result, unmount } = renderHook(() => useSession(existing ? { taskId: TASK_ID } : {}))
+            if (existing) await waitFor(() => expect(result.current.history.status).toBe('idle'))
+            await act(async () => {
+                await expect(
+                    result.current.start('Explain this', { kind: 'none' }, DEFAULT_AUTO, { attachments: [SHOT] })
+                ).resolves.toBe(false)
+                await expect(result.current.send('Queued question', { kind: 'none' })).resolves.toBe(false)
+            })
+            expect(mocked.createTask).not.toHaveBeenCalled()
+            expect(mocked.startTaskRun).not.toHaveBeenCalled()
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            expect(upload).not.toHaveBeenCalled()
+            expect(result.current.items).toEqual([])
+            unmount()
+        }
+    )
 
     test.each(['keepalive', 'quiet', 'stream-end'])(
         'opening a chat publishes its backlog together on %s, then streams new messages',
@@ -629,6 +669,7 @@ describe('useSession', () => {
         act(() => {
             sending = result.current.start('Why did signups drop?', { kind: 'none' }, OPUS_PLAN)
         })
+        await waitFor(() => expect(mocked.createTask).toHaveBeenCalled())
         unmount()
         finishCreate({ ...task(run({})), latest_run: accepted ? run({}) : null })
         expect(await sending).toBe(accepted)

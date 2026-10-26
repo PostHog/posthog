@@ -15,6 +15,7 @@ export interface AuthOrganization {
     name: string
     /** Undefined in a session persisted before the app stored it, until the next account reload. */
     aiDataProcessingApproved?: boolean
+    membershipLevel?: OrganizationApi['membership_level']
 }
 
 export interface AuthProject {
@@ -54,7 +55,11 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
         organizations: organizations.map((organization) => ({
             id: organization.id,
             name: organization.name,
-            aiDataProcessingApproved: organization.is_ai_data_processing_approved === true,
+            aiDataProcessingApproved:
+                organization.is_ai_data_processing_approved === undefined
+                    ? undefined
+                    : organization.is_ai_data_processing_approved === true,
+            membershipLevel: organization.membership_level,
         })),
         projects,
         webTeamId: me.team?.id ?? null,
