@@ -234,6 +234,17 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         message=f"Operator {operator} is only supported on cohort properties.",
                     )
                 )
+            # The matcher honors `in` and `not_in` on a cohort property and scores every other
+            # operator as a non-match, so a flag that stores one never matches anybody. An omitted
+            # operator is valid, because the matcher reads it as `in`.
+            if prop.get("type") == "cohort" and operator is not None and operator not in ("in", "not_in"):
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.cohort_requires_in_or_not_in",
+                        path=f"groups[{group_index}].properties[{prop_index}].operator",
+                        message="Cohort properties must use the 'in' or 'not_in' operator.",
+                    )
+                )
             if operator in DATE_OPERATORS and determine_parsed_date_for_property_matching(value) is None:
                 violations.append(
                     Violation(

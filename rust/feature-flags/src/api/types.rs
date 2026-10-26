@@ -946,6 +946,23 @@ impl FlagDetails {
                                 format!("Could not check if person is in {cohort_label}"),
                             ),
                         };
+                        // The matcher already scored this as a non-match, because
+                        // `apply_cohort_membership_logic` honors `in` and `not in` and nothing
+                        // else. Replace the line that names the cohort, which sends the reader
+                        // to check a membership that is not what rejected them. An absent
+                        // operator stays untouched: the matcher reads it as `in`.
+                        let explanation = if property
+                            .operator
+                            .is_some_and(|op| !matches!(op, OperatorType::In | OperatorType::NotIn))
+                        {
+                            format!(
+                                "A cohort filter needs the 'in' or 'not in' operator. This one \
+                                 uses '{operator_str}', so the condition never matches. Remove \
+                                 the condition and add the cohort again."
+                            )
+                        } else {
+                            explanation
+                        };
                         property_analyses.push(PropertyAnalysis {
                             key: property.key.clone(),
                             operator: operator_str,
@@ -2192,6 +2209,20 @@ mod tests {
         CohortMembership::UnverifiedNonMember,
         true,
         "Could not fully check if person is in cohort 12345, because it targets behavior over time"
+    )]
+    // An operator the matcher does not honor rejects the person whatever the membership is, so
+    // the line must name the operator rather than the cohort.
+    #[case::unsupported_operator_member(
+        "exact",
+        CohortMembership::Member,
+        false,
+        "A cohort filter needs the 'in' or 'not in' operator. This one uses 'exact', so the condition never matches. Remove the condition and add the cohort again."
+    )]
+    #[case::unsupported_operator_non_member(
+        "exact",
+        CohortMembership::NonMember,
+        false,
+        "A cohort filter needs the 'in' or 'not in' operator. This one uses 'exact', so the condition never matches. Remove the condition and add the cohort again."
     )]
     fn test_condition_analysis_applies_cohort_operator_to_known_membership(
         #[case] operator: &str,
