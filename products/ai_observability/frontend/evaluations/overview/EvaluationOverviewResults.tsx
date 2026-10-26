@@ -93,7 +93,8 @@ export function EvaluationOverviewResults(): JSX.Element {
                             <span className="text-xs text-secondary">{viewSubtitle(view, interval)}</span>
                         )}
                     </div>
-                    {!loading && !nothingGraded && (
+                    {/* With nothing graded the picker only matters as the way back to the over time empty state. */}
+                    {!loading && (!nothingGraded || view !== 'over_time') && (
                         <div className="flex flex-wrap items-center justify-end gap-2">
                             {/* Explore only works on the pass rate chart. It sits left of the view picker, so the picker
                             keeps its place when Explore comes and goes. */}
