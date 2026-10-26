@@ -4,9 +4,12 @@ calculation fails on shows before launch. The compile is the query runner's own,
 fails before ClickHouse receives the query. A failure inside ClickHouse, such as a type that the data holds, doesn't
 show here.
 
-The compile runs without the reader and bypasses warehouse access, as the background calculation does, so every reader
-shares the cached answer. The cache key holds the inputs of the compile. It doesn't hold the cohorts, actions and
-warehouse tables that a metric names, so a change to them shows when the answer expires.
+The compile runs as the reader, with the reader's warehouse access. The compiler's messages, such as its "Did you mean"
+suggestions, can name any table or column that the compile can see, so a reader only sees names they may query. A
+metric that reads a table or a view that the reader may not query is not checked for them. The answer is cached per
+reader and per input of the compile. The cache key doesn't hold the cohorts, actions and warehouse tables that a metric
+names, or the reader's access, so a change to them shows when the answer expires. Until then, a message names only what
+the reader could query when it was compiled.
 """
 
 import re
@@ -27,9 +30,11 @@ from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
     SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.experiments.backend.facade.contracts import ExperimentHealthMetricCompileErrorKind
@@ -44,6 +49,7 @@ from products.experiments.backend.metric_calculation.config import (
 )
 from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 # Part of the cache key. Raise it when the cached answer changes shape.
 _ANSWER_SHAPE = 1
@@ -54,36 +60,40 @@ _MAX_MESSAGE_LENGTH = 1000
 
 _COMPILES = "compiles"
 _UNKNOWN = "unknown"
+_NO_ACCESS = "no_access"
 _EXPOSURE_QUERY_FAILS = "exposure_query_fails"
 # The errors that the configuration of the experiment causes. HogQL raises its NotImplementedError for a filter that
 # combines settings it doesn't support, such as an element selector with "contains".
 _CONFIGURATION_ERRORS = (ValidationError, ExposedHogQLError, HogQLNotImplementedError, pydantic.ValidationError)
 
 
-def load_metric_compiles(experiment: Experiment) -> MetricCompiles | None:
-    """The compile of each metric that the experiment calculates, or None when it fails. Never raises: the check then
-    reports that it couldn't check."""
+def load_metric_compiles(experiment: Experiment, *, user: User | None) -> MetricCompiles | None:
+    """The compile of each metric that the experiment calculates, as `user`, or None when it fails. Never raises: the
+    check then reports that it couldn't check. Without a user, a metric that reads the warehouse is not checked."""
     try:
-        return _load_metric_compiles(experiment)
+        return _load_metric_compiles(experiment, user)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def _load_metric_compiles(experiment: Experiment) -> MetricCompiles:
+def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCompiles:
     team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
     # Metrics that share a uuid share its first definition, so one compile covers them.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_calculation_configs(experiment, team_config=team_config):
         configs.setdefault(calculation_config.metric_id, calculation_config)
-    compiler = _MetricCompiler(experiment)
+    compiler = _MetricCompiler(experiment, team_config=team_config, user=user)
     failures: list[MetricCompileFailure] = []
     unknown_count = 0
+    no_access_count = 0
     exposure_query_fails = False
     for calculation_config in configs.values():
         answer = _answer(compiler, calculation_config)
         if answer == _UNKNOWN:
             unknown_count += 1
+        elif answer == _NO_ACCESS:
+            no_access_count += 1
         elif answer == _EXPOSURE_QUERY_FAILS:
             exposure_query_fails = True
         elif isinstance(answer, dict):
@@ -101,6 +111,7 @@ def _load_metric_compiles(experiment: Experiment) -> MetricCompiles:
         metric_count=len(configs),
         failures=() if exposure_query_fails else tuple(failures),
         unknown_count=unknown_count,
+        no_access_count=no_access_count,
         exposure_query_fails=exposure_query_fails,
     )
 
@@ -116,9 +127,9 @@ def _can_hold_evaluation_rules(
 
 
 def _answer(compiler: "_MetricCompiler", calculation_config: MetricCalculationConfig) -> str | dict[str, str]:
-    cache_key = _cache_key(compiler.experiment.team_id, calculation_config)
+    cache_key = _cache_key(compiler.experiment.team_id, compiler.user, calculation_config)
     cached = cache.get(cache_key)
-    if cached in (_COMPILES, _UNKNOWN, _EXPOSURE_QUERY_FAILS) or isinstance(cached, dict):
+    if cached in (_COMPILES, _UNKNOWN, _NO_ACCESS, _EXPOSURE_QUERY_FAILS) or isinstance(cached, dict):
         return cached
     try:
         answer = compiler.compile(calculation_config.definition)
@@ -130,10 +141,13 @@ def _answer(compiler: "_MetricCompiler", calculation_config: MetricCalculationCo
 
 
 class _MetricCompiler:
-    """Compiles the metrics of one experiment against one HogQL database, which is the costly part of a compile."""
+    """Compiles the metrics of one experiment as one reader, against one HogQL database, which is the costly part of
+    a compile."""
 
-    def __init__(self, experiment: Experiment) -> None:
+    def __init__(self, experiment: Experiment, *, team_config: TeamExperimentsConfig, user: User | None) -> None:
         self.experiment = experiment
+        self.user = user
+        self._team_config = team_config
         self._database: Database | None = None
 
     def compile(self, definition: dict[str, Any]) -> str | dict[str, str]:
@@ -144,14 +158,18 @@ class _MetricCompiler:
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),
             team=self.experiment.team,
-            bypass_warehouse_access_control=True,
+            user=self.user,
             user_facing=False,
             error_event_context=None,
+            experiment=self.experiment,
+            team_experiments_config=self._team_config,
         )
         if self._database is None:
             self._database = runner.create_database(runner.query_modifiers())
         try:
             runner.compile_query(self._database)
+        except TableAccessDeniedError:
+            return _NO_ACCESS
         except _CONFIGURATION_ERRORS as error:
             # The exposure criteria and the project's test account filters are part of every metric's query, so a
             # failure in them fails every metric and isn't a problem of the metric.
@@ -208,7 +226,7 @@ def _definition_message(error: pydantic.ValidationError) -> str:
     return f"PostHog doesn't accept the value of {', '.join(locations[:3])}"
 
 
-def _cache_key(team_id: int, calculation_config: MetricCalculationConfig) -> str:
+def _cache_key(team_id: int, user: User | None, calculation_config: MetricCalculationConfig) -> str:
     settings = calculation_config.settings
     # Every input of the compile except the dates, which change only constants of the query, so a draft's answer
     # still holds after launch.
@@ -230,4 +248,5 @@ def _cache_key(team_id: int, calculation_config: MetricCalculationConfig) -> str
         default=str,
     )
     digest = hashlib.sha256(inputs.encode()).hexdigest()
-    return f"experiment_metric_compile:{team_id}:{digest}"
+    # The reader decides which warehouse tables the compile sees, so each reader has an answer of their own.
+    return f"experiment_metric_compile:{team_id}:{user.pk if user else 'none'}:{digest}"

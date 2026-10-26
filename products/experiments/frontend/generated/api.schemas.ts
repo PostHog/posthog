@@ -3254,6 +3254,8 @@ export interface ExperimentHealthInputsMetricCompilesApi {
     metric_count: number
     /** The metrics whose compile raised an error that names no problem of the metric, such as a defect. */
     unknown_count: number
+    /** The metrics that read a warehouse table or view that the reader may not query, so they aren't checked. */
+    no_access_count: number
     /** Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no failure is listed. */
     exposure_query_fails: boolean
     /** The metrics whose query doesn't compile, with the compiler's message. */
@@ -3670,7 +3672,7 @@ export interface ExperimentHealthInputsApi {
     exposure_events: ExperimentHealthInputsExposureEventsApi | null
     /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
     events_received: ExperimentHealthInputsApiEventsReceived
-    /** The compile of each metric's query without running it, which the metric calculation check reads. Cached for a day, or an hour when a metric fails. Null when the compile itself failed. */
+    /** The compile of each metric's query without running it, as the reader, which the metric calculation check reads. Cached per reader for a day, or an hour when a metric fails. Null when the compile itself failed. */
     metric_compiles: ExperimentHealthInputsMetricCompilesApi | null
     /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
     flag_history: ExperimentHealthInputsFlagHistoryApi | null

@@ -3957,36 +3957,6 @@ class TestExperimentService(APIBaseTest):
                 ],
             ),
             (
-                "launch_endpoint_with_a_metric_that_cannot_compile",
-                lambda self: self._create_launchable_experiment(
-                    name="Path S",
-                    feature_flag_key="path-compile-flag",
-                    metrics=[
-                        {
-                            **self._DEFAULT_METRIC,
-                            "source": {
-                                "kind": "EventsNode",
-                                "event": "$pageview",
-                                "math": "hogql",
-                                "math_hogql": "sum(properties.revenue) / count()",
-                            },
-                        }
-                    ],
-                ),
-                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [
-                    (
-                        "launch_endpoint",
-                        0,
-                        False,
-                        ["metric_cannot_compile"],
-                        ["metric_cannot_compile:compound_aggregation"],
-                        ["metric_cannot_compile:compound_aggregation:warning:"],
-                        False,
-                    )
-                ],
-            ),
-            (
                 "launch_endpoint_on_older_flag",
                 lambda self: self._create_launchable_experiment_on_flag_of_age(
                     timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"

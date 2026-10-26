@@ -5,7 +5,6 @@ import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
-from dataclasses import replace
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Any, Literal, TypedDict, get_args
@@ -57,7 +56,6 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFindin
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.health.context import load_health_context
-from products.experiments.backend.health.metric_compiles import load_metric_compiles
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -1418,7 +1416,7 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
-            health_context = replace(load_health_context(experiment), metric_compiles=load_metric_compiles(experiment))
+            health_context = load_health_context(experiment)
             # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
             findings = evaluate_health(health_context, EXPERIMENT_HEALTH_CHECKS).findings
             self._report_lifecycle_event(

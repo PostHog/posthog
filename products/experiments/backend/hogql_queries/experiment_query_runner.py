@@ -29,7 +29,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -113,6 +113,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        experiment: Optional[Experiment] = None,
+        team_experiments_config: Optional[TeamExperimentsConfig] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -129,10 +131,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
 
-        try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
-        except Experiment.DoesNotExist:
-            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
+        # A caller that runs several metrics of one experiment passes the experiment, with its flag loaded, and the
+        # team's settings, so each runner doesn't read them again.
+        if team_experiments_config is not None:
+            self._team_experiments_config = team_experiments_config
+        if experiment is not None:
+            if experiment.id != self.query.experiment_id or experiment.team_id != self.team.pk:
+                raise ValueError("The experiment doesn't match the query's experiment and team")
+            self.experiment = experiment
+        else:
+            try:
+                self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+            except Experiment.DoesNotExist:
+                raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
 
         # Evaluation point for the analysis window; experiment_window_end caps it at end_date. An
         # explicit as_of is a recalc's frozen run snapshot or a timeseries backfill's per-day point.
@@ -456,6 +467,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 modifiers=self.query_modifiers(),
                 workload=self.workload,
             ).generate_clickhouse_sql()
+        except TableAccessDeniedError:
+            # A denied table must reach the caller as a denial, not as a field error that the HogQL pass recorded.
+            raise
         except ExposedHogQLError as error:
             # The HogQL pass records a field that it can't resolve and goes on. A later reference to the column that
             # holds the field then raises an error that names the column, such as "Field not found: entity_id".

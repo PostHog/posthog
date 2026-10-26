@@ -311,7 +311,7 @@ export function buildMetricFacts(
         {
             label: 'Metric queries',
             value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
-            help: "The metric calculation check compiles each metric's query without running it. The answer is cached for a day, or an hour when a metric fails.",
+            help: "The metric calculation check compiles each metric's query as you, without running it. The answer is cached per reader for a day, or an hour when a metric fails.",
         },
         ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
             label: `Doesn't compile: ${failure.name} (${failure.role})`,
@@ -328,9 +328,13 @@ function describeMetricCompiles(compiles: ExperimentHealthInputsApi['metric_comp
         return "Not compiled: the exposure query doesn't compile"
     }
     const failed = compiles.failures.length
-    const parts = [`${compiles.metric_count - failed - compiles.unknown_count} of ${compiles.metric_count} compile`]
+    const checked = compiles.metric_count - failed - compiles.unknown_count - compiles.no_access_count
+    const parts = [`${checked} of ${compiles.metric_count} compile`]
     if (failed) {
         parts.push(`${failed} ${failed === 1 ? "doesn't" : "don't"}`)
+    }
+    if (compiles.no_access_count) {
+        parts.push(`${compiles.no_access_count} not checked, they read data you can't query`)
     }
     if (compiles.unknown_count) {
         parts.push(`${compiles.unknown_count} not checked`)

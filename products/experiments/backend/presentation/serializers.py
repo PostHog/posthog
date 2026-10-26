@@ -3327,6 +3327,9 @@ class ExperimentHealthInputsMetricCompilesSerializer(serializers.Serializer):
     unknown_count = serializers.IntegerField(
         help_text="The metrics whose compile raised an error that names no problem of the metric, such as a defect."
     )
+    no_access_count = serializers.IntegerField(
+        help_text="The metrics that read a warehouse table or view that the reader may not query, so they aren't checked."
+    )
     exposure_query_fails = serializers.BooleanField(
         help_text=(
             "Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no "
@@ -3466,8 +3469,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
         allow_null=True,
         help_text=(
-            "The compile of each metric's query without running it, which the metric calculation check reads. "
-            "Cached for a day, or an hour when a metric fails. Null when the compile itself failed."
+            "The compile of each metric's query without running it, as the reader, which the metric calculation check "
+            "reads. Cached per reader for a day, or an hour when a metric fails. Null when the compile itself failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

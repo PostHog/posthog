@@ -32,12 +32,12 @@ class HealthInputs:
 
 
 def load_experiment_health_context(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
+    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthContext:
     """The context that the checks of the health endpoint read: the experiment, its flag, its linked metrics and the
     compile of their queries, the changes of the flag since launch and the flag's recent calls, as far as
-    `reader_access` allows."""
-    return _health_context(_load_experiment(team_id, experiment_id), reader_access)
+    `reader_access` and `user`'s warehouse access allow."""
+    return _health_context(_load_experiment(team_id, experiment_id), reader_access, user)
 
 
 def load_experiment_health_inputs(
@@ -45,7 +45,7 @@ def load_experiment_health_inputs(
 ) -> HealthInputs:
     experiment = _load_experiment(team_id, experiment_id)
     return HealthInputs(
-        context=_health_context(experiment, reader_access),
+        context=_health_context(experiment, reader_access, user),
         exposures=load_exposure_inputs(experiment, user=user, can_query_events=reader_access.can_query_events),
         reader_access=reader_access,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
@@ -66,7 +66,9 @@ def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
     )
 
 
-def _health_context(experiment: Experiment, reader_access: ExperimentHealthReaderAccess) -> HealthContext:
+def _health_context(
+    experiment: Experiment, reader_access: ExperimentHealthReaderAccess, user: User | None
+) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
     context = load_health_context(experiment, flag_history=flag_history)
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
@@ -75,5 +77,5 @@ def _health_context(experiment: Experiment, reader_access: ExperimentHealthReade
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment),
-        metric_compiles=load_metric_compiles(experiment),
+        metric_compiles=load_metric_compiles(experiment, user=user),
     )

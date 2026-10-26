@@ -210,6 +210,7 @@ def _health_inputs_metric_compiles(compiles: MetricCompiles) -> dict[str, Any]:
     return {
         "metric_count": compiles.metric_count,
         "unknown_count": compiles.unknown_count,
+        "no_access_count": compiles.no_access_count,
         "exposure_query_fails": compiles.exposure_query_fails,
         "failures": [
             {"name": failure.name, "role": failure.role, "kind": failure.kind.value, "message": failure.message}

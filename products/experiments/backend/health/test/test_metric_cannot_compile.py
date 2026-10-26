@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -12,6 +12,10 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import InternalHogQLError
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
@@ -24,6 +28,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
@@ -60,6 +65,20 @@ def _cohort(cohort_id: int) -> dict[str, Any]:
     return {"key": "id", "type": "cohort", "value": cohort_id}
 
 
+def _warehouse_sum(table_name: str) -> dict[str, Any]:
+    return _mean(
+        {
+            "kind": "ExperimentDataWarehouseNode",
+            "table_name": table_name,
+            "timestamp_field": "created",
+            "events_join_key": "person.properties.email",
+            "data_warehouse_join_key": "email",
+            "math": "sum",
+            "math_property": "amount",
+        }
+    )
+
+
 class TestMetricCannotCompile(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -83,7 +102,9 @@ class TestMetricCannotCompile(BaseTest):
         return Experiment.objects.create(team=self.team, name="Checkout", feature_flag=self.flag, **fields)
 
     def _health(self, experiment: Experiment) -> ExperimentHealth:
-        return get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        return get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
     @parameterized.expand(
         [
@@ -279,7 +300,7 @@ class TestMetricCannotCompile(BaseTest):
             ),
             (
                 "legacy_metrics_only",
-                {"metrics": [{"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}}]},
+                {"metrics": [{"kind": "ExperimentTrendsQuery"}]},
                 None,
                 (NOT_APPLICABLE, "Runs once the experiment has a metric in the current format"),
             ),
@@ -302,6 +323,63 @@ class TestMetricCannotCompile(BaseTest):
         self.assertNotIn(CODE, [finding.code for finding in health.findings])
         [check] = [check for check in health.checks if check.key == KEY]
         self.assertEqual((check.status, check.reason), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "table_the_reader_may_not_query",
+                "stripe_charges",
+                True,
+                (NOT_CHECKED, "Couldn't check 1 metric that reads data you don't have access to"),
+            ),
+            (
+                "suggestion_for_a_reader_who_may_query_the_table",
+                "stripe_charge",
+                False,
+                (ExperimentHealthCheckStatus.FINDING, "Unknown table `stripe_charge`. Did you mean: stripe_charges?"),
+            ),
+            (
+                "no_suggestion_of_a_table_the_reader_may_not_query",
+                "stripe_charge",
+                True,
+                (ExperimentHealthCheckStatus.FINDING, "Unknown table `stripe_charge`."),
+            ),
+        ]
+    )
+    # The flag `hogql-warehouse-access-control` turns on warehouse access control.
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_compiles_with_the_readers_warehouse_access(
+        self, _name: str, table_name: str, denied: bool, expected: tuple[ExperimentHealthCheckStatus, str]
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_charges",
+            columns={
+                "email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+                "amount": {"hogql": "FloatDatabaseField", "clickhouse": "Nullable(Float64)"},
+                "created": {"hogql": "DateTimeDatabaseField", "clickhouse": "Nullable(DateTime64(3, 'UTC'))"},
+            },
+            credential=DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
+            url_pattern="",
+        )
+        if denied:
+            AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+        health = self._health(self._experiment(metrics=[_warehouse_sum(table_name)]))
+
+        [check] = [check for check in health.checks if check.key == KEY]
+        findings = [finding for finding in health.findings if finding.code == CODE]
+        self.assertEqual(
+            (check.status, findings[0].evidence["metric_1_message"] if findings else check.reason), expected
+        )
 
     def test_the_answer_is_cached_until_the_metric_changes(self) -> None:
         experiment = self._experiment(metrics=[_mean(_hogql(COMPOUND))])

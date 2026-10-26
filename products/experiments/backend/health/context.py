@@ -263,6 +263,8 @@ class MetricCompiles:
     failures: tuple[MetricCompileFailure, ...]
     # The metrics whose compile raised an error that names no problem of the metric, such as a defect of PostHog.
     unknown_count: int
+    # The metrics that read a warehouse table or view that the reader may not query.
+    no_access_count: int
     # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
     # is empty.
     exposure_query_fails: bool
@@ -340,7 +342,7 @@ class HealthContext:
     primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
-    # None when not loaded or unknown. The health endpoint and the launch load it.
+    # None when not loaded or unknown. Only the health endpoint loads it, as the reader.
     metric_compiles: MetricCompiles | None
 
 

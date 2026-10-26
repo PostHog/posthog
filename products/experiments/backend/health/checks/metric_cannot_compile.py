@@ -69,6 +69,11 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
     if compiles.exposure_query_fails:
         return not_checked("Couldn't check because the exposure criteria can't be built into a query")
     if not compiles.failures:
+        if compiles.no_access_count:
+            reads = "reads" if compiles.no_access_count == 1 else "read"
+            return not_checked(
+                f"Couldn't check {_metrics(compiles.no_access_count)} that {reads} data you don't have access to"
+            )
         if compiles.unknown_count:
             return not_checked(f"Couldn't check {_metrics(compiles.unknown_count)}")
         return None
@@ -255,11 +260,12 @@ def _unsupported_element_operator(match: re.Match[str], _message: str) -> _Wordi
     )
 
 
-def _missing_warehouse_table(match: re.Match[str], _message: str) -> _Wording:
+def _missing_warehouse_table(match: re.Match[str], message: str) -> _Wording:
+    suggestion = _SUGGESTIONS.search(message)
     return _Wording(
         error=MetricCompileError.MISSING_WAREHOUSE_TABLE,
         explanation=f'It reads the data warehouse table "{match.group("table")}", which this project doesn\'t '
-        "have. Choose another table.",
+        "have." + (f" Did you mean {suggestion.group('first')}?" if suggestion else " Choose another table."),
     )
 
 
