@@ -562,7 +562,13 @@ class EventDefinitionViewSet(
             fuzzy_term = search.replace("\x00", "").strip() if search else ""
             if fuzzy_search and definition_count == 0 and 3 <= len(fuzzy_term) <= 200:
                 params["fuzzy_search"] = fuzzy_term
-                conditions = " AND posthog_eventdefinition.name %% %(fuzzy_search)s" + filter_query
+                # `%` can use the global trigram index; the function form keeps a small project on its own index.
+                fuzzy_predicate = (
+                    "posthog_eventdefinition.name %% %(fuzzy_search)s"
+                    if large_project
+                    else "similarity(posthog_eventdefinition.name, %(fuzzy_search)s) >= show_limit()"
+                )
+                conditions = f" AND {fuzzy_predicate}" + filter_query
                 count_sql = create_event_definitions_count_sql(
                     event_type, is_enterprise=EE_AVAILABLE, conditions=conditions
                 )

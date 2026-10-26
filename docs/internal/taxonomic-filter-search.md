@@ -18,6 +18,7 @@ When a caller allows custom event names, a successful empty search offers "Use e
 Pressing Enter in the search input selects that custom event name.
 The classic picker does not infer ingestion history from a filtered definition list.
 Event and Custom Events searches keep case-insensitive substring matches first. If the filtered event-definition search has no matches, it can return similar event names. Hidden and excluded events stay out of both match sets.
+A picker that allows custom event names does not ask for similar names, because "Use event name" shows only when nothing matches.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.
 

@@ -183,6 +183,8 @@ export interface BuildTaxonomicGroupsContext {
     featureFlags: Record<string, boolean | string | undefined>
     /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
     includeHiddenEvents?: boolean
+    /** The picker offers "Use event name" for a search with no matches. See `TaxonomicFilterProps`. */
+    allowNonCapturedEvents?: boolean
 }
 
 export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): TaxonomicFilterGroup[] {
@@ -207,6 +209,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         hogQLExpressionComponentProps,
         featureFlags,
         includeHiddenEvents,
+        allowNonCapturedEvents,
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList, showNumericalPropsOnly } = propertyFilters
@@ -226,7 +229,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                 event_type: EventDefinitionType.Event,
                 exclude_hidden: true,
-                fuzzy_search: true,
+                fuzzy_search: !allowNonCapturedEvents,
             }).url,
             // The caller's record already carries the hidden names. Appending them again keeps the
             // group hiding them even if some future caller passes a record that skipped the fold,
@@ -924,7 +927,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                 event_type: EventDefinitionType.EventCustom,
                 exclude_hidden: true,
-                fuzzy_search: true,
+                fuzzy_search: !allowNonCapturedEvents,
             }).url,
             getName: (eventDefinition: EventDefinition) => eventDefinition.name,
             getValue: (eventDefinition: EventDefinition) => eventDefinition.name,

@@ -168,14 +168,16 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
     })
 
-    it.each([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents])(
-        'enables fuzzy fallback for %s',
-        (groupType) => {
-            const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
-            const group = buildTaxonomicGroups(result.current).find((item) => item.type === groupType)
-            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe('true')
-        }
-    )
+    it.each([
+        [TaxonomicFilterGroupType.Events, false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, false, 'true'],
+        [TaxonomicFilterGroupType.Events, true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, true, 'false'],
+    ])('for %s with allowNonCapturedEvents %p, fuzzy_search is %p', (groupType, allowNonCapturedEvents, expected) => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({ allowNonCapturedEvents }), { wrapper })
+        const group = buildTaxonomicGroups(result.current).find((item) => item.type === groupType)
+        expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe(expected)
+    })
 
     it('makes exception properties commit as event property filters', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })

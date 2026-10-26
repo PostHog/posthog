@@ -122,13 +122,21 @@ describe('taxonomicFilterLogic', () => {
         ).toBeFalsy()
     })
 
-    it.each([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents])(
-        'enables fuzzy fallback for %s',
-        (groupType) => {
-            const group = logic.values.taxonomicGroups.find((item) => item.type === groupType)
-            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe('true')
-        }
-    )
+    it.each([
+        [TaxonomicFilterGroupType.Events, false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, false, 'true'],
+        [TaxonomicFilterGroupType.Events, true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, true, 'false'],
+    ])('for %s with allowNonCapturedEvents %p, fuzzy_search is %p', (groupType, allowNonCapturedEvents, expected) => {
+        const fuzzyLogic = taxonomicFilterLogic({
+            taxonomicFilterLogicKey: `fuzzy-${groupType}-${allowNonCapturedEvents}`,
+            taxonomicGroupTypes: [groupType],
+            allowNonCapturedEvents,
+        })
+        fuzzyLogic.mount()
+        const group = fuzzyLogic.values.taxonomicGroups.find((item) => item.type === groupType)
+        expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe(expected)
+    })
 
     it('loads actions when a taxonomic filter mounts', async () => {
         await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
