@@ -305,14 +305,48 @@ class TestAgentOperationsAPI(APIBaseTest):
         assert conflict.json()["code"] == "client_request_id_reused"
         assert self.dispatch.call_count == 1
 
-    def test_active_operation_limit(self):
-        for index in range(3):
-            assert self._start(client_request_id=f"req-{index}").status_code == 201
+    @parameterized.expand(
+        [
+            ("three_working_runs", None, TaskRun.Status.IN_PROGRESS, None, 409),
+            ("one_run_finished_unread", {"status": "complete", "answer": "Done."}, TaskRun.Status.COMPLETED, None, 201),
+            (
+                "one_run_waits_on_a_question",
+                {"status": "needs_input", "answer": "", "question": "Which plan?"},
+                TaskRun.Status.COMPLETED,
+                None,
+                201,
+            ),
+            (
+                "one_run_waits_on_an_approval",
+                None,
+                TaskRun.Status.IN_PROGRESS,
+                {"request_id": "perm-1", "title": "Run SQL", "detail": None, "options": []},
+                409,
+            ),
+        ]
+    )
+    def test_only_runs_that_hold_a_sandbox_count_toward_the_active_limit(
+        self, _name, output, run_status, pending_approval, expected_status
+    ):
+        ids = [self._start(client_request_id=f"req-{index}").json()["id"] for index in range(3)]
+        for operation_id in ids:
+            run = self._run(operation_id)
+            run.status = TaskRun.Status.IN_PROGRESS
+            run.save()
+        changed = self._run(ids[0])
+        changed.output = output
+        changed.status = run_status
+        changed.save()
+        if pending_approval:
+            AgentOperation.objects.for_team(self.team.id).filter(id=ids[0]).update(
+                state="needs_input", state_reason="approval_required", pending_permission_request=pending_approval
+            )
 
         response = self._start(client_request_id="req-3")
 
-        assert response.status_code == 429
-        assert response.json()["code"] == "too_many_operations"
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 409:
+            assert response.json()["code"] == "too_many_operations"
 
     @parameterized.expand(
         [

@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import AIBurstRateThrottle
 
 from products.posthog_ai.backend.context_wrapper import MAX_TEXT_LENGTH
 from products.posthog_ai.backend.models import AgentOperation
@@ -268,13 +268,13 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = AgentOperation.objects.unscoped().none()
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Starting an operation and replying make PostHog AI work, so they share its limits. Local development
-        # skips them, like the conversation API. A client reads the status many times a minute while it waits,
-        # so status and cancel use the standard API limits.
-        if self.action in ("create", "reply"):
+        # Only starting an operation starts new PostHog AI work, so only it has the AI burst limit, and no
+        # daily limit. Local development skips it, like the conversation API. Replies answer a run that
+        # exists, and clients read the status many times a minute, so the rest use the standard API limits.
+        if self.action == "create":
             if settings.DEBUG and not settings.TEST:
                 return []
-            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+            return [AIBurstRateThrottle()]
         return super().get_throttles()
 
     def _service(self) -> AgentOperationService:
@@ -308,12 +308,16 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @validated_request(
         request_serializer=AgentOperationStartSerializer,
         responses={
+            **_ERRORS,
             201: OpenApiResponse(response=AgentOperationSerializer, description="The operation started."),
             200: OpenApiResponse(response=AgentOperationSerializer, description="The same request was already sent."),
-            429: OpenApiResponse(
-                response=AgentOperationErrorSerializer, description="Too many operations in progress."
+            409: OpenApiResponse(
+                response=AgentOperationErrorSerializer,
+                description="Too many runs are in progress, the conversation already has a run, or the request id is reused.",
             ),
-            **_ERRORS,
+            429: OpenApiResponse(
+                response=AgentOperationErrorSerializer, description="Too many runs started in the last minute."
+            ),
         },
         summary="Start an agent operation",
         description="Send a product goal to PostHog AI. Returns at once; read the status until the state is terminal.",

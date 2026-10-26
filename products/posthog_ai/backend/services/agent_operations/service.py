@@ -13,6 +13,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -199,6 +200,10 @@ class AgentOperationService:
 
         conversation = self._conversation_to_continue(request.conversation_id)
         repository, commit = self._resolve_repository(request, conversation)
+        # A stored state changes only when someone reads the operation, so a run that ended unread
+        # would still count toward the limit below.
+        for running in self._operations_holding_a_sandbox():
+            self.reconcile(running)
         scopes = granted_scopes(caller_scopes(authenticator))
         parent = parent_credential(authenticator)
 
@@ -208,16 +213,12 @@ class AgentOperationService:
                 existing = self._existing(request.client_request_id, request_hash)
                 if existing is not None:
                     return StartOutcome(operation=existing, created=False)
-                active = (
-                    AgentOperation.objects.for_team(self.team.pk)
-                    .filter(team=self.team, user=self.user, state__in=AgentOperation.ACTIVE_STATES)
-                    .count()
-                )
+                active = self._operations_holding_a_sandbox().count()
                 if active >= MAX_ACTIVE_OPERATIONS_PER_USER:
                     raise AgentOperationError(
                         "too_many_operations",
-                        f"You have {active} operations in progress. Wait for one to finish, or cancel one.",
-                        status=429,
+                        f"You have {active} PostHog Agent runs in progress. Wait for one to finish, or cancel one.",
+                        status=409,
                     )
                 if conversation is None:
                     conversation = Conversation.objects.create(
@@ -280,6 +281,17 @@ class AgentOperationService:
         operation.run_id = routed.run_id
         operation.save(update_fields=["task_id", "run_id", "updated_at"])
         return StartOutcome(operation=operation, created=True)
+
+    def _operations_holding_a_sandbox(self) -> QuerySet[AgentOperation]:
+        # A run that asked a question has already ended. A run that waits for an approval keeps its sandbox.
+        return (
+            AgentOperation.objects.for_team(self.team.pk)
+            .filter(team=self.team, user=self.user)
+            .filter(
+                Q(state__in=(State.QUEUED, State.RUNNING, State.CANCELLING))
+                | Q(state=State.NEEDS_INPUT, pending_permission_request__isnull=False)
+            )
+        )
 
     def _existing(self, client_request_id: str, request_hash: str) -> AgentOperation | None:
         existing = (
