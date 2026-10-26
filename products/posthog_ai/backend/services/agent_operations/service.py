@@ -123,6 +123,12 @@ class StartRequest:
 
 
 @frozen
+class PinnedRepository:
+    repository: str | None = None
+    commit: str | None = None
+
+
+@frozen
 class StartOutcome:
     operation: AgentOperation
     created: bool
@@ -211,7 +217,7 @@ class AgentOperationService:
             return StartOutcome(operation=existing, created=False)
 
         conversation = self._conversation_to_continue(request.conversation_id)
-        repository, commit = self._resolve_repository(request, conversation)
+        pinned = self._resolve_repository(request, conversation)
         # A stored state changes only when someone reads the operation, so a run that ended unread
         # would still count toward the limit below.
         for running in self._operations_holding_a_sandbox():
@@ -260,9 +266,9 @@ class AgentOperationService:
                     granted_scopes=scopes,
                     parent_credential_kind=parent.kind,
                     parent_credential_ref=parent.ref,
-                    repository=repository,
+                    repository=pinned.repository,
                     requested_ref=request.ref,
-                    resolved_commit=commit,
+                    resolved_commit=pinned.commit,
                     approvals=request.approvals,
                     deadline_at=timezone.now() + OPERATION_DEADLINE,
                 )
@@ -280,7 +286,7 @@ class AgentOperationService:
                     "attached_context": attached_context,
                     "initial_permission_mode": PERMISSION_MODES[operation.approvals],
                 },
-                repository=repository,
+                repository=pinned.repository,
             )
         except Exception:
             logger.exception("agent_operation_dispatch_failed", operation_id=str(operation.id))
@@ -364,9 +370,7 @@ class AgentOperationService:
             )
         return conversation
 
-    def _resolve_repository(
-        self, request: StartRequest, conversation: Conversation | None
-    ) -> tuple[str | None, str | None]:
+    def _resolve_repository(self, request: StartRequest, conversation: Conversation | None) -> PinnedRepository:
         if conversation is not None:
             first = (
                 AgentOperation.objects.for_team(self.team.pk)
@@ -380,11 +384,11 @@ class AgentOperationService:
                     "repository_mismatch",
                     "A continued conversation keeps the repository of its first operation. Start a new conversation for another repository.",
                 )
-            return pinned_repository, first.resolved_commit if first else None
+            return PinnedRepository(repository=pinned_repository, commit=first.resolved_commit if first else None)
         if not request.repository:
             if request.ref:
                 raise AgentOperationError("ref_without_repository", "Set repository when you set ref.")
-            return None, None
+            return PinnedRepository()
         try:
             commit = repo_selection.resolve_repository_commit(
                 self.team.pk, self.user.pk, request.repository, request.ref
@@ -396,7 +400,7 @@ class AgentOperationService:
                 "invalid_ref": "The ref does not exist in this repository.",
             }
             raise AgentOperationError(error.code, messages[error.code])
-        return request.repository, commit
+        return PinnedRepository(repository=request.repository, commit=commit)
 
     def _dispatch_options(self, operation: AgentOperation) -> SandboxDispatchOptions:
         extra_run_state: dict[str, Any] = {"mcp_exclude_tools": EXCLUDED_MCP_TOOLS}

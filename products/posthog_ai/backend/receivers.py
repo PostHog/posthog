@@ -29,10 +29,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 
 from products.posthog_ai.backend.models.agent_operation import AgentOperation
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.posthog_ai.backend.services.agent_operations.service import (
-    stop_operations_for_revoked_credential,
-    stop_operations_for_revoked_oauth,
-)
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion_on_turn_completed
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
@@ -79,6 +75,11 @@ def connect() -> None:
 
 
 def stop_agent_operations_on_api_key_delete(sender: Any, instance: PersonalAPIKey, **kwargs: Any) -> None:
+    # Deferred: the service pulls in the sandbox dispatch path, which django.setup() must not load.
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_credential,
+    )
+
     key_id = str(instance.id)
     transaction.on_commit(
         lambda: stop_operations_for_revoked_credential(AgentOperation.ParentCredentialKind.PERSONAL_API_KEY, key_id)
@@ -89,6 +90,10 @@ def stop_agent_operations_on_refresh_token_revoke(sender: Any, instance: OAuthRe
     # Rotation also revokes the old token, so the check runs after commit, when the family's new token exists.
     if instance.revoked is None or instance.token_family is None:
         return
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_credential,
+    )
+
     family = str(instance.token_family)
     transaction.on_commit(
         lambda: stop_operations_for_revoked_credential(AgentOperation.ParentCredentialKind.OAUTH_TOKEN_FAMILY, family)
@@ -97,6 +102,10 @@ def stop_agent_operations_on_refresh_token_revoke(sender: Any, instance: OAuthRe
 
 def stop_agent_operations_on_oauth_revoke(sender: Any, user_id: int | None, **kwargs: Any) -> None:
     # The bulk revocations delete or update tokens in a queryset, which sends no model signal.
+    from products.posthog_ai.backend.services.agent_operations.service import (  # noqa: PLC0415
+        stop_operations_for_revoked_oauth,
+    )
+
     transaction.on_commit(lambda: stop_operations_for_revoked_oauth(user_id))
 
 

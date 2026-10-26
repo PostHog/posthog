@@ -100,7 +100,8 @@ export interface Task {
   last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
-  client_provenance?: TaskClientProvenance | null;
+  // "agent_mcp" marks a task that the PostHog Agent MCP started. No client sends it as its own provenance.
+  client_provenance?: TaskClientProvenance | "agent_mcp" | null;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
   repositories?: string[];
   github_integration?: number | null;
