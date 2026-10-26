@@ -315,7 +315,7 @@ describe('tracingViewerLogic', () => {
             makeSpan({ uuid: 'CC01', span_id: 'CC01', trace_id: 'trace-y' }),
             makeSpan({ uuid: 'DD02', span_id: 'DD02', trace_id: 'trace-y' }),
         ])
-        overlay.actions.enableSpanKeys('[data-attr="overlay"]')
+        overlay.actions.enableSpanKeys('[data-attr="overlay"]', 'drawer')
 
         press()
         expect(overlay.values.selectedSpanId).toBe('DD02')

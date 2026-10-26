@@ -30,6 +30,8 @@ describe('traceViewLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true })
         captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         logic = traceViewLogic({ id: 'trace-view-test' })
         logic.mount()
@@ -112,7 +114,7 @@ describe('traceViewLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: flagOn })
             logic.actions.setSpans([root, child('a', 'root', 'SELECT orders', 1), child('b', 'root', 'cache GET', 2)])
             logic.actions.selectSpan('a')
-            logic.actions.enableSpanKeys('[data-attr="trace-view-test"]')
+            logic.actions.enableSpanKeys('[data-attr="trace-view-test"]', 'drawer')
             logic.actions.setTraceViewMode('calltree', 'drawer')
             logic.actions.setTraceViewMode(view, 'drawer')
             const pageKeyDown = jest.fn()
@@ -141,7 +143,8 @@ describe('traceViewLogic', () => {
     // Fails when the highlight stops opening the child list that hides the operation's first span, which
     // leaves the tree nothing to scroll to, or when it moves the selection off the span the person inspects.
     it('opens the child list that hides the first span of the highlighted operation, and keeps the selection', () => {
-        const children = Array.from({ length: 11 }, (_, i) => child(`c${i}`, 'root', 'SELECT orders', 10 + i))
+        // One operation each, so that no run folds them and they fill the cap.
+        const children = Array.from({ length: 11 }, (_, i) => child(`c${i}`, 'root', `SELECT orders ${i}`, 10 + i))
         logic.actions.setSpans([root, ...children, child('cache', 'root', 'cache GET', 30)])
         logic.actions.selectSpan('c0')
         const rowIds = (): (string | undefined)[] => logic.values.spanRows.map((row) => rowSpanNode(row)?.span.span_id)
@@ -151,5 +154,112 @@ describe('traceViewLogic', () => {
 
         expect(rowIds()).toContain('cache')
         expect(logic.values.selectedSpanId).toBe('c0')
+    })
+
+    describe('runs', () => {
+        // Three reads of one operation under the root, so they fold into one run.
+        const reads = (...extra: Span[]): Span[] => [
+            root,
+            ...[1, 2, 3].map((i) => child(`get${i}`, 'root', 'cache GET', i)),
+            ...extra,
+        ]
+        const rows = (): string[] =>
+            logic.values.spanRows.map((row) =>
+                row.kind === 'run' ? `${row.nodes.length} folded` : (rowSpanNode(row)?.span.span_id ?? '')
+            )
+        const toggleEvents = (): unknown[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => event === 'tracing trace run toggled')
+                .map(([, properties]) => properties)
+
+        // Fails when the right arrow skips a folded run whose first span is a leaf, which leaves no key to open it,
+        // or when the left arrow on any span of the opened run leaves the run open: a person deep in a long run must
+        // not have to scroll back to its first span to fold it. Left treats every span of the run alike, so a span
+        // with open children collapses them first. The toggle event must name the action, method and surface of
+        // each toggle, so the funnel can tell an open from a fold.
+        it.each([
+            { member: 'its first span', extra: [], leftOn: 'get1', collapsesFirst: false },
+            { member: 'a later span', extra: [], leftOn: 'get2', collapsesFirst: false },
+            {
+                member: 'its first span, which has open children',
+                extra: [child('get1-call', 'get1', 'redis GET', 1)],
+                leftOn: 'get1',
+                collapsesFirst: true,
+            },
+        ])(
+            'opens a folded run with the right arrow, and folds it with the left arrow on $member',
+            ({ extra, leftOn, collapsesFirst }) => {
+                logic.actions.setSpans(reads(...extra))
+                logic.actions.selectSpan('root')
+
+                logic.actions.selectNextSpan()
+                expect([logic.values.selectedSpanId, rows()]).toEqual(['get1', ['root', '3 folded']])
+
+                logic.actions.expandSelectedSpan('drawer')
+                const opened = ['root', 'get1', 'get2', 'get3']
+                expect(rows()).toEqual(collapsesFirst ? ['root', 'get1', 'get1-call', 'get2', 'get3'] : opened)
+
+                logic.actions.selectSpan(leftOn)
+                if (collapsesFirst) {
+                    logic.actions.collapseSelectedSpan('drawer')
+                    expect([logic.values.collapsedSpanIds, rows()]).toEqual([new Set([leftOn]), opened])
+                }
+                logic.actions.collapseSelectedSpan('drawer')
+                expect([logic.values.selectedSpanId, rows()]).toEqual(['get1', ['root', '3 folded']])
+                expect(toggleEvents()).toEqual([
+                    { action: 'open', span_count: 3, method: 'key', surface: 'drawer' },
+                    { action: 'fold', span_count: 3, method: 'key', surface: 'drawer' },
+                ])
+            }
+        )
+
+        // Fails when the left arrow on a folded run collapses the span it stands for instead of moving to the
+        // parent. The run's first span has a child, so a collapse would change the tree.
+        it('moves from a folded run to its parent with the left arrow, and collapses nothing', () => {
+            logic.actions.setSpans(reads(child('get1-call', 'get1', 'redis GET', 1)))
+            logic.actions.selectSpan('get1')
+
+            logic.actions.collapseSelectedSpan('drawer')
+
+            expect([logic.values.selectedSpanId, logic.values.collapsedSpanIds, rows()]).toEqual([
+                'root',
+                new Set(),
+                ['root', '3 folded'],
+            ])
+        })
+
+        // Fails when a fold that hides the selected span moves the selection up to the parent, which takes the
+        // person out of the run they folded, or when a click toggle sends the wrong action or method.
+        it.each([
+            { selection: 'a span of the run', selectedSpanId: 'get2' },
+            { selection: 'a span under a span of the run', selectedSpanId: 'get2-call' },
+        ])('keeps the selection on the run when a fold hides $selection', ({ selectedSpanId }) => {
+            logic.actions.setSpans(reads(child('get2-call', 'get2', 'redis GET', 2)))
+            logic.actions.toggleRun('get1', 'click', 'trace_dialog')
+            logic.actions.selectSpan(selectedSpanId)
+
+            logic.actions.toggleRun('get1', 'click', 'trace_dialog')
+
+            expect([logic.values.selectedSpanId, rows()]).toEqual(['get1', ['root', '3 folded']])
+            expect(toggleEvents()).toEqual([
+                { action: 'open', span_count: 3, method: 'click', surface: 'trace_dialog' },
+                { action: 'fold', span_count: 3, method: 'click', surface: 'trace_dialog' },
+            ])
+        })
+
+        // Fails when a later page folds the selected span into a run with the spans it adds, which hides the
+        // selection, so J and K jump to the root. The reveal is not the person's own toggle, so it sends no event.
+        it('opens the run that a later page folds the selected span into', () => {
+            const [, get1, get2] = reads()
+            logic.actions.setSpans([root, get1, get2])
+            logic.actions.selectSpan('get2')
+
+            logic.actions.setSpans(reads())
+            expect(rows()).toEqual(['root', 'get1', 'get2', 'get3'])
+            logic.actions.selectNextSpan()
+
+            expect(logic.values.selectedSpanId).toBe('get3')
+            expect(toggleEvents()).toEqual([])
+        })
     })
 })
