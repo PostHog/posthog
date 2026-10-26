@@ -1015,24 +1015,6 @@ const warehouseMigrationConnectLink = (): ToolBase<
     },
 })
 
-const WarehouseMigrationsListSchema = () => z.object({})
-
-const warehouseMigrationsList = (): ToolBase<
-    ReturnType<typeof WarehouseMigrationsListSchema>,
-    Schemas.WarehouseMigration[]
-> => ({
-    name: 'warehouse-migrations-list',
-    schema: WarehouseMigrationsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseMigrationsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigration[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/`,
-        })
-        return result
-    },
-})
-
 const WarehouseMigrationGetSchema = () => {
     const WarehouseMigrationsRetrieveParams = orvalSchemas.WarehouseMigrationsRetrieveParams()
     return WarehouseMigrationsRetrieveParams.omit({ project_id: true })
@@ -1049,70 +1031,6 @@ const warehouseMigrationGet = (): ToolBase<
         const result = await context.api.request<Schemas.WarehouseMigration>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const WarehouseMigrationItemsListSchema = () => {
-    const WarehouseMigrationsItemsListParams = orvalSchemas.WarehouseMigrationsItemsListParams()
-    return WarehouseMigrationsItemsListParams.omit({ project_id: true })
-}
-
-const warehouseMigrationItemsList = (): ToolBase<
-    ReturnType<typeof WarehouseMigrationItemsListSchema>,
-    Schemas.WarehouseMigrationItem[]
-> => ({
-    name: 'warehouse-migration-items-list',
-    schema: WarehouseMigrationItemsListSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsListSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigrationItem[]>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/`,
-        })
-        const filtered = omitResponseFields(result, ['*.proposal.schemas', '*.proposal.prefill']) as typeof result
-        return filtered
-    },
-})
-
-const WarehouseMigrationItemSkipSchema = () => {
-    const WarehouseMigrationsItemsSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsSkipCreateParams()
-    return WarehouseMigrationsItemsSkipCreateParams.omit({ project_id: true })
-}
-
-const warehouseMigrationItemSkip = (): ToolBase<
-    ReturnType<typeof WarehouseMigrationItemSkipSchema>,
-    Schemas.WarehouseMigrationItem
-> => ({
-    name: 'warehouse-migration-item-skip',
-    schema: WarehouseMigrationItemSkipSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemSkipSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigrationItem>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/skip/`,
-        })
-        return result
-    },
-})
-
-const WarehouseMigrationRefreshSchema = () => {
-    const WarehouseMigrationsRefreshCreateParams = orvalSchemas.WarehouseMigrationsRefreshCreateParams()
-    return WarehouseMigrationsRefreshCreateParams.omit({ project_id: true })
-}
-
-const warehouseMigrationRefresh = (): ToolBase<
-    ReturnType<typeof WarehouseMigrationRefreshSchema>,
-    Schemas.WarehouseMigration
-> => ({
-    name: 'warehouse-migration-refresh',
-    schema: WarehouseMigrationRefreshSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationRefreshSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigration>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/refresh/`,
         })
         return result
     },
@@ -1155,6 +1073,88 @@ const warehouseMigrationItemApply = (): ToolBase<
     },
 })
 
+const WarehouseMigrationItemSkipSchema = () => {
+    const WarehouseMigrationsItemsSkipCreateParams = orvalSchemas.WarehouseMigrationsItemsSkipCreateParams()
+    return WarehouseMigrationsItemsSkipCreateParams.omit({ project_id: true })
+}
+
+const warehouseMigrationItemSkip = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemSkipSchema>,
+    Schemas.WarehouseMigrationItem
+> => ({
+    name: 'warehouse-migration-item-skip',
+    schema: WarehouseMigrationItemSkipSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemSkipSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigrationItem>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/${encodeURIComponent(String(params.item_id))}/skip/`,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationItemsListSchema = () => {
+    const WarehouseMigrationsItemsListParams = orvalSchemas.WarehouseMigrationsItemsListParams()
+    return WarehouseMigrationsItemsListParams.omit({ project_id: true })
+}
+
+const warehouseMigrationItemsList = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationItemsListSchema>,
+    Schemas.WarehouseMigrationItem[]
+> => ({
+    name: 'warehouse-migration-items-list',
+    schema: WarehouseMigrationItemsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationItemsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigrationItem[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/`,
+        })
+        const filtered = omitResponseFields(result, ['*.proposal.schemas', '*.proposal.prefill']) as typeof result
+        return filtered
+    },
+})
+
+const WarehouseMigrationRefreshSchema = () => {
+    const WarehouseMigrationsRefreshCreateParams = orvalSchemas.WarehouseMigrationsRefreshCreateParams()
+    return WarehouseMigrationsRefreshCreateParams.omit({ project_id: true })
+}
+
+const warehouseMigrationRefresh = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationRefreshSchema>,
+    Schemas.WarehouseMigration
+> => ({
+    name: 'warehouse-migration-refresh',
+    schema: WarehouseMigrationRefreshSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationRefreshSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigration>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/refresh/`,
+        })
+        return result
+    },
+})
+
+const WarehouseMigrationsListSchema = () => z.object({})
+
+const warehouseMigrationsList = (): ToolBase<
+    ReturnType<typeof WarehouseMigrationsListSchema>,
+    Schemas.WarehouseMigration[]
+> => ({
+    name: 'warehouse-migrations-list',
+    schema: WarehouseMigrationsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseMigrationsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.WarehouseMigration[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-source-connect-link': dataWarehouseSourceConnectLink,
     'data-warehouse-source-setup': dataWarehouseSourceSetup,
@@ -1188,10 +1188,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,
     'external-data-sources-wizard': externalDataSourcesWizard,
     'warehouse-migration-connect-link': warehouseMigrationConnectLink,
-    'warehouse-migrations-list': warehouseMigrationsList,
     'warehouse-migration-get': warehouseMigrationGet,
-    'warehouse-migration-items-list': warehouseMigrationItemsList,
-    'warehouse-migration-item-skip': warehouseMigrationItemSkip,
-    'warehouse-migration-refresh': warehouseMigrationRefresh,
     'warehouse-migration-item-apply': warehouseMigrationItemApply,
+    'warehouse-migration-item-skip': warehouseMigrationItemSkip,
+    'warehouse-migration-items-list': warehouseMigrationItemsList,
+    'warehouse-migration-refresh': warehouseMigrationRefresh,
+    'warehouse-migrations-list': warehouseMigrationsList,
 }
