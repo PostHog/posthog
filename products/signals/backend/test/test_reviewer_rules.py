@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -655,9 +655,35 @@ class TestStandingExclusions(BaseTest):
             create_exclusion(team_id=self.team.id, actor_id=self.user.id, instruction="x", subject_github_login="   ")
         first = self.exclude(repository="org/app")
         assert self.exclude(repository=" Org/App ") == first
+        after_github_connect, created = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            subject_github_login="Reviewer",
+            repository="org/app",
+        )
+        assert (str(after_github_connect.id), created) == (first, False)
         second = self.exclude(repository="org/other")
         with self.assertRaises(DuplicateExclusion):
             revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
+
+    def test_active_twin_is_scoped_to_one_team(self) -> None:
+        self.exclude(repository="org/app")
+        self.exclude(repository="org/other")
+        other_team = Team.objects.create(organization=self.organization)
+        same_area, created = create_exclusion(
+            team_id=other_team.id,
+            actor_id=self.member.id,
+            instruction="I moved off this area.",
+            subject_user_uuid=self.member.uuid,
+            repository="org/app",
+        )
+        assert created
+        revised = revise_exclusion(
+            team_id=other_team.id, exclusion_id=same_area.id, actor_id=self.member.id, repository="org/other"
+        )
+        assert (revised.team_id, revised.repository) == (other_team.id, "org/other")
 
 
 class TestAssignmentReleaseControls(SimpleTestCase):

@@ -2,7 +2,7 @@
 
 import django.db.models.manager
 import django.db.models.deletion
-import django.db.models.functions.comparison
+import django.db.models.functions.text
 from django.conf import settings
 from django.db import migrations, models
 
@@ -193,15 +193,20 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="signalreviewerexclusion",
             constraint=models.UniqueConstraint(
-                django.db.models.functions.comparison.Coalesce(
-                    django.db.models.functions.comparison.Cast("subject_user_uuid", models.TextField()),
-                    models.Value(""),
-                ),
-                django.db.models.functions.comparison.Coalesce("subject_github_login", models.Value("")),
+                condition=models.Q(("status", "active"), ("subject_user_uuid__isnull", False)),
+                fields=("team", "subject_user_uuid", "repository", "path_prefix"),
+                name="signals_rev_excl_active_user_uniq",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="signalreviewerexclusion",
+            constraint=models.UniqueConstraint(
+                models.F("team"),
+                django.db.models.functions.text.Lower("subject_github_login"),
                 models.F("repository"),
                 models.F("path_prefix"),
-                condition=models.Q(("status", "active")),
-                name="signals_rev_excl_active_uniq",
+                condition=models.Q(("status", "active"), ("subject_user_uuid__isnull", True)),
+                name="signals_rev_excl_active_login_uniq",
             ),
         ),
         migrations.AddConstraint(

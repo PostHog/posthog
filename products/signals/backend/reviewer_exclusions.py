@@ -16,6 +16,7 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 
 from posthog.dataclasses import frozen
 
@@ -280,6 +281,20 @@ def _record_revision(
     )
 
 
+def _active_twins(
+    team_id: int, *, subject_user_uuid: UUID | None, subject_github_login: str | None, repository: str, path_prefix: str
+) -> QuerySet[SignalReviewerExclusion]:
+    """Active instructions with the same key as the partial unique indexes on the model."""
+    subject: dict[str, object] = (
+        {"subject_user_uuid": subject_user_uuid}
+        if subject_user_uuid is not None
+        else {"subject_user_uuid__isnull": True, "subject_github_login": subject_github_login}
+    )
+    return SignalReviewerExclusion.objects.for_team(team_id).filter(
+        status=SignalReviewerExclusion.Status.ACTIVE, repository=repository, path_prefix=path_prefix, **subject
+    )
+
+
 def create_exclusion(
     *,
     team_id: int,
@@ -303,9 +318,7 @@ def create_exclusion(
         "repository": repository.strip().lower(),
         "path_prefix": _normalized_path(path_prefix),
     }
-    active = SignalReviewerExclusion.objects.for_team(team_id).filter(
-        status=SignalReviewerExclusion.Status.ACTIVE, **area
-    )
+    active = _active_twins(team_id, **area)
     if existing := active.first():
         return existing, False
     try:
@@ -343,17 +356,13 @@ def revise_exclusion(
             exclusion.repository = repository.strip().lower()
         if path_prefix is not None:
             exclusion.path_prefix = _normalized_path(path_prefix)
-        twin = (
-            SignalReviewerExclusion.objects.for_team(team_id)
-            .filter(
-                status=SignalReviewerExclusion.Status.ACTIVE,
-                subject_user_uuid=exclusion.subject_user_uuid,
-                subject_github_login=exclusion.subject_github_login,
-                repository=exclusion.repository,
-                path_prefix=exclusion.path_prefix,
-            )
-            .exclude(id=exclusion.id)
-        )
+        twin = _active_twins(
+            team_id,
+            subject_user_uuid=exclusion.subject_user_uuid,
+            subject_github_login=exclusion.subject_github_login,
+            repository=exclusion.repository,
+            path_prefix=exclusion.path_prefix,
+        ).exclude(id=exclusion.id)
         if twin.exists():
             raise DuplicateExclusion("An active exclusion already covers this person and area.")
         exclusion.revision += 1

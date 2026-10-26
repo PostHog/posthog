@@ -12,7 +12,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models.functions import Cast, Coalesce, Upper
+from django.db.models.functions import Lower, Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -2660,14 +2660,20 @@ class SignalReviewerExclusion(TeamScopedRootMixin, UUIDModel):
                 name="signals_rev_excl_path_needs_repo",
             ),
             # One active instruction per subject and area, so a retried create cannot leave a twin
-            # that stays active after the other is revoked.
+            # that stays active after the other is revoked. A person is keyed by user alone, because
+            # their GitHub login can appear or change after the instruction exists.
             models.UniqueConstraint(
-                Coalesce(Cast("subject_user_uuid", models.TextField()), models.Value("")),
-                Coalesce("subject_github_login", models.Value("")),
+                fields=["team", "subject_user_uuid", "repository", "path_prefix"],
+                condition=models.Q(status="active", subject_user_uuid__isnull=False),
+                name="signals_rev_excl_active_user_uniq",
+            ),
+            models.UniqueConstraint(
+                "team",
+                Lower("subject_github_login"),
                 "repository",
                 "path_prefix",
-                condition=models.Q(status="active"),
-                name="signals_rev_excl_active_uniq",
+                condition=models.Q(status="active", subject_user_uuid__isnull=True),
+                name="signals_rev_excl_active_login_uniq",
             ),
         ]
 
