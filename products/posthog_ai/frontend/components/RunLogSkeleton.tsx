@@ -19,21 +19,21 @@ interface SkeletonTurn {
     question: string
     tools: string[]
     paragraphs: number[]
-    className?: string
 }
 
 const TURNS: SkeletonTurn[] = [
+    { question: 'w-48', tools: ['w-32'], paragraphs: [2] },
+    { question: 'w-36', tools: ['w-24'], paragraphs: [3, 2] },
     { question: 'w-56', tools: ['w-28', 'w-20'], paragraphs: [3, 2] },
-    { question: 'w-36', tools: ['w-24'], paragraphs: [2], className: 'opacity-60' },
-    { question: 'w-48', tools: ['w-32'], paragraphs: [2], className: 'opacity-25' },
 ]
 
 /**
  * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `ReadonlyRunSurface`
  * chunk's Suspense fallback, and the `RunSurface` in-stream bootstrap. Built from the quill thread's own
  * parts (`ChatBubble`, `ThreadMarker`, the reserved message footer, `ThreadView`'s 16px row gap), so each turn
- * takes the same space as the turn that replaces it. Later turns fade out, so a short panel reads as a thread
- * and not as one block. Kept free of the markdown and virtualization chunk, so it is safe as a fallback.
+ * takes the same space as the turn that replaces it. It sits at the bottom and fades out toward the top, like
+ * the loaded thread, which opens scrolled to its latest turn. Kept free of the markdown and virtualization
+ * chunk, so it is safe as a fallback.
  */
 export const RunLogSkeleton = memo(function RunLogSkeleton({
     className,
@@ -46,7 +46,11 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
 }): JSX.Element {
     return (
         <div
-            className={cn('flex flex-col h-full min-h-0 w-full overflow-hidden', className)}
+            className={cn(
+                'flex flex-col justify-end h-full min-h-0 w-full overflow-hidden',
+                '[mask-image:linear-gradient(to_bottom,transparent,black_50%)]',
+                className
+            )}
             data-attr="run-log-skeleton"
             aria-busy="true"
         >
@@ -58,7 +62,7 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
                 )}
             >
                 {TURNS.map((turn, index) => (
-                    <div key={index} className={cn('flex flex-col gap-4', turn.className)}>
+                    <div key={index} className="flex flex-col gap-4">
                         <div className={rowClassName}>
                             <ChatMessage align="end">
                                 <ChatMessageContent className="gap-1">
