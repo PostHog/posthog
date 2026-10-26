@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from enum import StrEnum
-from typing import Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     StorageUrl,
     select_keys,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import RoleCredentials
 
 FileFormatChoice = Literal["infer", "csv", "csv_no_header", "jsonl", "parquet", "delta"]
 # The format one file is read with. A CSV file's header choice lives in `CsvOptions`.
@@ -85,10 +88,17 @@ class ObjectStoreConfig:
     listing_prefix: str = ""
     # A ClickHouse glob over paths relative to `prefix`.
     pattern: str | None = None
+    # An assumed IAM role on AWS S3. The clients then sign with it instead of the two keys.
+    role_credentials: "RoleCredentials | None" = dataclasses.field(default=None, repr=False)
 
     @classmethod
     def from_url(
-        cls, provider: ObjectStoreProvider, url: StorageUrl, access_key_id: str, secret_access_key: str
+        cls,
+        provider: ObjectStoreProvider,
+        url: StorageUrl,
+        access_key_id: str,
+        secret_access_key: str,
+        role_credentials: "RoleCredentials | None" = None,
     ) -> "ObjectStoreConfig":
         keys = select_keys(url.key)
         return cls(
@@ -101,6 +111,7 @@ class ObjectStoreConfig:
             account_id=url.account,
             listing_prefix=keys.listing_prefix,
             pattern=keys.pattern,
+            role_credentials=role_credentials,
         )
 
     def __post_init__(self) -> None:
@@ -122,7 +133,7 @@ class ObjectStoreConfig:
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: this storage provider has no account ID setting.")
         # Without both keys the SDKs fall back to the worker's own AWS credentials, which must
         # never be used to read a customer-chosen bucket.
-        if not self.access_key_id.strip() or not self.secret_access_key.strip():
+        if self.role_credentials is None and (not self.access_key_id.strip() or not self.secret_access_key.strip()):
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: enter both the access key ID and the secret access key.")
         _validate_keys(self.prefix, self.listing_prefix)
 

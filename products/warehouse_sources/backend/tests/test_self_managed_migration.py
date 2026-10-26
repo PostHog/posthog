@@ -164,7 +164,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert prefixes.count("") == 1 and len(set(prefixes)) == 3
         assert set(prefixes) - {""} <= {"exports", "archive"}
         assert source_of(other_bucket).job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/archive/"
-        assert source_of(other_key).job_inputs["access_key_id"] == "AKIASECOND"
+        assert source_of(other_key).job_inputs["aws_auth"]["access_key_id"] == "AKIASECOND"
         assert (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY] == {
             "group_key": "s3/eu-west-1/exports",
             "credential_id": str(self.credential.pk),

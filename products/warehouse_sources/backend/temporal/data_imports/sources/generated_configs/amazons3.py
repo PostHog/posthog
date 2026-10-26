@@ -7,6 +7,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class AmazonS3AwsAuthConfig(config.Config):
+    aws_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["access_keys", "role"] = "access_keys"
+    access_key_id: str | None = None
+    secret_access_key: str | None = None
+
+
+@config.config
 class AmazonS3CombineFilesConfig(config.Config):
     table_name: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -21,7 +29,6 @@ class AmazonS3FileFormatConfig(config.Config):
 @config.config
 class AmazonS3SourceConfig(config.Config):
     url_pattern: str
-    access_key_id: str
-    secret_access_key: str
+    aws_auth: AmazonS3AwsAuthConfig
     file_format: AmazonS3FileFormatConfig
     combine_files: AmazonS3CombineFilesConfig | None = None

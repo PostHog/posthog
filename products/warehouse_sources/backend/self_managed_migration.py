@@ -281,7 +281,7 @@ class _Planner:
             definition = table_definition_for(
                 table.name, location, table.format, table.columns, table.csv_allow_double_quotes
             )
-            job_inputs = source.job_inputs_for_self_managed(location, credential)
+            job_inputs = source.job_inputs_for_self_managed(location, credential, table.team_id)
         except UnmappableTableError as e:
             return str(e)
         return _TablePlan(

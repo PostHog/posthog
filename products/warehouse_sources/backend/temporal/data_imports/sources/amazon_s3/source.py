@@ -1,11 +1,20 @@
 import dataclasses
 from typing import Any, cast
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    RoleCredentials,
+    aws_auth_field,
+    resolve_aws_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
@@ -13,14 +22,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
     FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
-    secret_field,
     source_caption,
-    text_field,
     url_field,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
@@ -40,9 +50,41 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazons3 import (
+    AmazonS3AwsAuthConfig,
     AmazonS3SourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+@frozen
+class _AmazonS3Auth:
+    """Amazon S3's `aws_auth` block under the names the shared resolver reads.
+
+    The source stored its keys as `access_key_id` and `secret_access_key` before the block existed,
+    and the block keeps those names so that stored configs still lift into it.
+    """
+
+    block: AmazonS3AwsAuthConfig
+
+    @property
+    def selection(self) -> str:
+        return self.block.selection
+
+    @property
+    def aws_access_key_id(self) -> str | None:
+        return self.block.access_key_id
+
+    @property
+    def aws_secret_access_key(self) -> str | None:
+        return self.block.secret_access_key
+
+    @property
+    def aws_session_token(self) -> str | None:
+        return None
+
+    @property
+    def aws_integration_id(self) -> int | None:
+        return self.block.aws_integration_id
 
 
 @SourceRegistry.register
@@ -72,15 +114,27 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
         # The URL picks the bucket and region the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]
 
-    def object_store_config(self, config: AmazonS3SourceConfig) -> ObjectStoreConfig:
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {**AWS_AUTH_NON_RETRYABLE_ERRORS, **super().get_non_retryable_errors()}
+
+    def object_store_config(self, config: AmazonS3SourceConfig, team_id: int) -> ObjectStoreConfig:
         url = parse_s3_url(config.url_pattern)
         if url.region is None:
             url = dataclasses.replace(url, region=lookup_s3_bucket_region(url.bucket))
+        try:
+            credentials = resolve_aws_credentials(_AmazonS3Auth(block=config.aws_auth), team_id)
+        except AwsAuthError as e:
+            # The object storage probe reports this error type to the user and lets others escape.
+            raise ObjectStorageError(str(e)) from e
+        if isinstance(credentials, RoleCredentials):
+            return ObjectStoreConfig.from_url(
+                ObjectStoreProvider.S3, url, access_key_id="", secret_access_key="", role_credentials=credentials
+            )
         return ObjectStoreConfig.from_url(
             ObjectStoreProvider.S3,
             url,
-            access_key_id=config.access_key_id.strip(),
-            secret_access_key=config.secret_access_key.strip(),
+            access_key_id=credentials.access_key.strip(),
+            secret_access_key=credentials.secret_key.strip(),
         )
 
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
@@ -104,7 +158,10 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             category=DataWarehouseSourceCategory.FILE_STORAGE,
             keywords=["s3", "aws", *KEYWORDS],
             label="Amazon S3",
-            caption=source_caption("an S3 bucket"),
+            caption=(
+                f"{source_caption('an S3 bucket')} Connect with an IAM role or access keys that can list and read "
+                "the bucket."
+            ),
             iconPath="/static/services/aws-s3.png",
             releaseStatus=ReleaseStatus.ALPHA,
             featureFlag=FEATURE_FLAG,
@@ -115,8 +172,11 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
                         S3_EXAMPLE_URL,
                         "Paste the S3 URI (s3://...) or the object URL from the AWS console.",
                     ),
-                    text_field("access_key_id", "Access key ID", "AKIA..."),
-                    secret_field("secret_access_key", "Secret access key"),
+                    aws_auth_field(
+                        access_key_id_name="access_key_id",
+                        secret_access_key_name="secret_access_key",
+                        session_token=False,
+                    ),
                     *file_option_fields(),
                 ],
             ),

@@ -1,12 +1,16 @@
+import asyncio
 import functools
 import dataclasses
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import IO, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 import s3fs
 import boto3
+import botocore.session
 from adlfs import AzureBlobFileSystem
+from aiobotocore.credentials import AioRefreshableCredentials
+from aiobotocore.session import AioSession
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import ContainerClient
 from botocore import UNSIGNED
@@ -39,6 +43,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     MAX_REQUEST_ATTEMPTS,
     READ_TIMEOUT_SECONDS,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import RoleCredentials
 
 S3_MAX_PAGE_SIZE = 1000
 AZURE_PAGE_SIZE = 1000
@@ -139,11 +146,31 @@ def _request_config(config: ObjectStoreConfig) -> dict[str, Any]:
     return request_config
 
 
+def _aio_role_session(role_credentials: "RoleCredentials") -> AioSession:
+    """An aiobotocore session that refreshes from the same role session as the boto3 client."""
+
+    async def refresh() -> dict[str, str]:
+        # The refresh calls STS through blocking code, so it runs off the event loop.
+        return await asyncio.to_thread(role_credentials.metadata)
+
+    session = AioSession()
+    # botocore sessions take refreshable credentials only through this attribute. The batch exports
+    # S3 client sets them the same way.
+    session._credentials = AioRefreshableCredentials.create_from_metadata(  # type: ignore[attr-defined]
+        role_credentials.metadata(), refresh_using=refresh, method=role_credentials.method
+    )
+    return session
+
+
 def build_s3_filesystem(config: ObjectStoreConfig) -> s3fs.S3FileSystem:
     client_kwargs: dict[str, Any] = {"region_name": config.region}
+    credential_kwargs: dict[str, Any] = (
+        {"session": _aio_role_session(config.role_credentials)}
+        if config.role_credentials is not None
+        else {"key": config.access_key_id, "secret": config.secret_access_key}
+    )
     return s3fs.S3FileSystem(
-        key=config.access_key_id,
-        secret=config.secret_access_key,
+        **credential_kwargs,
         endpoint_url=config.endpoint_url,
         client_kwargs=client_kwargs,
         config_kwargs=_request_config(config),
@@ -155,9 +182,19 @@ def build_s3_filesystem(config: ObjectStoreConfig) -> s3fs.S3FileSystem:
 
 
 def delta_storage_options(config: ObjectStoreConfig) -> dict[str, str]:
+    if config.role_credentials is not None:
+        # delta-rs takes fixed keys, so a Delta read signs with one snapshot of the role session.
+        # The role chain caps that session at one hour.
+        metadata = config.role_credentials.metadata()
+        keys = {
+            "AWS_ACCESS_KEY_ID": metadata["access_key"],
+            "AWS_SECRET_ACCESS_KEY": metadata["secret_key"],
+            "AWS_SESSION_TOKEN": metadata["token"],
+        }
+    else:
+        keys = {"AWS_ACCESS_KEY_ID": config.access_key_id, "AWS_SECRET_ACCESS_KEY": config.secret_access_key}
     options = {
-        "AWS_ACCESS_KEY_ID": config.access_key_id,
-        "AWS_SECRET_ACCESS_KEY": config.secret_access_key,
+        **keys,
         "AWS_REGION": config.region,
         "connect_timeout": f"{CONNECT_TIMEOUT_SECONDS}s",
         "timeout": f"{READ_TIMEOUT_SECONDS}s",
@@ -231,6 +268,15 @@ class S3ObjectStore(ObjectStore):
 
 
 def build_s3_client(config: ObjectStoreConfig) -> Any:
+    if config.role_credentials is not None:
+        botocore_session = botocore.session.get_session()
+        botocore_session._credentials = config.role_credentials  # type: ignore[attr-defined]
+        return boto3.session.Session(botocore_session=botocore_session).client(
+            "s3",
+            region_name=config.region,
+            endpoint_url=config.endpoint_url,
+            config=BotoConfig(**_request_config(config)),
+        )
     return boto3.client(
         "s3",
         aws_access_key_id=config.access_key_id,

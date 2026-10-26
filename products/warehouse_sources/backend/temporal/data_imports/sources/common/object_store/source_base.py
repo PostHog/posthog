@@ -115,7 +115,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     """
 
     @abstractmethod
-    def object_store_config(self, config: ConfigType) -> StoreConfig: ...
+    def object_store_config(self, config: ConfigType, team_id: int) -> StoreConfig: ...
 
     @abstractmethod
     def discovery_options(self, config: ConfigType) -> DiscoveryOptions: ...
@@ -130,7 +130,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         """The job inputs that reach the table's bucket with the table's own credential."""
 
     def job_inputs_for_self_managed(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
+        self, location: SelfManagedLocation, credential: SelfManagedCredential, team_id: int
     ) -> dict[str, Any]:
         """Job inputs for a source rooted at the bucket of a self-managed table.
 
@@ -144,7 +144,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         }
         try:
             config = self.parse_config(raw)
-            validate_store_location(self.object_store_config(config))
+            validate_store_location(self.object_store_config(config, team_id))
         except (ObjectStorageError, TypeError, ValueError) as e:
             raise UnmappableTableError(str(e)) from e
         return self.serialize_config(config)
@@ -179,9 +179,12 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         }
 
     def _discover(
-        self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
+        self,
+        store: ObjectStore,
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
     ) -> list[TableDefinition]:
-        store_config = self.object_store_config(config)
         try:
             objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
@@ -206,8 +209,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            store_config = self.object_store_config(config)
-            tables = self._discover(self.open_store(store_config), config)
+            store_config = self.object_store_config(config, team_id)
+            tables = self._discover(self.open_store(store_config), store_config, config)
         except ObjectStorageError as e:
             return False, str(e)
         except OSError as e:
@@ -235,18 +238,20 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        store = self.open_store(self.object_store_config(config))
+        store_config = self.object_store_config(config, team_id)
+        store = self.open_store(store_config)
         requested = set(names) if names is not None else None
         return [
             _source_schema(table)
-            for table in self._discover(store, config)
+            for table in self._discover(store, store_config, config)
             if requested is None or table.name in requested
         ]
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        store = self.open_store(self.object_store_config(config))
+        store_config = self.object_store_config(config, inputs.team_id)
+        store = self.open_store(store_config)
         table = TableDefinition.from_schema_metadata(inputs.schema_name, inputs.schema_metadata) or self._find_table(
-            store, config, inputs.schema_name, inputs.logger
+            store, store_config, config, inputs.schema_name, inputs.logger
         )
         if table.kind == "delta":
             return self._delta_response(store, table, inputs)
@@ -330,10 +335,15 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         )
 
     def _find_table(
-        self, store: ObjectStore, config: ConfigType, schema_name: str, logger: FilteringBoundLogger
+        self,
+        store: ObjectStore,
+        store_config: StoreConfig,
+        config: ConfigType,
+        schema_name: str,
+        logger: FilteringBoundLogger,
     ) -> TableDefinition:
         """Find a table by name when its schema predates `schema_metadata`."""
-        for table in self._discover(store, config, logger):
+        for table in self._discover(store, store_config, config, logger):
             if table.name == schema_name:
                 return table
         raise ObjectStorageError(

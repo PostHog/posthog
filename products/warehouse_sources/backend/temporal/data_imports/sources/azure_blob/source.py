@@ -62,7 +62,7 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
         # The URL picks the account and container the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]
 
-    def object_store_config(self, config: AzureBlobSourceConfig) -> AzureBlobConfig:
+    def object_store_config(self, config: AzureBlobSourceConfig, team_id: int) -> AzureBlobConfig:
         return AzureBlobConfig.from_url(parse_azure_url(config.url_pattern), account_key=config.account_key.strip())
 
     def discovery_options(self, config: AzureBlobSourceConfig) -> DiscoveryOptions:

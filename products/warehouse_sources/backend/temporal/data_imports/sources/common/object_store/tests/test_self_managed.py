@@ -952,7 +952,9 @@ class TestJobInputsForSelfManaged:
     def test_maps_the_bucket_and_credential(
         self, _name: str, source_class: type, url: str, expected: dict[str, str]
     ) -> None:
-        job_inputs = source_class().job_inputs_for_self_managed(parse_self_managed_url(url), _credential())
+        job_inputs = source_class().job_inputs_for_self_managed(parse_self_managed_url(url), _credential(), team_id=1)
+        # Amazon S3 keeps its keys in the `aws_auth` select, the other providers at the top level.
+        job_inputs = {**job_inputs, **job_inputs.get("aws_auth", {})}
 
         assert {key: job_inputs[key] for key in expected} == expected
         assert job_inputs["secret_access_key"] == "c2VjcmV0"
@@ -963,7 +965,9 @@ class TestJobInputsForSelfManaged:
     def test_azure_takes_the_account_from_the_url_and_the_key_from_the_secret(self) -> None:
         location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
 
-        job_inputs = AzureBlobSource().job_inputs_for_self_managed(location, _credential(access_key="ExampleStore"))
+        job_inputs = AzureBlobSource().job_inputs_for_self_managed(
+            location, _credential(access_key="ExampleStore"), team_id=1
+        )
 
         assert (job_inputs["url_pattern"], job_inputs["account_key"]) == (
             "https://examplestore.blob.core.windows.net/exports/",
@@ -998,7 +1002,7 @@ class TestJobInputsForSelfManaged:
         self, _name: str, source_class: type, url: str, credential: SelfManagedCredential
     ) -> None:
         with pytest.raises(UnmappableTableError):
-            source_class().job_inputs_for_self_managed(parse_self_managed_url(url), credential)
+            source_class().job_inputs_for_self_managed(parse_self_managed_url(url), credential, team_id=1)
 
 
 class TestSourceForPipeline:
