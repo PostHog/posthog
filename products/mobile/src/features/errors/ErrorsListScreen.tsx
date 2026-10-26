@@ -9,7 +9,7 @@ import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
-import { VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
+import { COMPACT_VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { useFeatureAccess } from '@/features/views/useViewsAccess'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
@@ -125,7 +125,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
         trackErrorsFilterChanged({ filter: value })
     }
 
-    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : VIEW_CONTENT_TOP)
+    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : COMPACT_VIEW_CONTENT_TOP)
     const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
 
     // A pushed screen draws its own title; on a tab the shared tabs header draws it.
@@ -265,7 +265,7 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
             {body}
             {chrome === 'stack' ? (
                 <>
-                    <ViewChrome onBack={goBack} onMore={() => setMenuOpen(true)} />
+                    <ViewChrome compact onBack={goBack} onMore={() => setMenuOpen(true)} />
                     <HeaderMenu
                         visible={menuOpen}
                         onClose={() => setMenuOpen(false)}

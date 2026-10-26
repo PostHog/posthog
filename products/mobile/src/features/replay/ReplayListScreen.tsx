@@ -7,7 +7,7 @@ import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
-import { VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
+import { COMPACT_VIEW_CONTENT_TOP, ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack } from '@/features/views/screen/ViewScreenFrame'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
@@ -106,7 +106,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
     const webUrl = navListWebUrl(scope, 'replay')
     const safeWebUrl = webUrl ? safeHttpsUrl(webUrl) : undefined
 
-    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : VIEW_CONTENT_TOP)
+    const contentTop = topOffset(insets, chrome === 'tab' ? TABS_HEADER_BOTTOM : COMPACT_VIEW_CONTENT_TOP)
     const contentBottom = bottomOffset(insets, chrome === 'tab' ? TAB_BOTTOM : STACK_BOTTOM)
     const header =
         chrome === 'stack' ? (
@@ -204,7 +204,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
             {body}
             {chrome === 'stack' ? (
                 <>
-                    <ViewChrome onBack={back} onMore={() => setMenuOpen(true)} />
+                    <ViewChrome compact onBack={back} onMore={() => setMenuOpen(true)} />
                     <HeaderMenu
                         visible={menuOpen}
                         onClose={() => setMenuOpen(false)}

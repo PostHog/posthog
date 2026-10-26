@@ -90,6 +90,8 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   insets, so `useScreenInsets` uses the prototype's values there.
 - **View titles.** Dashboard, insight, web analytics and full-screen chart content starts 8pt below
   the floating header's blur fade at rest, so titles stay sharp before scrolling.
+  The pushed Errors and Sessions lists use a compact 46pt navigation row with a 20pt gap before
+  the title, matching Settings. Their blur fade ends 10pt before the title.
 - **Text wrapping.** The prototype sets `text-wrap: pretty`. iOS gets the same behavior from
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
