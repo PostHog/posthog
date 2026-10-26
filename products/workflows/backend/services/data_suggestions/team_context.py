@@ -10,6 +10,7 @@ from posthog.models import EventProperty, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.api import person_property_names_with_access_rules
+from products.event_definitions.backend.models import effective_project_id_expr, group_type_index_key_expr
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -131,11 +132,12 @@ def person_properties(team: Team) -> dict[str, tuple[str, ...]]:
     """The project's own person properties that a branch can split on, like a plan or a status, with their values."""
     names = (
         PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())
+            effective_project_id=effective_project_id_expr(), group_type_index_key=group_type_index_key_expr()
         )
         .filter(
             effective_project_id=team.project_id,
             type=PropertyDefinition.Type.PERSON,
+            group_type_index_key=-1,
             property_type__in=("String", "Boolean"),
         )
         .exclude(name__startswith="$")
