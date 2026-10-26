@@ -105,16 +105,6 @@ describe('useChartMargins', () => {
         expect(render({ series: dual }).right).toBeGreaterThanOrEqual(48)
     })
 
-    it('keeps the default right margin when the right y-axis is hidden', () => {
-        const dual: Series[] = [
-            { key: 'a', label: 'A', data: [1, 2, 3] },
-            { key: 'b', label: 'B', data: [4, 5, 6], yAxisId: 'right' },
-        ]
-        expect(render({ series: dual, labels: ['a', 'b', 'c'], yAxisHidden: { right: true } }).right).toBe(
-            DEFAULT_MARGINS.right
-        )
-    })
-
     it('uses the default right margin when only one y-axis is in use', () => {
         expect(render({ labels: ['a', 'b'] }).right).toBe(DEFAULT_MARGINS.right)
     })

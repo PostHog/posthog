@@ -184,15 +184,6 @@ export function useChartMargins({
         () => hasMultipleAxes || Object.values(yAxisPositions ?? {}).some((side) => side === 'right'),
         [hasMultipleAxes, yAxisPositions]
     )
-    // A hidden right axis draws no labels, so it needs no room on the right.
-    const hasVisibleRightAxis = useMemo(
-        () =>
-            usesPerSideGutters &&
-            orderedAxisPositions(valueSeries).some(
-                ({ axisId, position }) => (yAxisPositions?.[axisId] ?? position) === 'right' && !yAxisHidden?.[axisId]
-            ),
-        [usesPerSideGutters, valueSeries, yAxisPositions, yAxisHidden]
-    )
 
     // One rotated-title band per titled axis, on its side. Horizontal charts (category axis on the
     // left) and single-value-axis charts only ever title the default left axis.
@@ -327,7 +318,7 @@ export function useChartMargins({
                   leftLabelReserve + Y_LABEL_LEFT_GUTTER,
                   xLabelEdgeReserves.left + X_LABEL_EDGE_PADDING
               ) + titleReserve.left
-        const rightFloor = hasVisibleRightAxis && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
+        const rightFloor = usesPerSideGutters && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelEdgeReserves.right + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
