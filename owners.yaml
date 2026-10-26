@@ -216,10 +216,6 @@ rules:
           - '/frontend/src/taxonomy/'
       owners: platform-ux
     - match:
-          - '/products/product_tours/backend/'
-          - '/products/product_tours/frontend/'
-      owners: remove with product
-    - match:
           - '/packages/llm-normalizer/'
       owners: team-ai-observability
     - match:
