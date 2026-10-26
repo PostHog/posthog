@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -38,6 +38,9 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
@@ -126,6 +129,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tileGroupMoveOptions,
         activeTileGroupTab,
     } = useValues(dashboardLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
+    useMountedLogic(
+        biDashboardCrossFilterLogic({ dashboardId: dashboard?.id ?? 0, tiles: canCrossFilter ? (tiles ?? []) : [] })
+    )
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
@@ -648,7 +655,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
-                    resultMenuEnabled={placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode}
+                    resultMenuEnabled={canCrossFilter}
+                    visualization={
+                        canCrossFilter && dashboard && isCrossFilterWorksheet(insight.query) ? (
+                            <BIDashboardTile
+                                dashboardId={dashboard.id}
+                                tileId={tile.id}
+                                insight={insight}
+                                query={insight.query}
+                                filtersOverride={effectiveEditBarFilters}
+                                variablesOverride={currentDashboardVariables}
+                                loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                            />
+                        ) : undefined
+                    }
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.

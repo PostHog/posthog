@@ -92,6 +92,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
+    visualization?: JSX.Element
     resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
@@ -213,6 +214,7 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         resultMenuEnabled,
+        visualization,
         children,
         projectId,
         projectTimezone,
@@ -403,23 +405,25 @@ function InsightCardInternal(
             return BlockingEmptyState
         }
         return (
-            <Query
-                query={insight.query}
-                cachedResults={insight}
-                context={{
-                    insightProps: insightLogicProps,
-                    dashboardResultMenu: resultMenuEnabled,
-                    dataVisualizationTableVirtualized:
-                        renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
-                    // Small tables keep natural column widths because their full row count is cheap to render.
-                    dataVisualizationTableVirtualizationCellThreshold: 100,
-                }}
-                readOnly
-                embedded
-                inSharedMode={placement === DashboardPlacement.Public}
-                variablesOverride={variablesOverride}
-                editMode={false}
-            />
+            visualization ?? (
+                <Query
+                    query={insight.query}
+                    cachedResults={insight}
+                    context={{
+                        insightProps: insightLogicProps,
+                        dashboardResultMenu: resultMenuEnabled,
+                        dataVisualizationTableVirtualized:
+                            renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
+                        // Small tables keep natural column widths because their full row count is cheap to render.
+                        dataVisualizationTableVirtualizationCellThreshold: 100,
+                    }}
+                    readOnly
+                    embedded
+                    inSharedMode={placement === DashboardPlacement.Public}
+                    variablesOverride={variablesOverride}
+                    editMode={false}
+                />
+            )
         )
     }, [
         BlockingEmptyState,
@@ -429,6 +433,7 @@ function InsightCardInternal(
         placement,
         renderVizWhenMounted,
         resultMenuEnabled,
+        visualization,
     ])
 
     const vizContent = shouldRenderViz ? (
