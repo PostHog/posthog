@@ -387,11 +387,15 @@ def _read_sources(team_id: int, checks: Sequence[PlatformAlertCheckInput]) -> _R
         )
 
     failing_keys = {key for row in failing for key in row.group_ids.values()}
-    resolved = _open_keys(checks) - failing_keys
+    open_keys = _open_keys(checks)
+    resolved = open_keys - failing_keys
     return _Reading(
         failing=tuple(failing),
         truncated=truncated,
-        resolved_labels=_source_labels(team_id, resolved),
+        # A row can still be present in the batch-wide failing read while one check excludes its
+        # status (for example, a billing limit). Hydrate every open key so that check can resolve
+        # with its source and table names.
+        resolved_labels=_source_labels(team_id, open_keys),
         retrying=_retrying_keys(team_id, resolved),
     )
 
@@ -484,7 +488,7 @@ def _read_destinations(team_id: int, checks: Sequence[PlatformAlertCheckInput]) 
 
 def _destination_type_label(destination_type: str) -> str:
     if destination_type in ExternalDataDestination.Type.values:
-        return ExternalDataDestination.Type(destination_type).label
+        return str(ExternalDataDestination.Type(destination_type).label)
     return destination_type
 
 

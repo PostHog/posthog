@@ -1021,9 +1021,109 @@ export interface LogsPlatformAlertConfigurationEditApi {
     cooldown_minutes: number
 }
 
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind =
+    (typeof WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind)[keyof typeof WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind]
+
+export const WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseDestination: 'warehouse_destination',
+} as const
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface WarehouseDestinationPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: WarehouseDestinationPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseDestinationAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type WarehouseSourcePlatformAlertConfigurationEditApiSourceKind =
+    (typeof WarehouseSourcePlatformAlertConfigurationEditApiSourceKind)[keyof typeof WarehouseSourcePlatformAlertConfigurationEditApiSourceKind]
+
+export const WarehouseSourcePlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseSource: 'warehouse_source',
+} as const
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface WarehouseSourcePlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: WarehouseSourcePlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+    source_config: WarehouseSourceAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+}
+
 export type PlatformAlertConfigurationEditApi =
     | InsightPlatformAlertConfigurationEditApi
     | LogsPlatformAlertConfigurationEditApi
+    | WarehouseDestinationPlatformAlertConfigurationEditApi
+    | WarehouseSourcePlatformAlertConfigurationEditApi
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -1123,9 +1223,109 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     cooldown_minutes?: number
 }
 
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseDestination: 'warehouse_destination',
+} as const
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedWarehouseDestinationPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedWarehouseDestinationPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+    source_config?: WarehouseDestinationAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind = {
+    WarehouseSource: 'warehouse_source',
+} as const
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedWarehouseSourcePlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+    source_config?: WarehouseSourceAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire.
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+}
+
 export type PatchedPlatformAlertConfigurationEditApi =
     | PatchedInsightPlatformAlertConfigurationEditApi
     | PatchedLogsPlatformAlertConfigurationEditApi
+    | PatchedWarehouseDestinationPlatformAlertConfigurationEditApi
+    | PatchedWarehouseSourcePlatformAlertConfigurationEditApi
 
 export interface PlatformAlertGroupSnoozeApi {
     /**
