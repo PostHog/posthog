@@ -60,6 +60,17 @@ export function SSFConnectionModal({ organizationId, disabledReason }: Props): J
                             />
                         </LemonField>
                         <LemonField
+                            name="transmitter_url"
+                            label="Transmitter metadata URL (optional)"
+                            help="Set this only when the transmitter's SSF configuration is not at {issuer}/.well-known/ssf-configuration."
+                        >
+                            <LemonInput
+                                placeholder="https://idp.example.com/.well-known/ssf-configuration"
+                                disabledReason={disabledReason}
+                                data-attr="ssf-connection-transmitter-url"
+                            />
+                        </LemonField>
+                        <LemonField
                             name="remote_token"
                             label="Transmitter API bearer token"
                             help={
@@ -77,8 +88,10 @@ export function SSFConnectionModal({ organizationId, disabledReason }: Props): J
                             />
                         </LemonField>
                         <LemonBanner type="info">
-                            PostHog discovers the transmitter's SSF endpoints and public signing keys from its issuer.
-                            Incoming streams use push delivery. No manual key copying or stream ID entry is needed.
+                            PostHog discovers the transmitter's SSF endpoints and public signing keys from its issuer's
+                            well-known SSF configuration. Set a metadata URL above when the transmitter publishes it
+                            elsewhere. Incoming streams use push delivery, so no manual key copying or stream ID entry
+                            is needed.
                         </LemonBanner>
                     </>
                 ) : (

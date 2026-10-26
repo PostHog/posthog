@@ -16,6 +16,7 @@ from posthog.ssf.validation import (
     SSFStreamEventType,
     validate_issuer,
     validate_subject,
+    validate_transmitter_url,
 )
 
 
@@ -62,14 +63,6 @@ class SSFConfigurationSerializer(serializers.ModelSerializer):
         return data
 
     def validate_event_types(self, value: list[str]) -> list[str]:
-        if (
-            self.instance
-            and set(value) != (set(self.instance.event_types) & set(SSFOutgoingEventType.values))
-            and SSFStream.objects.filter(
-                organization=self.instance.organization, connection__direction=SSFConnection.Direction.OUTGOING
-            ).exists()
-        ):
-            raise serializers.ValidationError("Delete outgoing streams before changing the supported event types.")
         return [event for event in SSFOutgoingEventType.values if event in value]
 
 
@@ -126,6 +119,7 @@ class SSFConnectionSerializer(serializers.ModelSerializer):
             "direction",
             "enabled",
             "issuer",
+            "transmitter_url",
             "audience",
             "remote_token",
             "jwks_uri",
@@ -146,6 +140,9 @@ class SSFConnectionSerializer(serializers.ModelSerializer):
             },
             "issuer": {
                 "help_text": "Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically."
+            },
+            "transmitter_url": {
+                "help_text": "Optional transmitter SSF metadata URL when it is not at {issuer}/.well-known/ssf-configuration. Leave blank to discover from the issuer."
             },
             "audience": {
                 "help_text": "Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter."
@@ -171,6 +168,12 @@ class SSFConnectionSerializer(serializers.ModelSerializer):
         except ValueError as error:
             raise serializers.ValidationError(str(error)) from error
 
+    def validate_transmitter_url(self, value: str) -> str:
+        try:
+            return validate_transmitter_url(value) if value else value
+        except ValueError as error:
+            raise serializers.ValidationError(str(error)) from error
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if self.instance:
             for field in ("direction", "issuer", "audience"):
@@ -185,8 +188,8 @@ class SSFConnectionSerializer(serializers.ModelSerializer):
             if not self.instance and not attrs.get("remote_token"):
                 raise serializers.ValidationError({"remote_token": "Enter the transmitter API bearer token."})
         elif direction == SSFConnection.Direction.OUTGOING:
-            if attrs.get("issuer") or attrs.get("remote_token"):
-                raise serializers.ValidationError("Outgoing receivers do not use remote transmitter credentials.")
+            if attrs.get("issuer") or attrs.get("remote_token") or attrs.get("transmitter_url"):
+                raise serializers.ValidationError("Outgoing receivers do not use remote transmitter settings.")
         return attrs
 
 

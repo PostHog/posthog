@@ -82,7 +82,7 @@ def is_event_type(value: str) -> bool:
     return re.fullmatch(EVENT_TYPE_PATTERN, value) is not None
 
 
-def validate_issuer(value: str) -> str:
+def _validate_https_url(value: str, message: str) -> str:
     parsed = urlsplit(value)
     if (
         parsed.scheme != "https"
@@ -92,8 +92,18 @@ def validate_issuer(value: str) -> str:
         or parsed.username
         or parsed.password
     ):
-        raise ValueError("Enter an HTTPS issuer URL without credentials, a query, or a fragment.")
+        raise ValueError(message)
     return value
+
+
+def validate_issuer(value: str) -> str:
+    return _validate_https_url(value, "Enter an HTTPS issuer URL without credentials, a query, or a fragment.")
+
+
+def validate_transmitter_url(value: str) -> str:
+    return _validate_https_url(
+        value, "Enter an HTTPS transmitter metadata URL without credentials, a query, or a fragment."
+    )
 
 
 @sensitive_variables("value", "key", "normalized")

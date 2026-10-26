@@ -35,6 +35,7 @@ from posthog.ssf.validation import (
     PUSH_DELIVERY,
     STREAM_UPDATED_EVENT,
     VERIFICATION_EVENT,
+    SSFOutgoingEventType,
     subjects_match,
     validate_jwks,
 )
@@ -77,6 +78,8 @@ class TestSSFValidation(SimpleTestCase):
         [
             ({"issuer": "http://issuer.example.com"}, "issuer"),
             ({"issuer": "https://issuer.example.com?query=one"}, "issuer"),
+            ({"transmitter_url": "http://issuer.example.com/metadata"}, "transmitter_url"),
+            ({"transmitter_url": "https://issuer.example.com/metadata?query=one"}, "transmitter_url"),
             ({"remote_token": "Bearer not-the-token-only"}, "remote_token"),
             ({"remote_token": "token\nInjected: value"}, "remote_token"),
         ]
@@ -272,6 +275,19 @@ class TestSSF(APIBaseTest):
         )
         assert response.status_code == 400
         assert SSFConnection.objects.filter(organization=self.organization).count() == before
+
+    def test_changing_supported_event_types_updates_existing_outgoing_streams(self) -> None:
+        revoked = SSFOutgoingEventType.SESSION_REVOKED.value
+        disabled = SSFOutgoingEventType.ACCOUNT_DISABLED.value
+        self.config.event_types = [revoked]
+        self.config.save()
+        stream = SSFService.create_outgoing_stream(self.config, self.outgoing, [revoked, disabled], "Existing stream")
+        assert stream.events_delivered == [revoked]
+        response = self.client.patch(f"{self.api}configuration/", {"event_types": [disabled]}, format="json")
+        assert response.status_code == 200, response.content
+        stream.refresh_from_db()
+        assert stream.events_requested == [revoked, disabled]
+        assert stream.events_delivered == [disabled]
 
     def test_credentials_are_returned_only_once_and_roles_are_separate(self) -> None:
         response = self.client.post(f"{self.api}connections/{self.outgoing.id}/rotate_token/", {}, format="json")
@@ -747,6 +763,7 @@ class ExampleTransmitter:
         self.jwks = jwks
         self.streams: dict[str, dict] = {}
         self.requests: list[tuple[str, str, dict, dict]] = []
+        self.metadata_path = "/.well-known/ssf-configuration/tenant"
         self.lose_create_response = False
         self.limit_creates = False
 
@@ -764,7 +781,7 @@ class ExampleTransmitter:
             "add_subject_endpoint": "https://issuer.example.com/subjects:add",
             "remove_subject_endpoint": "https://issuer.example.com/subjects:remove",
         }
-        if path == "/.well-known/ssf-configuration/tenant":
+        if path == self.metadata_path:
             return httpx.Response(200, json=metadata)
         if path == "/jwks":
             return httpx.Response(200, json=self.jwks)
@@ -1004,6 +1021,30 @@ class TestSSFRemoteProvisioning(APIBaseTest):
         )
         assert response.status_code == 400, response.content
         assert self.provider.requests == []
+
+    def test_manual_transmitter_url_overrides_issuer_discovery_path(self) -> None:
+        self.provider.metadata_path = "/custom/ssf-metadata"
+        response = self.client.post(
+            f"{self.api}connections/",
+            {
+                "name": "Custom metadata",
+                "direction": "incoming",
+                "issuer": self.provider.issuer,
+                "transmitter_url": "https://issuer.example.com/custom/ssf-metadata",
+                "remote_token": "example-api-token",
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.content
+        assert response.json()["transmitter_url"] == "https://issuer.example.com/custom/ssf-metadata"
+        assert response.json()["jwks_uri"] == "https://keys.example.com/jwks"
+        assert any(call[1] == "/custom/ssf-metadata" for call in self.provider.requests)
+        assert not any(call[1] == "/.well-known/ssf-configuration/tenant" for call in self.provider.requests)
+        cleared = self.client.patch(
+            f"{self.api}connections/{response.json()['id']}/", {"transmitter_url": ""}, format="json"
+        )
+        assert cleared.status_code == 200, cleared.content
+        assert cleared.json()["transmitter_url"] == ""
 
     def test_discovery_rejects_issuer_mismatch(self) -> None:
         response = self.client.post(

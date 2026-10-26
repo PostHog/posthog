@@ -39,8 +39,10 @@ class SSFRemote:
     )
 
     @staticmethod
-    def discovery_url(issuer: str) -> str:
-        parsed = urlsplit(issuer)
+    def discovery_url(connection: SSFConnection) -> str:
+        if connection.transmitter_url:
+            return connection.transmitter_url
+        parsed = urlsplit(connection.issuer)
         return urlunsplit(
             (parsed.scheme, parsed.netloc, f"/.well-known/ssf-configuration{parsed.path.rstrip('/')}", "", "")
         )
@@ -133,7 +135,7 @@ class SSFRemote:
 
     @staticmethod
     def discover(connection: SSFConnection, *, force: bool = False) -> dict[str, JsonValue]:
-        url = SSFRemote.discovery_url(connection.issuer)
+        url = SSFRemote.discovery_url(connection)
         key = SSFRemote._cache_key("discovery", url)
         metadata = None if force else cache.get(key)
         if metadata is None:

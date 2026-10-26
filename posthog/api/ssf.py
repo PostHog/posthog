@@ -124,6 +124,7 @@ class SSFConfigurationViewSet(SSFOrganizationViewSet):
             serializer = SSFConfigurationSerializer(config, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
+            SSFService.sync_outgoing_delivered(config)
         report_organization_action(self.organization, "ssf configured", {"enabled": config.enabled})
         return self._response(config)
 

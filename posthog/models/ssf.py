@@ -37,6 +37,7 @@ class SSFConnection(UUIDModel):
     direction = models.CharField(max_length=8, choices=Direction.choices)
     enabled = models.BooleanField(default=True)
     issuer = models.URLField(max_length=2048, blank=True, default="")
+    transmitter_url = models.URLField(max_length=2048, blank=True, default="")
     audience = models.CharField(max_length=512, blank=True, default="")
     remote_token = EncryptedTextField(null=True, blank=True)
     token_hash = models.CharField(max_length=64, blank=True, default="")

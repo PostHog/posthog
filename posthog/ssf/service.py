@@ -106,6 +106,20 @@ class SSFService:
         return [*CONTROL_EVENTS, *(event for event in SSFOutgoingEventType.values if event in selected)]
 
     @staticmethod
+    def sync_outgoing_delivered(config: SSFConfiguration) -> None:
+        supported = set(SSFService.supported_event_types(config))
+        changed: list[SSFStream] = []
+        for stream in SSFStream.objects.filter(
+            organization=config.organization, connection__direction=SSFConnection.Direction.OUTGOING
+        ):
+            delivered = [event for event in stream.events_requested if event in supported]
+            if delivered != stream.events_delivered:
+                stream.events_delivered = delivered
+                changed.append(stream)
+        if changed:
+            SSFStream.objects.bulk_update(changed, ["events_delivered"])
+
+    @staticmethod
     def stream_configuration(config: SSFConfiguration, stream: SSFStream) -> dict[str, JsonValue]:
         issuer = SSFService.issuer(config.organization)
         supported = SSFService.supported_event_types(config)

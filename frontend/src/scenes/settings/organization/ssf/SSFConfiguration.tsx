@@ -64,7 +64,7 @@ export function SSFConfiguration({ organizationId }: SSFSettingsLogicProps): JSX
                         <LemonField
                             name="eventTypes"
                             label="Additional outgoing event types"
-                            info="Choose from the basic CAEP and RISC event types. Verification and stream status events are supported automatically. Delete outgoing streams before changing this list."
+                            info="Choose from the basic CAEP and RISC event types. Verification and stream status events are supported automatically. Changes apply to existing streams."
                         >
                             <LemonInputSelect
                                 mode="multiple"

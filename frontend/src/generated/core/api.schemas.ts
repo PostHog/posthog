@@ -4748,6 +4748,8 @@ export interface SSFConnectionApi {
     enabled?: boolean
     /** Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically. */
     issuer?: string
+    /** Optional transmitter SSF metadata URL when it is not at {issuer}/.well-known/ssf-configuration. Leave blank to discover from the issuer. */
+    transmitter_url?: string
     /**
      * Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.
      * @maxLength 512
@@ -4792,6 +4794,8 @@ export interface PatchedSSFConnectionApi {
     enabled?: boolean
     /** Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically. */
     issuer?: string
+    /** Optional transmitter SSF metadata URL when it is not at {issuer}/.well-known/ssf-configuration. Leave blank to discover from the issuer. */
+    transmitter_url?: string
     /**
      * Optional agreed receiver audience. Outgoing connections get a unique audience when omitted. Incoming connections can restrict the audience assigned by their transmitter.
      * @maxLength 512

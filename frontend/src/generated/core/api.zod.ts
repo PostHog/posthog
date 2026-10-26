@@ -679,6 +679,10 @@ export const ssfConnectionsCreateBodyIssuerOneMax = 2048
 
 export const ssfConnectionsCreateBodyIssuerTwoMax = 0
 
+export const ssfConnectionsCreateBodyTransmitterUrlOneMax = 2048
+
+export const ssfConnectionsCreateBodyTransmitterUrlTwoMax = 0
+
 export const ssfConnectionsCreateBodyAudienceMax = 512
 
 export const ssfConnectionsCreateBodyRemoteTokenMax = 4096
@@ -704,6 +708,15 @@ export const SsfConnectionsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe("Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically."),
+    transmitter_url: zod
+        .union([
+            zod.url().max(ssfConnectionsCreateBodyTransmitterUrlOneMax),
+            zod.string().max(ssfConnectionsCreateBodyTransmitterUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'Optional transmitter SSF metadata URL when it is not at {issuer}\/.well-known\/ssf-configuration. Leave blank to discover from the issuer.'
+        ),
     audience: zod
         .string()
         .max(ssfConnectionsCreateBodyAudienceMax)
@@ -724,6 +737,10 @@ export const ssfConnectionsPartialUpdateBodyNameMax = 200
 export const ssfConnectionsPartialUpdateBodyIssuerOneMax = 2048
 
 export const ssfConnectionsPartialUpdateBodyIssuerTwoMax = 0
+
+export const ssfConnectionsPartialUpdateBodyTransmitterUrlOneMax = 2048
+
+export const ssfConnectionsPartialUpdateBodyTransmitterUrlTwoMax = 0
 
 export const ssfConnectionsPartialUpdateBodyAudienceMax = 512
 
@@ -755,6 +772,15 @@ export const SsfConnectionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe("Incoming transmitter's exact HTTPS issuer. Its SSF metadata and JWKS are discovered automatically."),
+    transmitter_url: zod
+        .union([
+            zod.url().max(ssfConnectionsPartialUpdateBodyTransmitterUrlOneMax),
+            zod.string().max(ssfConnectionsPartialUpdateBodyTransmitterUrlTwoMax),
+        ])
+        .optional()
+        .describe(
+            'Optional transmitter SSF metadata URL when it is not at {issuer}\/.well-known\/ssf-configuration. Leave blank to discover from the issuer.'
+        ),
     audience: zod
         .string()
         .max(ssfConnectionsPartialUpdateBodyAudienceMax)

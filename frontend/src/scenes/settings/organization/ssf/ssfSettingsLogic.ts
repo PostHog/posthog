@@ -41,6 +41,7 @@ export interface SSFSettingsLogicProps {
 type ConnectionForm = Pick<SSFConnectionApi, 'name' | 'direction'> & {
     id: string | null
     issuer: string
+    transmitter_url: string
     audience: string
     remote_token: string
 }
@@ -49,6 +50,7 @@ const connectionDefaults: ConnectionForm = {
     name: '',
     direction: SSFDirectionEnumApi.Incoming,
     issuer: '',
+    transmitter_url: '',
     audience: '',
     remote_token: '',
 }
@@ -726,21 +728,28 @@ export const ssfSettingsLogic = kea<ssfSettingsLogicType>([
         },
         connection: {
             defaults: connectionDefaults,
-            errors: ({ id, name, direction, issuer, remote_token }) => ({
+            errors: ({ id, name, direction, issuer, transmitter_url, remote_token }) => ({
                 name: !name.trim() ? 'Enter a connection name.' : undefined,
                 issuer:
                     direction === SSFDirectionEnumApi.Incoming && !issuer.startsWith('https://')
                         ? 'Enter an HTTPS transmitter issuer.'
+                        : undefined,
+                transmitter_url:
+                    direction === SSFDirectionEnumApi.Incoming &&
+                    transmitter_url.trim() &&
+                    !transmitter_url.trim().startsWith('https://')
+                        ? 'Enter an HTTPS transmitter metadata URL.'
                         : undefined,
                 remote_token:
                     direction === SSFDirectionEnumApi.Incoming && !id && !remote_token.trim()
                         ? 'Enter the transmitter API bearer token.'
                         : undefined,
             }),
-            submit: async ({ id, name, direction, issuer, audience, remote_token }) => {
+            submit: async ({ id, name, direction, issuer, transmitter_url, audience, remote_token }) => {
                 if (id) {
                     await ssfConnectionsPartialUpdate(props.organizationId, id, {
                         name: name.trim(),
+                        transmitter_url: transmitter_url.trim(),
                         remote_token: remote_token.trim() || undefined,
                     })
                 } else {
@@ -748,6 +757,10 @@ export const ssfSettingsLogic = kea<ssfSettingsLogicType>([
                         name: name.trim(),
                         direction,
                         issuer: direction === SSFDirectionEnumApi.Incoming ? issuer.trim() : undefined,
+                        transmitter_url:
+                            direction === SSFDirectionEnumApi.Incoming
+                                ? transmitter_url.trim() || undefined
+                                : undefined,
                         audience: audience.trim() || undefined,
                         remote_token: direction === SSFDirectionEnumApi.Incoming ? remote_token.trim() : undefined,
                     })
@@ -923,6 +936,7 @@ export const ssfSettingsLogic = kea<ssfSettingsLogicType>([
                           name: connection.name,
                           direction: connection.direction,
                           issuer: connection.issuer || '',
+                          transmitter_url: connection.transmitter_url || '',
                           audience: connection.audience || '',
                       }
                     : connectionDefaults

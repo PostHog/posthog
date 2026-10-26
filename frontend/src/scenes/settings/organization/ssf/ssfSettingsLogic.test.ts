@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import type { SSFStreamApi } from '~/generated/core/api.schemas'
+import { SSFDirectionEnumApi, type SSFStreamApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -209,8 +209,49 @@ describe('ssfSettingsLogic', () => {
         await expectLogic(logic, () => logic.actions.submitConnection())
             .toDispatchActions(['submitConnectionSuccess'])
             .toFinishAllListeners()
-        expect(requests).toEqual([{ name: 'Renamed transmitter' }])
+        expect(requests).toEqual([{ name: 'Renamed transmitter', transmitter_url: '' }])
         expect(logic.values.connectionOpen).toBe(false)
+        logic.unmount()
+    })
+
+    it('sends a manually entered transmitter metadata URL when adding an incoming connection', async () => {
+        const requests: unknown[] = []
+        useMocks({
+            get: {
+                '/api/organizations/:organization/ssf': SSF_SETTINGS,
+                '/api/organizations/:organization/ssf/connections': [],
+                '/api/organizations/:organization/ssf/streams': [],
+            },
+            post: {
+                '/api/organizations/:organization/ssf/connections': async ({ request }) => {
+                    requests.push(await request.json())
+                    return [201, SSF_INCOMING_CONNECTION]
+                },
+            },
+        })
+        const logic = ssfSettingsLogic({ organizationId: 'organization-one' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openConnection()
+        logic.actions.setConnectionValues({
+            name: 'Example transmitter',
+            direction: SSFDirectionEnumApi.Incoming,
+            issuer: 'https://issuer.example.com',
+            transmitter_url: 'https://issuer.example.com/custom/ssf-metadata',
+            remote_token: 'example-token',
+        })
+        await expectLogic(logic, () => logic.actions.submitConnection())
+            .toDispatchActions(['submitConnectionSuccess'])
+            .toFinishAllListeners()
+        expect(requests).toEqual([
+            {
+                name: 'Example transmitter',
+                direction: SSFDirectionEnumApi.Incoming,
+                issuer: 'https://issuer.example.com',
+                transmitter_url: 'https://issuer.example.com/custom/ssf-metadata',
+                remote_token: 'example-token',
+            },
+        ])
         logic.unmount()
     })
 
