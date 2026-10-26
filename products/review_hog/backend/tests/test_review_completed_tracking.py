@@ -486,7 +486,7 @@ class TestTrackReviewCompleted(BaseTest):
                 "limit = 10",
                 ["pnpm-lock.yaml"],
                 True,
-                (False, "system_one_above_threshold", None, False),
+                (False, "system_one_above_threshold", 0, False),
             ),
             ("small_code_change", "limit = 20", [], True, (False, "system_one_above_threshold", 2, True)),
             (
@@ -494,7 +494,7 @@ class TestTrackReviewCompleted(BaseTest):
                 "limit = 20",
                 ["pnpm-lock.yaml"],
                 True,
-                (False, "system_one_above_threshold", None, False),
+                (False, "system_one_above_threshold", 2, False),
             ),
         ]
     )
@@ -504,7 +504,7 @@ class TestTrackReviewCompleted(BaseTest):
         changed_code: str,
         skipped_paths: list[str],
         treatment: bool,
-        expected: tuple[bool, str, int | None, bool],
+        expected: tuple[bool, str, int, bool],
     ) -> None:
         report_id = self._review_report()
 

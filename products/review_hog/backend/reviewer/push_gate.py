@@ -48,14 +48,15 @@ The rules, in order. The first rule that matches gives the reason:
 13. `zero_change`: the reviewed files of the PR are the same as at the last automatically reviewed head. It compares
    the stored PR snapshots of both heads. Rule 3 already skips a push whose whole PR diff is unchanged, so this rule
    catches pushes that change only files the review leaves out, such as generated files and snapshots. The snapshots
-   leave lockfiles out too, so a PR with a lockfile at either head never matches. A push after skipped pushes compares
-   against the same baseline. It runs after rule 10 and before rule 11, and only a PR in the treatment arm of
+   leave lockfiles out too, so a PR with a lockfile at either head never matches, and neither does a PR with a file
+   whose patch GitHub left out (`PRChange.comparable`). A push after skipped pushes compares against the same
+   baseline. It runs after rule 10 and before rule 11, and only a PR in the treatment arm of
    `reviewhog-zero-change-skip` skips. An unknown comparison (no snapshot at either head) never matches.
 
 A turn that passes every rule can review only what changed (`plan_delta_review`): a follow-up from run
 `DELTA_BAND_FIRST_RUN_INDEX` on, whose changed reviewable lines are at most `DELTA_BAND_MAX_CHANGE_SHARE` of the PR's
-reviewable lines, with no dependency file changed (a lockfile in the PR counts as changed) and every changed file
-comparable. The first follow-up always reviews the whole PR. Only a PR in the treatment arm of `reviewhog-delta-band`
+reviewable lines, with no dependency file changed and a comparison the snapshots show in full: no lockfile in the PR,
+no file without a patch, and no file that left the PR. The first follow-up always reviews the whole PR. Only a PR in the treatment arm of `reviewhog-delta-band`
 runs the delta review; the other arm records that the turn was eligible.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
@@ -82,8 +83,10 @@ from posthog.redis import get_client
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.review_hog.backend.app_identity import posthog_app_login
+from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request, matches_app_bot
 from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
+from products.review_hog.backend.reviewer.tools.single_agent_review import ChangedSinceReview
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +131,8 @@ DELTA_BAND_FIRST_RUN_INDEX = 3
 DELTA_BAND_MAX_CHANGE_SHARE = 0.03
 # A change to one of these files changes what the code runs with, so it never counts as small or as no change.
 _DEPENDENCY_FILE = re.compile(
-    r"(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|pyproject\.toml|uv\.lock|poetry\.lock|"
-    r"requirements[^/]*\.txt|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|Gemfile(\.lock)?|composer\.(json|lock))$|\.lock$"
+    r"(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|pyproject\.toml|requirements[^/]*\.txt|go\.mod|go\.sum|"
+    r"Cargo\.toml|Gemfile|composer\.json)$|\.lock$"
 )
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
 _PAID_HEAD_TTL_SECONDS = 6 * 3600
@@ -281,6 +284,34 @@ class PushGateDecision:
 
 def is_dependency_file(path: str) -> bool:
     return _DEPENDENCY_FILE.search(path) is not None
+
+
+@frozen
+class PRChange:
+    """How the PR's diff changed since the last automatically reviewed head, as far as the stored snapshots show it."""
+
+    # Diff lines added or removed since that head, in every file of the snapshots.
+    changed_lines: int
+    changed_reviewable_lines: int
+    dependency_changed: bool
+    # False when a change can hide from the snapshots, so neither split may act on the comparison.
+    comparable: bool
+
+    @classmethod
+    def between(cls, earlier: PRSnapshotArtefact, current: PRSnapshotArtefact) -> "PRChange":
+        change = ChangedSinceReview.between(earlier.pr_files, current.pr_files)
+        changed = {filename for filename, count in change.changed_line_counts.items() if count}
+        current_files = {pr_file.filename for pr_file in current.pr_files}
+        return cls(
+            changed_lines=sum(change.changed_line_counts.values()),
+            changed_reviewable_lines=change.reviewable_line_count(),
+            dependency_changed=any(is_dependency_file(filename) for filename in changed),
+            # The snapshots leave lockfiles out, a file without a patch shows only its line counts, and a delta prompt
+            # shows only the files still in the PR.
+            comparable=not change.files_without_patch
+            and changed <= current_files
+            and not any(is_dependency_file(path) for path in [*earlier.skipped_paths, *current.skipped_paths]),
+        )
 
 
 @frozen
@@ -769,12 +800,12 @@ def apply_throttle(decision: PushGateDecision, *, report_id: str, head_sha: str)
     return replace(decision, skip=_rule_enabled("throttled"), would_skip=True, reason="throttled")
 
 
-def apply_zero_change_rule(
-    decision: PushGateDecision, *, pr_changed_lines: int | None, enabled: bool
-) -> PushGateDecision:
-    """Rule 13, after rules 8 to 10. It takes over a shadow match. `pr_changed_lines` None means unknown, so the push runs."""
-    decision = replace(decision, pr_changed_lines=pr_changed_lines)
-    if decision.skip or decision.reason in _FAIL_OPEN_REASONS or pr_changed_lines != 0:
+def apply_zero_change_rule(decision: PushGateDecision, *, change: PRChange | None, enabled: bool) -> PushGateDecision:
+    """Rule 13, after rules 8 to 10. It takes over a shadow match. A missing or incomplete comparison runs the push."""
+    decision = replace(decision, pr_changed_lines=change.changed_lines if change is not None else None)
+    if decision.skip or decision.reason in _FAIL_OPEN_REASONS or change is None or not change.comparable:
+        return decision
+    if change.changed_lines != 0:
         return decision
     return replace(decision, skip=enabled, would_skip=True, reason="zero_change")
 
@@ -783,24 +814,23 @@ def plan_delta_review(
     decision: PushGateDecision,
     *,
     run_index: int,
-    changed_reviewable_lines: int | None,
+    change: PRChange | None,
     reviewable_lines: int | None,
-    dependency_changed: bool,
-    comparable: bool,
     enabled: bool,
 ) -> PushGateDecision:
     """Whether a turn that runs reviews only what changed since the last automatically reviewed head.
 
-    Anything unknown (no comparison, a file without a patch, a gate that could not judge the push) keeps the full review.
+    Anything unknown (no comparison, a change the snapshots cannot show, a gate that could not judge the push) keeps the
+    full review.
     """
     eligible = (
         not decision.skip
         and decision.reason not in _FAIL_OPEN_REASONS
-        and comparable
-        and not dependency_changed
+        and change is not None
+        and change.comparable
+        and not change.dependency_changed
         and run_index >= DELTA_BAND_FIRST_RUN_INDEX
-        and changed_reviewable_lines is not None
         and reviewable_lines is not None
-        and 0 < changed_reviewable_lines <= DELTA_BAND_MAX_CHANGE_SHARE * reviewable_lines
+        and 0 < change.changed_reviewable_lines <= DELTA_BAND_MAX_CHANGE_SHARE * reviewable_lines
     )
     return replace(decision, delta_eligible=eligible, delta_review=eligible and enabled)

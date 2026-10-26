@@ -205,9 +205,12 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
         PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total()")),
         _file("b.py", "x = 1"),
     ]
+    removed = PRFileUpdate(type="deletion", old_start_line=1, old_end_line=2, code="import os\nos.getcwd()")
     current = [
         PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total(strict=True)")),
         _file("b.py", "x = 1"),
+        # A push that deletes a whole file leaves only removals, with no head line to be near.
+        PRFile(filename="c.py", status="removed", additions=0, deletions=2, changes=[removed]),
     ]
 
     shown = delta_files(current, ChangedSinceReview.between(earlier, current))
@@ -221,8 +224,9 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
         delta_since=delta_since,
     ).render()
 
-    assert [f.filename for f in shown] == ["a.py"]
+    assert [f.filename for f in shown] == ["a.py", "c.py"]
     assert [u.code for u in shown[0].changes] == ["d = 4\ne = 5\nf = 6", "old_total()", "total(strict=True)"]
+    assert shown[1].changes == [removed]
     assert ("## Changes since the last review" in prompt) is expect_section
     assert "$(" not in prompt
 

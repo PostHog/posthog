@@ -67,6 +67,10 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
+def _commit_sha(value: str | None) -> str | None:
+    return value if value is not None and _COMMIT_SHA.fullmatch(value) else None
+
+
 def load_prompt_file(path: Path) -> str:
     """A prompt file as the model receives it."""
     return _LEADING_HTML_COMMENT.sub("", path.read_text(), count=1).strip()
@@ -176,8 +180,7 @@ class SingleAgentPrompt:
 
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
-        sha = self.merge_base_sha
-        return sha if sha is not None and _COMMIT_SHA.fullmatch(sha) else None
+        return _commit_sha(self.merge_base_sha)
 
     def render(self) -> str:
         template, output_schema = load_template_and_schema(SINGLE_AGENT_PROMPT_DIR)
@@ -193,7 +196,7 @@ class SingleAgentPrompt:
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
             # A commit id only, so no text from the repository reaches the session's shell.
-            DELTA_SINCE=self.delta_since if self.delta_since and _COMMIT_SHA.fullmatch(self.delta_since) else None,
+            DELTA_SINCE=_commit_sha(self.delta_since),
             PR_TITLE=without_cache_marker(self.pr_metadata.title),
             PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
             FILE_LIST=without_cache_marker(self._file_list(not_shown)),
@@ -613,6 +616,13 @@ def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
     return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
+def _within_margin(start: int, end: int | None, lines: set[int]) -> bool:
+    """Whether any of `lines` falls in `start`..`end`, widened by the follow-up change margin."""
+    margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+    # The range can come from the model, so it is compared, never expanded line by line.
+    return any(start - margin <= line <= (end or start) + margin for line in lines)
+
+
 @frozen
 class ChangedSinceReview:
     """The lines of the head that changed since an earlier reviewed head, per file."""
@@ -650,21 +660,15 @@ class ChangedSinceReview:
         if not issue.lines or issue.file in self.files_without_patch:
             return True
         changed = self.lines.get(issue.file, set())
-        margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
-        # The range comes from the model, so it is compared, never expanded line by line.
-        return any(
-            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
-            for line_range in issue.lines
-            for line in changed
-        )
+        return any(_within_margin(line_range.start, line_range.end, changed) for line_range in issue.lines)
 
 
 def _near_changed(update: PRFileUpdate, changed: set[int]) -> bool:
-    if update.new_start_line is None:
-        return False
-    end = update.new_end_line or update.new_start_line
-    margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
-    return any(update.new_start_line - margin <= line <= end + margin for line in changed)
+    return update.new_start_line is not None and _within_margin(update.new_start_line, update.new_end_line, changed)
+
+
+def _borders_near(near: list[bool], index: int) -> bool:
+    return (index > 0 and near[index - 1]) or (index + 1 < len(near) and near[index + 1])
 
 
 def delta_files(pr_files: list[PRFile], change: ChangedSinceReview) -> list[PRFile]:
@@ -686,13 +690,10 @@ def delta_files(pr_files: list[PRFile], change: ChangedSinceReview) -> list[PRFi
         kept = [
             update
             for index, update in enumerate(pr_file.changes)
-            if near[index]
-            or (
-                update.type == "deletion"
-                and ((index > 0 and near[index - 1]) or (index + 1 < len(near) and near[index + 1]))
-            )
+            if near[index] or (update.type == "deletion" and _borders_near(near, index))
         ]
-        result.append(pr_file.model_copy(update={"changes": kept}))
+        # A change with only removals, such as a deleted file, has no head line to be near, so the file stays whole.
+        result.append(pr_file.model_copy(update={"changes": kept}) if kept else pr_file)
     return result
 
 

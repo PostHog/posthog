@@ -134,6 +134,7 @@ from products.review_hog.backend.reviewer.progress import (
 )
 from products.review_hog.backend.reviewer.push_gate import (
     SYSTEM_ONE_SKIP_BELOW,
+    PRChange,
     PushGate,
     PushGateDecision,
     apply_draft_rule,
@@ -141,7 +142,6 @@ from products.review_hog.backend.reviewer.push_gate import (
     apply_next_push_rule,
     apply_throttle,
     apply_zero_change_rule,
-    is_dependency_file,
     plan_delta_review,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -1497,8 +1497,9 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         raise ApplicationError("PR snapshot missing for the single-agent review", non_retryable=True)
     change = _changed_since_head(input.team_id, input.report_id, input.delta_since_head_sha, snapshot.pr_files)
     scope_files: list[str] | None = None
-    # A delta turn runs one session per lens over the whole change, so it has no lens parts.
-    if for_lens and change is None:
+    # The workflow starts one session per lens on a delta turn, so a delta turn whose baseline is gone reviews the whole
+    # PR in that session instead of one lens part.
+    if for_lens and input.delta_since_head_sha is None:
         chunks = plan_lens_chunks(snapshot.pr_files).chunks
         if not 1 <= chunk_id <= len(chunks):
             raise ApplicationError(f"Lens part {chunk_id} is not in the plan of {len(chunks)}", non_retryable=True)
@@ -1763,12 +1764,7 @@ def _changed_since_last_review(
     )
     if reviewed_head is None or reviewed_head == head_sha:
         return None
-    reviewed = load_pr_snapshot(
-        team_id=team_id, report_id=report_id, head_sha=reviewed_head, review_design=REVIEW_DESIGN_SINGLE_AGENT
-    )
-    if reviewed is None:
-        return None
-    return ChangedSinceReview.between(reviewed.pr_files, current_files)
+    return _changed_since_head(team_id, report_id, reviewed_head, current_files)
 
 
 def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact") -> list[PRComment]:
@@ -2441,8 +2437,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
     draft = _pr_draft(current)
     gate: PushGate | None = None
     snapshot: PRSnapshotArtefact | None = None
-    change: ChangedSinceReview | None = None
-    unseen_lockfile = False
+    change: PRChange | None = None
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
@@ -2488,18 +2483,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
         if snapshot is not None and earlier is not None:
-            change = ChangedSinceReview.between(earlier.pr_files, snapshot.pr_files)
-            # The snapshots leave lockfiles out, so a lockfile in the PR at either head can change unseen.
-            unseen_lockfile = any(
-                is_dependency_file(path) for path in [*earlier.skipped_paths, *snapshot.skipped_paths]
-            )
-        decision = apply_zero_change_rule(
-            decision,
-            pr_changed_lines=sum(change.changed_line_counts.values())
-            if change is not None and not unseen_lockfile
-            else None,
-            enabled=input.zero_change_skip,
-        )
+            change = PRChange.between(earlier, snapshot)
+        decision = apply_zero_change_rule(decision, change=change, enabled=input.zero_change_skip)
         if not draft:
             # The offline fit counted only automatic follow-ups. No turn stores its trigger, so this
             # count is the completed turns after the first review, which also includes label, UI,
@@ -2517,15 +2502,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         decision = plan_delta_review(
             decision,
             run_index=input.run_index,
-            changed_reviewable_lines=change.reviewable_line_count() if change is not None else None,
+            change=change,
             reviewable_lines=plan_lens_chunks(snapshot.pr_files).reviewable_lines if snapshot is not None else None,
-            dependency_changed=change is not None
-            and (
-                unseen_lockfile
-                or any(count and is_dependency_file(name) for name, count in change.changed_line_counts.items())
-            ),
-            comparable=change is not None
-            and not any(change.changed_line_counts.get(name) for name in change.files_without_patch),
             enabled=input.delta_band,
         )
     if decision.skip:
