@@ -300,7 +300,6 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         help_text=RULE_LABELS_HELP,
     )
     annotations = serializers.DictField(
-        # Kept as written, so a multi-line description keeps its layout.
         child=serializers.CharField(trim_whitespace=False),
         required=False,
         help_text=RULE_ANNOTATIONS_HELP,

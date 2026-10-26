@@ -16,21 +16,17 @@ from products.alerts_platform.backend.facade.grouping import UNSTORABLE, encoded
 MAX_RULE_LABELS: Final = 20
 _MAX_RULE_ANNOTATIONS: Final = 20
 _MAX_NAME_LENGTH: Final = 128
-# In bytes of the JSON a payload carries. A label is a short identifier, and an annotation can hold
-# a paragraph of description.
 _MAX_LABEL_VALUE_BYTES: Final = 256
 _MAX_ANNOTATION_VALUE_BYTES: Final = 4096
 
 # Prometheus's own pattern, so a label survives a hop through Alertmanager unchanged.
 _NAME_PATTERN: Final = r"[a-zA-Z_][a-zA-Z0-9_]*"
 _NAME: Final = re2.compile(_NAME_PATTERN)
-# The platform adds these to every message. A rule that set them would hide what the platform says.
 _RESERVED_PREFIX: Final = "posthog_"
 _RESERVED_LABELS: Final = frozenset({"alertname"})
 
 _LABEL_REFERENCE: Final = re2.compile(rf"\s*\$labels\.({_NAME_PATTERN})\s*")
 _VALUE_REFERENCE: Final = re2.compile(r"\s*\$value\s*")
-# A host name and an optional port, and nothing a browser reads as the end of the host, such as `\`.
 _LINK_HOST: Final = re2.compile(r"[a-zA-Z0-9.-]+(:[0-9]+)?")
 
 
@@ -67,8 +63,7 @@ def validate_annotations(annotations: Mapping[str, str], known_labels: Collectio
 
 
 def _check_link(name: str, value: str) -> None:
-    # A grouping key's value comes from query results. Templates may only follow the host, so data
-    # can change which page a link opens but never which site.
+    # A label value comes from query results, so it may change which page a link opens, never which site.
     if not value.startswith("https://"):
         raise InvalidRuleMetadata(f"Annotation `{name}` must start with https://.")
     host = re2.split(r"[/?#]", value.removeprefix("https://"), maxsplit=1)[0]
@@ -91,8 +86,7 @@ def _referenced_labels(name: str, value: str) -> list[str]:
 
 
 def _template_bodies(name: str, value: str) -> list[str]:
-    # A scan with `find` reads each character once. An unclosed `{{` would otherwise slip past a
-    # pattern that needs both delimiters, and skip every check on what follows it.
+    # A pattern needing both delimiters would skip an unclosed `{{` and every check after it.
     bodies: list[str] = []
     position = 0
     while (start := value.find("{{", position)) != -1:

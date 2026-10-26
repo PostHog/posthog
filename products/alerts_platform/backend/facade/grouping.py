@@ -49,8 +49,7 @@ def is_hashed_grouping_key(key: str) -> bool:
 
 
 # PostgreSQL text and JSONB reject NUL, and UTF-8 cannot encode a surrogate. Either one aborts the
-# transaction that records the whole batch. Stdlib `re`, because re2 matches UTF-8 and cannot see a
-# lone surrogate.
+# transaction that records the whole batch. Stdlib `re`, because re2 cannot see a lone surrogate.
 UNSTORABLE: Final = re.compile("[\x00\ud800-\udfff]")
 
 

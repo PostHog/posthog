@@ -222,7 +222,6 @@ def suppressed() -> Q:
     return Q(check_status=PlatformAlertConfiguration.CheckStatus.BROKEN)
 
 
-# The evaluation path never reads the author's metadata, and an annotation can hold 4 KB.
 RULE_METADATA_FIELDS: Final = ("labels", "annotations")
 
 
