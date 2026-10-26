@@ -72,12 +72,12 @@ def _buckets(start: datetime, interval: IntervalType, count: int) -> list[dateti
 class TestScoreSeries(SimpleTestCase):
     @parameterized.expand(
         [
-            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}),
-            ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}),
+            ("default_profile", DAY_SCORING, {"mean", "std", "value", "raw_zscore"}, False),
+            ("ensemble", ZSCORE_OR_KNN, {"sub_scores"}, None),
         ]
     )
     def test_flags_the_spike_and_not_its_flat_neighbor(
-        self, _name: str, scoring: IntervalScoring, detail_keys: set[str]
+        self, _name: str, scoring: IntervalScoring, detail_keys: set[str], echo_flag: bool | None
     ) -> None:
         values = list(np.random.default_rng(0).normal(100, 5, size=120))
         values[110] = 400.0
@@ -96,6 +96,9 @@ class TestScoreSeries(SimpleTestCase):
         assert by_bucket[buckets[109]].flag is False
         assert set(by_bucket[buckets[110]].details) == detail_keys
         assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
+        # The fall of the spike reaches the smoothed difference of bucket 113, which is back at the baseline.
+        if echo_flag is not None:
+            assert by_bucket[buckets[113]].flag is echo_flag
 
     @parameterized.expand(
         [
@@ -152,7 +155,7 @@ class TestScoreSeries(SimpleTestCase):
         assert buckets_to_score(IntervalType.DAY, now=now, after=after, timezone=ZoneInfo("UTC")) == to_score
         fetched = fetch_buckets(query, DAY_SCORING, to_score)
 
-        def score(start: int) -> list[float | None]:
+        def score(start: int) -> list[tuple[float | None, bool | None]]:
             fetched_values = values[start:]
             if smoothing:
                 # Trends averages the trailing buckets that the query fetched, so the fetch start shifts the average.
@@ -168,11 +171,11 @@ class TestScoreSeries(SimpleTestCase):
                 now=now,
                 after=after,
             )
-            return [point.score for point in points]
+            return [(point.score, point.flag) for point in points]
 
-        assert fetched < 100
+        assert fetched < 110
         assert score(-fetched) == score(0)
-        assert None not in score(-fetched)
+        assert all(score is not None for score, _flag in score(-fetched))
 
     def test_warm_up_points_have_no_score_and_no_flag(self) -> None:
         buckets = _buckets(datetime(2026, 1, 1, tzinfo=UTC), IntervalType.DAY, 10)
@@ -286,8 +289,9 @@ class TestScoreInsight(SimpleTestCase):
         if waves == 1:
             assert limits[0] == 150
 
-    # The context of the day detector is 3 buckets, then one guard bucket and the 2 new buckets.
-    @parameterized.expand([("no_smoothing", None, "-6d"), ("smoothing", 7, "-12d")])
+    # The context of the day detector is 3 buckets, then one guard bucket, the 13 buckets of the return filter and
+    # the 2 new buckets.
+    @parameterized.expand([("no_smoothing", None, "-19d"), ("smoothing", 7, "-25d")])
     def test_a_score_step_fetches_only_the_context_and_new_buckets(
         self, _name: str, smoothing: int | None, date_from: str
     ) -> None:
@@ -374,8 +378,69 @@ class TestScoreInsight(SimpleTestCase):
             )
 
         assert scores.run == ScoringRun.TRAIN
-        # The detector history and the backfill cap of a first visit, the same fetch as without the split.
-        assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
+        # The detector history, the return filter and the backfill cap of a first visit, as without the split.
+        assert runner.call_args.kwargs["query"].dateRange.date_from == "-103d"
+
+    @parameterized.expand(
+        [
+            (f"{shape}_{path}", shape, path, flagged)
+            for shape, flagged in [
+                ("spike_on_noise", [95, 96]),
+                ("spike_on_zeros", [95, 96]),
+                ("shift_up", [95, 96, 97]),
+                ("shift_down", [95, 96, 97]),
+            ]
+            for path in ["detect", "score_step"]
+        ]
+    )
+    def test_a_spike_flags_once_and_its_return_to_baseline_keeps_its_score_without_a_flag(
+        self, _name: str, shape: str, path: str, flagged: list[int]
+    ) -> None:
+        base = list(np.random.default_rng(4).normal(10, 1, size=100))
+        values = {
+            "spike_on_noise": [value + 20 if i in (95, 96) else value for i, value in enumerate(base)],
+            "spike_on_zeros": [0.0] * 95 + [2.0, 2.0, 0.0, 0.0, 0.0],
+            "shift_up": [value + 20 if i >= 95 else value for i, value in enumerate(base)],
+            "shift_down": [value + 20 if i < 95 else value for i, value in enumerate(base)],
+        }[shape]
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        buckets = _buckets(start, IntervalType.DAY, 100)
+        now = start + timedelta(days=100)
+
+        if path == "detect":
+            points = score_series(values, buckets, scoring=DAY_SCORING, interval=IntervalType.DAY, now=now)
+            unfiltered = score_series(
+                values,
+                buckets,
+                scoring=dataclasses.replace(DAY_SCORING, return_filter=None),
+                interval=IntervalType.DAY,
+                now=now,
+            )
+            assert [point.score for point in points] == [point.score for point in unfiltered]
+        else:
+            result = {
+                "action": {"order": 0},
+                "label": "pageview",
+                "breakdown_value": None,
+                "days": [bucket.strftime("%Y-%m-%d") for bucket in buckets],
+                "data": values,
+            }
+            insight = _insight([EventsNode(event="$pageview")])
+            with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
+                runner.return_value.run.return_value = MagicMock(results=[result])
+                trained = score_insight(insight, Team(timezone="UTC"), now=buckets[90], split=SplitRun())
+                scores = score_insight(
+                    insight,
+                    Team(timezone="UTC"),
+                    now=now,
+                    split=SplitRun(state=trained.state, artifacts=trained.artifacts),
+                )
+            assert scores.run == ScoringRun.SCORE
+            points = scores.series[0].points
+
+        assert [
+            buckets.index(point.bucket_start) for point in points if point.flag and point.bucket_start >= buckets[90]
+        ] == flagged
 
     @parameterized.expand([(interval.value, interval) for interval in DEFAULT_PROFILE.intervals])
     def test_a_train_step_scores_a_backfill_like_score_series_and_stores_the_newest_fit(
