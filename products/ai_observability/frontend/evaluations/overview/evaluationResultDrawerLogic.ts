@@ -37,12 +37,13 @@ export type DetailsLoad =
 export async function fetchEvaluationDetails(
     projectId: string,
     row: EvaluationResultApi,
-    params: { date_from?: string; date_to?: string; refresh?: boolean }
+    params: { date_from?: string; date_to?: string; refresh?: boolean },
+    { recentFailures = true }: { recentFailures?: boolean } = {}
 ): Promise<DetailsLoad> {
     const { summary } = row
     const scale = 'score' in summary ? summary.score?.scale : null
     return await Promise.all([
-        summary.kind === 'pass_rate'
+        recentFailures && summary.kind === 'pass_rate'
             ? evaluationsRunsRetrieve(projectId, row.id, {
                   ...params,
                   outcome: 'failed',

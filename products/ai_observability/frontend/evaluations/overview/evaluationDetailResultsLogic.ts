@@ -319,10 +319,16 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                     const series = [...byValue.entries()]
                         .filter(([key]) => key !== BREAKDOWN_OTHER)
                         .map(([key, { result = [], graded = [], days }]) => {
-                            const index = new Map(days.map((day, position) => [day, position]))
-                            const at = results.buckets.map((bucket) =>
-                                index.get(trendsBucketKey(bucket, results.interval))
-                            )
+                            // An hour repeated when clocks fall back has one key for two buckets, so match them in order.
+                            const index = new Map<string, number[]>()
+                            days.forEach((day, position) => index.set(day, [...(index.get(day) ?? []), position]))
+                            const seen = new Map<string, number>()
+                            const at = results.buckets.map((bucket) => {
+                                const day = trendsBucketKey(bucket, results.interval)
+                                const occurrence = seen.get(day) ?? 0
+                                seen.set(day, occurrence + 1)
+                                return index.get(day)?.[occurrence]
+                            })
                             const gradedCounts = at.map((position) =>
                                 position === undefined ? 0 : (graded[position] ?? 0)
                             )
@@ -351,11 +357,13 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                         return null
                     }
                     const { date_from, date_to } = values.request.params
-                    const load = await fetchEvaluationDetails(String(values.currentTeamId), row, {
-                        date_from,
-                        date_to,
-                        ...(refresh ? { refresh: true } : {}),
-                    })
+                    // The runs table lists failing runs, so this page leaves the failing examples out.
+                    const load = await fetchEvaluationDetails(
+                        String(values.currentTeamId),
+                        row,
+                        { date_from, date_to, ...(refresh ? { refresh: true } : {}) },
+                        { recentFailures: false }
+                    )
                     breakpoint()
                     return load
                 },
