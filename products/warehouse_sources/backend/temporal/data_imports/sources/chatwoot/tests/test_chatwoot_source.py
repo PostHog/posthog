@@ -74,3 +74,14 @@ class TestChatwootSource:
         assert kwargs["team_id"] == self.team_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["webhook_source_manager"] is not None
+
+    def test_non_retryable_errors_match_unprocessable_request(self):
+        # A page/window Chatwoot rejects as unprocessable is deterministic — the resume bookmark
+        # replays the exact same request on the next attempt, so retrying can never change the
+        # outcome.
+        observed_error = (
+            "422 Client Error: Unprocessable Content for url: "
+            "https://app.chatwoot.com/api/v1/accounts/1/reporting_events?since=0&until=1793010184&page=692"
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
