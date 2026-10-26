@@ -2,7 +2,7 @@ import re
 import json
 import base64
 from typing import Any, Literal, TypedDict, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -42,6 +42,7 @@ from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.redis import get_client
 
 from ee import settings
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
@@ -86,6 +87,30 @@ def saml_metadata_view(request, *args, **kwargs):
 
     if not errors:
         return HttpResponse(content=metadata, content_type="text/xml")
+
+
+# OASIS SAML bindings cap RelayState at 80 bytes, and `next` can be a full `/oauth/authorize` URL
+# of several hundred characters. So the IdP only ever sees an opaque key, and the state it stands
+# for lives in Redis. The TTL only has to outlast the round trip through the IdP.
+SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
+
+
+def _saml_relay_state_cache_key(key: str) -> str:
+    return f"saml_relay_state:{key}"
+
+
+def _store_saml_relay_state(state: dict[str, Any]) -> str:
+    key = str(uuid4())
+    get_client().setex(_saml_relay_state_cache_key(key), SAML_RELAY_STATE_CACHE_TTL_SECONDS, json.dumps(state))
+    return key
+
+
+def _load_saml_relay_state(key: str) -> dict[str, Any] | None:
+    raw = get_client().get(_saml_relay_state_cache_key(key))
+    if not raw:
+        return None
+    state = json.loads(raw)
+    return state if isinstance(state, dict) else None
 
 
 class MultitenantSAMLAuth(SAMLAuth):
@@ -159,6 +184,14 @@ class MultitenantSAMLAuth(SAMLAuth):
         mutable_post["RelayState"] = relay_state
         # django-stubs types request.POST as immutable; reassigning it is valid at runtime.
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+    def parse_relay_state(self, relay_state_str: str) -> dict:
+        # RelayState is either the opaque key `auth_url` stored server-side, or a value the IdP
+        # supplies itself (its own app launch URL, or the config's `saml_relay_state` as a default
+        # relay state), which the base parser handles. An expired key falls through to that same
+        # legacy path, so a slow login degrades to the IdP-initiated recovery instead of failing.
+        stored = _load_saml_relay_state(relay_state_str)
+        return stored if stored is not None else super().parse_relay_state(relay_state_str)
 
     def _relay_state_points_to_config(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
@@ -270,7 +303,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
         relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
-        return auth.login(return_to=json.dumps(relay_state))
+        return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(
         self,

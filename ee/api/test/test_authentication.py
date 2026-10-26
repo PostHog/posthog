@@ -38,6 +38,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.redis import get_client
 from posthog.session.activity import session_public_id
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
@@ -1359,21 +1360,22 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     def test_saml_flow_carries_next_url_in_relay_state(self):
         # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
-        # back to /complete/saml/. The `next` redirect must therefore travel in RelayState
-        # (echoed back by the IdP) rather than the session, or re-auth lands the user on `/`.
-        response = self.client.get(
-            "/login/saml/?email=hellohello@posthog.com&next=/settings/organization/authentication"
-        )
+        # back to /complete/saml/. The `next` redirect must therefore travel alongside RelayState
+        # rather than in the session, or re-auth lands the user on `/`.
+        next_url = "/oauth/authorize?" + "&".join(f"param_{i}=value_{i}" for i in range(20))
+        response = self.client.get("/login/saml/", {"email": "hellohello@posthog.com", "next": next_url})
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
         config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.refresh_from_db()
-        relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
+        relay_state = parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0]
+        # OASIS SAML bindings cap RelayState at 80 bytes, so a long `next` cannot travel in it.
+        self.assertLessEqual(len(relay_state), 80)
+        stored = json.loads(get_client().get(f"saml_relay_state:{relay_state}"))
         # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
         # against the domain would pass just as well if this regressed to reading the domain.
-        self.assertEqual(relay_state["idp"], config.saml_relay_state)
-        self.assertEqual(relay_state["next"], "/settings/organization/authentication")
+        self.assertEqual(stored, {"idp": config.saml_relay_state, "next": next_url})
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
@@ -1477,9 +1479,36 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
     def test_saml_login_redirects_to_next_url_from_relay_state(self):
-        # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: a JSON
-        # RelayState carrying `next` (as the IdP echoes it back) must land the user on that page
-        # rather than `/`, since the SameSite=Lax session cookie is dropped on this cross-site POST.
+        # End-to-end counterpart to test_saml_flow_carries_next_url_in_relay_state: the opaque
+        # RelayState the IdP echoes back must resolve to the state stored before the redirect and
+        # land the user on `next` rather than `/`, since the SameSite=Lax session cookie is dropped
+        # on this cross-site POST.
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        initiate = self.client.get(
+            "/login/saml/?email=engineering@posthog.com&next=/settings/organization/authentication"
+        )
+        relay_state = parse_qs(urlparse(initiate.headers["Location"]).query)["RelayState"][0]
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            saml_response = f.read()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {"SAMLResponse": saml_response, "RelayState": relay_state},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/settings/organization/authentication")
+
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
+    def test_saml_login_accepts_a_json_relay_state_from_a_login_started_before_a_deploy(self):
+        # A login started on the previous release comes back with the JSON RelayState that release
+        # sent, so a deploy mid-flight must not strand the user.
         User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         self.client.get("/login/saml/?email=engineering@posthog.com&next=/settings/organization/authentication")
