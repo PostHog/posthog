@@ -69,6 +69,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    history_column_collisions,
+    is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
@@ -92,6 +94,14 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 )
 
 from . import base, connection_options, credential_store, helpers, webhook_setup
+
+
+def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
+    """`None` syncs every column. `[]` syncs only the always-retained key and incremental field."""
+    payload_enabled_columns = schema.get("enabled_columns")
+    if not isinstance(payload_enabled_columns, list):
+        return None
+    return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1453,6 +1463,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
+            # The history table stamps each row version with these columns, so a synced source column
+            # of the same name would fail every load into it.
+            tables_with_validity_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and is_history_table_mode(schema.get("cdc_table_mode"))
+                    and isinstance(schema.get("name"), str)
+                    and history_column_collisions(
+                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                        _payload_enabled_columns(schema),
+                        pk_columns_by_table.get(schema["name"]),
+                    )
+                }
+            )
+            if tables_with_validity_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table can't store a column that loads as valid_from or valid_to, because "
+                            "PostHog uses those names to record when each version was current. Rename the column on "
+                            "your database, or choose the consolidated table only for these tables: "
+                            f"{', '.join(tables_with_validity_column)}."
+                        )
+                    },
+                )
+
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
         if cdc_enabled:
@@ -1478,15 +1519,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
-            payload_enabled_columns = schema.get("enabled_columns")
-            if isinstance(payload_enabled_columns, list):
-                # `[]` and `None` are distinct: `None` means sync all columns, `[]` means
-                # sync only the always-retained PK + incremental field.
-                enabled_columns: list[str] | None = [
-                    str(column) for column in payload_enabled_columns if isinstance(column, str)
-                ]
-            else:
-                enabled_columns = None
+            enabled_columns = _payload_enabled_columns(schema)
 
             payload_row_filters = schema.get("row_filters")
             row_filters: list[dict[str, Any]] | None = (
