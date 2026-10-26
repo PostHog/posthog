@@ -184,6 +184,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -349,6 +350,7 @@ rules:
                               |QuickFilterContext
                               |ReplayObservation
                               |ReplayObservationFeedDismissal
+                              |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -667,6 +669,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -822,6 +825,7 @@ rules:
                         |QuickFilterContext
                         |ReplayObservation
                         |ReplayObservationFeedDismissal
+                        |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -1101,6 +1105,7 @@ rules:
                         |EvaluationReport
                         |Event
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset

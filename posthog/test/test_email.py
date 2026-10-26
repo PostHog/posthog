@@ -25,12 +25,14 @@ from prometheus_client import REGISTRY
 
 from posthog.email import (
     CUSTOMER_IO_TEMPLATE_ID_MAP,
+    WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
     WorkflowsEmailError,
     _send_email,
     _send_via_http,
     _send_via_smtp,
     get_email_team_and_org_context,
+    get_workflows_template_id,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -405,6 +407,27 @@ class TestEmail(BaseTest):
             # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
+
+    @parameterized.expand([("us", "US"), ("eu", "EU"), ("self_hosted", None)])
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    def test_workflows_flag_sees_the_instance_region(
+        self, _name: str, region: str | None, mock_feature_enabled: MagicMock
+    ) -> None:
+        dest = {"raw_email": "test@posthog.com", "distinct_id": "user-1"}
+        with (
+            self.settings(
+                CLOUD_DEPLOYMENT=region,
+                POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                POSTHOG_HOST="https://us.posthog.com",
+            ),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+        ):
+            self.assertEqual(get_workflows_template_id("password_reset", dest), "tmpl-1")
+
+        expected = {"email": "test@posthog.com", "transactional_email_template": "password_reset"}
+        if region:
+            expected["region"] = region
+        self.assertEqual(mock_feature_enabled.call_args.kwargs["person_properties"], expected)
 
     @parameterized.expand(
         [
@@ -935,6 +958,9 @@ class TestEmail(BaseTest):
             "the Customer.io transactional message ID, otherwise the sender will raise "
             "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
+
+        # A Workflows key that names no template would never match a send, so that template stays on Customer.io.
+        self.assertEqual(set(WORKFLOWS_TEMPLATE_ID_MAP) - set(CUSTOMER_IO_TEMPLATE_ID_MAP), set())
 
 
 class TestMessagingHashSalt(BaseTest):

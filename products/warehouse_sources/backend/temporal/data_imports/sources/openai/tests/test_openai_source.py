@@ -53,6 +53,23 @@ class TestOpenAISchemas:
         assert schema.supports_append is False
 
 
+class TestOpenAIEndpointPermissions:
+    @parameterized.expand(
+        [
+            ("without_project_key", None, "Add a project API key to sync this table."),
+            ("with_project_key", "sk-proj-test", None),
+        ]
+    )
+    def test_platform_tables_need_the_project_key(
+        self, _name: str, project_api_key: str | None, expected_reason: str | None
+    ) -> None:
+        config = OpenAISourceConfig(api_key="sk-admin-test", project_api_key=project_api_key)
+
+        permissions = OpenAISource().get_endpoint_permissions(config, team_id=1, endpoints=["users", "models", "evals"])
+
+        assert permissions == {"users": None, "models": expected_reason, "evals": expected_reason}
+
+
 class TestOpenAISourceForPipeline:
     @parameterized.expand(
         [

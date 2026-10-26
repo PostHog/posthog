@@ -1163,6 +1163,7 @@ class SlackThreadHandler:
                 slack_session_id=self._session_id(),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
+                chart_links=self.run_footer.chart_links,
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)
