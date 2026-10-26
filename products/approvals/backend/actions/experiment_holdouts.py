@@ -47,9 +47,10 @@ class ExperimentHoldoutActionBase(BaseAction):
         The two are never both offered. While the organization has not moved to scoping by flag
         owner, its experiment policies are mirrors the sync refreshes hourly, so reading one would
         answer from an hour-old copy: a bypass an admin revoked on the flag policy would keep
-        working here until the next run. After the handoff the mirror is the organization's own
-        policy and the flag policy no longer governs an experiment's flags, so the experiment
-        policy is the only right answer.
+        working here until the next run. Once the organization is rolled out
+        (`scope_by_owner_enabled`), the mirror is the organization's own policy and the flag policy
+        no longer governs an experiment's flags, so the experiment policy is the only right answer.
+        An unknown rollout state reads as off here, while the sync reads it as rolled out and stops.
         """
         if scope_by_owner_enabled(organization):
             return ("experiment.update",)

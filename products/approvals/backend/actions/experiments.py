@@ -32,17 +32,16 @@ class LaunchExperimentAction(EnableFeatureFlagAction):
     description = "Launch an experiment"
     owner_scope = FLAG_OWNER_EXPERIMENT
 
-    # An experiment owns its flag only once the experiment row exists, so a flag born active
-    # while its experiment is still being created is unowned at that instant and belongs to
-    # `feature_flag.enable`. Opting out of the create path keeps that from reading as a gap here.
+    # An experiment owns its flag only once the experiment row exists, so a create mints an
+    # unowned flag that this family never governs. Opting out only makes `detect` return before it
+    # reads the organization's rollout state.
     gate_on_create = False
 
     @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
+            **super().get_display_data(intent_data),
             "description": f"Launch the experiment on feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 
@@ -57,9 +56,8 @@ class PauseExperimentAction(DisableFeatureFlagAction):
     @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         return {
+            **super().get_display_data(intent_data),
             "description": f"Pause the experiment on feature flag '{intent_data.get('flag_key', 'unknown')}'",
-            "before": intent_data.get("current_state", {}),
-            "after": intent_data.get("full_request_data") or intent_data.get("gated_changes", {}),
         }
 
 
@@ -77,11 +75,5 @@ class UpdateExperimentAction(UpdateFeatureFlagAction):
     owner_scope = FLAG_OWNER_EXPERIMENT
 
     @classmethod
-    def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
-        display = super().get_display_data(intent_data)
-        flag_key = intent_data.get("flag_key", "unknown")
-        description = f"Change the rollout or variant split of the experiment on feature flag '{flag_key}'"
-        suffix = display["description"].split(":", 1)
-        if len(suffix) == 2:
-            description = f"{description}:{suffix[1]}"
-        return {**display, "description": description}
+    def _display_subject(cls, flag_key: str, changed_fields: list[str]) -> str:
+        return f"Change the rollout or variant split of the experiment on feature flag '{flag_key}'"

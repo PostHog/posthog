@@ -937,6 +937,11 @@ class UpdateFeatureFlagAction(BaseAction):
         return label
 
     @classmethod
+    def _display_subject(cls, flag_key: str, changed_fields: list[str]) -> str:
+        """The opening of the request description, which the list of changes follows."""
+        return f"Update {' and '.join(changed_fields)} for feature flag '{flag_key}'"
+
+    @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         """Generate human-readable diff showing before/after for gated fields."""
         flag_key = intent_data.get("flag_key", "unknown")
@@ -965,7 +970,7 @@ class UpdateFeatureFlagAction(BaseAction):
             for name, changes in (("release conditions", release_changes), (rollout_display_name, rollout_changes))
             if changes
         ] or [rollout_display_name]
-        description = f"Update {' and '.join(changed_fields)} for feature flag '{flag_key}'"
+        description = cls._display_subject(flag_key, changed_fields)
         changes_description = [*release_changes, *rollout_changes]
         if changes_description:
             description = f"{description}: {'; '.join(changes_description)}"
