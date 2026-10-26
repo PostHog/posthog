@@ -185,7 +185,7 @@ class TestSingleAgentPrompt:
 @pytest.mark.parametrize(
     "delta_since,expect_section",
     [
-        pytest.param(_MERGE_BASE, True, id="commit_sha"),
+        pytest.param("b" * 40, True, id="commit_sha"),
         pytest.param("main$(id)", False, id="not_a_commit_sha"),
     ],
 )
@@ -228,6 +228,7 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
     assert [u.code for u in shown[0].changes] == ["d = 4\ne = 5\nf = 6", "old_total()", "total(strict=True)"]
     assert shown[1].changes == [removed]
     assert ("## Changes since the last review" in prompt) is expect_section
+    assert (f"git diff {delta_since} HEAD" in prompt) is expect_section
     assert "$(" not in prompt
 
 

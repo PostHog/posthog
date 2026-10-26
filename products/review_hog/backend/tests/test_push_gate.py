@@ -839,11 +839,27 @@ def _code(filename: str, code: str) -> PRFile:
     [
         ("same_reviewed_files", [_code("a.py", "x = 1")], [], [_code("a.py", "x = 1")], [], (0, False, True)),
         (
-            "a_lockfile_in_the_pr_is_unseen",
+            "a_lockfile_in_the_pr_is_unseen_pnpm_lock_yaml",
             [_code("a.py", "x = 1")],
             ["pnpm-lock.yaml"],
             [_code("a.py", "x = 1")],
             ["pnpm-lock.yaml"],
+            (0, False, False),
+        ),
+        (
+            "a_lockfile_in_the_pr_is_unseen_bun_lockb",
+            [_code("a.py", "x = 1")],
+            ["bun.lockb"],
+            [_code("a.py", "x = 1")],
+            ["bun.lockb"],
+            (0, False, False),
+        ),
+        (
+            "a_lockfile_in_the_pr_is_unseen_npm_shrinkwrap_json",
+            [_code("a.py", "x = 1")],
+            ["npm-shrinkwrap.json"],
+            [_code("a.py", "x = 1")],
+            ["npm-shrinkwrap.json"],
             (0, False, False),
         ),
         (

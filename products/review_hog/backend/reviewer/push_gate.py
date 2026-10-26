@@ -129,10 +129,11 @@ PUSH_BUDGET = Budget(burst=2, per_hour=2)
 # Picked by the backtest in `review-eval/experiments/2026-10-26-economics-report` (calibrate67) and fixed for the experiment.
 DELTA_BAND_FIRST_RUN_INDEX = 3
 DELTA_BAND_MAX_CHANGE_SHARE = 0.03
-# A change to one of these files changes what the code runs with, so it never counts as small or as no change.
+# A change to one of these files changes what the code runs with, so it never counts as small or as no change. The
+# lockfile endings match every lockfile the review snapshots leave out (`PRFilter`), so none of them changes unseen.
 _DEPENDENCY_FILE = re.compile(
-    r"(^|/)(package\.json|pnpm-lock\.yaml|package-lock\.json|pyproject\.toml|requirements[^/]*\.txt|go\.mod|go\.sum|"
-    r"Cargo\.toml|Gemfile|composer\.json)$|\.lock$"
+    r"(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|go\.mod|go\.sum|Cargo\.toml|Gemfile|composer\.json|"
+    r"npm-shrinkwrap\.json)$|(\.lock|\.lockb|lock\.json|lock\.ya?ml)$"
 )
 # Longer than a turn and its retry take, so a retried turn finds that its head paid already.
 _PAID_HEAD_TTL_SECONDS = 6 * 3600
