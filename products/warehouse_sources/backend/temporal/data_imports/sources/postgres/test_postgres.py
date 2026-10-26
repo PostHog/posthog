@@ -734,6 +734,14 @@ class TestPostgresSourceNonRetryableErrors:
             # recycling the connection, an admin cancel) hit the query. Neither is a verdict on this
             # query, so a fresh connection on retry recovers.
             "canceling statement due to user request",
+            # CockroachDB's serialization-conflict wrapper (its Postgres-compatible wire protocol
+            # means customers configure it as a plain Postgres source). CockroachDB expects the
+            # whole transaction to be retried on conflict, which the whole-activity Temporal retry
+            # already does, so it's self-recovering like the other entries here. Timestamps and txn
+            # ids are invented; CockroachDB embeds both in every message of this class.
+            "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
+            "read at time 100.000000000,0 encountered previous write with future timestamp 100.000000000,1: "
+            '"sql txn" meta={id=00000000}',
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -762,6 +770,11 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 "canceling statement due to user request",
                 "canceled",
+            ),
+            (
+                "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
+                "read at time 100.000000000,0",
+                "serialization conflict",
             ),
         ],
     )
