@@ -8,13 +8,9 @@ import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import {
-    changeVsPrevious,
-    formatShare,
-    PagePerformanceMetric,
-    pagePerformanceLogic,
-    parseMetricCell,
-} from 'scenes/web-analytics/pagePerformanceLogic'
+import { pagePerformanceLogic, parseMetricCell } from 'scenes/web-analytics/pagePerformanceLogic'
+
+import { PagePerformanceMetric, changeVsPrevious, formatShare } from './searchAndAiQueries'
 
 export type SearchAndAiMetric =
     | 'visitors'
