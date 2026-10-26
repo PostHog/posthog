@@ -1537,17 +1537,9 @@ class SignalReportArtefact(UUIDModel):
     )
     # The report a `report_link` row points at, copied out of `content` on every write, so finding
     # the links that point at a report is an index seek instead of a text search of the team's link
-    # rows. Null on every other type. DO_NOTHING because the row is the source report's record of
-    # what it said, and `content` keeps naming the target after the target is gone.
-    link_target = models.ForeignKey(
-        SignalReport,
-        null=True,
-        blank=True,
-        on_delete=models.DO_NOTHING,
-        db_constraint=False,
-        db_index=False,
-        related_name="+",
-    )
+    # rows. Null on every other type. A plain id, not a foreign key, because the row is the source
+    # report's record of what it said, and `content` keeps naming the target after the target is gone.
+    link_target_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -1569,7 +1561,7 @@ class SignalReportArtefact(UUIDModel):
                 name="signals_dispatch_sweep_idx",
             ),
             models.Index(
-                fields=["link_target"],
+                fields=["link_target_id"],
                 condition=models.Q(type="report_link"),
                 name="signals_link_target_idx",
             ),

@@ -25,10 +25,9 @@ from .scout_harness.note_targets import InvalidNoteError, validate_note_target
 
 class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
-    fk_name = "report"
     extra = 0
     fields = ("id", "type", "content_preview", "created_at")
-    readonly_fields = (*fields, "claim", "pull_request", "link_target")
+    readonly_fields = (*fields, "claim", "pull_request")
     can_delete = False
 
     @admin.display(description="Content preview")

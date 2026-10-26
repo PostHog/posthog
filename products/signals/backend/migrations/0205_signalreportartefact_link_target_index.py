@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
             model_name="signalreportartefact",
             index=models.Index(
                 condition=models.Q(("type", "report_link")),
-                fields=["link_target"],
+                fields=["link_target_id"],
                 name="signals_link_target_idx",
             ),
         ),

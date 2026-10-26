@@ -7,7 +7,7 @@ itself, so the tolerance for a row that no longer parses, the graph budgets, and
 vocabulary are decided once.
 
 Reading outgoing edges is a seek on `(report, type)`. Reading incoming edges is a seek on
-`link_target`, which every write copies out of `content`, and the candidates are then confirmed by
+`link_target_id`, which every write copies out of `content`, and the candidates are then confirmed by
 parsing. Nothing mirrors the row onto the target, because the direction is the payload.
 """
 
@@ -131,7 +131,7 @@ def incoming_links(
             : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
         ]
     )
-    # `link_target` is a copy of the target in `content`, so the parsed target decides if they differ.
+    # `link_target_id` is a copy of the target in `content`, so the parsed target decides if they differ.
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
 
 

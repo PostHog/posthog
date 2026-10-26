@@ -1509,7 +1509,7 @@ A `report_link` artefact is one directed row on the report the sentence starts f
 `backend/typed_report_links.py` is the read side, and every reader goes through it. Link reads use the writer database to avoid replica delay.
 
 - `outgoing_links` is a seek on `(report, type)`: what this report says about others.
-- `incoming_links` seeks on `link_target`, the target report id that every write and edit copies out of `content`. A backfill migration filled the rows written before the column existed. No row is mirrored onto the target, because the direction is the payload. Candidates are then confirmed by parsing. A deleted source report is dropped by default; the recurrence chain is the one reader that asks for them, because it walks _through_ deleted intermediates to find the live successor.
+- `incoming_links` seeks on `link_target_id`, the target report id that every write and edit copies out of `content`. A backfill migration filled the rows written before the column existed. No row is mirrored onto the target, because the direction is the payload. Candidates are then confirmed by parsing. A deleted source report is dropped by default; the recurrence chain is the one reader that asks for them, because it walks _through_ deleted intermediates to find the live successor.
 - `duplicate_chain` follows `duplicate_of` and returns every report on the path, nearest first. A reader deciding whether the cluster is already being worked on needs all of them, because a pull request stays on the report whose run opened it: in A -> B -> C the fix can be in flight on B while C carries none.
 - `duplicate_root` returns the last member of that chain, which is the id that names the cluster.
 

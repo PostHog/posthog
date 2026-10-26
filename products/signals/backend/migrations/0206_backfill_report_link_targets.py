@@ -24,13 +24,13 @@ def _link_target(content: str) -> str | None:
 
 
 def backfill_report_link_targets(apps, schema_editor):
-    """Fill `link_target` on every `report_link` row written before the column existed.
+    """Fill `link_target_id` on every `report_link` row written before the column existed.
 
     Reports link rarely, so the rows are few: one pass reads them all, and one UPDATE per target
     fills them.
     """
     SignalReportArtefact = apps.get_model("signals", "SignalReportArtefact")
-    unfilled = SignalReportArtefact.objects.filter(type="report_link", link_target__isnull=True)
+    unfilled = SignalReportArtefact.objects.filter(type="report_link", link_target_id__isnull=True)
     ids_by_target: dict[str, list[uuid.UUID]] = {}
     for artefact_id, content in unfilled.values_list("id", "content").iterator(chunk_size=1000):
         target = _link_target(content)
