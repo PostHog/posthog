@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { cn } from 'lib/utils/css-classes'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 
 import { ATTENTION_LABELS } from './evaluationOverviewDisplay'
 import { type AttentionFilter, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
@@ -21,34 +21,27 @@ export function EvaluationAttentionPills(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter evaluations">
-            {shown.map(({ value, label }) => {
-                const active = value === attentionFilter
-                const count = attentionCounts[value ?? 'all'] ?? 0
-                return (
-                    <button
-                        key={label}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setAttentionFilter(value)}
-                        className={cn(
-                            'flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm cursor-pointer',
-                            active
-                                ? 'border-accent text-accent bg-accent-highlight-secondary'
-                                : 'border-primary bg-surface-primary hover:border-accent'
-                        )}
-                        data-attr={`evaluation-overview-table-filter-${value ?? 'all'}`}
-                    >
-                        <span>{label}</span>
-                        {value === 'any' ? (
-                            <span className="rounded-full bg-danger px-1.5 text-xs font-semibold text-white">
-                                {count}
-                            </span>
-                        ) : (
-                            <span className={cn('text-xs', active ? 'text-accent' : 'text-secondary')}>{count}</span>
-                        )}
-                    </button>
-                )
-            })}
+            {shown.map(({ value, label }) => (
+                <LemonButton
+                    key={label}
+                    type="secondary"
+                    size="small"
+                    active={value === attentionFilter}
+                    onClick={() => setAttentionFilter(value)}
+                    sideIcon={
+                        <LemonBadge.Number
+                            count={attentionCounts[value ?? 'all'] ?? 0}
+                            status={value === 'any' ? 'danger' : 'muted'}
+                            size="small"
+                            maxDigits={3}
+                            showZero
+                        />
+                    }
+                    data-attr={`evaluation-overview-table-filter-${value ?? 'all'}`}
+                >
+                    {label}
+                </LemonButton>
+            ))}
         </div>
     )
 }

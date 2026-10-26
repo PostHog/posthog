@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonTabs, Tooltip } from '@posthog/lemon-ui'
+
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -29,17 +31,18 @@ function ChangePill({ tab }: { tab: MetricTab }): JSX.Element | null {
     const up = tab.change > 0
     const good = tab.goodDirection === null || tab.change === 0 ? null : up === (tab.goodDirection === 'up')
     return (
-        <span
-            className={cn(
-                'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
-                good === null ? 'text-secondary' : good ? 'text-success' : 'text-danger'
-            )}
-            title={tab.changeTooltip}
-        >
-            {tab.change !== 0 && (up ? <IconArrowUp /> : <IconArrowDown />)}
-            {/* The arrow carries the direction, so the number drops its sign. */}
-            {tab.formatChange(Math.abs(tab.change)).replace(/^[+-]/, '')}
-        </span>
+        <Tooltip title={tab.changeTooltip}>
+            <span
+                className={cn(
+                    'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
+                    good === null ? 'text-secondary' : good ? 'text-success' : 'text-danger'
+                )}
+            >
+                {tab.change !== 0 && (up ? <IconArrowUp /> : <IconArrowDown />)}
+                {/* The arrow carries the direction, so the number drops its sign. */}
+                {tab.formatChange(Math.abs(tab.change)).replace(/^[+-]/, '')}
+            </span>
+        </Tooltip>
     )
 }
 
@@ -90,34 +93,23 @@ export function EvaluationMetricTabs(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-wrap gap-1" role="tablist">
-            {tabs.map((tab) => {
-                const active = tab.metric === metric
-                return (
-                    <button
-                        key={tab.metric}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => selectCard(tab.metric)}
-                        className={cn(
-                            'flex flex-col items-start gap-0.5 rounded-t px-3 py-2 border-b-2 text-left cursor-pointer',
-                            active
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-transparent hover:bg-surface-secondary'
-                        )}
-                        data-attr={`evaluation-overview-tab-${tab.metric}`}
-                    >
-                        <span className={cn('text-xs', active ? 'text-accent font-semibold' : 'text-secondary')}>
-                            {tab.label}
-                        </span>
-                        <span className="flex items-baseline gap-2">
+        <LemonTabs
+            activeKey={metric}
+            onChange={selectCard}
+            barClassName="mb-0"
+            tabs={tabs.map((tab) => ({
+                key: tab.metric,
+                label: (
+                    <span className="flex flex-col items-start">
+                        <span className="text-xs font-normal">{tab.label}</span>
+                        <span className="flex items-baseline gap-2 text-primary">
                             <span className="text-xl font-semibold tabular-nums">{tab.value}</span>
                             <ChangePill tab={tab} />
                         </span>
-                    </button>
-                )
-            })}
-        </div>
+                    </span>
+                ),
+                'data-attr': `evaluation-overview-tab-${tab.metric}`,
+            }))}
+        />
     )
 }
