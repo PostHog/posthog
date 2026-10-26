@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .resolver import OwnersResolver
+from .resolver import OwnersResolver, Resolution
 
 UNOWNED_TEAM = "unowned"
 
@@ -24,6 +24,14 @@ TEST_FILE_GLOBS = (
 def first_team_owner(owners: list[str] | None) -> str:
     """First owner that is a team slug; an ``@handle`` is a person, not a team."""
     return next((owner for owner in owners or [] if not owner.startswith("@")), "")
+
+
+def owning_team(resolution: Resolution) -> str | None:
+    """The team that a test file's failures reach, or ``unowned`` when no team owns it.
+    ``None`` for an ``owners: null`` exemption, which a coverage report must not count (SPEC section 3.1)."""
+    if resolution.unowned_by_design:
+        return None
+    return first_team_owner(resolution.owners) or UNOWNED_TEAM
 
 
 def runner_for_path(path: str) -> str | None:
@@ -56,14 +64,17 @@ class TeamTestCensus:
 
 def census(paths: Iterable[str], repo_root: Path) -> list[TeamTestCensus]:
     """Count test files per owning team over repo-relative ``paths``, most tests first.
-    Uncovered files and files owned only by ``@handles`` count under ``unowned``."""
+    Uncovered files and files owned only by ``@handles`` count under ``unowned``, and files that
+    ``owners: null`` exempts are left out."""
     resolver = OwnersResolver(repo_root)
     counts: dict[str, dict[str, int]] = {}
     for path in paths:
         runner = runner_for_path(path)
         if runner is None:
             continue
-        team = first_team_owner(resolver.resolve(path).owners) or UNOWNED_TEAM
+        team = owning_team(resolver.resolve(path))
+        if team is None:
+            continue
         counts.setdefault(team, {"pytest": 0, "jest": 0})[runner] += 1
     return sorted(
         (

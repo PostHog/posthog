@@ -10,8 +10,7 @@ from pathlib import Path
 
 import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import OwnersResolver, first_team_owner
-from owners_yaml.census import runner_for_path
+from owners_yaml import UNOWNED_TEAM, OwnersResolver, owning_team, runner_for_path
 
 from hogli_commands.change_detection import changed_files
 from hogli_commands.preflight_checks import Outcome, Scope
@@ -22,7 +21,7 @@ def unowned_test_warnings(paths: list[str]) -> list[str]:
     resolver = OwnersResolver(REPO_ROOT)
     warnings = []
     for resolution in map(resolver.resolve, tests):
-        if resolution.unowned_by_design or first_team_owner(resolution.owners):
+        if owning_team(resolution) != UNOWNED_TEAM:
             continue
         held_by = f"only by people ({', '.join(resolution.owners)})" if resolution.owners else "by no team"
         where = resolution.source or f"an owners.yaml at or above {Path(resolution.path).parent}/"

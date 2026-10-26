@@ -827,7 +827,9 @@ def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
     _write(tmp_path, "products/p/owners.yaml", "version: 1\nowners: ['@someone']\n")
+    _write(tmp_path, "vendor/owners.yaml", "version: 1\nowners: null\n")
     paths = [
+        "vendor/lib/test_vendored.py",
         "products/a/backend/test_api.py",
         "products/a/backend/queries_test.py",
         "products/a/frontend/thing.test.tsx",

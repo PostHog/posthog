@@ -1,6 +1,6 @@
 """Distributed ownership: owners.yaml matcher, schema, resolver, and CLI."""
 
-from .census import TeamTestCensus, census, first_team_owner, runner_for_path
+from .census import UNOWNED_TEAM, TeamTestCensus, census, first_team_owner, owning_team, runner_for_path
 from .codeowners import CodeownersProjection, owner_handle, package_dirs_from, project, spellings
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path, path_matches_pattern
@@ -40,11 +40,13 @@ __all__ = [
     "TeamEntry",
     "TeamTestCensus",
     "TreeSource",
+    "UNOWNED_TEAM",
     "census",
     "compile_pattern",
     "first_team_owner",
     "normalize_path",
     "owner_handle",
+    "owning_team",
     "package_dirs_from",
     "path_matches_pattern",
     "project",

@@ -17,7 +17,7 @@ Regenerate the baseline (it only drops directories, never adds them):
 from datetime import date
 from pathlib import Path, PurePosixPath
 
-from owners_yaml import OwnersResolver, first_team_owner, runner_for_path
+from owners_yaml import UNOWNED_TEAM, OwnersResolver, owning_team, runner_for_path
 
 from posthog.test.repo_invariants.ratchet import enforce_baseline
 
@@ -29,15 +29,11 @@ REGENERATE = "PYTHONPATH=. python posthog/test/repo_invariants/test_unowned_test
 
 def unowned_test_directories() -> set[str]:
     resolver = OwnersResolver(REPO_ROOT)
-    directories: set[str] = set()
-    for path in resolver.tracked_files():
-        if runner_for_path(path) is None:
-            continue
-        resolution = resolver.resolve(path)
-        if resolution.unowned_by_design or first_team_owner(resolution.owners):
-            continue
-        directories.add(str(PurePosixPath(path).parent))
-    return directories
+    return {
+        str(PurePosixPath(path).parent)
+        for path in resolver.tracked_files()
+        if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
+    }
 
 
 def read_baseline() -> set[str]:
