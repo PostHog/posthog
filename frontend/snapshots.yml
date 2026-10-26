@@ -113,17 +113,21 @@ snapshots:
     ai-observability-offline-experiments-score-trends--numeric-passing-rule--light:
         hash: v1.k794b7964.e5367e5503e0e7a14586290abedd1f8f25d9a938013d330a9b3783a9377e32cf.2SZhg6Ri2BlDEHtHrLx7RAbuPEUQFdP-D1FP3_tOPNI
     ai-observability-offline-experiments-scorer-history--default--dark:
-        hash: v1.k794b7964.de382c36f53d24e416c8a816a1cf194c9ac751b5eebfc7a373932035fecc1acb._coWDzE6lvhhThqoT_ASaYs0iiqQvERpqiwT5KhGunM
+        hash: v1.k794b7964.fa9847952affeb01cb37985844b373ce28cef402023df05737f8394189530b67.ccaDPhq_JGTa8n5cMvHqbAj9f2hkoNU9nUhCwFhfGXk
     ai-observability-offline-experiments-scorer-history--default--light:
-        hash: v1.k794b7964.15cbf9e2bdbbe89d7661c94ccd15d7732d828f564add36cdc067757e03a4a061.A0kjkj1ghKYsLEpla_XwYBMETI7KMu6YOB5BCiLbaxA
+        hash: v1.k794b7964.cc570ccb3a6b69c3e5a3add68e0b2faa3416bb81478ec97a3c763f988f582b67.Xbu9IZQNsowPb-o9i_RgTtvdOrXgTcERQBbaznPxFpc
     ai-observability-offline-experiments-scorer-history--empty-history--dark:
-        hash: v1.k794b7964.7fc63300ab3d7bf38a3058a285f6ecc6e36ffaae97b532deef09d13ed6cbafca.EaYco8jti78XKAqv4PEAm_z3n3MvWyTgBGVRhkVD5do
+        hash: v1.k794b7964.ae856e0b664f4e0029c23628c5e85098f42997e0526f24806e67dd3b433e6e7c.QuZHln7HMBUPuLH0qF-GLrrlmsgihcR5T4lBgf9UVfA
     ai-observability-offline-experiments-scorer-history--empty-history--light:
-        hash: v1.k794b7964.95f6a34d52a423471450e0a21f00dd8af7cfaf36281b07c02323b79d05e9fb3f.1cb98HkzcmAOIVK-QmbF1Yykej6T_sSVSuWGwRoUj-c
+        hash: v1.k794b7964.cda80a0c7f01b7e8c3ed4e811c189ccec024f1951abb8818167c431588e08ad4.6R0HRb2No1gsnW3c6FVXJpsKFmDRsRtI8b-TM7OzBvM
+    ai-observability-offline-experiments-scorer-history--model-breakdown--dark:
+        hash: v1.k794b7964.3232e0e44e04b8f402982aedb044a5ab7ef0bb8f666029eaceaafd342343df9c.UsoEzw4c1A3lspMlDgPae58EHaBJund2nYnv_OxtN1U
+    ai-observability-offline-experiments-scorer-history--model-breakdown--light:
+        hash: v1.k794b7964.81a77adc5d7de5fdb154ff4a3d35c2a3ba834a264da0708a6735acdd40c81269.oWsL-dscrLGH1bw3KivQnoZoOaN_hWDRWyUVROtLwsc
     ai-observability-offline-experiments-scorer-history--narrow--dark:
-        hash: v1.k794b7964.2d60979cab1b756742b3fef740e8c13a9b688f3eca76ddf7ae73dc08f2f58e64.48EDAeGamPjXu5HwCBjlgx4Z6130i2a_6kqwJ25p9jw
+        hash: v1.k794b7964.542a493a106271a9e78d761dd9fc7cc42108fff9c7336526ec687b98194d1063.t1b0Xq-37lNeB72sxqocIUjc_0vms7Cwa-wwyH9ub-M
     ai-observability-offline-experiments-scorer-history--narrow--light:
-        hash: v1.k794b7964.4842515b727957419dffc97a061cd561a640c5b3d12357415b2c6b0c0a5b2729.7EOWporG0PIqDbpe8ArXsT-fl8w_hNdckYUgKv4uHDY
+        hash: v1.k794b7964.ccfb0305fe7765645891a6e299e61794891ba11c48c093cdb498729210949a62.plGrGJumAXp8oFjajN09fPeLcqQpAZh9nUsT9A6uByw
     ai-observability-scorer-editor--boolean-detector--dark:
         hash: v1.k794b7964.bf295f71ee0750c9703c615cbc53f39849426b32b354fbf8ef0c8915f7f42e57.BVPu0uJuGhNx1_q4FgZ7vDXRQ7IllIygH2Hi6qKoTZw
     ai-observability-scorer-editor--boolean-detector--light:
@@ -9173,9 +9177,9 @@ snapshots:
     scenes-app-ai-observability-offline-experiments-overview--partial-history--light:
         hash: v1.k794b7964.302ca88f07d59cdabb3dd8b286b13ff39c03b318a35bca99405683c8e3789d64.-Jd-kXQ46NBmqRsF90-2Y23EI8pzdxvbU9FADQWauYQ
     scenes-app-ai-observability-offline-experiments-overview--partial-history-narrow--dark:
-        hash: v1.k794b7964.4c450840d8d01ddb2eb4817e1fea7f7fdbd288e93ea3c375555b4ceb1ae08311.jwIcdD5ZnyQniw64ArTCvFuX43hlRtSDbHAIU6qowFU
+        hash: v1.k794b7964.c475e74caf460fcfc280bd6983fedcdca879dcf011e058d9733b17ace2f0a348.nMKBGsSpB3g3PQXgiziItiY76qLFWGlhN3GLJlzBMUA
     scenes-app-ai-observability-offline-experiments-overview--partial-history-narrow--light:
-        hash: v1.k794b7964.5b69ff2c107ab0450df0d7495d19da2d19293d8fe3b453224845365f8b402f3f.UkyFocgNR0N1T0QWFTOa6HcQYW4BdRMv5_qSzgjjFmI
+        hash: v1.k794b7964.568583aab6024942a42b957f625ce22201ee919609bc8ffa1b37e3bb90d0c0f7.c0AsgQZRr9uq6lC9Q3pghFN6ckTHFNdPYhnocXJ0Oig
     scenes-app-ai-observability-offline-experiments-overview--recent-experiments--dark:
         hash: v1.k794b7964.73de5e6dff8607fbad95d027b0b2856095e68f28922faa4f06315f6338c8012f.YbQpwN5pANDtCZDWgkZ8z9-XfMnI8dB5_HsfibRZ1z0
     scenes-app-ai-observability-offline-experiments-overview--recent-experiments--light:
