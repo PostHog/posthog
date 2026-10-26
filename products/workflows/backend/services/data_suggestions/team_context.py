@@ -9,6 +9,7 @@ from django.db.models.functions import Coalesce
 from posthog.models import EventProperty, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
+from products.access_control.backend.facade.api import person_property_names_with_access_rules
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -141,5 +142,9 @@ def person_properties(team: Team) -> dict[str, tuple[str, ...]]:
         .order_by(F("query_usage_30_day").desc(nulls_last=True), "name")
         .values_list("name", flat=True)[:100]
     )
-    plain = [name for name in names if _PLAIN_PROPERTY_NAME.match(name)][:_PERSON_PROPERTIES_LIMIT]
+    # Built ideas are shared across the team, so a property that any member may not read is left out.
+    restricted = person_property_names_with_access_rules(team_id=team.id)
+    plain = [name for name in names if _PLAIN_PROPERTY_NAME.match(name) and name not in restricted][
+        :_PERSON_PROPERTIES_LIMIT
+    ]
     return person_property_values(team, plain)
