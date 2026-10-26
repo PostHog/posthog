@@ -397,15 +397,10 @@ class TestHappinessRatingsReport:
 
 
 class TestSourceResponseShape:
-    @pytest.mark.parametrize(
-        "api_version,desc_endpoints",
-        [
-            ("v2", {}),
-            # v3 lists are newest-first, not ordered by the modifiedAt watermark.
-            ("v3", {"conversations": "desc", "customers": "desc"}),
-        ],
-    )
-    def test_response_metadata_per_top_level_endpoint(self, api_version: str, desc_endpoints: dict[str, str]) -> None:
+    @pytest.mark.parametrize("api_version", ["v2", "v3"])
+    def test_response_metadata_per_top_level_endpoint(self, api_version: str) -> None:
+        # Neither route reads in watermark order, so an "asc" claim would let a resumed sync skip rows.
+        desc_endpoints = {"conversations": "desc", "customers": "desc"}
         for endpoint in ENDPOINTS:
             config = HELP_SCOUT_ENDPOINTS[endpoint]
             if config.fanout or config.is_report:

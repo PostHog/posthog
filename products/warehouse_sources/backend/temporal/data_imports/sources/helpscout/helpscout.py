@@ -309,9 +309,10 @@ def helpscout_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # v3 lists come back newest-first by createdAt, not ordered by the modifiedAt watermark,
-        # so the pipeline must only persist the watermark once a sync completes.
-        sort_mode="desc" if use_v3_route and config.updated_since_param else "asc",
+        # Neither route reads in watermark order: v3 lists newest-first by createdAt, and v2 sorts by
+        # modifiedAt, which rows don't carry. So the pipeline must only persist the watermark once a
+        # sync completes.
+        sort_mode="desc" if config.updated_since_param else "asc",
     )
 
 
