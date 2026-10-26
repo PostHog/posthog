@@ -24,8 +24,6 @@ _FEATURE_FLAGS_KEY = "$feature_flags"
 # spells that `%` as the escape `\x25`, because a printed query goes through %-style parameter substitution.
 _ENCODED_DOT_SQL = "'\\x252E'"
 _NO_PATHS_SQL = "CAST([], 'Array(Array(String))')"
-_NO_SEGMENTS_SQL = "CAST([], 'Array(String)')"
-_MAX_NULL_REBUILD_BYTES = 16 * 1024 * 1024
 
 
 def declared_array_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
@@ -91,172 +89,56 @@ def _nested_null_paths_sql(null_keys_sql: str) -> str:
     )
 
 
-def _null_skeleton_sql(paths_sql: str) -> str:
-    """A JSON object that holds `null` at each path. Every segment of these paths is an object key.
+def _restore_nulls_sql(value_sql: str, paths_sql: str) -> str:
+    """Expand affected containers one level at a time, then join their JSON fragments.
 
-    Sorting puts the paths below one object next to each other. Each path closes the objects of the previous path
-    that it does not share, opens its own objects below the shared ones, and writes its leaf.
+    Each node carries (JSON text, remaining null paths). Finished fragments have no paths. Processing siblings
+    together reads each container once per depth instead of rebuilding their common parent for every array.
+    ClickHouse query limits apply normally; reconstruction never discards recorded nulls to meet a work budget.
     """
-    sorted_paths = f"arraySort({paths_sql})"
-    previous_paths = f"arrayPushFront(arrayPopBack({sorted_paths}), [])"
-    # How many of this path's parent objects the previous path also opened. The two paths go in as lambda
-    # parameters, because a lambda that reads them from outside copies them once per segment.
-    common_length = "least(length(null_path), length(null_previous))"
-    first_difference = (
-        "arrayFirstIndex((null_segment, null_previous_segment) -> null_segment != null_previous_segment, "
-        f"arraySlice(null_path, 1, {common_length}), arraySlice(null_previous, 1, {common_length}))"
+    is_array = "null_array"
+    root_runs = _runs_sql("arraySort(null_node.2)", lambda path: f"{path}[1]", "null_tail")
+    roots = (
+        "arrayMap(null_root -> ("
+        f"if({is_array}, if(toString(toInt64OrNull(null_root[1][1])) = null_root[1][1], "
+        "toInt64OrZero(null_root[1][1]), toInt64(-1)), toInt64(0)), "
+        f"if({is_array}, '', null_root[1][1]), 1, '', "
+        f"arrayMap(null_path -> arrayPopFront(null_path), null_root)), {root_runs})"
     )
-    shared = (
-        f"least(length(null_path), greatest(length(null_previous), 1), "
-        f"ifNull(nullIf({first_difference}, 0), length(null_path))) - 1"
+    members = (
+        f"if({is_array}, "
+        "arrayMap((null_element, null_index) -> (toInt64(null_index - 1), '', 0, null_element, "
+        f"{_NO_PATHS_SQL}), JSONExtractArrayRaw(null_node.1), arrayEnumerate(JSONExtractArrayRaw(null_node.1))), "
+        f"arrayMap(kv -> (toInt64(0), kv.1, 0, kv.2, {_NO_PATHS_SQL}), JSONExtractKeysAndValuesRaw(null_node.1)))"
     )
-    piece = (
-        "concat(if(empty(null_previous), '', concat(repeat('}', length(null_previous) - 1 - null_shared), ',')), "
-        "arrayStringConcat(arrayMap(null_key -> concat(toJSONString(null_key), ':{'), "
-        "arraySlice(null_path, null_shared + 1, length(null_path) - 1 - null_shared))), "
-        "toJSONString(null_path[-1]), ':null')"
+    runs = _runs_sql(
+        f"arraySort(arrayConcat({members}, {roots}))", lambda entry: f"({entry}.1, {entry}.2)", "null_child"
     )
-    return (
-        f"concat('{{', arrayStringConcat(arrayMap((null_path, null_previous, null_shared) -> {piece}, "
-        f"{sorted_paths}, {previous_paths}, arrayMap((null_path, null_previous) -> {shared}, {sorted_paths}, "
-        f"{previous_paths}))), repeat('}}', length(arrayPopBack({sorted_paths}[-1]))), '}}')"
+    runs = f"arrayFilter(null_run -> not {is_array} or null_run[1].3 = 0, {runs})"
+    children = _bind_sql(
+        {"null_children": runs},
+        "arrayFlatten(arrayMap((null_run, null_index) -> ["
+        "(concat(if(null_index = 1, '', ','), if(null_array, '', concat(toJSONString(null_run[1].2), ':'))), "
+        f"{_NO_PATHS_SQL}), "
+        "(null_run[1].4, null_run[-1].5)], null_children, arrayEnumerate(null_children)))",
     )
-
-
-def _merge_nulls_sql(value_sql: str, paths_sql: str) -> str:
-    """The JSON text `value_sql` with `null` added at each object path below it.
-
-    An absent value becomes a new object. A value that is not an object stays as it is: the cleaner records a path
-    through a scalar only when the sent document repeated a key with values of different types.
-    """
-    return (
-        f"if(empty({paths_sql}) or not ({value_sql} = '' or startsWith({value_sql}, '{{')), {value_sql}, "
-        f"JSONMergePatch(if({value_sql} = '', '{{}}', {value_sql}), {_null_skeleton_sql(paths_sql)}))"
+    expanded = (
+        f"arrayConcat([(if({is_array}, '[', '{{'), {_NO_PATHS_SQL})], "
+        f"{children}, [(if({is_array}, ']', '}}'), {_NO_PATHS_SQL})])"
     )
-
-
-def _array_position_sql(segment_sql: str) -> str:
-    """The 1-based element a path segment names, or 0, which names no element, when the segment is not a position."""
-    return f"ifNull(toInt64OrNull({segment_sql}) + 1, 0)"
-
-
-def _patch_node_sql(node_sql: str, tails_sql: str) -> str:
-    """The JSON text `node_sql` with `null` added at each tail path. Below an array, a tail starts with a position.
-
-    An object node is handled as a list of one element, so each element of an array and an object node go
-    through the same merge. Below an array, a tail that starts with a key is dropped. The cleaner records one when it
-    wraps a sent object in an array, such as an `$exception_list` sent as one object, and merging it would replace
-    the array.
-
-    The elements and the tails are sorted together by position, so each element is followed by its own tails.
-    """
-    is_array = f"startsWith({node_sql}, '[')"
-    elements = f"if({is_array}, JSONExtractArrayRaw({node_sql}), [{node_sql}])"
-    # A position the cleaner wrote is a plain number. Any other first segment gets -1, which names no element.
-    tail_position = "if(toString(toInt64OrNull(null_tail[1])) = null_tail[1], toInt64OrZero(null_tail[1]), toInt64(-1))"
-    tail_entries = (
-        f"if({is_array}, arrayMap(null_tail -> ({tail_position}, 1, '', arrayPopFront(null_tail)), {tails_sql}), "
-        f"arrayMap(null_tail -> (toInt64(0), 1, '', null_tail), {tails_sql}))"
+    expanded = _bind_sql({"null_array": "startsWith(null_node.1, '[')"}, expanded)
+    node = (
+        "multiIf(empty(null_node.2), [null_node], "
+        f"empty(null_node.2[1]), [('null', {_NO_PATHS_SQL})], "
+        "null_node.1 = '' or startsWith(null_node.1, '{') or startsWith(null_node.1, '['), "
+        f"{expanded}, [(null_node.1, {_NO_PATHS_SQL})])"
     )
-    element_entries = (
-        f"arrayMap((null_element, null_position) -> (toInt64(null_position) - 1, 0, null_element, {_NO_SEGMENTS_SQL}), "
-        f"{elements}, arrayEnumerate({elements}))"
+    return _bind_sql(
+        {"null_paths": paths_sql},
+        "arrayStringConcat(arrayFold((null_nodes, null_depth) -> "
+        f"arrayFlatten(arrayMap(null_node -> {node}, null_nodes)), "
+        f"range(arrayMax(arrayMap(null_path -> length(null_path), null_paths)) + 1), [({value_sql}, null_paths)]).1)",
     )
-    element_runs = _runs_sql(
-        f"arraySort(arrayConcat({element_entries}, {tail_entries}))", lambda entry: f"{entry}.1", "null_entry"
-    )
-    patched_elements = (
-        f"arrayMap(null_run -> {_merge_nulls_sql('null_run[1].3', 'arrayPopFront(null_run).4')}, "
-        f"arrayFilter(null_run -> null_run[1].2 = 0, {element_runs}))"
-    )
-    return f"concat(if({is_array}, '[', ''), arrayStringConcat({patched_elements}, ','), if({is_array}, ']', ''))"
-
-
-def _child_sql(value_sql: str, segment_sql: str) -> str:
-    """The JSON text of the array element or object member that `segment_sql` names, or '' when there is none."""
-    return (
-        f"multiIf(startsWith({value_sql}, '['), JSONExtractRaw({value_sql}, {_array_position_sql(segment_sql)}), "
-        f"startsWith({value_sql}, '{{'), JSONExtractRaw({value_sql}, {segment_sql}), '')"
-    )
-
-
-def _set_child_sql(parent_sql: str, segment_sql: str, child_sql: str) -> str:
-    """`parent_sql` with the array element or object member that `segment_sql` names replaced by `child_sql`.
-
-    The child only gains null members, so a merge into an object member gives the child itself. An array element is
-    replaced by slicing, because a lambda that read the child would copy it once per element.
-    """
-    replaced_elements = _bind_sql(
-        {"null_elements": f"JSONExtractArrayRaw({parent_sql})", "null_target": _array_position_sql(segment_sql)},
-        "if(null_target between 1 and length(null_elements), arrayConcat(arraySlice(null_elements, 1, null_target - 1), "
-        f"[{child_sql}], arraySlice(null_elements, null_target + 1)), null_elements)",
-    )
-    member = f"concat('{{', toJSONString({segment_sql}), ':', {child_sql}, '}}')"
-    return (
-        f"multiIf(startsWith({parent_sql}, '['), concat('[', arrayStringConcat({replaced_elements}, ','), ']'), "
-        f"startsWith({parent_sql}, '{{'), JSONMergePatch({parent_sql}, {member}), {parent_sql} = '', {member}, "
-        f"{parent_sql})"
-    )
-
-
-def _apply_null_group_sql(value_sql: str, prefix_sql: str, tails_sql: str) -> str:
-    """`value_sql` with the nulls of one group added: descend along the prefix, patch that node, then rebuild upward.
-
-    The descent records the JSON text at each step of the prefix. The fold walks those steps back from the node,
-    so its first step patches the node and each later step sets the patched child into its parent.
-    """
-    steps = (
-        "arrayFold((null_steps, null_step_segment) -> "
-        f"arrayPushBack(null_steps, {_child_sql('null_steps[-1]', 'null_step_segment')}), {prefix_sql}, [{value_sql}])"
-    )
-    patch = _patch_node_sql("null_node", tails_sql)
-    set_child = _set_child_sql("null_node", "null_node_segment", "null_patched")
-    return (
-        f"arrayFold((null_patched, null_node, null_node_segment, null_index) -> "
-        f"if(null_index = 1, {patch}, {set_child}), arrayReverse({steps}), "
-        f"arrayPushFront(arrayReverse({prefix_sql}), ''), range(1, length({prefix_sql}) + 2), '')"
-    )
-
-
-def _array_split_sql(rest_sql: str) -> str:
-    """Where `_null_groups_sql` splits a path: its last segment that can be an array position, but not its leaf."""
-    return f"greatest(arrayLastIndex(null_segment -> match(null_segment, '^[0-9]+$'), arrayPopBack({rest_sql})), 1)"
-
-
-def _null_groups_sql(rest_paths_sql: str) -> str:
-    """The paths below one member, grouped as (prefix, tails) at the last segment that can be an array position.
-
-    Splitting there leaves tails that name object keys below their first segment, so one merge adds all of a
-    group's nulls. Paths without such a segment share the empty prefix and are merged into the member at once.
-    """
-    split = _array_split_sql("null_rest")
-    pairs = (
-        "arraySort(arrayMap(null_rest -> "
-        f"(arraySlice(null_rest, 1, {split} - 1), arraySlice(null_rest, {split})), {rest_paths_sql}))"
-    )
-    return (
-        "arrayMap(null_pair_run -> (null_pair_run[1].1, null_pair_run.2), "
-        f"{_runs_sql(pairs, lambda pair: f'{pair}.1', 'null_pair')})"
-    )
-
-
-def _restorable_null_keys_sql(null_keys_sql: str, document_sql: str) -> str:
-    """The recorded null keys of `document_sql`, or none when putting them back would re-read too much JSON.
-
-    A group with a prefix re-reads and rebuilds its member once for each segment from the member down to its array,
-    so many arrays that hold nulls, or an array below many objects, multiply the cost of reading a large document.
-    Each step reads at most the whole document. Over `_MAX_NULL_REBUILD_BYTES`, the document comes back without
-    its nulls, the same as when the cleaner records none.
-    """
-    group_paths = (
-        f"arrayMap(null_path -> arraySlice(null_path, 1, {_array_split_sql('arrayPopFront(null_path)')}), "
-        f"{_nested_null_paths_sql(null_keys_sql)})"
-    )
-    steps = (
-        "arraySum(arrayMap(null_group_path -> length(null_group_path), arrayDistinct("
-        f"arrayFilter(null_group_path -> length(null_group_path) > 1, {group_paths}))))"
-    )
-    return f"if({steps} * length(toJSONString({document_sql})) > {_MAX_NULL_REBUILD_BYTES}, [], {null_keys_sql})"
 
 
 def json_member_pairs_sql(
@@ -304,10 +186,7 @@ def json_member_pairs_sql(
         "arrayMap(null_root_run -> (null_root_run[1][1], 1, '', "
         f"arrayMap(null_path -> arrayPopFront(null_path), null_root_run)), {root_runs})))"
     )
-    rebuilt_value = (
-        f"arrayFold((null_value, null_group) -> {_apply_null_group_sql('null_value', 'null_group.1', 'null_group.2')}, "
-        f"{_null_groups_sql('null_key_run[-1].4')}, null_key_run[1].3)"
-    )
+    rebuilt_value = _restore_nulls_sql("null_key_run[1].3", "null_key_run[-1].4")
     rebuilt_pairs = (
         f"arrayMap(null_key_run -> concat(toJSONString(null_key_run[1].1), ':', {rebuilt_value}), "
         f"{_runs_sql(entries, lambda entry: f'{entry}.1', 'null_entry')})"
@@ -360,7 +239,7 @@ def json_document_sql(
     """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
     pairs = json_member_pairs_sql(
         document_sql,
-        _restorable_null_keys_sql(null_keys_sql, document_sql),
+        null_keys_sql,
         declared_array_paths=declared_array_paths,
         declared_string_paths=declared_string_paths,
     )
@@ -387,7 +266,6 @@ def event_document_sql(
     flag is hidden. The `$feature_flags` member of `properties` is left out because its entries come back as
     `$feature/<key>` pairs.
     """
-    properties_null_keys_sql = _restorable_null_keys_sql(properties_null_keys_sql, properties_sql)
     pairs = [
         json_member_pairs_sql(
             properties_sql,
@@ -402,7 +280,7 @@ def event_document_sql(
     pairs.append(
         json_member_pairs_sql(
             temporary_properties_sql,
-            _restorable_null_keys_sql(temporary_properties_null_keys_sql, temporary_properties_sql),
+            temporary_properties_null_keys_sql,
         )
     )
     return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
