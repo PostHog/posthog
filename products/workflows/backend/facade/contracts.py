@@ -1,7 +1,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
@@ -285,7 +285,9 @@ class EmailSendingTierLimits:
 class TierDemotionEvidence:
     """The team's workflow email totals over the demotion window that a demotion read."""
 
-    window_days: int
+    # The first whole UTC day in the window. The window is cut on calendar days, so a day count
+    # would understate it by the partial current day.
+    since: date
     sent: int
     complained: int
     hard_bounced: int

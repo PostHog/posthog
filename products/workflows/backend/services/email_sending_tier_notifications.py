@@ -61,11 +61,14 @@ def _demotion_cause(decision: TierDecision) -> str:
     evidence = decision.evidence
     if evidence is None:
         return DEFAULT_TIER_DEMOTION_CAUSE
-    return (
-        f"In the last {evidence.window_days} days, this project sent "
-        f"{_plural(evidence.sent, 'workflow email')} and got {_plural(evidence.complained, 'spam complaint')} "
-        f"and {_plural(evidence.hard_bounced, 'hard bounce')}."
-    )
+    since = f"{evidence.since:%B} {evidence.since.day}"
+    feedback = f"{_plural(evidence.complained, 'spam complaint')} and {_plural(evidence.hard_bounced, 'hard bounce')}"
+    # Complaints arrive hours or days after the send, so a window can hold complaints with no sends.
+    if evidence.sent == 0:
+        counts = f"Since {since}, this project got {feedback} about workflow emails it sent before then."
+    else:
+        counts = f"Since {since}, this project sent {_plural(evidence.sent, 'workflow email')} and got {feedback}."
+    return f"{counts} Some mailbox providers, such as Gmail, don't report spam complaints, so the real number can be higher."
 
 
 def _notify_demotion(decision: TierDecision) -> None:

@@ -42,6 +42,7 @@ Rates only count on a meaningful denominator; below the complaint floor, the abs
 Pinned teams never move automatically.
 
 While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
+The demotion notices name the cause: the team's own send, spam complaint and hard bounce counts over the demotion window, a workflow auto-pause, or the provider reputation flag. They leave out the thresholds and the cooldown, so a sender cannot tune its sending to stay just under the line.
 Decay, suspension drops, admin recomputes, and the backfill stay silent.
 
 ## Rollout order
