@@ -11,6 +11,7 @@ import { HogFlow, HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-autosave-1'
+const STARTS_AT = '2026-05-04T09:00:00.000Z'
 
 const makeWorkflow = (overrides: Partial<HogFlow> = {}): HogFlow => ({
     id: WORKFLOW_ID,
@@ -167,6 +168,26 @@ describe('workflowLogic auto-save', () => {
 
             expect(logic.values.scheduleState.weekdays).toEqual([2])
             expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('keeps the created schedule as the baseline when the list read says there is none', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/schedules/': [] },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': () => [
+                        201,
+                        { id: 'schedule-created', rrule: 'FREQ=DAILY;COUNT=1', starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            logic.actions.setScheduleStartsAt(STARTS_AT)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess', 'setSchedules'])
+
+            // Without this the next save sees no schedule and creates a second one.
+            expect(logic.values.currentSchedule?.id).toBe('schedule-created')
         })
 
         it('does not re-save when nothing changed during the round-trip', async () => {

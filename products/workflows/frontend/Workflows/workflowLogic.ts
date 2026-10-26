@@ -4486,13 +4486,26 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 if (hasScheduleChanges) {
                     try {
+                        // Each write answers with the saved schedule, so the editor rebaselines from
+                        // the response. Re-reading the list instead would leave a created schedule
+                        // unknown whenever that read failed, and the next save would add a second one.
                         if (pendingSchedule === null && existingScheduleId) {
                             await api.hogFlows.deleteHogFlowSchedule(workflowId, existingScheduleId)
+                            actions.setSchedules([])
                         } else if (pendingSchedule !== null && existingScheduleId) {
-                            await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
+                            actions.setSchedules([
+                                await api.hogFlows.updateHogFlowSchedule(
+                                    workflowId,
+                                    existingScheduleId,
+                                    pendingSchedule
+                                ),
+                            ])
                         } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            actions.setSchedules([
+                                await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule),
+                            ])
                         }
+                        wroteSchedule = true
 
                         if (pendingSchedule !== null) {
                             posthog.capture('workflows schedule saved', {
@@ -4501,10 +4514,6 @@ export const workflowLogic = kea<workflowLogicType>([
                                 configured_via_natural_language: values.scheduleConfigSources.natural_language,
                             })
                         }
-
-                        const schedules = await api.hogFlows.getHogFlowSchedules(workflowId)
-                        actions.setSchedules(schedules)
-                        wroteSchedule = true
                     } catch (e) {
                         console.error('Failed to save schedule', e)
                         lemonToast.error('Workflow saved, but schedule could not be updated')
