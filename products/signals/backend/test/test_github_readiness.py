@@ -16,7 +16,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.facade.repo_selection import get_team_github_readiness, resolve_team_github_integration
-from products.tasks.backend.logic.repo_selection.agent import _list_candidate_repos
 
 
 @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
@@ -107,7 +106,10 @@ class TestGitHubReadiness(BaseTest):
         selected = resolve_team_github_integration(self.team.id)
         assert selected is not None
         self.assertEqual(selected.integration, usable)
-        self.assertEqual(_list_candidate_repos(selected, self.team.id), ["example/application"])
+        self.assertEqual(
+            [repo["full_name"] for repo in selected.list_all_cached_repositories(allow_refresh=False)],
+            ["example/application"],
+        )
 
     def test_background_readiness_only_uses_an_owners_personal_connection(self) -> None:
         self.integration.delete()
