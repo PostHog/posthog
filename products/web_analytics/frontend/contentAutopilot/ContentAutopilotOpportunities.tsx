@@ -22,12 +22,7 @@ import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/fron
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
 import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
-
-const ENGINE_LABELS: Record<string, string> = {
-    'claude-web-search': 'Claude',
-    'openai-web-search': 'ChatGPT',
-    'exa-answer': 'Exa',
-}
+import { engineLabel } from './utils'
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
@@ -39,8 +34,6 @@ const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element 
     drafted: <LemonTag type="success">Drafted</LemonTag>,
     dismissed: <LemonTag type="muted">Dismissed</LemonTag>,
 }
-
-const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 
 const visibilityTag = (gap: ContentAutopilotOpportunityApi['gap']): JSX.Element => {
     const answers = pluralize(gap.checks, 'answer')

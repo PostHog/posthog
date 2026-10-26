@@ -44,6 +44,7 @@ from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -238,6 +239,19 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     )
 
 
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
+
+
+def _is_servable(asset: ExportedAsset | None) -> bool:
+    # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+    # and an expired frame would serve until the sweep deletes it.
+    return (
+        asset is not None
+        and bool(asset.content_location)
+        and not (asset.expires_after is not None and asset.expires_after <= now())
+    )
+
+
 class ObservationThumbnailQuerySerializer(serializers.Serializer):
     chapter = serializers.IntegerField(
         required=False,
@@ -245,6 +259,15 @@ class ObservationThumbnailQuerySerializer(serializers.Serializer):
         help_text=(
             "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
             "observation's thumbnail."
+        ),
+    )
+    size = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Size.choices,
+        required=False,
+        default=ReplayObservationMedia.Size.LARGE,
+        help_text=(
+            "`large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. "
+            "A frame rendered before small copies existed serves the large image for both."
         ),
     )
 
@@ -1289,12 +1312,7 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == kind
-                and entry.position == position
-                and entry.asset.content_location
-                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
-                # and an expired frame would serve until the sweep deletes it.
-                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+                if entry.kind == kind and entry.position == position and _is_servable(entry.asset)
             ),
             None,
         )
@@ -1312,9 +1330,13 @@ class ReplayObservationViewSet(
             raise NotFound()
         # Served from here, not through the export content endpoint: that one authorizes a recording
         # export by the recording alone, which would let a reader denied this scanner fetch its frames.
-        response = get_export_asset_content_response(asset=media.asset, download=False)
-        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
-        response["Cache-Control"] = "no-store"
+        asset = media.asset
+        if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
+            asset = media.small_asset
+        response = get_export_asset_content_response(asset=asset, download=False)
+        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
+        # of posters does not come back through here on every visit.
+        response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 
     @extend_schema(

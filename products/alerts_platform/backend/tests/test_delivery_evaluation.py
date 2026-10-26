@@ -34,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
@@ -685,17 +686,23 @@ class TestDeliveryPath(APIBaseTest):
             )
 
     def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
-        for _ in range(2):
-            with pytest.raises(DeliveryError):
-                self._run(
-                    _announcement(_transition(AlertEventKind.FIRING)),
-                    self._chooses(DeliveryPath.HOG_FUNCTION),
-                    groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
-                    transport=RefusingTransport,
-                    real_thread_store=True,
-                )
+        with recorded_metrics() as metrics:
+            for _ in range(2):
+                with pytest.raises(DeliveryError):
+                    self._run(
+                        _announcement(_transition(AlertEventKind.FIRING)),
+                        self._chooses(DeliveryPath.HOG_FUNCTION),
+                        groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                        transport=RefusingTransport,
+                        real_thread_store=True,
+                    )
 
         assert len(self.emitted) == 1
+        assert [
+            (m.attributes["outcome"], m.value)
+            for m in metrics
+            if m.name == "alerts_platform_deliveries_total" and m.attributes["path"] == "hog_function"
+        ] == [("sent", 1), ("already_delivered", 1)]
 
     def test_a_held_subscriber_thread_holds_the_emission_for_the_rerun(self) -> None:
         with pytest.raises(ThreadBusy):

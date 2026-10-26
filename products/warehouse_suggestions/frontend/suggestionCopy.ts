@@ -10,6 +10,7 @@ import type {
 } from './generated/api.schemas'
 
 const MIN_SECONDS_WORTH_NAMING = 60
+const MIN_BYTES_WORTH_NAMING = 1024 ** 3
 const SPOKEN_UNITS: [string, number][] = [
     ['day', 24 * 60 * 60],
     ['hour', 60 * 60],
@@ -31,10 +32,15 @@ const SURFACE_LABELS: Record<string, string> = {
 }
 export const UNKNOWN_SOURCES_CAVEAT = 'Some sources have no sync schedule, so their age is unknown.'
 export const QUERY_LOG_CAVEAT = 'Counts come from the query log. Cached dashboard views are not counted.'
+export const COMBINED_SAVING_LABEL = 'saved a month'
 
-export interface SavingHighlight {
+export interface SavingAmount {
     amount: string
     label: string
+}
+
+export interface SavingHighlight extends SavingAmount {
+    bytes?: SavingAmount
 }
 
 export interface SurfaceSegment {
@@ -44,15 +50,18 @@ export interface SurfaceSegment {
 }
 
 export interface SavingsSummary {
-    timeViews: number
-    savedSeconds: number
-    bytesViews: number
-    savedBytes: number
+    views: number
+    saving: MonthlySaving
 }
 
 export interface MonthlySaving {
     seconds: number
     bytes: number
+}
+
+export interface NamedSaving {
+    time: string | null
+    bytes: string | null
 }
 
 export interface DataAgeLabel {
@@ -100,6 +109,12 @@ export function savesTime(saving: MonthlySaving): boolean {
     return saving.seconds >= MIN_SECONDS_WORTH_NAMING
 }
 
+export function namedSaving(saving: MonthlySaving, maxUnits: number): NamedSaving {
+    const time = savesTime(saving) ? spokenDuration(saving.seconds, maxUnits) : null
+    const bytes = !time || saving.bytes >= MIN_BYTES_WORTH_NAMING ? humanizeBytes(saving.bytes) : null
+    return { time, bytes }
+}
+
 export function suggestedScheduleHint(
     basis: WarehouseSuggestionRefreshIntervalBasisEnumApi | null,
     cadence: string
@@ -140,23 +155,29 @@ export function refreshModeLabel(incremental: boolean, incrementalKey: string | 
 }
 
 export function savingHighlight(saving: MonthlySaving): SavingHighlight {
-    if (savesTime(saving)) {
-        return { amount: `~${spokenDuration(saving.seconds, 1)}`, label: 'query time saved a month' }
+    const { time, bytes } = namedSaving(saving, 1)
+    if (!time) {
+        return { amount: `~${bytes}`, label: 'less data scanned a month' }
     }
-    return { amount: `~${humanizeBytes(saving.bytes)}`, label: 'less data scanned a month' }
+    return {
+        amount: `~${time}`,
+        label: 'query time saved a month',
+        ...(bytes ? { bytes: { amount: `~${bytes}`, label: 'less scanned' } } : {}),
+    }
 }
 
 export function savingSentence(saving: MonthlySaving): string {
-    if (savesTime(saving)) {
-        return `Saves about ${spokenDuration(saving.seconds, 1)} of query time a month`
-    }
-    return `Saves about ${humanizeBytes(saving.bytes)} of scanning a month`
+    const { time, bytes } = namedSaving(saving, 1)
+    const parts = [time && `${time} of query time`, bytes && `${bytes} of scanning`].filter(Boolean)
+    return `Saves about ${parts.join(' and ')} a month`
 }
 
-export function monthlyCost(seconds: number, bytes: number, inTime: boolean): string {
-    return inTime
-        ? `about ${spokenDuration(seconds, MAX_SPOKEN_UNITS)} a month`
-        : `about ${humanizeBytes(bytes)} scanned a month`
+export function monthlyCost(cost: MonthlySaving): string {
+    const { time, bytes } = namedSaving(cost, MAX_SPOKEN_UNITS)
+    if (!time) {
+        return `about ${bytes} scanned a month`
+    }
+    return bytes ? `about ${time} a month, scanning ${bytes}` : `about ${time} a month`
 }
 
 export function readTimeLabel(seconds: number): string {
@@ -201,10 +222,14 @@ export function noReadsLabel(windowDays: number): string {
 export function refreshCostLabel(
     payload: Pick<WarehouseSuggestionDeprecatePayloadApi, 'refresh_seconds_per_month' | 'refresh_bytes_per_month'>
 ): string {
-    if (payload.refresh_seconds_per_month >= MIN_SECONDS_WORTH_NAMING) {
-        return `Refreshes use about ${spokenDuration(payload.refresh_seconds_per_month, MAX_SPOKEN_UNITS)} a month`
+    const { time, bytes } = namedSaving(
+        { seconds: payload.refresh_seconds_per_month, bytes: payload.refresh_bytes_per_month },
+        MAX_SPOKEN_UNITS
+    )
+    if (!time) {
+        return `Refreshes scan about ${bytes} a month`
     }
-    return `Refreshes scan about ${humanizeBytes(payload.refresh_bytes_per_month)} a month`
+    return bytes ? `Refreshes use about ${time} a month and scan ${bytes}` : `Refreshes use about ${time} a month`
 }
 
 function dataAgeAfterSeconds(payload: WarehouseSuggestionMaterializePayloadApi, intervalSeconds: number): number {
