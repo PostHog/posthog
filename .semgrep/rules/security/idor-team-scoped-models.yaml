@@ -184,6 +184,7 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventFilterPipelineOverride
                               |EventStream
                               |EventStreamMember
                               |ErrorTrackingAlert
@@ -668,6 +669,7 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |EventStream
                         |EventStreamMember
                         |ErrorTrackingAlert
@@ -1103,6 +1105,7 @@ rules:
                         |EvaluationReport
                         |Event
                         |EventFilterConfig
+                        |EventFilterPipelineOverride
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
