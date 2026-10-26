@@ -106,7 +106,9 @@ def personio_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    params: dict[str, Any] = {"limit": config.page_size}
+    params: dict[str, Any] = {}
+    if config.page_size is not None:
+        params["limit"] = config.page_size
     if (
         config.incremental_param is not None
         and should_use_incremental_field

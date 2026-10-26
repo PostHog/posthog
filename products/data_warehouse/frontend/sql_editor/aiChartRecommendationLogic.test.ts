@@ -61,7 +61,6 @@ describe('aiChartRecommendationLogic', () => {
         decide = jest.spyOn(decisionsApi, 'mlInferenceDecisionsDecideCreate').mockResolvedValue(decision)
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
-            [FEATURE_FLAGS.JEV_CHART_AUTODETECTION]: true,
         })
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
@@ -100,7 +99,7 @@ describe('aiChartRecommendationLogic', () => {
         'selects axes, chart and split layout after a query completes in %s',
         async (environment) => {
             if (environment === 'local development') {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.JEV_CHART_AUTODETECTION]: true })
+                featureFlagLogic.actions.setFeatureFlags([], {})
                 preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: true })
             }
             await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
@@ -113,7 +112,7 @@ describe('aiChartRecommendationLogic', () => {
         }
     )
 
-    it.each(['consent', 'decisions service', 'missing flag', 'disabled flag', 'local flag', 'manual chart'])(
+    it.each(['consent', 'decisions service', 'manual chart'])(
         'keeps the existing behavior without %s eligibility',
         async (reason) => {
             if (reason === 'consent') {
@@ -122,15 +121,7 @@ describe('aiChartRecommendationLogic', () => {
                     is_ai_data_processing_approved: false,
                 })
             } else if (reason === 'decisions service') {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.JEV_CHART_AUTODETECTION]: true })
-            } else if (['missing flag', 'disabled flag', 'local flag'].includes(reason)) {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
-                    ...(reason === 'disabled flag' ? { [FEATURE_FLAGS.JEV_CHART_AUTODETECTION]: false } : {}),
-                })
-                if (reason === 'local flag') {
-                    preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: true })
-                }
+                featureFlagLogic.actions.setFeatureFlags([], {})
             } else {
                 visualization.actions.setVisualizationType(ChartDisplayType.ActionsTable)
             }
@@ -249,7 +240,7 @@ describe('aiChartRecommendationLogic', () => {
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
     })
 
-    it.each(['consent', 'flag', 'axes', 'layout', 'query', 'skip', 'rerun', 'query error'])(
+    it.each(['consent', 'decisions service', 'axes', 'layout', 'query', 'skip', 'rerun', 'query error'])(
         'ignores an in-flight decision after changing %s',
         async (change) => {
             let resolve!: (result: DecideResponseApi) => void
@@ -274,8 +265,8 @@ describe('aiChartRecommendationLogic', () => {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     is_ai_data_processing_approved: false,
                 })
-            } else if (change === 'flag') {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+            } else if (change === 'decisions service') {
+                featureFlagLogic.actions.setFeatureFlags([], {})
             } else if (change === 'axes') {
                 visualization.actions.updateXSeries('value')
             } else if (change === 'layout') {
@@ -375,7 +366,7 @@ describe('aiChartRecommendationLogic', () => {
         }
     )
 
-    it.each(['consent', 'flag', 'query', 'skip'])(
+    it.each(['consent', 'decisions service', 'query', 'skip'])(
         'does not send inferred columns to Jev after changing %s while metadata loads',
         async (change) => {
             let resolve!: (
@@ -399,8 +390,8 @@ describe('aiChartRecommendationLogic', () => {
                         ...MOCK_DEFAULT_ORGANIZATION,
                         is_ai_data_processing_approved: false,
                     })
-                } else if (change === 'flag') {
-                    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+                } else if (change === 'decisions service') {
+                    featureFlagLogic.actions.setFeatureFlags([], {})
                 } else if (change === 'query') {
                     visualization.actions.setQuery((query) => ({
                         ...query,

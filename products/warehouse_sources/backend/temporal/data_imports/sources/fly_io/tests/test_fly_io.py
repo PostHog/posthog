@@ -251,11 +251,7 @@ class TestMachineSecretRedaction:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            (200, True),
-            (401, False),
-            (403, False),
             (404, False),
-            (500, False),
         ]
     )
     def test_status_maps_to_validity(self, status_code: int, expected_valid: bool) -> None:

@@ -1,10 +1,14 @@
+from datetime import datetime
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import connection, models
 
+from dateutil.relativedelta import relativedelta
+
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 RETENTION_MONTHS_HELP = (
@@ -148,6 +152,11 @@ def _within(months: int, low: int | None, high: int | None) -> bool:
     return (low is None or months >= low) and (high is None or months <= high)
 
 
+def whole_month_cutoff(now: datetime, retention_months: int) -> datetime:
+    """Start of the month that holds the instant ``retention_months`` before ``now``."""
+    return (now - relativedelta(months=retention_months)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
 def describe_months_range(low: int | None, high: int | None) -> str:
     if low is not None and high is not None:
         return f"between {low} and {high} months"
@@ -184,4 +193,85 @@ def effective_events_retention() -> list[TeamEventsRetention]:
         return [
             TeamEventsRetention(organization_id=organization_id, team_id=team_id, months=months)
             for organization_id, team_id, months in cursor.fetchall()
+        ]
+
+
+@frozen
+class ConfiguredEventsRetention:
+    organization_id: UUID
+    organization_name: str
+    team_id: int
+    team_name: str
+    team_months: int | None
+    organization_default_months: int | None
+    organization_min_months: int | None
+    organization_max_months: int | None
+    billing_months: int
+
+    @property
+    def months(self) -> int | None:
+        return self.team_months if self.team_months is not None else self.organization_default_months
+
+
+# Every team that has a retention value of its own or belongs to an organization with a retention config.
+_CONFIGURED_RETENTION_FROM = f"""
+    FROM {Team._meta.db_table} AS team
+    JOIN {Organization._meta.db_table} AS organization ON organization.id = team.organization_id
+    LEFT JOIN {TeamEventsRetentionConfig._meta.db_table} AS team_config ON team_config.team_id = team.id
+    LEFT JOIN {OrganizationEventsRetentionConfig._meta.db_table} AS org_config
+        ON org_config.organization_id = team.organization_id
+    WHERE org_config.organization_id IS NOT NULL OR team_config.events_retention_months IS NOT NULL
+"""
+
+
+def count_configured_events_retention() -> int:
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*) {_CONFIGURED_RETENTION_FROM}")
+        [[count]] = cursor.fetchall()
+        return count
+
+
+def configured_events_retention(*, offset: int, limit: int) -> list[ConfiguredEventsRetention]:
+    """One page of the teams that count_configured_events_retention counts, ordered by organization."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT organization.id,
+                   organization.name,
+                   team.id,
+                   team.name,
+                   team_config.events_retention_months,
+                   org_config.default_events_retention_months,
+                   org_config.min_events_retention_months,
+                   org_config.max_events_retention_months,
+                   team.event_retention_months
+            {_CONFIGURED_RETENTION_FROM}
+            ORDER BY organization.name, organization.id, team.id
+            LIMIT %s OFFSET %s
+            """,
+            [limit, offset],
+        )
+        return [
+            ConfiguredEventsRetention(
+                organization_id=organization_id,
+                organization_name=organization_name,
+                team_id=team_id,
+                team_name=team_name,
+                team_months=team_months,
+                organization_default_months=default_months,
+                organization_min_months=min_months,
+                organization_max_months=max_months,
+                billing_months=billing_months,
+            )
+            for (
+                organization_id,
+                organization_name,
+                team_id,
+                team_name,
+                team_months,
+                default_months,
+                min_months,
+                max_months,
+                billing_months,
+            ) in cursor.fetchall()
         ]

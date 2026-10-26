@@ -7,6 +7,7 @@ import typing
 import asyncio
 import datetime as dt
 import tempfile
+import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -29,15 +30,26 @@ from posthog.models.integration import (
     Integration,
     PostgreSQLIntegration,
 )
+from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ResolvedIPs,
+    ShapeError,
+    validate_external_host,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import IncrementalMode
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsModel,
     BatchExportField,
     BatchExportInsertInputs,
-    BatchExportModel,
     PostgresBatchExportInputs,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -343,9 +355,14 @@ class PostgreSQLClient:
         error as its `__cause__`. Without it, every `OperationalError` is retried.
         """
         max_attempts = 5
+
+        async def connect_to_checked_host(**kwargs: typing.Any) -> psycopg.AsyncConnection:
+            host_kwargs = await asyncio.to_thread(self._checked_host_kwargs)
+            return await psycopg.AsyncConnection.connect(**{**kwargs, **host_kwargs})
+
         connect: typing.Callable[..., typing.Awaitable[psycopg.AsyncConnection]] = (
             make_retryable_with_exponential_backoff(
-                psycopg.AsyncConnection.connect,
+                connect_to_checked_host,
                 max_attempts=max_attempts,
                 retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
                 is_exception_retryable=is_error_retryable or (lambda _: True),
@@ -358,7 +375,6 @@ class PostgreSQLClient:
                     user=self.user,
                     password=self.password,
                     dbname=self.database,
-                    host=self.host,
                     port=self.port,
                     sslmode=self.ssl_mode,
                     sslrootcert=ssl_root_cert,
@@ -381,6 +397,45 @@ class PostgreSQLClient:
             self._connection = connection
             yield self
 
+    def _checked_host_kwargs(self) -> dict[str, str]:
+        """Return the libpq `host`/`hostaddr` that dial only addresses that pass the SSRF check.
+
+        The API checks the host when a destination is saved, but the hostname is what gets stored,
+        and libpq resolves it again on every connect. A record with a short TTL can answer public
+        for the save and private for the connect, and no egress proxy sees a raw Postgres socket,
+        so the check has to run on the addresses this connect dials. `host` repeats the hostname
+        once per address because libpq pairs the two lists by position, and TLS checks the server
+        certificate against `host`.
+        """
+        resolved_ips: ResolvedIPs | None = None
+        host_kwargs = {"host": self.host}
+        if is_resolvable_hostname(self.host):
+            addresses = resolve_psycopg_hostaddr_with_timeout(
+                self.host,
+                self.port,
+                self.connection_timeout,
+                fail_on_resolution_error=True,
+                raise_on_temporary_failure=True,
+            )
+            if not addresses:
+                raise psycopg.OperationalError("Could not resolve database host name")
+            resolved_ips = {ipaddress.ip_address(address) for address in addresses}
+            host_kwargs = {"host": ",".join([self.host] * len(addresses)), "hostaddr": ",".join(addresses)}
+
+        try:
+            validate_external_host(self.host, resolved_ips=resolved_ips)
+        except ShapeError as err:
+            raise PostgreSQLConnectionError(INVALID_HOST_MESSAGE) from err
+        except ValueError as err:
+            self.logger.warning(
+                "Refused to connect to a host that failed the SSRF check",
+                reason=str(err),
+                hostaddr=host_kwargs.get("hostaddr"),
+            )
+            raise PostgreSQLConnectionError(UNREACHABLE_HOST_MESSAGE) from err
+
+        return host_kwargs
+
     @contextlib.asynccontextmanager
     async def _ensure_ssl_root_cert_file(self):
         if self.ssl_root_cert in ("system", MISSING_CERT_PATH):
@@ -399,7 +454,7 @@ class PostgreSQLClient:
         table_name: str,
         fields: Fields,
         exists_ok: bool = True,
-        primary_key: Fields | None = None,
+        primary_key: collections.abc.Sequence[str] | None = None,
         log_statements: bool = False,
     ) -> None:
         """Create a table in PostgreSQL.
@@ -424,7 +479,7 @@ class PostgreSQLClient:
 
         if primary_key is not None:
             primary_key_clause = sql.SQL(", PRIMARY KEY ({fields})").format(
-                fields=sql.SQL(",").join(sql.Identifier(field[0]) for field in primary_key)
+                fields=sql.SQL(",").join(sql.Identifier(field) for field in primary_key)
             )
 
         async with self.connection.transaction():
@@ -499,7 +554,7 @@ class PostgreSQLClient:
         schema: str,
         table_name: str,
         fields: Fields,
-        primary_key: Fields | None = None,
+        primary_key: collections.abc.Sequence[str] | None = None,
         exists_ok: bool = True,
         not_found_ok: bool = True,
         delete: bool = True,
@@ -537,18 +592,19 @@ class PostgreSQLClient:
     def _build_merge_query(
         final_table: sql.Identifier,
         stage_table: sql.Identifier,
-        merge_key: Fields,
-        update_key: Fields,
+        merge_key: collections.abc.Sequence[str],
+        update_key: collections.abc.Sequence[str],
         update_when_matched: Fields,
     ) -> sql.Composed:
-        merge_key_names = _join_field_names(merge_key)
+        merge_key_names = sql.SQL(",").join(sql.Identifier(field) for field in merge_key)
         update_condition = sql.SQL(" OR ").join(
             sql.SQL("EXCLUDED.{stage_field} > final.{final_field}").format(
-                final_field=sql.Identifier(field[0]),
-                stage_field=sql.Identifier(field[0]),
+                final_field=sql.Identifier(field),
+                stage_field=sql.Identifier(field),
             )
             for field in update_key
         )
+        update_filter = sql.SQL("WHERE ({})").format(update_condition) if update_key else sql.SQL("")
         update_clause = sql.SQL(",").join(
             sql.SQL("{final_field} = EXCLUDED.{stage_field}").format(
                 final_field=sql.Identifier(field[0]),
@@ -564,14 +620,14 @@ class PostgreSQLClient:
         ORDER BY {order_by}
         ON CONFLICT ({conflict_fields}) DO UPDATE SET
             {update_clause}
-        WHERE ({update_condition})
+        {update_filter}
         """
         ).format(
             final_table=final_table,
             order_by=merge_key_names,
             conflict_fields=merge_key_names,
             stage_table=stage_table,
-            update_condition=update_condition,
+            update_filter=update_filter,
             update_clause=update_clause,
             field_names=_join_field_names(update_when_matched),
         )
@@ -606,8 +662,8 @@ class PostgreSQLClient:
         final_table_name: str,
         stage_table_name: str,
         schema: str,
-        merge_key: Fields,
-        update_key: Fields,
+        merge_key: collections.abc.Sequence[str],
+        update_key: collections.abc.Sequence[str],
         update_when_matched: Fields,
         timeout: float | int | None = None,
         lock_timeout: float | int = MERGE_LOCK_TIMEOUT_SECONDS,
@@ -642,7 +698,7 @@ class PostgreSQLClient:
             async with asyncio.timeout(timeout):
                 await merge_with_retries(merge_query, schema, lock_timeout)
         except psycopg.errors.InvalidColumnReference:
-            raise MissingPrimaryKeyError(final_table, _join_field_names(merge_key))
+            raise MissingPrimaryKeyError(final_table, sql.SQL(",").join(sql.Identifier(field) for field in merge_key))
         except TimeoutError as e:
             self.external_logger.exception(
                 "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
@@ -861,11 +917,11 @@ class PostgreSQLConsumer(Consumer):
 
 
 def _get_table_fields(
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel,
     record_batch_schema: pa.Schema,
 ) -> Fields:
     """Extract table field definitions from model and schema."""
-    if model is None or model.name == "events":
+    if model.name == "events":
         table_fields: Fields = [
             ("uuid", "VARCHAR(200)"),
             ("event", "VARCHAR(200)"),
@@ -888,48 +944,6 @@ def _get_table_fields(
             record_batch_schema,
             known_json_columns=["properties", "set", "set_once", "person_properties"],
         )
-
-
-class MergeSettings(typing.NamedTuple):
-    requires_merge: bool
-    merge_key: Fields
-    update_key: Fields
-    primary_key: Fields | None
-
-
-def _get_merge_settings(
-    model: BatchExportModel | None,
-) -> MergeSettings:
-    requires_merge = False
-    merge_key: Fields = []
-    update_key: Fields = []
-    primary_key: Fields | None = None
-
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            requires_merge = True
-            merge_key = [
-                ("team_id", "INT"),
-                ("distinct_id", "TEXT"),
-            ]
-            update_key = [
-                ("person_version", "INT"),
-                ("person_distinct_id_version", "INT"),
-            ]
-            primary_key = (("team_id", "INTEGER"), ("distinct_id", "VARCHAR(200)"))
-
-        elif model.name == "sessions":
-            requires_merge = True
-            merge_key = [
-                ("team_id", "INT"),
-                ("session_id", "TEXT"),
-            ]
-            update_key = [
-                ("end_timestamp", "TIMESTAMP"),
-            ]
-            primary_key = (("team_id", "INTEGER"), ("session_id", "TEXT"))
-
-    return MergeSettings(requires_merge, merge_key, update_key, primary_key)
 
 
 class PostgreSQLIntegrationNotFoundError(Exception):
@@ -976,7 +990,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
     )
 
     async with Heartbeater():
-        model = inputs.batch_export_model
+        model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -1004,7 +1018,8 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         )
 
         table_fields = _get_table_fields(model, record_batch_schema)
-        merge_settings = _get_merge_settings(model)
+        requires_merge = model.incremental_mode == IncrementalMode.MERGE
+        primary_key = model.primary_key if requires_merge else None
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -1014,7 +1029,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
         stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
-            if merge_settings.requires_merge
+            if requires_merge
             else inputs.table_name
         )[:63]
 
@@ -1037,9 +1052,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
                     )
             except psycopg.errors.InsufficientPrivilege:
-                if model is None or (
-                    isinstance(model, BatchExportModel) and model.name == "events" and model.schema is None
-                ):
+                if isinstance(model, BatchExportEventsModel):
                     # Without introspection, do not require this column on older destination tables.
                     table_fields = [field for field in table_fields if field[0] != "person_id"]
                     external_logger.warning(
@@ -1066,24 +1079,24 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     table_fields,
                     create=not table_exists,
                     delete=False,
-                    primary_key=merge_settings.primary_key,
+                    primary_key=primary_key,
                     log_statements=True,
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,
                     stage_table_name,
                     table_fields,
-                    create=merge_settings.requires_merge,
-                    delete=merge_settings.requires_merge,
-                    primary_key=merge_settings.primary_key,
+                    create=requires_merge,
+                    delete=requires_merge,
+                    primary_key=primary_key,
                 ) as pg_stage_table,
             ):
                 consumer = PostgreSQLConsumer(
                     client=pg_client,
                     schema=inputs.schema,
-                    table_name=pg_stage_table if merge_settings.requires_merge else pg_table,
+                    table_name=pg_stage_table if requires_merge else pg_table,
                     schema_columns=schema_columns,
-                    model=model.name if isinstance(model, BatchExportModel) else "events",
+                    model=model.name,
                 )
 
                 transformer = CSVStreamTransformer(
@@ -1119,7 +1132,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     raise
 
                 finally:
-                    if merge_settings.requires_merge:
+                    if requires_merge:
                         merge_query_timeout = get_query_timeout(
                             dt.datetime.fromisoformat(inputs.data_interval_start)
                             if inputs.data_interval_start
@@ -1132,8 +1145,8 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                             stage_table_name=pg_stage_table,
                             schema=inputs.schema,
                             update_when_matched=table_fields,
-                            merge_key=merge_settings.merge_key,
-                            update_key=merge_settings.update_key,
+                            merge_key=model.primary_key,
+                            update_key=model.version_key,
                             timeout=merge_query_timeout,
                         )
 

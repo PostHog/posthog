@@ -1,8 +1,9 @@
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import {
     CachedNewExperimentQueryResponse,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentMetric,
@@ -1078,6 +1079,34 @@ describe('getEventCountQuery', () => {
 
         expect(query).not.toBeNull()
         expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
+    })
+
+    it('drops evaluation pass markers, which only the experiment results query can resolve', () => {
+        const promptFilter = {
+            key: '$ai_prompt_name',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'p',
+        } as const
+        const passed: EventsNode = {
+            kind: NodeKind.EventsNode,
+            event: '$ai_evaluation',
+            properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
+        }
+        const ratio: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RATIO,
+            numerator: passed,
+            denominator: { kind: NodeKind.EventsNode, event: '$ai_evaluation' },
+        }
+        const funnel: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [passed],
+        }
+
+        expect(getEventCountQuery(ratio, true)?.series[0].properties).toEqual([promptFilter])
+        expect(getEventCountQuery(funnel, true)?.series[0].properties).toEqual([promptFilter])
     })
 
     it('returns null when series is empty', () => {

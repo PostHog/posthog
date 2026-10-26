@@ -175,6 +175,21 @@ const STORY_BREAKDOWNS_RESPONSE = {
             ],
             total_count: 38,
         },
+        $screen_name: {
+            values: [
+                { value: 'Checkout', count: 21 },
+                { value: 'Settings', count: 11 },
+                { value: 'Home', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $os_name: {
+            values: [
+                { value: 'iOS', count: 24 },
+                { value: 'Android', count: 14 },
+            ],
+            total_count: 38,
+        },
         release_channel: {
             values: [
                 { value: 'stable', count: 25 },
@@ -379,6 +394,15 @@ const STORY_ISSUE: ErrorTrackingRelationalIssue = {
         },
     ],
 }
+
+type StoryQueryBody<Q> = { query?: Q & { source?: Q } }
+
+// The issue page wraps its exceptions list in an ErrorTrackingIssueEventsQuery, and that query
+// answers in the shape of its source EventsQuery, so the mocks answer for the source.
+function storyQuery<Q extends { kind?: string }>(body: StoryQueryBody<Q>): Q | undefined {
+    return body.query?.kind === NodeKind.ErrorTrackingIssueEventsQuery ? body.query.source : body.query
+}
+
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,
     results: [
@@ -476,6 +500,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
@@ -498,32 +526,32 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
                             kind?: string
                             issueId?: string
                             select?: string[]
                             where?: string[]
                             maxReleases?: number
                             query?: string
-                        }
-                    }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        if (query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
                             return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
                         }
-                        return body.query.select?.includes('properties.$exception_list')
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
-                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
+                    if (query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(query.maxReleases ?? 5)]
                     }
-                    if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return body.query.query?.includes('$exception_fingerprint')
+                    if (query?.kind === NodeKind.HogQLQuery) {
+                        return query.query?.includes('$exception_fingerprint')
                             ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
                             : [200, { results: [] }]
                     }
@@ -662,7 +690,7 @@ export const ListPageWithSourceMapsBanner: Story = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/error_tracking/recommendations': () => [
+                'api/projects/:team_id/error_tracking/recommendations': () => [
                     200,
                     {
                         results: [
@@ -696,6 +724,160 @@ export const ListPageWithSourceMapsBanner: Story = {
 export const ListPageWithSourceMapsBannerNarrow: Story = {
     ...ListPageWithSourceMapsBanner,
     parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
+}
+
+// With source maps fine, the alerts banner takes the single banner slot and names
+// only the alert types that are still missing
+export const ListPageWithAlertsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: true },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: true,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 3,
+                                    unresolved_pct: 0.03,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With source maps and alerts covered, the rate limit banner takes the single banner slot
+export const ListPageWithRateLimitsBanner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+// With every check failing, the banners stack: source maps on top, the other two peeking out below
+export const ListPageWithStackedBanners: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/recommendations': () => [
+                    200,
+                    {
+                        results: [
+                            {
+                                id: 'source-maps-recommendation',
+                                type: 'source_maps',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    total_frames: 100,
+                                    unresolved_frames: 62,
+                                    unresolved_pct: 0.62,
+                                    threshold_pct: 0.25,
+                                    min_sample_frames: 50,
+                                    lookback_hours: 24,
+                                },
+                            },
+                            {
+                                id: 'alerts-recommendation',
+                                type: 'alerts',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    alerts: [
+                                        { key: 'error-tracking-issue-created', enabled: false },
+                                        { key: 'error-tracking-issue-reopened', enabled: false },
+                                        { key: 'error-tracking-issue-spiking', enabled: false },
+                                    ],
+                                },
+                            },
+                            {
+                                id: 'rate-limits-recommendation',
+                                type: 'rate_limits',
+                                completed: false,
+                                status: 'ready',
+                                computed_at: '2024-07-08T00:00:00Z',
+                                dismissed_at: null,
+                                created_at: '2024-07-08T00:00:00Z',
+                                updated_at: '2024-07-08T00:00:00Z',
+                                meta: {
+                                    rate_limits: [
+                                        { key: 'project', enabled: false },
+                                        { key: 'per_issue', enabled: false },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
 }
 
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
@@ -794,6 +976,14 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageTodayRailNav: Story = {
+    name: 'Issue scene with new navigation',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.SCENE_MENU_BAR],
+    },
+}
+
 export const GroupPageManyAssignees: Story = {
     name: 'Issue scene with many assignees',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
@@ -885,18 +1075,18 @@ export const GroupPageBreakdownLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -922,26 +1112,25 @@ export const GroupPageBreakdownModalLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxValuesPerProperty?: number }
-                    }
-                    if (
-                        body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery &&
-                        body.query.maxValuesPerProperty === 100
-                    ) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
+                            kind?: string
+                            select?: string[]
+                            maxValuesPerProperty?: number
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery && query.maxValuesPerProperty === 100) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -958,18 +1147,18 @@ export const GroupPageEmptyWithFilter: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EMPTY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),

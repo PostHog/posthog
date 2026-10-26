@@ -47,6 +47,9 @@ export const castStringToInt = (v: unknown): unknown => {
  */
 export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boolean' ? String(v) : v)
 
+export const castObjectToJsonString = (v: unknown): unknown =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v
+
 /**
  * Normalize alternate key spellings to a canonical param name before validation.
  *

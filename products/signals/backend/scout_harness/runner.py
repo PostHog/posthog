@@ -56,6 +56,7 @@ from products.signals.backend.scout_harness.prompt import (
     SignalScoutRunSummary,
     build_run_prompt,
 )
+from products.signals.backend.scout_harness.run_gates import lane_has_live_run
 from products.signals.backend.scout_harness.skill_loader import (
     SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
@@ -69,6 +70,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_background_backoff,
     withheld_skills_for_team,
 )
+from products.signals.backend.scout_harness.tool_catalogue import scout_tool_access_enabled
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -76,6 +78,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
+from products.signals.backend.scout_report import scout_report_tags_in_use
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -779,6 +782,20 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
+def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
+    """The team's report tags for the prompt, or none for a signal-channel scout.
+
+    A failed read is an empty list: the listing is optional steering, so an outage must not fail the run.
+    """
+    if not report_channel:
+        return []
+    try:
+        return scout_report_tags_in_use(team_id=team.id)
+    except Exception as error:
+        capture_exception(error)
+        return []
+
+
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
     """The extra write scopes this scout's next run actually holds.
 
@@ -798,6 +815,19 @@ def _write_scopes_for_run(config: SignalScoutConfig) -> object:
     what a malformed value grants. Coercing here would turn a stray JSON object into its keys.
     """
     return config.write_scopes if config.emit else []
+
+
+def _mcp_tool_allowlist_for_run(team: Team, config: SignalScoutConfig) -> list[str] | None:
+    """The tool list this run is narrowed to, or None to leave it on its token scopes alone.
+
+    Gated on the same flag that gates writing the list, so a list saved while a team had the flag
+    stops applying when the flag goes off. Read once per run: a config edit applies from the next run.
+    """
+    if config.allowed_mcp_tools is None or not scout_tool_access_enabled(team):
+        return None
+    if not isinstance(config.allowed_mcp_tools, list):
+        return []
+    return [tool for tool in config.allowed_mcp_tools if isinstance(tool, str)]
 
 
 def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
@@ -936,6 +966,12 @@ async def _spawn_and_run(
         "signals_scout_reports" if report_channel else "signals_scout",
         _write_scopes_for_run(config),
     )
+    # Resolved once, because the task stamp, the run row, and the prompt must all read the same list.
+    mcp_tool_allowlist = (
+        None
+        if trial is not None
+        else await database_sync_to_async(_mcp_tool_allowlist_for_run, thread_sensitive=False)(team, config)
+    )
     # Scout sandboxes never get the write-capable installation token: task creation attaches the
     # team's GitHub integration to every task, so without this request a scout run on a
     # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
@@ -991,6 +1027,9 @@ async def _spawn_and_run(
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
+    report_tags_in_use = await database_sync_to_async(_report_tags_in_use, thread_sensitive=False)(
+        team, report_channel=report_channel
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1011,6 +1050,7 @@ async def _spawn_and_run(
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
         write_scopes=scope_posture["extra_write_scopes"],
+        tool_allowlist_narrowed=mcp_tool_allowlist is not None,
         run_note=run_note,
         # The repositories the sandbox clones, so the prompt can point the agent at the checkout
         # instead of leaving it to discover the tree. Same list the sandbox context carries, so
@@ -1021,6 +1061,7 @@ async def _spawn_and_run(
         triggered_by=triggered_by,
         is_private_trial=trial is not None,
         precheck_rows=precheck_rows,
+        report_tags_in_use=report_tags_in_use,
     )
     logger.info(
         "signals_scout: spawning sandbox",
@@ -1053,6 +1094,7 @@ async def _spawn_and_run(
             trial=trial,
             check_id=check_id,
             precheck_query_source=precheck_query_source,
+            mcp_tool_allowlist=mcp_tool_allowlist,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -1090,6 +1132,7 @@ async def _spawn_and_run(
         # coordinator-discovered scouts. The per-scout selection below picks which of those
         # team-shared servers this scout's runs mount. Empty selects none.
         mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+        mcp_tool_allowlist=mcp_tool_allowlist,
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. Team attribution rides along as `team_id`.
@@ -1168,21 +1211,13 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
     # mid-run would orphan the FK and silently defeat the dedupe in exactly the
     # config-churn case it should still cover.
     # A run older than `STALE_RUN_CUTOFF_S` is an orphan that `_self_heal_stale_runs` reaps just
-    # before this check, so it does not count. The floor also keeps the read to a range scan of
-    # `signal_scout_run_recent_idx` instead of the lane's whole history.
-    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    return (
+    # before this check, so it does not count.
+    lane_runs = (
         SignalScoutRun.objects.unscoped()
-        .filter(
-            team_id=team_id,
-            skill_name=skill_name,
-            created_at__gte=live_cutoff,
-            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
-            task_run__created_at__gte=live_cutoff,
-        )
+        .filter(team_id=team_id, skill_name=skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
-        .exists()
     )
+    return lane_has_live_run(lane_runs)
 
 
 def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
@@ -1215,22 +1250,25 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     now = timezone.now()
     cutoff = now - timedelta(seconds=STALE_RUN_CUTOFF_S)
     active_statuses = (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS)
-    recent_run_ids = (
+    # Read the IDs before the join, not as a subquery, so the join starts from these few runs and not
+    # from `posthog_task_run`.
+    recent_run_ids = list(
         SignalScoutRun.objects.unscoped()
         .filter(team_id=team_id, skill_name=skill_name)
         .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .order_by("-created_at")
-        .values("id")[:ORPHAN_RECENT_RUNS]
+        .values_list("id", flat=True)[:ORPHAN_RECENT_RUNS]
     )
+    if not recent_run_ids:
+        return
     closed_by_inactivity = Q(
         task_run__status__in=(tasks_facade.TaskRunStatus.COMPLETED, tasks_facade.TaskRunStatus.FAILED),
         **{f"task_run__state__{tasks_facade.TIMED_OUT_INACTIVITY_STATE_KEY}": True},
     )
     stale_runs = list(
         SignalScoutRun.objects.unscoped()
-        .filter(team_id=team_id, skill_name=skill_name, id__in=recent_run_ids, task_run__created_at__lt=cutoff)
+        .filter(team_id=team_id, id__in=recent_run_ids, task_run__created_at__lt=cutoff)
         .filter(Q(task_run__status__in=active_statuses) | closed_by_inactivity)
-        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
         .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
         .select_related("task_run")
     )
@@ -1335,6 +1373,7 @@ def _create_run_row(
     trial: TrialLaunch | None = None,
     check_id: str | None = None,
     precheck_query_source: str | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
 ) -> SignalScoutRun:
     # Stamp the routed model triple (and the OpenAI queue it asked for) onto the row's `metadata`
     # so "which model ran this?" is a column read on the run API, not an analytics-event join. Keys
@@ -1399,6 +1438,10 @@ def _create_run_row(
     # grant, so absence reads as "the fleet posture".
     if granted_write_scopes := _granted_write_scopes(config):
         metadata["write_scopes"] = granted_write_scopes
+    # The tool list the run was narrowed to, stamped next to the write grant for the same reason.
+    # Omitted when the run was not narrowed, so absence reads as "every tool the scopes allow".
+    if mcp_tool_allowlist is not None:
+        metadata["allowed_mcp_tools"] = sorted(set(mcp_tool_allowlist))
     # Which tree the run was looking at, so a reader of its report can tell. Stamped rather than
     # read off the config, for the same reason as the write grant: the pin can be edited or
     # dropped afterwards, and this is the only record of what a past run actually cloned. Omitted

@@ -1,3 +1,4 @@
+import time
 import random
 from datetime import timedelta
 
@@ -5,6 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
@@ -16,6 +18,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -23,6 +26,8 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.products import Products
+from posthog.schema_enums import ProductItemCategory
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -1642,12 +1647,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthog.tasks.email.send_invite.apply_async")
     @patch("posthoganalytics.capture")
-    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture):
-        response = self.client.post(
-            self._delegate_url(),
-            {"target_email": "engineer@example.com", "message": "please help"},
-        )
+    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture, _mock_send_invite):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self._delegate_url(),
+                {"target_email": "engineer@example.com", "message": "please help"},
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
         self.assertTrue(invite.is_setup_delegation)
@@ -1658,6 +1665,14 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
         self.assertIsNotNone(self.user.onboarding_skipped_at)
         self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+        # The delegator skipped onboarding, so every released product is starred to fill the sidebar.
+        released_paths = {
+            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
+        }
+        starred_paths = set(
+            FileSystemShortcut.objects.filter(user=self.user, team=self.team).values_list("path", flat=True)
+        )
+        self.assertLessEqual(released_paths, starred_paths)
 
     def test_delegate_rejects_email_outside_enforced_verified_domain(self):
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
@@ -1748,7 +1763,15 @@ class TestOnboardingSkipAPI(APIBaseTest):
     def _skip_url(self) -> str:
         return "/api/users/@me/onboarding/skip/"
 
-    def test_skip_sets_timestamp_and_reason(self):
+    @parameterized.expand(
+        [("fresh_session", 0), ("session_older_than_sensitive_window", settings.SESSION_SENSITIVE_ACTIONS_AGE + 60)]
+    )
+    def test_skip_sets_timestamp_and_reason(self, _name: str, session_age_seconds: int):
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - session_age_seconds
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time() - session_age_seconds
+        session.save()
+
         response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.user.refresh_from_db()
@@ -1765,6 +1788,23 @@ class TestOnboardingSkipAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
         self.assertEqual(self.user.onboarding_skipped_at, first_ts)
+
+    @patch("posthog.api.user.posthoganalytics.capture")
+    def test_skip_captures_one_event_with_flow_variant(self, mock_capture):
+        for _ in range(2):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._skip_url(), {"reason": "later", "step_at_skip": "mcp", "flow_variant": "simple"}
+                )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        skip_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "onboarding skipped"]
+        self.assertEqual(
+            [c.kwargs["properties"] for c in skip_calls],
+            [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
+        )
+        self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
+        self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))
 
     def test_skip_rejects_invalid_reason(self):
         response = self.client.post(self._skip_url(), {"reason": "nope"})

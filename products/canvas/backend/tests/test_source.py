@@ -123,6 +123,22 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "action_not_registered",
             ),
             (
+                "undeclared_tool_call",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.tools.call("feature-flag-enable", { id: 1 });'}),
+                "capability_missing_tool",
+            ),
+            (
+                # Only allowlisted tools may be declared, so a canvas cannot reach a bulk delete.
+                "disallowed_declared_tool",
+                project(
+                    capabilities={
+                        "posthog": {"tools": ["feature-flags-bulk-delete-create"]},
+                        "network": {"origins": []},
+                    }
+                ),
+                "tool_not_allowed",
+            ),
+            (
                 "undeclared_connector_call",
                 project(
                     files={CANVAS_COMPONENT_PATH: CODE + 'ph.connectors.call("github", "list_pull_requests", {});'}

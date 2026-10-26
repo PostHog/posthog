@@ -38,6 +38,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -184,6 +185,11 @@ class MetricResultStore:
         """The current result of the metric that `calculation_config` describes. `current_outcomes` defines the rule."""
         return self.current_outcomes({self.experiment_id: calculation_config}).get(self.experiment_id)
 
+    def current_result(self, calculation_config: MetricCalculationConfig) -> MetricResultStats | None:
+        """The statistics of the result that `current_outcome` picks, or None when it has none or doesn't parse."""
+        stored = self._current_rows({self.experiment_id: calculation_config}).values_list("result", flat=True).first()
+        return MetricResultStats.from_stored(stored)
+
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
     ) -> ExperimentMetricResult | None:
@@ -214,9 +220,12 @@ class MetricResultStore:
         query_from: datetime,
         result: dict[str, Any],
         query_id: str | None,
-    ) -> None:
-        """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing."""
-        self._record_for_run(
+    ) -> bool:
+        """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing.
+
+        Returns whether the result was stored.
+        """
+        return self._record_for_run(
             recalculation_id,
             calculation_config,
             window=window,
@@ -328,7 +337,7 @@ class MetricResultStore:
         result: dict[str, Any] | None,
         error_message: str | None,
         query_id: str | None,
-    ) -> None:
+    ) -> bool:
         team_id = calculation_config.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
@@ -346,7 +355,7 @@ class MetricResultStore:
                     metric_uuid=calculation_config.metric_id,
                     recalculation_status=current_status,
                 )
-                return
+                return False
 
             self._upsert(
                 calculation_config.metric_id,
@@ -359,6 +368,7 @@ class MetricResultStore:
                 query_id=query_id,
                 completed_at=django_timezone.now() if status == _COMPLETED else None,
             )
+            return True
 
     def _upsert(
         self,
@@ -410,6 +420,25 @@ class MetricResultStore:
         return newest_point + _SYNC_COPY_OFFSET
 
     @staticmethod
+    def _current_rows(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> QuerySet[ExperimentMetricResult]:
+        """For each experiment, the row that `current_outcomes` describes."""
+        filed_under_config = Q()
+        for experiment_id, calculation_config in config_by_experiment.items():
+            key = calculation_config.calculation_key()
+            filed_under_config |= Q(
+                experiment_id=experiment_id,
+                metric_uuid=calculation_config.metric_id,
+                fingerprint__in=[key, _recalc_fingerprint(key)],
+            )
+        return (
+            ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
+            # Postgres LEAST skips a NULL, so a row without completed_at ranks by its query_to.
+            .alias(data_until=Least("query_to", "completed_at"))
+            .order_by("experiment_id", F("data_until").desc(), F("completed_at").desc(nulls_last=True), "-id")
+            .distinct("experiment_id")
+        )
+
+    @staticmethod
     def current_outcomes(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> dict[int, ResultSummary]:
         """For each experiment, the current result of the metric that its calculation config describes, in one query.
 
@@ -423,29 +452,14 @@ class MetricResultStore:
         """
         if not config_by_experiment:
             return {}
-        filed_under_config = Q()
-        for experiment_id, calculation_config in config_by_experiment.items():
-            key = calculation_config.calculation_key()
-            filed_under_config |= Q(
-                experiment_id=experiment_id,
-                metric_uuid=calculation_config.metric_id,
-                fingerprint__in=[key, _recalc_fingerprint(key)],
-            )
-        rows = (
-            ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
-            # Postgres LEAST skips a NULL, so a row without completed_at ranks by its query_to.
-            .alias(data_until=Least("query_to", "completed_at"))
-            .order_by("experiment_id", F("data_until").desc(), F("completed_at").desc(nulls_last=True), "-id")
-            .distinct("experiment_id")
-            .values(
-                "experiment_id",
-                "metric_uuid",
-                "completed_at",
-                "query_to",
-                baseline_samples=KT("result__baseline__number_of_samples"),
-                baseline_sum=KT("result__baseline__sum"),
-                variant_results=KeyTransform("variant_results", "result"),
-            )
+        rows = MetricResultStore._current_rows(config_by_experiment).values(
+            "experiment_id",
+            "metric_uuid",
+            "completed_at",
+            "query_to",
+            baseline_samples=KT("result__baseline__number_of_samples"),
+            baseline_sum=KT("result__baseline__sum"),
+            variant_results=KeyTransform("variant_results", "result"),
         )
         summaries: dict[int, ResultSummary] = {}
         for row in rows:

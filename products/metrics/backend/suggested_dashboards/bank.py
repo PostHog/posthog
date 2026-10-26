@@ -70,6 +70,7 @@ def sync_curated_templates() -> int:
                 "source": MetricsDashboardTemplate.Source.CURATED,
                 "status": MetricsDashboardTemplate.Status.APPROVED,
                 "panels": [panel.model_dump(mode="json") for panel in definition.panels],
+                "variables": definition.variables,
                 "metric_names": template_metric_names(definition.panels),
                 "content_hash": template.content_hash,
             }

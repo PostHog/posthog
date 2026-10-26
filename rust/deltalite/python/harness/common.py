@@ -234,6 +234,7 @@ def run_scenario(
     scenario: Scenario,
     tmp: Path | str,
     storage_options: dict[str, str] | None = None,
+    upsert_kwargs: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Apply the same batch sequence to two fresh tables via the two paths.
 
@@ -267,6 +268,7 @@ def run_scenario(
             scenario.partition_key,
             md,
             storage_options=storage_options,
+            **(upsert_kwargs or {}),
         )
 
     return uri_m, uri_u

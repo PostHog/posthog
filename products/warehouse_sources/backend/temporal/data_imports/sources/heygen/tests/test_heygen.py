@@ -16,9 +16,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.heygen.hey
 from products.warehouse_sources.backend.temporal.data_imports.sources.heygen.tests.utils import sync_items
 
 
-@pytest.mark.parametrize("terminal_token", [None, ""])
+@pytest.mark.parametrize(
+    "terminal_token,endpoint,path,filters",
+    [
+        (None, "videos", "/v3/videos", {}),
+        ("", "videos", "/v3/videos", {}),
+        (None, "lipsyncs", "/v3/lipsyncs", {}),
+        (None, "audio_voices", "/v3/models/audio/voices", {"type": ["private"]}),
+    ],
+)
 def test_cursor_pages_checkpoint_after_yield(
     terminal_token: str | None,
+    endpoint: str,
+    path: str,
+    filters: dict[str, list[str]],
     http: Mock,
     response: Callable[..., Response],
     manager: ResumableSourceManager[HeyGenResumeConfig],
@@ -28,7 +39,7 @@ def test_cursor_pages_checkpoint_after_yield(
         response({"data": [{"id": "video-first"}], "has_more": True, "next_token": "opaque+/=token"}),
         response({"data": [{"id": "video-last"}], "has_more": False, "next_token": terminal_token}),
     ]
-    pages = iter(sync_items(heygen_source("fake-key", "videos", "v3", 1, "job-test", manager)))
+    pages = iter(sync_items(heygen_source("fake-key", endpoint, "v3", 1, "job-test", manager)))
     assert next(pages) == [{"id": "video-first"}]
     manager.confirm()
     assert not manager.has_staged_state()
@@ -37,7 +48,9 @@ def test_cursor_pages_checkpoint_after_yield(
     manager.commit()
     saved = redis.set.call_args.args[1]
     assert saved == '{"cursor":"opaque+/=token"}'
-    assert parse_qs(urlsplit(http.call_args.args[0].url).query)["token"] == ["opaque+/=token"]
+    url = urlsplit(http.call_args.args[0].url)
+    assert url.path == path
+    assert parse_qs(url.query) == {"limit": ["100"], "token": ["opaque+/=token"], **filters}
     assert list(pages) == []
     redis.delete.assert_called_once()
     assert http.call_count == 2

@@ -34,6 +34,9 @@ from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
+
+NO_SEND_LOGS = True
 
 
 async def eval_create_control_variant(ctx: EvalContext) -> None:
@@ -55,7 +58,13 @@ async def eval_create_control_variant(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-create-control-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_create_control_variant::eval_create_control_variant",
+            metrics=["experiment_created_successfully"],
+        ),
         cases=cases,
         scorers=[
             # The single outcome scorer: did experiment-create return without error?

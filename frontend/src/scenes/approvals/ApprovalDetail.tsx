@@ -7,6 +7,7 @@ import { LemonTag, lemonToast } from '@posthog/lemon-ui'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -25,6 +26,7 @@ import { ApprovalDecision, ChangeRequest, ChangeRequestState } from '~/types'
 import { ApprovalLogicProps, ProposedChangesTab, approvalLogic } from './approvalLogic'
 import { ChangeRequestActions } from './ChangeRequestActions'
 import { generateDecisionAnalysis } from './decisionAnalysis'
+import { QuillChangeRequestActions } from './QuillChangeRequestActions'
 
 export const scene: SceneExport<ApprovalLogicProps> = {
     component: ApprovalDetail,
@@ -41,6 +43,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isApprovalsFeatureEnabled || changeRequestMissing) {
         return <NotFound object="change request" />
@@ -55,6 +58,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
     }
 
     const decisionAnalysis = generateDecisionAnalysis(changeRequest)
+    const ChangeRequestActionsComponent = todayRailNav ? QuillChangeRequestActions : ChangeRequestActions
 
     return (
         <SceneContent>
@@ -63,7 +67,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                 description={changeRequest.intent_display?.description}
                 resourceType={{ type: 'change_request' }}
                 actions={
-                    <ChangeRequestActions
+                    <ChangeRequestActionsComponent
                         changeRequest={changeRequest}
                         onApprove={() => approveChangeRequest()}
                         onReject={(_, reason) => {

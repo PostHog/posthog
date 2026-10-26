@@ -52,7 +52,7 @@ class AlgunaSource(ResumableSource[AlgunaSourceConfig, AlgunaResumeConfig]):
             name=ExternalDataSourceType.ALGUNA,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Alguna",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Alguna API key to automatically pull your Alguna billing data into the PostHog Data warehouse.
 
 You can create an API key in your Alguna dashboard under Settings > Credentials.

@@ -199,7 +199,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
                 {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && <ValueLabels {...valueLabelsConfig} valueFormatter={valueLabelFormatter} />}
                 {children}
             </BarChart>
         </ChartLegend>

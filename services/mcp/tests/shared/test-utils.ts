@@ -693,7 +693,7 @@ export function makeToolExecutorState(
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
+            mcpSessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
             mcpProtocolVersion: '2025-03-26',

@@ -20,7 +20,12 @@ from products.tasks.backend.facade.api import post_pr_created_thread_update, sig
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import observe_github_webhook_task_run_lookup
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
+from products.tasks.backend.pr_urls import (
+    canonical_github_pull_request_url,
+    merge_pr_output,
+    normalize_verified_pull_request_urls,
+    read_pr_urls,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -73,7 +78,11 @@ def find_task_run(
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = candidates.filter(state__verified_pr_urls__contains=[pr_url])
+        verified_url = canonical_github_pull_request_url(pr_url)
+        verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
+        if verified_url is not None:
+            verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
+        runs = candidates.filter(verified_filter)
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -307,6 +316,20 @@ def handle_pull_request_event(payload: dict) -> None:
             _cancel_wizard_run_on_close(task_run)
 
     if action == "closed" and task_run and pr_url in claimed_pr_urls:
+        from products.tasks.backend.push_dispatcher import (
+            notify_task_pull_request_outcome,  # noqa: PLC0415 — keep push imports off the webhook import path
+        )
+
+        transaction.on_commit(
+            lambda: notify_task_pull_request_outcome(
+                task_id=str(task_run.task_id),
+                run_id=str(task_run.id),
+                team_id=task_run.team_id,
+                pr_url=pr_url,
+                merged=merged,
+            ),
+            robust=True,
+        )
         _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
 
 
@@ -398,12 +421,12 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
             state = locked.state if isinstance(locked.state, dict) else {}
             existing_verified = state.get("verified_pr_urls")
-            verified_pr_urls = list(
-                dict.fromkeys([*(existing_verified if isinstance(existing_verified, list) else []), pr_url])
+            verified_pr_urls = normalize_verified_pull_request_urls(
+                [*(existing_verified if isinstance(existing_verified, list) else []), pr_url]
             )
             locked.state = {**state, "verified_pr_urls": verified_pr_urls}
             if pr_url in read_pr_urls(locked.output):
-                if not isinstance(existing_verified, list) or pr_url not in existing_verified:
+                if verified_pr_urls != existing_verified:
                     # Restart report linking when its earlier attempt ran before verification.
                     locked.save(update_fields=["state", "output", "updated_at"])
                 task_run.state = locked.state

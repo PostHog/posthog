@@ -108,6 +108,17 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         `}
                     </Markdown>
 
+                    <Markdown>
+                        {dedent`
+                            Audio output usage is captured separately from text output when Gemini reports the
+                            modality breakdown. Dedicated standard Gemini Developer API audio pricing is available
+                            for \`gemini-2.5-pro-preview-tts\` and \`gemini-3.1-flash-tts-preview\`. Other audio models,
+                            including newer TTS and Live models, need their own catalog rates or custom pricing;
+                            capturing their usage alone does not establish accurate audio pricing. Unlisted providers
+                            use the catalog's default estimate, rather than a verified provider-specific rate.
+                        `}
+                    </Markdown>
+
                     <CodeBlock
                         blocks={[
                             {

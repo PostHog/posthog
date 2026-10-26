@@ -42,6 +42,9 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     recordings_blob_ingestion_v2_ml_image_fetch = 'recordings-blob-ingestion-v2-ml-image-fetch',
     recordings_blob_ingestion_v2_ml_image_fetch_retry = 'recordings-blob-ingestion-v2-ml-image-fetch-retry',
+    ai_research_v4_image_fetch = 'ai-research-v4-image-fetch',
+    ai_research_v4_image_fetch_retry = 'ai-research-v4-image-fetch-retry',
+    ai_research_v4_parquet_sink = 'ai-research-v4-parquet-sink',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -52,6 +55,7 @@ export enum PluginServerMode {
     cdp_precalculated_filters = 'cdp-precalculated-filters',
     cdp_hogflow_subscription_matcher = 'cdp-hogflow-subscription-matcher',
     cdp_cohort_membership = 'cdp-cohort-membership',
+    cdp_cohort_membership_triggers = 'cdp-cohort-membership-triggers',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
@@ -485,6 +489,8 @@ export function getDefaultCommonConfig(): CommonConfig {
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,
+
+        HTTP_SERVER_DRAIN_TIMEOUT_MS: 0,
 
         // Pod termination
         POD_TERMINATION_ENABLED: false,

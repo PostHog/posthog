@@ -113,7 +113,7 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
     # is aggregated on the fly from $mcp_tool_call events (see logic.py); the
     # backfill that once populated session_start/_end/duration/etc. is gone.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    session_id = models.CharField(max_length=64)
+    session_id = models.CharField(max_length=128)
     intent = models.TextField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

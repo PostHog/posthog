@@ -133,6 +133,18 @@ def accessible_observations(
     return observations.filter(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=accessible))
 
 
+def can_read_observation(access: UserAccessControl, team_id: int, observation: "ReplayObservation") -> bool:
+    """`accessible_observations` for one loaded row, read off its snapshot: no query for an untargeted scan,
+    and one targeted lookup otherwise, instead of every accessible experiment in the project."""
+    snapshot = observation.scanner_snapshot or {}
+    experiment_ids = {
+        experiment_id
+        for store in ("experiment_targeting", "scanner_config")
+        if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
+    }
+    return not experiment_ids or bool(_accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
+
+
 def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) -> list[uuid.UUID]:
     """Scanner ids whose observations the caller may read across scanners, experiment access included.
 

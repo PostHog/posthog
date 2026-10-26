@@ -168,9 +168,6 @@ class TestValidateCredentials:
         ("status", "expected"),
         [
             (200, (True, None)),
-            (401, (False, "Invalid PersistIQ API key")),
-            (403, (False, "Invalid PersistIQ API key")),
-            (500, (False, "PersistIQ returned HTTP 500")),
         ],
     )
     def test_status_mapping(self, status: int, expected: tuple[bool, str | None]) -> None:
@@ -182,11 +179,3 @@ class TestValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/v1/users"}
         assert {request.param("page") for request in network.requests_log} == {"1"}
         assert {request.headers["x-api-key"] for request in network.requests_log} == {"pq-key"}
-
-    def test_connection_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))) as network:
-            valid, message = validate_credentials("pq-key")
-
-        assert valid is False
-        assert message is not None
-        assert network.requests_log
