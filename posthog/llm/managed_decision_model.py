@@ -53,7 +53,9 @@ def get_app_prompt(prompt_name: str, *, version: int | None = None) -> PromptRes
     """The `production` version, or `version` when given. None without a personal API key."""
     if not prompt_key_configured():
         if version is not None:
-            raise RuntimeError(f"Reading {prompt_name} version {version} needs POSTHOG_PERSONAL_API_KEY")
+            raise RuntimeError(
+                f"Reading {prompt_name} version {version} needs a personal API key (phx_) in POSTHOG_PERSONAL_API_KEY"
+            )
         return None
     label = PROMPT_LABEL if version is None else None
     return app_prompts().get(prompt_name, with_metadata=True, label=label, version=version)

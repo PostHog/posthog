@@ -109,7 +109,9 @@ class TestManagedDecisionModel(SimpleTestCase):
 
         with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", key):
             managed._refresher._refresh()
-            with self.assertRaisesRegex(RuntimeError, "version 3 needs POSTHOG_PERSONAL_API_KEY"):
+            with self.assertRaisesRegex(
+                RuntimeError, r"version 3 needs a personal API key \(phx_\) in POSTHOG_PERSONAL_API_KEY"
+            ):
                 managed.fetch(version=3)
 
         assert managed.current() == DEFAULT_DECISION_MODEL
