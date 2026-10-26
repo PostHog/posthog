@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -13,7 +15,7 @@ MODIFIED_AT_INCREMENTAL_FIELD: IncrementalField = {
 }
 
 
-@dataclass
+@frozen
 class OnepagecrmEndpointConfig:
     name: str
     path: str
