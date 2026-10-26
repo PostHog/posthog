@@ -3825,9 +3825,30 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
+            - name: Check for snapshot changes
+              id: snapshot-changes
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+              # The three snapshot steps below cost seconds on every shard, so they run only
+              # when this one walk finds work for them: an untracked .ambr file for the
+              # flakiness check, or a tracked change in this leg's patch scope.
+              run: |
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
+                  if [[ -n "$(git ls-files --others --exclude-standard -- '*.ambr')" ]] || ! git diff --quiet -- "${ambr_pathspec[@]}"; then
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "No snapshot changes"
+                  fi
+
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-changes.outputs.changed == 'true' }}
               shell: bash
               # The reruns must write the same schema mode's snapshot file as the main
               # run, or the new-schema file removed before each rerun never comes back.
@@ -3839,7 +3860,7 @@ jobs:
 
             - name: Generate snapshot patch
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-changes.outputs.changed == 'true' }}
               shell: bash
               env:
                   NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
@@ -3866,7 +3887,7 @@ jobs:
 
             - name: Upload snapshot patch
               # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-changes.outputs.changed == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
