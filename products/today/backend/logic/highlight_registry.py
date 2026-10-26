@@ -1,5 +1,7 @@
+from collections.abc import Mapping
 from functools import cache
 
+from posthog.dataclasses import frozen
 from posthog.products import load_product_modules
 
 from ..facade.contracts import HighlightSource
@@ -12,8 +14,19 @@ class HighlightRegistryError(Exception):
     pass
 
 
+@frozen
+class HighlightRegistry:
+    sources: tuple[HighlightSource, ...]
+    products: Mapping[str, str]
+
+
+def _product(module_name: str) -> str:
+    # Product apps are named `products.<product>.backend`.
+    return module_name.split(".")[1]
+
+
 @cache
-def load_sources() -> tuple[HighlightSource, ...]:
+def load_registry() -> HighlightRegistry:
     """Every source that a product declares in `backend/facade/today_highlights.py`, sorted by name.
 
     Today imports no product by name, so the dependency points from the product to Today's facade.
@@ -36,4 +49,16 @@ def load_sources() -> tuple[HighlightSource, ...]:
                 )
             sources[source.name] = source
             owners[source.name] = module.__name__
-    return tuple(sources[name] for name in sorted(sources))
+    return HighlightRegistry(
+        sources=tuple(sources[name] for name in sorted(sources)),
+        products={name: _product(module_name) for name, module_name in owners.items()},
+    )
+
+
+def load_sources() -> tuple[HighlightSource, ...]:
+    return load_registry().sources
+
+
+def source_product(name: str) -> str | None:
+    """None for a name that no product declares, such as a source removed after a result was stored."""
+    return load_registry().products.get(name)

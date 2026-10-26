@@ -422,6 +422,9 @@ class HighlightItemSerializer(DataclassSerializer):
         dataclass = HighlightItem
         extra_kwargs = {
             "source": {"help_text": "Name of the highlight source that found the item, for example alerts."},
+            "product": {
+                "help_text": "Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more."
+            },
         }
 
 
