@@ -231,6 +231,7 @@ MIDDLEWARE = [
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
+    "posthog.middleware.NewEventsSchemaCookieMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -849,6 +850,7 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
+            "MetricsTableWidgetTypeEnum": ["metrics_table"],
         }
     ),
 }

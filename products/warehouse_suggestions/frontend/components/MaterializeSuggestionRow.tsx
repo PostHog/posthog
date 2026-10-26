@@ -1,17 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import { dataAgeLabel, isMaterializePayload, materializeSaving, readSummary, savingHighlight } from '../suggestionCopy'
+import { isMaterializePayload, materializeSaving, readSummary, savingHighlight } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { DataAgeMeta } from './DataAgeMeta'
-import { DismissSuggestionMenu } from './DismissSuggestionMenu'
+import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
+import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view'
@@ -43,15 +42,7 @@ export function MaterializeSuggestionRow({
             suggestionId={suggestion.id}
             leaving={leaving}
             icon={iconForType('data_modeling')}
-            title={
-                <Link
-                    to={urls.sqlEditor({ view_id: suggestion.subject_id })}
-                    subtle
-                    className="block min-w-0 truncate text-sm font-semibold"
-                >
-                    {payload.subject_name}
-                </Link>
-            }
+            title={<SuggestionSubjectLink suggestion={suggestion} />}
             meta={[
                 <WhyThisSuggestion
                     key="reads"
@@ -59,10 +50,6 @@ export function MaterializeSuggestionRow({
                     windowDays={windowDays}
                     label={readSummary(suggestion.evidence)}
                 />,
-                <DataAgeMeta key="age" age={dataAgeLabel(payload, payload.refresh_interval_seconds)} />,
-                ...(payload.refresh_mode === 'incremental'
-                    ? [<span key="mode">{`Incremental by ${payload.incremental_key ?? 'new rows'}`}</span>]
-                    : []),
             ]}
             highlight={savingHighlight(materializeSaving(payload))}
             actions={
@@ -70,13 +57,13 @@ export function MaterializeSuggestionRow({
                     <LemonButton
                         size="small"
                         type="secondary"
+                        icon={<IconCheck />}
+                        tooltip="Materialize"
                         disabledReason={blockedReason}
                         onClick={() => openMaterializeModal(suggestion.id)}
                         data-attr="warehouse-suggestions-materialize"
-                    >
-                        Materialize
-                    </LemonButton>
-                    <DismissSuggestionMenu
+                    />
+                    <DismissSuggestionButtons
                         suggestionId={suggestion.id}
                         kind={suggestion.kind}
                         disabledReason={blockedReason}

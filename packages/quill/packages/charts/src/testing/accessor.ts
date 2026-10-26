@@ -1,4 +1,4 @@
-// DOM-based inspector for hog-charts. Reads what the chart rendered so tests
+// DOM-based inspector for quill-charts. Reads what the chart rendered so tests
 // can assert on overlays (value labels, reference lines, axis ticks) and the
 // reported series count without poking at the canvas.
 //
@@ -11,7 +11,7 @@ import { act, fireEvent } from '@testing-library/react'
 import type { TooltipContext } from '../core/types'
 import { dragSelection } from './interactions'
 import { clientForIndex } from './jsdom'
-import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
+import { type ChartTooltipAccessor, waitForChartTooltip } from './tooltip'
 
 /** A single entry of `TooltipContext.seriesData`. */
 type TooltipSeriesEntry<Meta = unknown> = TooltipContext<Meta>['seriesData'][number]
@@ -20,7 +20,7 @@ type TooltipSeriesEntry<Meta = unknown> = TooltipContext<Meta>['seriesData'][num
  *  plus the rendered portal `element`, an `isPinned` snapshot, and `series` (seriesData indexed
  *  by series key, for order-independent lookups like `tooltip.series.a.value`). */
 export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> &
-    HogChartTooltip & {
+    ChartTooltipAccessor & {
         series: Record<string, TooltipSeriesEntry<Meta>>
     }
 
@@ -61,7 +61,7 @@ interface LegendItemSummary {
     secondaryLabel: string | null
 }
 
-export interface HogChart<Meta = unknown> {
+export interface ChartAccessor<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
     /** The static (data) canvas, as opposed to the `aria-hidden` hover overlay. */
@@ -106,7 +106,7 @@ export interface HogChart<Meta = unknown> {
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
-     *  rendered via `renderHogChart` (it reads label count from `ui.props.labels`); the
+     *  rendered via `renderChart` (it reads label count from `ui.props.labels`); the
      *  module-level `hoverAtIndex(wrapper, index, totalLabels)` is the explicit alternative. */
     hoverAtIndex(index: number): void
     /** Hover at the index, wait for the tooltip to settle, then click. Mirrors the
@@ -115,12 +115,12 @@ export interface HogChart<Meta = unknown> {
     dragSelection(fromIndex: number, toIndex: number): void
     /** Wait for the tooltip to mount, then return a snapshot — every `TooltipContext` field
      *  plus the rendered portal element and an `isPinned` getter. Only available when the
-     *  chart was rendered via `renderHogChart`; throws otherwise. */
+     *  chart was rendered via `renderChart`; throws otherwise. */
     waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>>
 }
 
-export interface GetHogChartOptions<Meta = unknown> {
-    /** Returns the most recent `TooltipContext` the chart computed (set up by `renderHogChart`'s
+export interface GetChartOptions<Meta = unknown> {
+    /** Returns the most recent `TooltipContext` the chart computed (set up by `renderChart`'s
      *  capturing tooltip wrapper). When omitted, `chart.waitForTooltip()` throws. */
     getLastTooltipContext?: () => TooltipContext<Meta> | null
     /** Total label count for `chart.hoverAtIndex` / `chart.clickAtIndex`. When omitted, those
@@ -166,19 +166,19 @@ function readReferenceLine(el: HTMLElement): ReferenceLineSummary {
     return { color, orientation, position, label }
 }
 
-export function getHogChart<Meta = unknown>(
+export function getChart<Meta = unknown>(
     scope: HTMLElement = document.body,
-    options: GetHogChartOptions<Meta> = {}
-): HogChart<Meta> {
+    options: GetChartOptions<Meta> = {}
+): ChartAccessor<Meta> {
     const canvas = findCanvas(scope)
     if (!canvas) {
-        throw new Error('No hog-chart canvas found in scope')
+        throw new Error('No quill-charts canvas found in scope')
     }
     // The chart wrapper is the canvas's parent — overlays render as siblings
     // of the canvas inside that wrapper.
     const wrapper = canvas.parentElement
     if (!wrapper) {
-        throw new Error('hog-chart canvas has no parent wrapper')
+        throw new Error('quill-charts canvas has no parent wrapper')
     }
 
     const ariaLabel = canvas.getAttribute('aria-label') ?? ''
@@ -263,32 +263,32 @@ export function getHogChart<Meta = unknown>(
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
-                throw new Error('chart.hoverAtIndex requires renderHogChart (which captures labels.length)')
+                throw new Error('chart.hoverAtIndex requires renderChart (which captures labels.length)')
             }
             fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
         },
         async clickAtIndex(index: number): Promise<void> {
             if (totalLabels === undefined) {
-                throw new Error('chart.clickAtIndex requires renderHogChart (which captures labels.length)')
+                throw new Error('chart.clickAtIndex requires renderChart (which captures labels.length)')
             }
             fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
             // Wait for the hover state to flush — the click handler reads live tooltipCtx
             // synchronously to choose between pinning and onPointClick.
-            await waitForHogChartTooltip()
+            await waitForChartTooltip()
             fireEvent.click(wrapper)
         },
         dragSelection(fromIndex: number, toIndex: number): void {
             if (totalLabels === undefined) {
-                throw new Error('chart.dragSelection requires renderHogChart (which captures labels.length)')
+                throw new Error('chart.dragSelection requires renderChart (which captures labels.length)')
             }
             dragSelection(wrapper, fromIndex, toIndex, totalLabels)
         },
         async waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>> {
-            const element = await waitForHogChartTooltip(timeout)
+            const element = await waitForChartTooltip(timeout)
             const ctx = getLastTooltipContext?.() ?? null
             if (!ctx) {
                 throw new Error(
-                    'TooltipContext not captured. Render via renderHogChart to enable tooltip context capture.'
+                    'TooltipContext not captured. Render via renderChart to enable tooltip context capture.'
                 )
             }
             return {

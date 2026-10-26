@@ -152,7 +152,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
-    /** The served ranking model's score. Null for users outside staff and the model sort flag, and for unscored reports. Raw scores and model metadata are staff only. */
+    /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
     /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
@@ -164,6 +164,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
