@@ -97,7 +97,11 @@ class TestAlertmanagerBody(SimpleTestCase):
             platform_headline="API errors is firing",
             details=(MessageDetail(label="Value", value="312"),),
             labels={"service": "checkout", "severity": "critical", "alertname": "spoofed"},
-            annotations={"summary": "checkout errors over limit", "runbook_url": "https://runbooks.example.com/api"},
+            annotations={
+                "summary": "checkout errors over limit",
+                "runbook_url": "https://runbooks.example.com/api",
+                "value": "spoofed",
+            },
         )
 
         alert = alertmanager_body(message)["alerts"][0]

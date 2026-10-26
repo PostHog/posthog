@@ -46,12 +46,15 @@ def _annotations(message: AlertMessage) -> dict[str, str]:
     annotations = {"summary": platform["posthog_summary"]}
     if "posthog_description" in platform:
         annotations["description"] = platform["posthog_description"]
+    facts: dict[str, str] = {}
     if message.transition.value is not None:
-        annotations["value"] = f"{message.transition.value:g}"
+        facts["value"] = f"{message.transition.value:g}"
     if message.transition.error_message:
-        annotations["error"] = message.transition.error_message
-    # No rule can set the reserved prefix, so the platform's own text always survives the merge.
-    return {**annotations, **message.annotations, **platform}
+        facts["error"] = message.transition.error_message
+    # A rule may replace the summary and the description, but not the value the check measured or
+    # the error that stopped it. No rule can set the reserved prefix, so the platform's own text
+    # always survives the merge.
+    return {**annotations, **message.annotations, **facts, **platform}
 
 
 def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
