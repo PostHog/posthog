@@ -34,8 +34,8 @@ def test_aws_errors_have_actionable_validation_and_sync_messages(code: str, hint
     response = requests.Response()
     response.status_code = 400
     response._content = json.dumps({"__type": f"com.amazonaws.sagemaker#{code}"}).encode()
-    config = AwsSagemakerSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="fake-secret", region="us-east-1"
+    config = AwsSagemakerSourceConfig.from_dict(
+        {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "fake-secret", "region": "us-east-1"}
     )
     source = AwsSagemakerSource()
     with scripted_network(

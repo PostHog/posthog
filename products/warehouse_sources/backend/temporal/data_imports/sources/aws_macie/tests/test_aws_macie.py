@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.aws_macie import (
     AwsMacieClient,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsmacie import (
     AwsMacieSourceConfig,
 )
+
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-token")
 
 
 class MemoryResumeManager(ResumableSourceManager[AwsMacieResumeConfig]):
@@ -60,11 +63,13 @@ def response(body: object, status: int = 200, headers: dict[str, str] | None = N
 
 @pytest.fixture
 def config() -> AwsMacieSourceConfig:
-    return AwsMacieSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token="example-token",
-        region="eu-west-1",
+    return AwsMacieSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-token",
+            "region": "eu-west-1",
+        }
     )
 
 
@@ -96,7 +101,7 @@ def test_signed_rest_requests(
     config: AwsMacieSourceConfig, operation: str, payload: dict[str, Any], method: str, path: str
 ) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        client = AwsMacieClient(config)
+        client = AwsMacieClient(config, CREDENTIALS)
         client.request(operation, payload)
         client.close()
     request = network.requests_log[0]
@@ -119,7 +124,7 @@ def test_signed_rest_requests(
 
 def test_signed_rest_requests_do_not_follow_redirects(config: AwsMacieSourceConfig) -> None:
     with scripted_network([ScriptedResponse(status=302, headers={"Location": "/redirect"})]) as network:
-        client = AwsMacieClient(config)
+        client = AwsMacieClient(config, CREDENTIALS)
         with pytest.raises(AwsMacieError, match="HTTP 302"):
             client.request("ListFindings", {"maxResults": 50})
         client.close()
@@ -335,7 +340,7 @@ def test_failed_hydration_does_not_advance_resume_state(config: AwsMacieSourceCo
         response({"message": "Try again."}, 500, {"x-amzn-ErrorType": "InternalServerException"}),
     ]
     with pytest.raises(AwsMacieError, match="InternalServerException"):
-        list(cast(Iterable[Any], aws_macie_source(config, "findings", manager).items()))
+        list(cast(Iterable[Any], aws_macie_source(config, CREDENTIALS, "findings", manager).items()))
     assert manager.saved == []
     session.close.assert_called_once()
 
@@ -378,7 +383,7 @@ def test_access_denied_at_create_and_table_selection(
             )
         ]
     ) as network:
-        valid, message = validate_credentials(config, schema_name)
+        valid, message = validate_credentials(config, CREDENTIALS, schema_name)
     assert valid is expected
     assert message is None if expected else "macie2:ListFindings" in (message or "")
     assert len(network.requests_log) == 1
@@ -403,7 +408,7 @@ def test_bucket_profile_permission_probe(
     config: AwsMacieSourceConfig, schema_name: str, child: ScriptedResponse, expected: bool
 ) -> None:
     with scripted_network([ScriptedResponse(json={"buckets": [{"bucketArn": BUCKET_A}]}), child]) as network:
-        valid, _ = validate_credentials(config, schema_name)
+        valid, _ = validate_credentials(config, CREDENTIALS, schema_name)
     assert valid is expected
     assert network.requests_log[1].query == {"resourceArn": (BUCKET_A,)}
 
@@ -418,7 +423,7 @@ def test_findings_permission_probe_reads_details(config: AwsMacieSourceConfig) -
             ),
         ]
     ) as network:
-        valid, message = validate_credentials(config, "findings")
+        valid, message = validate_credentials(config, CREDENTIALS, "findings")
     assert not valid and "macie2:GetFindings" in (message or "")
     assert network.requests_log[-1].path == "/findings/describe"
 
@@ -428,7 +433,7 @@ def test_transient_errors_report_an_unreachable_vendor(config: AwsMacieSourceCon
     with scripted_network(
         always(ScriptedResponse(json={"message": "Try again."}, status=status, headers={"x-amzn-ErrorType": code}))
     ) as network:
-        assert validate_credentials(config) == (
+        assert validate_credentials(config, CREDENTIALS) == (
             False,
             "Couldn't reach AWS Macie to check your credentials. Try again in a few minutes.",
         )
@@ -440,24 +445,27 @@ def test_transient_errors_report_an_unreachable_vendor(config: AwsMacieSourceCon
 def test_invalid_region_never_sends_credentials(config: AwsMacieSourceConfig, region: str) -> None:
     config.region = region
     with scripted_network([]) as network:
-        valid, message = validate_credentials(config)
+        valid, message = validate_credentials(config, CREDENTIALS)
     assert not valid and "region" in (message or "")
     assert network.requests_log == []
 
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials(config: AwsMacieSourceConfig, field: str) -> None:
-    setattr(config, field, "")
+    setattr(config.aws_auth, field, "")
     with scripted_network([]) as network:
-        assert validate_credentials(config) == (False, "Enter both an AWS access key ID and a secret access key.")
+        assert AwsMacieSource().validate_credentials(config, team_id=1) == (
+            False,
+            "Enter both an AWS access key ID and a secret access key.",
+        )
     assert network.requests_log == []
 
 
 def test_unknown_table_and_version(config: AwsMacieSourceConfig, driver: SourceDriver) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config, "unknown")[0] is False
+        assert validate_credentials(config, CREDENTIALS, "unknown")[0] is False
         with pytest.raises(ValueError, match="Unsupported AWS Macie API version"):
-            AwsMacieClient(config, api_version="2017-11-28")
+            AwsMacieClient(config, CREDENTIALS, api_version="2017-11-28")
     result = driver.run("unknown", [])
     assert isinstance(result.raised, ValueError)
     assert "Unknown AWS Macie table" in str(result.raised)
@@ -470,9 +478,8 @@ def test_create_probe_and_permanent_credentials(
     config: AwsMacieSourceConfig, session: Mock, region: str, suffix: str
 ) -> None:
     config.region = region
-    config.aws_session_token = None
     session.request.return_value = response({"findingIds": ["finding-1"]})
-    assert validate_credentials(config) == (True, None)
+    assert validate_credentials(config, Credentials("AKIAEXAMPLE", "example-secret")) == (True, None)
     session.request.assert_called_once()
     args, kwargs = session.request.call_args
     assert args[1] == f"https://macie2.{region}.{suffix}/findings"
@@ -483,7 +490,7 @@ def test_create_probe_and_permanent_credentials(
 
 def test_tracked_transport_retries_reads_and_redacts_credentials(config: AwsMacieSourceConfig) -> None:
     with scripted_network([]) as network:
-        AwsMacieClient(config)
+        AwsMacieClient(config, CREDENTIALS)
     options = network.session_options[0]
     assert set(options["redact_values"]) == {"AKIAEXAMPLE", "example-secret", "example-token"}
     retry = options["retry"]

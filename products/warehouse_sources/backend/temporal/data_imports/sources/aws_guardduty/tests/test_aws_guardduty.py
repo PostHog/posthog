@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardduty.aws_guardduty import (
     AwsGuarddutyClient,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsGuarddutySourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-session-token")
+
 VERSION = "2017-11-28"
 UPDATED_AT = dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
 
@@ -44,11 +47,13 @@ def response(
 
 @pytest.fixture
 def config() -> AwsGuarddutySourceConfig:
-    return AwsGuarddutySourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token="example-session-token",
-        aws_region="us-east-1",
+    return AwsGuarddutySourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-session-token",
+            "aws_region": "us-east-1",
+        }
     )
 
 
@@ -326,7 +331,7 @@ def test_only_body_throttles_get_application_retries(
     error = ScriptedResponse(status=status, json={"code": code})
     script = [error, ScriptedResponse(json={"detectorIds": []})] if attempts == 2 else always(error)
     with scripted_network(script) as network:
-        client = AwsGuarddutyClient(config, VERSION)
+        client = AwsGuarddutyClient(config, CREDENTIALS, VERSION)
         if attempts == 1:
             with pytest.raises(AwsGuarddutyError):
                 client.request("ListDetectors", {})
@@ -343,7 +348,7 @@ def test_only_body_throttles_get_application_retries(
 def test_permission_denial_only_accepted_at_create(config: AwsGuarddutySourceConfig, schema_name: str | None) -> None:
     denied = ScriptedResponse(status=403, json={"__type": "AccessDeniedException", "message": "Access denied"})
     with scripted_network([denied]) as network:
-        valid, message = validate_credentials(config, VERSION, schema_name)
+        valid, message = validate_credentials(config, CREDENTIALS, VERSION, schema_name)
     assert valid is (schema_name is None)
     if schema_name:
         assert message and "guardduty:ListDetectors" in message
@@ -363,7 +368,7 @@ def test_permission_denial_only_accepted_at_create(config: AwsGuarddutySourceCon
 )
 def test_invalid_credentials_rejected(config: AwsGuarddutySourceConfig, code: str) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code})]):
-        valid, message = validate_credentials(config, VERSION)
+        valid, message = validate_credentials(config, CREDENTIALS, VERSION)
     assert not valid and message
     assert "AWS GuardDuty request failed" not in message
 
@@ -371,7 +376,7 @@ def test_invalid_credentials_rejected(config: AwsGuarddutySourceConfig, code: st
 @pytest.mark.parametrize("schema_name", [None, "findings", "detectors", "members"])
 def test_no_detector_validation(config: AwsGuarddutySourceConfig, schema_name: str | None) -> None:
     with scripted_network([ScriptedResponse(json={"detectorIds": []})]):
-        valid, message = validate_credentials(config, VERSION, schema_name)
+        valid, message = validate_credentials(config, CREDENTIALS, VERSION, schema_name)
     assert valid is (schema_name is None)
     assert (
         message is None
@@ -397,7 +402,7 @@ def test_endpoint_validation_calls_its_read_operation(
     with scripted_network(
         [ScriptedResponse(json={"detectorIds": ["detector-example"]}), ScriptedResponse(json={})]
     ) as network:
-        assert validate_credentials(config, VERSION, schema_name) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, VERSION, schema_name) == (True, None)
     assert network.requests_log[-1].path.endswith(path)
 
 
@@ -409,14 +414,14 @@ def test_findings_validation_checks_hydration_permission(config: AwsGuarddutySou
             ScriptedResponse(status=403, json={"code": "AccessDeniedException"}),
         ]
     ) as network:
-        valid, message = validate_credentials(config, VERSION, "findings")
+        valid, message = validate_credentials(config, CREDENTIALS, VERSION, "findings")
     assert not valid and message and "guardduty:GetFindings" in message
     assert network.requests_log[-1].path.endswith("/findings/get")
 
 
 def test_server_errors_report_an_unreachable_vendor(config: AwsGuarddutySourceConfig) -> None:
     with scripted_network(always(ScriptedResponse(status=500, json={"__type": "InternalServerErrorException"}))):
-        assert validate_credentials(config, VERSION) == (
+        assert validate_credentials(config, CREDENTIALS, VERSION) == (
             False,
             "Couldn't reach AWS GuardDuty to check your credentials. Try again in a few minutes.",
         )
@@ -434,17 +439,20 @@ def test_server_errors_report_an_unreachable_vendor(config: AwsGuarddutySourceCo
 def test_invalid_configuration_never_sends_request(
     config: AwsGuarddutySourceConfig, field_name: str, value: str, message: str
 ) -> None:
-    setattr(config, field_name, value)
+    setattr(config.aws_auth if hasattr(config.aws_auth, field_name) else config, field_name, value)
     with scripted_network([]) as network:
-        valid, error = validate_credentials(config, VERSION)
+        valid, error = AwsGuarddutySource().validate_credentials(config, team_id=1, api_version=VERSION)
     assert not valid and error and message in error
     assert network.requests_log == []
 
 
 def test_unknown_version_and_table(config: AwsGuarddutySourceConfig) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config, "2099-01-01")[0] is False
-        assert validate_credentials(config, VERSION, "unknown") == (False, "Unknown GuardDuty table: unknown")
+        assert validate_credentials(config, CREDENTIALS, "2099-01-01")[0] is False
+        assert validate_credentials(config, CREDENTIALS, VERSION, "unknown") == (
+            False,
+            "Unknown GuardDuty table: unknown",
+        )
         result = SourceDriver(AwsGuarddutySource(), config).run("unknown", [], api_version=VERSION)
     assert isinstance(result.raised, UnknownResourceError)
     assert network.requests_log == []

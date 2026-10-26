@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.aws_step_functions import (
     AwsStepFunctionsClient,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsStepFunctionsSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret")
+
 SM1 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-one"
 SM2 = "arn:aws:states:us-east-1:123456789012:stateMachine:example-two"
 EXPRESS = "arn:aws:states:us-east-1:123456789012:stateMachine:example-express"
@@ -43,8 +46,8 @@ DELETED_MAP_RUN = "arn:aws:states:us-east-1:123456789012:mapRun:example-two/map:
 
 @pytest.fixture
 def config() -> AwsStepFunctionsSourceConfig:
-    return AwsStepFunctionsSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret", region="us-east-1"
+    return AwsStepFunctionsSourceConfig.from_dict(
+        {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "example-secret", "region": "us-east-1"}
     )
 
 
@@ -82,9 +85,8 @@ def source_items(source: SourceResponse) -> Generator[list[dict[str, Any]]]:
 @pytest.mark.parametrize("token", [None, "example-session-token"])
 def test_signed_request(config: AwsStepFunctionsSourceConfig, region: str, suffix: str, token: str | None) -> None:
     config.region = region
-    config.aws_session_token = token
     with scripted_network([ScriptedResponse(json={"stateMachines": []})]) as network:
-        client = AwsStepFunctionsClient(config, API_VERSION)
+        client = AwsStepFunctionsClient(config, Credentials("AKIAEXAMPLE", "example-secret", token), API_VERSION)
         assert client.request("ListStateMachines", {"maxResults": 1}) == {"stateMachines": []}
         client.close()
     request = network.requests_log[0]
@@ -240,7 +242,7 @@ def test_full_refresh_pagination_and_resume_at_every_batch(
 ) -> None:
     install_pages(session)
     initial_manager = manager()
-    source = aws_step_functions_source(config, endpoint, API_VERSION, initial_manager)
+    source = aws_step_functions_source(config, CREDENTIALS, endpoint, API_VERSION, initial_manager)
     expected = [row for batch in source_items(source) for row in batch]
     assert len(expected) == count
     assert source.primary_keys is not None
@@ -268,14 +270,18 @@ def test_full_refresh_pagination_and_resume_at_every_batch(
         assert expected[0]["item_counts"] == {"failed": 1, "total": 3}
     if endpoint == "map_run_executions":
         assert {row["map_run_arn"] for row in expected} == {MAP_RUNS[0]}
-    batch_count = len(list(source_items(aws_step_functions_source(config, endpoint, API_VERSION, manager()))))
+    batch_count = len(
+        list(source_items(aws_step_functions_source(config, CREDENTIALS, endpoint, API_VERSION, manager())))
+    )
     for stop_after in range(1, batch_count + 1):
         interrupted_manager = manager()
-        iterator = source_items(aws_step_functions_source(config, endpoint, API_VERSION, interrupted_manager))
+        iterator = source_items(
+            aws_step_functions_source(config, CREDENTIALS, endpoint, API_VERSION, interrupted_manager)
+        )
         prefix = [row for _ in range(stop_after) for row in next(iterator)]
         state = interrupted_manager.save_state.call_args.args[0]
         iterator.close()
-        resumed = aws_step_functions_source(config, endpoint, API_VERSION, manager(state))
+        resumed = aws_step_functions_source(config, CREDENTIALS, endpoint, API_VERSION, manager(state))
         assert prefix + [row for batch in source_items(resumed) for row in batch] == expected
     session.close.assert_called()
 
@@ -300,7 +306,7 @@ def test_credentials_error_mapping(
     session.post.return_value = response(
         400, {"__type": f"com.amazonaws.states#{code}", "message": "Example AWS error"}
     )
-    valid, message = validate_credentials(config, schema_name, API_VERSION)
+    valid, message = validate_credentials(config, CREDENTIALS, schema_name, API_VERSION)
     assert valid is (schema_name is None and valid_at_create)
     if valid:
         assert message is None
@@ -330,7 +336,7 @@ def test_transport_errors(
     code: str,
 ) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json=body, headers=headers))) as network:
-        client = AwsStepFunctionsClient(config, API_VERSION)
+        client = AwsStepFunctionsClient(config, CREDENTIALS, API_VERSION)
         with pytest.raises(AwsStepFunctionsError) as error:
             client.request("ListStateMachines", {})
         client.close()
@@ -348,7 +354,7 @@ def test_body_throttle_retries_with_a_new_signature(config: AwsStepFunctionsSour
             ScriptedResponse(json={"stateMachines": []}),
         ]
     ) as network:
-        client = AwsStepFunctionsClient(config, API_VERSION)
+        client = AwsStepFunctionsClient(config, CREDENTIALS, API_VERSION)
         result = client.request("ListStateMachines", {})
         client.close()
     assert result == {"stateMachines": []}
@@ -362,7 +368,7 @@ def test_validation_reports_an_unreachable_vendor_for_server_errors(
     config: AwsStepFunctionsSourceConfig, session: MagicMock, code: str
 ) -> None:
     session.post.return_value = response(500, {"__type": code})
-    assert validate_credentials(config, None, API_VERSION) == (
+    assert validate_credentials(config, CREDENTIALS, None, API_VERSION) == (
         False,
         "Couldn't reach AWS Step Functions to check your credentials. Try again in a few minutes.",
     )
@@ -374,16 +380,16 @@ def test_validation_reports_an_unreachable_vendor_for_server_errors(
     [
         ("region", "us-east-1.example.com", "AWS region"),
         ("region", "", "AWS region"),
-        ("aws_access_key_id", "", "access key ID"),
-        ("aws_secret_access_key", "", "secret access key"),
+        ("aws_access_key_id", "", "Enter both"),
+        ("aws_secret_access_key", "", "Enter both"),
     ],
 )
 def test_invalid_config_does_not_send_credentials(
     config: AwsStepFunctionsSourceConfig, field: str, value: str, message: str
 ) -> None:
-    setattr(config, field, value)
+    setattr(config.aws_auth if hasattr(config.aws_auth, field) else config, field, value)
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config, None, API_VERSION)
+        valid, reason = AwsStepFunctionsSource().validate_credentials(config, team_id=1, api_version=API_VERSION)
     assert not valid
     assert reason is not None and message in reason
     assert network.requests_log == []
@@ -462,7 +468,7 @@ def test_permission_probe_walks_to_the_table_operation(
         "nextToken": "m2",
     }
     with scripted_network([ScriptedResponse(json=body) for body in [machines, *answers]]) as network:
-        assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema_name, API_VERSION) == (True, None)
     calls = network.requests_log
     assert len(calls) == len(answers) + 1
     assert (calls[-1].headers["x-amz-target"].split(".")[-1], calls[-1].json()) == last_call
@@ -470,7 +476,7 @@ def test_permission_probe_walks_to_the_table_operation(
 
 def test_activities_probe_skips_state_machines(config: AwsStepFunctionsSourceConfig) -> None:
     with scripted_network([ScriptedResponse(json={"activities": []})]) as network:
-        assert validate_credentials(config, "activities", API_VERSION) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, "activities", API_VERSION) == (True, None)
     assert [request.headers["x-amz-target"] for request in network.requests_log] == ["AWSStepFunctions.ListActivities"]
 
 
@@ -484,14 +490,14 @@ def test_probe_handles_empty_and_express_only_accounts(config: AwsStepFunctionsS
             ScriptedResponse(json={"stateMachines": []}),
         ]
     ) as network:
-        assert validate_credentials(config, schema_name, API_VERSION) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema_name, API_VERSION) == (True, None)
     assert len(network.requests_log) == 2
     assert [request.json().get("nextToken") for request in network.requests_log] == [None, "next"]
 
 
 def test_unknown_schema_and_version_fail_before_network(config: AwsStepFunctionsSourceConfig) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config, "missing", API_VERSION) == (
+        assert validate_credentials(config, CREDENTIALS, "missing", API_VERSION) == (
             False,
             "Unknown AWS Step Functions table: missing",
         )

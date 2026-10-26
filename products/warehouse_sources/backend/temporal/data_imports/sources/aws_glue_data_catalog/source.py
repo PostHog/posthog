@@ -20,6 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_d
     ERROR_MESSAGES,
     GLUE_API_VERSION,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -58,7 +64,10 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         return ExternalDataSourceType.AWSGLUEDATACATALOG
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Glue request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Glue request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog.canonical_descriptions import (
@@ -85,7 +94,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
 
     def get_endpoint_permissions(
         self,
@@ -94,7 +107,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
-        return probe_endpoint_permissions(config, self.resolve_api_version(api_version), endpoints)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return {endpoint: str(error) for endpoint in endpoints}
+        return probe_endpoint_permissions(config, credentials, self.resolve_api_version(api_version), endpoints)
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -108,7 +125,11 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_glue_data_catalog_source(
-            config, inputs.schema_name, self.resolve_api_version(inputs.api_version), resumable_source_manager
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
         )
 
     @property
@@ -127,7 +148,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
                 "Grant `glue:GetTable` for column statistics, `glue:ListTableOptimizerRuns` for table optimizer runs, "
                 "and `glue:ListSessions` for interactive sessions. "
                 "Lake Formation permissions can also restrict catalog access. "
-                "Enter the access key ID and secret access key. Add a session token for temporary credentials."
+                "Connect with an IAM role, or enter an access key ID and secret access key. Add a session token for temporary credentials."
             ),
             iconPath="/static/services/aws_glue_data_catalog.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-glue-data-catalog",
@@ -136,31 +157,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Temporary credentials expire. Replace them before the next scheduled sync.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

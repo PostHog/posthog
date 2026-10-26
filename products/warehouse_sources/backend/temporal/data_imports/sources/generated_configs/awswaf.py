@@ -7,9 +7,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class AwsWafSourceConfig(config.Config):
-    aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_region: str
+class AwsWafAwsAuthConfig(config.Config):
+    aws_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["access_keys", "role"] = "access_keys"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
+
+
+@config.config
+class AwsWafSourceConfig(config.Config):
+    aws_auth: AwsWafAwsAuthConfig
+    aws_region: str
     scope: Literal["REGIONAL", "CLOUDFRONT"] = config.value(default="REGIONAL")

@@ -66,15 +66,16 @@ class AwsSavingsPlansThrottledError(AwsSavingsPlansError):
 
 
 class AwsSavingsPlansClient:
-    def __init__(self, config: AwsSavingsPlansSourceConfig, api_version: str) -> None:
+    def __init__(self, config: AwsSavingsPlansSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version != SAVINGS_PLANS_API_VERSION:
             raise ValueError(f"Unsupported AWS Savings Plans API version: {api_version}")
-        self.credentials = Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+        self.credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
             redact_values=tuple(
                 value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
                 if value
             ),
         )
@@ -98,7 +99,8 @@ class AwsSavingsPlansClient:
             }
         body = json.dumps(payload).encode()
         request = AWSRequest(method="POST", url=url, data=body, headers=headers)
-        SigV4Auth(self.credentials, endpoint.service, SIGNING_REGION).add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self.credentials.get_frozen_credentials(), endpoint.service, SIGNING_REGION).add_auth(request)
         response = self.session.post(url, data=body, headers=dict(request.headers), timeout=60)
         if response.status_code >= 400:
             try:
@@ -280,11 +282,10 @@ def validation_error(code: str, endpoint: SavingsPlansEndpoint) -> str:
 
 def validate_credentials(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     schema_name: str | None = None,
     api_version: str = SAVINGS_PLANS_API_VERSION,
 ) -> tuple[bool, str | None]:
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "Enter an AWS access key ID and secret access key."
     endpoint = ENDPOINTS.get(schema_name or "savings_plans")
     if endpoint is None:
         return False, "Unknown AWS Savings Plans table."
@@ -292,7 +293,7 @@ def validate_credentials(
         parse_date(config.start_date)
     except ValueError:
         return False, "Enter the start date as YYYY-MM-DD."
-    client = AwsSavingsPlansClient(config, api_version)
+    client = AwsSavingsPlansClient(config, credentials, api_version)
     try:
         end = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
         payload = build_payload(endpoint, end - dt.timedelta(days=1), end)
@@ -320,6 +321,7 @@ def validate_credentials(
 
 def get_rows(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     endpoint: SavingsPlansEndpoint,
     manager: ResumableSourceManager[AwsSavingsPlansResumeConfig],
     incremental: bool,
@@ -341,7 +343,7 @@ def get_rows(
         start + dt.timedelta(days=endpoint.window_days), end
     )
     token = resume.next_token if resume else None
-    client = AwsSavingsPlansClient(config, api_version)
+    client = AwsSavingsPlansClient(config, credentials, api_version)
     try:
         if endpoint.fan_out:
             yield from get_fan_out_rows(client, endpoint, manager, resume)
@@ -421,6 +423,7 @@ def get_fan_out_rows(
 
 def aws_savings_plans_source(
     config: AwsSavingsPlansSourceConfig,
+    credentials: Credentials,
     endpoint_name: str,
     manager: ResumableSourceManager[AwsSavingsPlansResumeConfig],
     incremental: bool,
@@ -431,7 +434,7 @@ def aws_savings_plans_source(
     metrics = endpoint.windowed
     return SourceResponse(
         name=endpoint_name,
-        items=lambda: get_rows(config, endpoint, manager, incremental, last_value, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, incremental, last_value, api_version),
         primary_keys=list(endpoint.primary_keys),
         partition_keys=["period_start"] if metrics else None,
         partition_mode="datetime" if metrics else None,

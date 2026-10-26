@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf import (
     AwsWafClient,
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awswaf import AwsWafSourceConfig
+
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-token")
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.aws_waf"
 
@@ -81,7 +84,11 @@ def driver() -> SourceDriver:
 def test_signed_requests(
     session: MagicMock, scope: str, region: str, host: str, signing_region: str, token: str | None
 ) -> None:
-    assert validate_credentials(config(scope=scope, aws_region=region, aws_session_token=token)) == (True, None)
+    credentials = Credentials("AKIAEXAMPLE", "example-secret", token)
+    assert validate_credentials(config(scope=scope, aws_region=region), credentials) == (
+        True,
+        None,
+    )
     args, kwargs = session.post.call_args
     assert args == (f"https://{host}/",)
     assert json.loads(kwargs["data"]) == {"Scope": scope, "Limit": 1}
@@ -146,7 +153,7 @@ def test_full_refresh_pagination_and_details(
         response({object_key: {**resource, "ARN": resource["ARN"] + "2", "Name": "terminal"}}),
     ]
     resume = manager()
-    stream = aws_waf_source(config(), table, resume)
+    stream = aws_waf_source(config(), CREDENTIALS, table, resume)
     batches = list(cast(Iterable[list[dict[str, Any]]], stream.items()))
     assert [row["name"] for batch in batches for row in batch] == ["example", "terminal"]
     row = batches[0][0]
@@ -212,7 +219,7 @@ def test_checkpoint_is_staged_before_yield(session: MagicMock) -> None:
         response({"WebACL": {"ARN": "arn:example", "Name": "example", "Id": "id"}}),
     ]
     resume = manager()
-    rows = cast(Generator[list[dict[str, Any]]], aws_waf_source(config(), "web_acls", resume).items())
+    rows = cast(Generator[list[dict[str, Any]]], aws_waf_source(config(), CREDENTIALS, "web_acls", resume).items())
     assert next(rows)[0]["arn"] == "arn:example"
     resume.save_state.assert_called_once_with(AwsWafResumeConfig(next_marker="next"))
     rows.close()
@@ -227,7 +234,7 @@ def test_resource_deleted_or_denied_during_sync(session: MagicMock, error_code: 
         response({"__type": error_code}, 400),
     ]
     resume = manager()
-    stream = aws_waf_source(config(), "ip_sets", resume)
+    stream = aws_waf_source(config(), CREDENTIALS, "ip_sets", resume)
     if error_code == "WAFNonexistentItemException":
         assert list(cast(Iterable[Any], stream.items())) == []
         resume.save_state.assert_called_once_with(AwsWafResumeConfig())
@@ -269,7 +276,7 @@ def test_missing_permissions_at_creation_or_schema_probe(
     schema: str | None, expected_reason: str | None, code: str
 ) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": f"com.amazonaws.wafv2#{code}"})]) as network:
-        valid, reason = validate_credentials(config(), schema)
+        valid, reason = validate_credentials(config(), CREDENTIALS, schema)
     assert valid is (schema is None)
     assert reason == expected_reason
     assert len(network.requests_log) == 1
@@ -282,7 +289,7 @@ def test_schema_probe_checks_detail_permission() -> None:
             ScriptedResponse(status=400, json={"__type": "AccessDeniedException"}),
         ]
     ) as network:
-        valid, reason = validate_credentials(config(), "ip_sets")
+        valid, reason = validate_credentials(config(), CREDENTIALS, "ip_sets")
     assert not valid
     assert reason and "wafv2:GetIPSet" in reason
     assert network.requests_log[-1].json() == {"Scope": "REGIONAL", "Id": "id", "Name": "example"}
@@ -306,7 +313,7 @@ def test_credential_errors_are_actionable_and_non_retryable(code: str, expected:
     with scripted_network(
         [ScriptedResponse(status=400, json={"__type": code, "Message": "AWS rejected this request."})]
     ) as network:
-        valid, reason = validate_credentials(config())
+        valid, reason = validate_credentials(config(), CREDENTIALS)
     assert not valid and reason and expected in reason
     error = error_for_response(error_response)
     mapped = [
@@ -341,7 +348,7 @@ def test_transient_errors_retry_without_transport_retry(status: int, code: str) 
     with scripted_network(
         [ScriptedResponse(status=status, json={"__type": code}), ScriptedResponse(json={"WebACLs": []})]
     ) as network:
-        client = AwsWafClient(config())
+        client = AwsWafClient(config(), CREDENTIALS)
         assert client.request("ListWebACLs", {"Scope": "REGIONAL", "Limit": 1}) == {"WebACLs": []}
         client.close()
     assert len(network.requests_log) == 2
@@ -349,7 +356,7 @@ def test_transient_errors_retry_without_transport_retry(status: int, code: str) 
 
 def test_retries_stop_after_five_attempts() -> None:
     with scripted_network(always(ScriptedResponse(status=400, json={"__type": "ThrottlingException"}))) as network:
-        client = AwsWafClient(config())
+        client = AwsWafClient(config(), CREDENTIALS)
         with pytest.raises(AwsWafRetryableError, match="ThrottlingException"):
             client.request("ListWebACLs", {"Scope": "REGIONAL", "Limit": 1})
         client.close()
@@ -359,7 +366,7 @@ def test_retries_stop_after_five_attempts() -> None:
 @pytest.mark.parametrize("schema,capture", [(None, True), ("sampled_requests", False)])
 def test_tracked_transport_redacts_secrets_and_disables_nested_retries(schema: str | None, capture: bool) -> None:
     with scripted_network([ScriptedResponse(json={"WebACLs": []})]) as network:
-        assert validate_credentials(config(), schema) == (True, None)
+        assert validate_credentials(config(), CREDENTIALS, schema) == (True, None)
     assert network.session_options[0]["retry"].total == 0
     assert set(network.session_options[0]["redact_values"]) == {"example-secret", "example-token"}
     assert network.session_options[0]["capture"] is capture
@@ -368,7 +375,7 @@ def test_tracked_transport_redacts_secrets_and_disables_nested_retries(schema: s
 def test_service_errors_do_not_become_credential_failures(session: MagicMock) -> None:
     session.post.return_value = response({"__type": "WAFInvalidParameterException"}, 400)
     with pytest.raises(AwsWafError, match="WAFInvalidParameterException"):
-        validate_credentials(config())
+        validate_credentials(config(), CREDENTIALS)
     session.close.assert_called_once()
 
 
@@ -384,15 +391,15 @@ def test_service_errors_do_not_become_credential_failures(session: MagicMock) ->
 )
 def test_invalid_configuration_does_not_send_credentials(overrides: dict[str, str], expected: str) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config(**overrides))
+        valid, reason = AwsWafSource().validate_credentials(config(**overrides), team_id=1)
     assert not valid and reason and expected in reason
     assert network.requests_log == []
 
 
 def test_unknown_schema_and_api_version_fail_before_requests() -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config(), "unknown") == (False, "Unknown AWS WAF table: unknown")
-        valid, reason = validate_credentials(config(), api_version="2015-08-24")
+        assert validate_credentials(config(), CREDENTIALS, "unknown") == (False, "Unknown AWS WAF table: unknown")
+        valid, reason = validate_credentials(config(), CREDENTIALS, api_version="2015-08-24")
     assert not valid and reason and "Unsupported AWS WAF API version" in reason
     result = driver().run("unknown", [])
     assert isinstance(result.raised, ValueError)
@@ -414,7 +421,7 @@ def payloads(session: MagicMock) -> list[dict[str, Any]]:
 
 def rows_for(table: str, **kwargs: Any) -> list[dict[str, Any]]:
     with patch(f"{MODULE}.utc_now", return_value=NOW):
-        stream = aws_waf_source(config(**kwargs.pop("overrides", {})), table, manager(), **kwargs)
+        stream = aws_waf_source(config(**kwargs.pop("overrides", {})), CREDENTIALS, table, manager(), **kwargs)
         return [row for batch in cast(Iterable[list[dict[str, Any]]], stream.items()) for row in batch]
 
 

@@ -106,23 +106,19 @@ def error_for_response(response: requests.Response) -> AwsSagemakerError:
 
 
 class AwsSagemakerClient:
-    def __init__(self, config: AwsSagemakerSourceConfig, api_version: str) -> None:
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
+    def __init__(self, config: AwsSagemakerSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version not in TARGET_PREFIXES:
             raise ValueError(f"Unsupported SageMaker API version: {api_version}")
         self.url = endpoint_url(config.region)
         self.target_prefix = TARGET_PREFIXES[api_version]
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "sagemaker",
-            config.region,
-        )
+        self._signing_region = config.region
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
             redact_values=tuple(
                 value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
                 if value
             ),
         )
@@ -144,7 +140,8 @@ class AwsSagemakerClient:
             data=body,
             headers={"Content-Type": "application/x-amz-json-1.1", "X-Amz-Target": f"{self.target_prefix}.{operation}"},
         )
-        self.signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "sagemaker", self._signing_region).add_auth(request)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -255,6 +252,7 @@ def list_pages(
 
 def get_rows(
     config: AwsSagemakerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsSagemakerResumeConfig],
@@ -267,7 +265,7 @@ def get_rows(
         return
     watermark = state.watermark if state else timestamp(last_value) if incremental and settings.incremental else None
     token = state.next_token if state else None
-    client = AwsSagemakerClient(config, api_version)
+    client = AwsSagemakerClient(config, credentials, api_version)
     try:
         if settings.parent is None:
             yield from list_pages(client, settings, manager, watermark, incremental, token)
@@ -300,13 +298,13 @@ def get_rows(
 
 
 def validate_credentials(
-    config: AwsSagemakerSourceConfig, schema_name: str | None, api_version: str
+    config: AwsSagemakerSourceConfig, credentials: Credentials, schema_name: str | None, api_version: str
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, f"Unknown SageMaker table: {schema_name}"
     settings = ENDPOINTS[schema_name or "models"]
     try:
-        client = AwsSagemakerClient(config, api_version)
+        client = AwsSagemakerClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -346,6 +344,7 @@ def validate_credentials(
 
 def aws_sagemaker_source(
     config: AwsSagemakerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsSagemakerResumeConfig],
@@ -355,7 +354,7 @@ def aws_sagemaker_source(
     settings = schema_for_resource(ENDPOINTS, endpoint)
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, api_version, manager, incremental, last_value),
+        items=lambda: get_rows(config, credentials, endpoint, api_version, manager, incremental, last_value),
         primary_keys=list(settings.primary_keys),
         partition_keys=["creation_time"],
         partition_mode="datetime",

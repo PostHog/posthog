@@ -102,7 +102,7 @@ def error_for_response(response: requests.Response) -> SystemsManagerError:
 
 
 class SystemsManagerClient:
-    def __init__(self, config: AwsSystemsManagerSourceConfig, api_version: str) -> None:
+    def __init__(self, config: AwsSystemsManagerSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version != API_VERSION:
             raise ValueError(f"Unsupported AWS Systems Manager API version: {api_version}")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.aws_region):
@@ -115,16 +115,13 @@ class SystemsManagerClient:
             raise ValueError("AWS Systems Manager is unavailable in this region. Select another region.")
         self.url = f"https://{endpoint['hostname']}/"
         self.region = config.aws_region
-        self._signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "ssm",
-            self.region,
-        )
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
             redact_values=tuple(
                 value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
                 if value
             ),
         )
@@ -141,7 +138,8 @@ class SystemsManagerClient:
     def request(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
         serialized = self._serializer.serialize_to_request(payload, self._model.operation_model(operation))
         request = AWSRequest(method="POST", url=self.url, data=serialized["body"], headers=serialized["headers"])
-        self._signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "ssm", self.region).add_auth(request)
         response = self._session.post(
             self.url, data=serialized["body"], headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -415,6 +413,7 @@ class SystemsManagerWalk:
 
 def get_rows(
     config: AwsSystemsManagerSourceConfig,
+    credentials: Credentials,
     endpoint: SystemsManagerEndpoint,
     api_version: str,
     manager: ResumableSourceManager[SystemsManagerResumeConfig],
@@ -422,7 +421,7 @@ def get_rows(
     state = manager.load_state() if manager.can_resume() else None
     if state and state.completed and not state.parents:
         return
-    client = SystemsManagerClient(config, api_version)
+    client = SystemsManagerClient(config, credentials, api_version)
     try:
         for rows, next_state in SystemsManagerWalk(client, endpoint_chain(endpoint), manager).pages(state):
             manager.save_state(next_state)
@@ -445,15 +444,13 @@ def probe_payload(child: SystemsManagerEndpoint, parent_body: dict[str, Any]) ->
 
 
 def validate_credentials(
-    config: AwsSystemsManagerSourceConfig, api_version: str, schema_name: str | None = None
+    config: AwsSystemsManagerSourceConfig, credentials: Credentials, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "Enter both an AWS access key ID and a secret access key."
     endpoint = ENDPOINTS.get(schema_name or "managed_instances")
     if endpoint is None:
         return False, f"Unknown AWS Systems Manager table: {schema_name}"
     try:
-        client = SystemsManagerClient(config, api_version)
+        client = SystemsManagerClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     chain = endpoint_chain(endpoint)
@@ -488,6 +485,7 @@ def validate_credentials(
 
 def aws_systems_manager_source(
     config: AwsSystemsManagerSourceConfig,
+    credentials: Credentials,
     schema_name: str,
     api_version: str,
     manager: ResumableSourceManager[SystemsManagerResumeConfig],
@@ -497,7 +495,7 @@ def aws_systems_manager_source(
         raise ValueError(f"Unknown AWS Systems Manager table: {schema_name}")
     return SourceResponse(
         name=schema_name,
-        items=lambda: get_rows(config, endpoint, api_version, manager),
+        items=lambda: get_rows(config, credentials, endpoint, api_version, manager),
         primary_keys=list(endpoint.primary_key),
         sort_mode=None,
         on_complete=manager.clear_state,

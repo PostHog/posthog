@@ -23,6 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_system
     ERROR_MESSAGES,
     INCREMENTAL_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -62,7 +68,10 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
         return ExternalDataSourceType.AWSSYSTEMSMANAGER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Systems Manager request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Systems Manager request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -90,7 +99,11 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SystemsManagerResumeConfig]:
         return ResumableSourceManager(inputs, SystemsManagerResumeConfig)
@@ -102,7 +115,11 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_systems_manager_source(
-            config, inputs.schema_name, self.resolve_api_version(inputs.api_version), resumable_source_manager
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
         )
 
     @property
@@ -120,7 +137,7 @@ Grant these IAM permissions for the tables you select:
 `ssm:DescribePatchBaselines`, `ssm:DescribeInstancePatchStates`, `ssm:DescribeInstancePatches`,
 `ssm:DescribeSessions`, `ssm:DescribeOpsItems`, and `ssm:ListOpsItemEvents`.
 
-Enter an access key ID and secret access key. Include a session token for temporary credentials.
+Connect with an IAM role, or enter an access key ID and secret access key. Include a session token for temporary credentials.
 All tables use full refresh. Create a separate source for each region.""",
             iconPath="/static/services/aws_systems_manager.png",
             docsUrl=API_DOCS_URL,
@@ -129,22 +146,7 @@ All tables use full refresh. Create a separate source for each region.""",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",
@@ -152,15 +154,6 @@ All tables use full refresh. Create a separate source for each region.""",
                         required=True,
                         placeholder="us-east-1",
                         secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                        caption="Temporary credentials expire. Update them before the next scheduled sync.",
                     ),
                 ],
             ),

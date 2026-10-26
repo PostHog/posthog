@@ -81,28 +81,25 @@ def error_for_response(response: requests.Response) -> AwsComputeOptimizerError:
 
 
 class AwsComputeOptimizerClient:
-    def __init__(self, config: AwsComputeOptimizerSourceConfig, api_version: str | None = None) -> None:
+    def __init__(
+        self, config: AwsComputeOptimizerSourceConfig, credentials: Credentials, api_version: str | None = None
+    ) -> None:
         version = api_version or API_VERSION
         if version not in TARGET_PREFIXES:
             raise ValueError("Unsupported AWS Compute Optimizer API version.")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         self.region = config.region or DEFAULT_REGION
         if not re.fullmatch(r"(?:us|eu|ap|sa|ca|me|af|il|mx|cn)-(?:[a-z]+-)+[0-9]+", self.region):
             raise ValueError("Enter an AWS region, such as us-east-1.")
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://compute-optimizer.{self.region}.{suffix}/"
         self.target_prefix = TARGET_PREFIXES[version]
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "compute-optimizer",
-            self.region,
-        )
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
             redact_values=tuple(
                 value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
                 if value
             ),
         )
@@ -127,7 +124,8 @@ class AwsComputeOptimizerClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self.signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "compute-optimizer", self.region).add_auth(request)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -264,6 +262,7 @@ def get_projected_metric_rows(
 
 def get_rows(
     config: AwsComputeOptimizerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsComputeOptimizerResumeConfig],
     api_version: str | None,
@@ -274,7 +273,7 @@ def get_rows(
         return
     token = state.next_token
     seen_tokens: set[str] = {token} if token else set()
-    client = AwsComputeOptimizerClient(config, api_version)
+    client = AwsComputeOptimizerClient(config, credentials, api_version)
     try:
         if settings.fanout is not None:
             yield from get_projected_metric_rows(client, settings, settings.fanout, manager, state)
@@ -301,12 +300,15 @@ def get_rows(
 
 
 def validate_credentials(
-    config: AwsComputeOptimizerSourceConfig, schema_name: str | None = None, api_version: str | None = None
+    config: AwsComputeOptimizerSourceConfig,
+    credentials: Credentials,
+    schema_name: str | None = None,
+    api_version: str | None = None,
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, "Unknown AWS Compute Optimizer table. Select a supported table."
     try:
-        client = AwsComputeOptimizerClient(config, api_version)
+        client = AwsComputeOptimizerClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     operation = "GetEnrollmentStatus"
@@ -345,6 +347,7 @@ def validate_credentials(
 
 def aws_compute_optimizer_source(
     config: AwsComputeOptimizerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsComputeOptimizerResumeConfig],
     api_version: str | None = None,
@@ -353,7 +356,7 @@ def aws_compute_optimizer_source(
         raise ValueError("Unknown AWS Compute Optimizer table. Select a supported table.")
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, manager, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, api_version),
         primary_keys=list(ENDPOINTS[endpoint].primary_keys),
         sort_mode=None,
         on_complete=manager.clear_state,

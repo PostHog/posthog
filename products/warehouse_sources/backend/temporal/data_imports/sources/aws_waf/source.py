@@ -27,6 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     SHOULD_SYNC_DEFAULT,
     WAF_API_VERSION,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -68,7 +74,10 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
         return ExternalDataSourceType.AWSWAF
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS WAF request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS WAF request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -98,7 +107,11 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsWafResumeConfig]:
         return ResumableSourceManager(inputs, AwsWafResumeConfig)
@@ -111,6 +124,7 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
     ) -> SourceResponse:
         return aws_waf_source(
             config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
             inputs.schema_name,
             resumable_source_manager,
             self.resolve_api_version(inputs.api_version),
@@ -144,31 +158,7 @@ Protected resources are only listed for the regional scope.""",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                        caption="Temporary credentials expire. Scheduled syncs fail after the session token expires.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

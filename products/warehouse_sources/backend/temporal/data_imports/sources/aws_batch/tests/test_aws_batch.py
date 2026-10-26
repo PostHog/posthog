@@ -4,9 +4,10 @@ from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch import (
     aws_batch as transport,
@@ -36,14 +37,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsBatchSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-session")
+
 
 @pytest.fixture
 def config() -> AwsBatchSourceConfig:
-    return AwsBatchSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token="example-session",
-        region="eu-west-1",
+    return AwsBatchSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-session",
+            "region": "eu-west-1",
+        }
     )
 
 
@@ -82,7 +87,7 @@ def test_source_adapter_delegates_validation_and_manager_creation(config: AwsBat
     ):
         assert source.validate_credentials(config, team_id=1, schema_name="jobs") == (True, None)
         assert source.get_resumable_source_manager(inputs) is manager
-    validate.assert_called_once_with(config, "jobs", BATCH_API_VERSION)
+    validate.assert_called_once_with(config, ANY, "jobs", BATCH_API_VERSION)
     manager_factory.assert_called_once_with(inputs, AwsBatchResumeConfig)
 
 
@@ -98,7 +103,7 @@ def test_source_adapter_delegates_validation_and_manager_creation(config: AwsBat
 )
 def test_signed_rest_json_request(config: AwsBatchSourceConfig, operation: str, path: str) -> None:
     with scripted_network([ScriptedResponse(json={"nextToken": "next"})]) as network:
-        client = AwsBatchClient(config)
+        client = AwsBatchClient(config, CREDENTIALS)
         assert client.request(operation, {"maxResults": 100}) == {"nextToken": "next"}
         client.close()
     request = network.requests_log[0]
@@ -117,9 +122,8 @@ def test_signed_rest_json_request(config: AwsBatchSourceConfig, operation: str, 
 @pytest.mark.parametrize("region,suffix", [("cn-north-1", "amazonaws.com.cn"), ("us-gov-west-1", "amazonaws.com")])
 def test_region_selects_endpoint_and_signature(config: AwsBatchSourceConfig, region: str, suffix: str) -> None:
     config.region = region
-    config.aws_session_token = None
     with scripted_network([ScriptedResponse(json={})]) as network:
-        client = AwsBatchClient(config)
+        client = AwsBatchClient(config, Credentials("AKIAEXAMPLE", "example-secret"))
         client.request("DescribeJobQueues", {"maxResults": 1})
         client.close()
     request = network.requests_log[0]
@@ -132,7 +136,7 @@ def test_region_selects_endpoint_and_signature(config: AwsBatchSourceConfig, reg
 def test_invalid_region_never_sends_credentials(config: AwsBatchSourceConfig, region: str) -> None:
     config.region = region
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config)
+        valid, reason = validate_credentials(config, CREDENTIALS)
     assert not valid
     assert reason == "Enter an AWS region, such as us-east-1."
     assert network.requests_log == []
@@ -162,6 +166,7 @@ def test_full_refresh_pages_through_empty_results_and_checkpoints_terminal_page(
         response({result_key: [{arn_key: "arn:last"}], "nextToken": terminal_token}),
     ]
     inputs = MagicMock(spec=SourceInputs)
+    inputs.team_id = 1
     inputs.schema_name = endpoint
     inputs.api_version = None
     inputs.should_use_incremental_field = False
@@ -442,7 +447,7 @@ def test_failed_hydration_does_not_checkpoint_missing_rows(
         response({"message": "AccessDeniedException"}, 403, {"x-amzn-ErrorType": "AccessDeniedException"}),
     ]
     with pytest.raises(AwsBatchError):
-        list(cast(Iterable[Any], aws_batch_source(config, "jobs", manager).items()))
+        list(cast(Iterable[Any], aws_batch_source(config, CREDENTIALS, "jobs", manager).items()))
     manager.save_state.assert_not_called()
     session.close.assert_called_once()
 
@@ -491,7 +496,7 @@ def test_body_throttle_retries_and_non_json_errors(config: AwsBatchSourceConfig)
     with scripted_network(
         [ScriptedResponse(status=400, json={"code": "ThrottlingException"}), ScriptedResponse(json={"jobQueues": []})]
     ) as network:
-        client = AwsBatchClient(config)
+        client = AwsBatchClient(config, CREDENTIALS)
         assert client.request("DescribeJobQueues", {"maxResults": 1}) == {"jobQueues": []}
         client.close()
     assert len(network.requests_log) == 2
@@ -534,7 +539,7 @@ def test_credential_error_mapping(
     allow_create: bool,
 ) -> None:
     session.post.return_value = response({"__type": code, "message": message}, 400)
-    valid, reason = validate_credentials(config, schema_name)
+    valid, reason = validate_credentials(config, CREDENTIALS, schema_name)
     assert valid == (allow_create and schema_name is None)
     if valid:
         assert reason is None
@@ -546,7 +551,10 @@ def test_credential_error_mapping(
 @pytest.mark.parametrize("exception", [requests.Timeout()])
 def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception: Exception) -> None:
     with scripted_network(always(exception)) as network:
-        assert validate_credentials(config) == (False, "Could not reach AWS Batch. Check the region and try again.")
+        assert validate_credentials(config, CREDENTIALS) == (
+            False,
+            "Could not reach AWS Batch. Check the region and try again.",
+        )
     assert {request.path for request in network.requests_log} == {"/v1/describejobqueues"}
 
 
@@ -589,7 +597,7 @@ def test_validation_probes_only_required_operations(
         )
 
     with scripted_network(send) as network:
-        assert validate_credentials(config, schema_name) == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema_name) == (True, None)
     assert [request.path.removeprefix("/v1/") for request in network.requests_log] == paths
     probed_queues = {"job_children": "arn:queue", "service_jobs": "arn:service-queue"}
     if schema_name in probed_queues:
@@ -603,9 +611,12 @@ def test_validation_probes_only_required_operations(
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_do_not_call_aws(config: AwsBatchSourceConfig, field: str) -> None:
-    setattr(config, field, "")
+    setattr(config.aws_auth, field, "")
     with scripted_network([]) as network:
-        assert validate_credentials(config) == (False, "Enter both an AWS access key ID and a secret access key.")
+        assert AwsBatchSource().validate_credentials(config, team_id=1) == (
+            False,
+            "Enter both an AWS access key ID and a secret access key.",
+        )
     assert network.requests_log == []
 
 
@@ -614,16 +625,16 @@ def test_unknown_endpoint_and_version_fail_before_request(config: AwsBatchSource
     assert isinstance(result.raised, ValueError)
     assert "Unknown AWS Batch table" in str(result.raised)
     with scripted_network([]) as network:
-        assert validate_credentials(config, "unknown") == (False, "Unknown AWS Batch table: unknown")
+        assert validate_credentials(config, CREDENTIALS, "unknown") == (False, "Unknown AWS Batch table: unknown")
         with pytest.raises(ValueError, match="Unsupported AWS Batch API version"):
-            AwsBatchClient(config, api_version="1900-01-01")
+            AwsBatchClient(config, CREDENTIALS, api_version="1900-01-01")
     assert result.requests == []
     assert network.requests_log == []
 
 
 def test_invalid_success_body_is_not_silently_empty(config: AwsBatchSourceConfig) -> None:
     with scripted_network([ScriptedResponse(json=[])]) as network:
-        client = AwsBatchClient(config, BATCH_API_VERSION)
+        client = AwsBatchClient(config, CREDENTIALS, BATCH_API_VERSION)
         with pytest.raises(ValueError, match="invalid response"):
             client.request("DescribeJobQueues", {"maxResults": 1})
         client.close()

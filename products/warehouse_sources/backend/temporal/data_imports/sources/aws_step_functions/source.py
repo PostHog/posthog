@@ -19,6 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     ENDPOINTS,
     ERROR_MESSAGES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +67,10 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
         return ExternalDataSourceType.AWSSTEPFUNCTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Step Functions request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Step Functions request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_functions.canonical_descriptions import (
@@ -88,7 +97,11 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -102,7 +115,11 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_step_functions_source(
-            config, inputs.schema_name, self.resolve_api_version(inputs.api_version), resumable_source_manager
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
         )
 
     @property
@@ -125,31 +142,7 @@ class AwsStepFunctionsSource(ResumableSource[AwsStepFunctionsSourceConfig, AwsSt
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                        caption="Temporary credentials expire. Update them before the next scheduled sync.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

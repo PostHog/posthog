@@ -23,6 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_saving
     INCREMENTAL_FIELDS,
     SAVINGS_PLANS_API_VERSION,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +67,10 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
         return ExternalDataSourceType.AWSSAVINGSPLANS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Savings Plans request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Savings Plans request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -86,7 +95,11 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsSavingsPlansResumeConfig]:
         return ResumableSourceManager(inputs, AwsSavingsPlansResumeConfig)
@@ -99,6 +112,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
     ) -> SourceResponse:
         return aws_savings_plans_source(
             config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
             inputs.schema_name,
             resumable_source_manager,
             inputs.should_use_incremental_field,
@@ -135,31 +149,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only for temporary credentials",
-                        secret=True,
-                        caption="Temporary credentials expire. Connect again with valid credentials when they expire.",
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="start_date",
                         sync_setting=True,

@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_data_catalog import (
     aws_glue_data_catalog as glue,
@@ -28,13 +29,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsGlueDataCatalogSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret")
+
 
 def config(region: str = "eu-west-1", token: str | None = None) -> AwsGlueDataCatalogSourceConfig:
-    return AwsGlueDataCatalogSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token=token,
-        aws_region=region,
+    return AwsGlueDataCatalogSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": token,
+            "aws_region": region,
+        }
     )
 
 
@@ -67,7 +72,9 @@ def driver() -> SourceDriver:
 )
 def test_signed_request_uses_tracked_transport(region: str, token: str | None, host: str) -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as network:
-        client = glue.AwsGlueClient(config(region, token), GLUE_API_VERSION)
+        client = glue.AwsGlueClient(
+            config(region), Credentials("AKIAEXAMPLE", "example-secret", token), GLUE_API_VERSION
+        )
         try:
             assert client.request("GetDatabases", {"MaxResults": 1}) == {"DatabaseList": []}
         finally:
@@ -94,7 +101,9 @@ def test_signed_request_uses_tracked_transport(region: str, token: str | None, h
     assert not retry_policy.is_retry("POST", 403)
 
     with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]) as redirect:
-        client = glue.AwsGlueClient(config(region, token), GLUE_API_VERSION)
+        client = glue.AwsGlueClient(
+            config(region), Credentials("AKIAEXAMPLE", "example-secret", token), GLUE_API_VERSION
+        )
         try:
             with pytest.raises(glue.AwsGlueError):
                 client.request("GetDatabases", {"MaxResults": 1})
@@ -114,7 +123,7 @@ def test_signed_request_uses_tracked_transport(region: str, token: str | None, h
 def test_rejects_invalid_region_or_version_before_http(region: str, version: str, expected: str) -> None:
     with scripted_network([]) as network:
         with pytest.raises(ValueError, match=expected):
-            glue.AwsGlueClient(config(region), version)
+            glue.AwsGlueClient(config(region), CREDENTIALS, version)
     assert network.requests_log == []
     assert network.session_options == []
 
@@ -193,7 +202,7 @@ def test_top_level_resume_checkpoints_before_yield_and_clears_after_completion(e
     with patch.object(glue, "make_tracked_session") as factory:
         session = factory.return_value
         session.post.return_value = response({result_key: [{"Name": "example"}]})
-        source = glue.aws_glue_data_catalog_source(config(), endpoint, GLUE_API_VERSION, resume)
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, endpoint, GLUE_API_VERSION, resume)
         batches = iter(cast(Iterable[list[dict[str, Any]]], source.items()))
         assert next(batches)[0]["name"] == "example"
         resume.save_state.assert_called_once_with(glue.AwsGlueDataCatalogResumeConfig(completed=True))
@@ -246,7 +255,7 @@ def test_partition_walk_pages_each_parent_and_preserves_table_wide_keys() -> Non
             response({"TableList": [{"Name": "events"}]}),
             response({"Partitions": [{"Values": ["a,b", "c"]}]}),
         ]
-        source = glue.aws_glue_data_catalog_source(config(), "partitions", GLUE_API_VERSION, resume)
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, "partitions", GLUE_API_VERSION, resume)
         rows = [row for batch in cast(Iterable[list[dict[str, Any]]], source.items()) for row in batch]
 
     assert len(rows) == 3
@@ -541,7 +550,7 @@ def test_table_fan_out_probe_accepts_tables_without_child_data(
 ) -> None:
     script = [DATABASE_PAGE, ScriptedResponse(json={"TableList": tables}), *([child] if child else [])]
     with scripted_network(script) as network:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, schema_name) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name) == (True, None)
     assert len(network.requests_log) == expected_requests
     if schema_name == "column_statistics" and child:
         assert network.requests_log[-1].json() == {
@@ -567,7 +576,7 @@ def test_table_fan_out_probe_accepts_tables_without_child_data(
 def test_validation_maps_errors_and_accepts_create_time_permission_denials(schema_name: str | None, code: str) -> None:
     with patch.object(glue, "make_tracked_session") as factory:
         factory.return_value.post.return_value = response({"__type": code, "Message": "Request denied"}, 403)
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
+        valid, reason = glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name)
     accepted = schema_name is None and code in {"AccessDenied", "AccessDeniedException"}
     assert valid is accepted
     if accepted:
@@ -582,7 +591,7 @@ def test_validation_maps_errors_and_accepts_create_time_permission_denials(schem
 
 def test_creation_probes_once() -> None:
     with scripted_network([ScriptedResponse(json={"DatabaseList": []})]) as creation:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION) == (True, None)
     assert len(creation.requests_log) == 1
     assert creation.requests_log[0].json() == {"MaxResults": 1}
 
@@ -603,7 +612,7 @@ def test_selected_child_checks_parent_and_child(
             ScriptedResponse(status=403, json={"__type": "AccessDeniedException"}),
         ]
     ) as selected:
-        valid, reason = glue.validate_credentials(config(), GLUE_API_VERSION, schema_name)
+        valid, reason = glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, schema_name)
     assert not valid and reason
     assert len(selected.requests_log) == 2
     assert selected.requests_log[1].json() == child_payload
@@ -612,19 +621,19 @@ def test_selected_child_checks_parent_and_child(
 @pytest.mark.parametrize("endpoint", ["tables", "partitions", "job_runs"])
 def test_probe_with_no_parents_makes_no_child_request(endpoint: str) -> None:
     with scripted_network([ScriptedResponse(json={"Jobs": [], "DatabaseList": []})]) as network:
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, endpoint) == (True, None)
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, endpoint) == (True, None)
     assert len(network.requests_log) == 1
 
 
 def test_invalid_config_and_unknown_tables_fail_without_requests() -> None:
     with scripted_network([]) as network:
         invalid = config()
-        invalid.aws_secret_access_key = ""
-        assert glue.validate_credentials(invalid, GLUE_API_VERSION) == (
+        invalid.aws_auth.aws_secret_access_key = ""
+        assert AwsGlueDataCatalogSource().validate_credentials(invalid, team_id=1, api_version=GLUE_API_VERSION) == (
             False,
             "Enter both an AWS access key ID and a secret access key.",
         )
-        assert glue.validate_credentials(config(), GLUE_API_VERSION, "unknown") == (
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION, "unknown") == (
             False,
             "Unknown AWS Glue table: unknown",
         )
@@ -641,13 +650,13 @@ def test_network_validation_error_and_failed_iteration_close_session() -> None:
     with patch.object(glue, "make_tracked_session") as factory:
         session = factory.return_value
         session.post.side_effect = requests.Timeout("example timeout")
-        assert glue.validate_credentials(config(), GLUE_API_VERSION) == (
+        assert glue.validate_credentials(config(), CREDENTIALS, GLUE_API_VERSION) == (
             False,
             "Could not connect to AWS Glue. Check the region and try again.",
         )
         session.close.assert_called_once()
         session.reset_mock()
-        source = glue.aws_glue_data_catalog_source(config(), "databases", GLUE_API_VERSION, manager())
+        source = glue.aws_glue_data_catalog_source(config(), CREDENTIALS, "databases", GLUE_API_VERSION, manager())
         with pytest.raises(requests.Timeout):
             list(cast(Iterable[Any], source.items()))
         session.close.assert_called_once()
@@ -663,16 +672,16 @@ def test_permission_probes_do_not_hide_tables_on_transient_failures(error: Excep
         else always(error)
     )
     with scripted_network(script):
-        assert glue.probe_endpoint_permissions(config(), GLUE_API_VERSION, ["databases", "unknown"]) == {
+        assert glue.probe_endpoint_permissions(config(), CREDENTIALS, GLUE_API_VERSION, ["databases", "unknown"]) == {
             "databases": None
         }
 
 
 def test_permission_probe_reports_denial_and_invalid_config() -> None:
     with scripted_network([ScriptedResponse(status=403, json={"__type": "AccessDeniedException"})]) as network:
-        permissions = glue.probe_endpoint_permissions(config(), GLUE_API_VERSION, ["databases"])
+        permissions = glue.probe_endpoint_permissions(config(), CREDENTIALS, GLUE_API_VERSION, ["databases"])
         assert permissions["databases"] and "Grant" in permissions["databases"]
     assert len(network.requests_log) == 1
-    assert glue.probe_endpoint_permissions(config("bad"), GLUE_API_VERSION, ["jobs"]) == {
+    assert glue.probe_endpoint_permissions(config("bad"), CREDENTIALS, GLUE_API_VERSION, ["jobs"]) == {
         "jobs": "Enter an AWS region such as us-east-1."
     }

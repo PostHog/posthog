@@ -23,6 +23,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_ac
     ENDPOINTS,
     ERROR_MESSAGES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -61,7 +67,10 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         return ExternalDataSourceType.AWSIAMACCESSANALYZER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS IAM Access Analyzer request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS IAM Access Analyzer request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -86,7 +95,11 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, schema_name, self.resolve_api_version(api_version))
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
 
     def get_endpoint_permissions(
         self,
@@ -95,8 +108,12 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return {endpoint: str(error) for endpoint in endpoints}
         return {
-            endpoint: validate_credentials(config, endpoint, self.resolve_api_version(api_version))[1]
+            endpoint: validate_credentials(config, credentials, endpoint, self.resolve_api_version(api_version))[1]
             for endpoint in endpoints
         }
 
@@ -112,7 +129,11 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_iam_access_analyzer_source(
-            config, inputs.schema_name, resumable_source_manager, self.resolve_api_version(inputs.api_version)
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            resumable_source_manager,
+            self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -124,7 +145,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
             caption="""Sync access analyzers, findings, archive rules, analyzed resources, finding details, and finding recommendations from one AWS region.
 
 Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, `access-analyzer:ListArchiveRules`, `access-analyzer:ListAnalyzedResources`, `access-analyzer:GetFinding`, and `access-analyzer:GetFindingRecommendation` for the tables you select.
-Enter an access key ID and secret access key. Add a session token for temporary credentials.
+Connect with an IAM role, or enter an access key ID and secret access key. Add a session token for temporary credentials.
 Temporary credentials expire, so update them before later syncs.
 
 All tables use full refresh. The API does not support a date-range filter for findings.
@@ -136,30 +157,7 @@ Finding recommendations only include recommendations that you already generated 
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

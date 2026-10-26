@@ -9,6 +9,7 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 from botocore.session import get_session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.aws_savings_plans import (
@@ -38,15 +39,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsSavingsPlansSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-session")
+
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.aws_savings_plans.aws_savings_plans"
 
 
 def config(start_date: str | None = "2025-01-01") -> AwsSavingsPlansSourceConfig:
-    return AwsSavingsPlansSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="example-secret",
-        aws_session_token="example-session",
-        start_date=start_date,
+    return AwsSavingsPlansSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "example-secret",
+            "aws_session_token": "example-session",
+            "start_date": start_date,
+        }
     )
 
 
@@ -90,7 +95,7 @@ def run_source(
     start_date: str | None = "2025-01-01",
 ) -> list[dict[str, Any]]:
     source = aws_savings_plans_source(
-        config(start_date), name, manager, incremental, last_value, SAVINGS_PLANS_API_VERSION
+        config(start_date), CREDENTIALS, name, manager, incremental, last_value, SAVINGS_PLANS_API_VERSION
     )
     return [row for batch in cast(Iterable[Any], source.items()) for row in batch]
 
@@ -260,7 +265,7 @@ def test_fan_out_resumes_after_finished_parents(resume_token: str | None, expect
 )
 def test_fan_out_validation_probes_child_with_a_parent(name: str, answer: Any, expected: list[str]) -> None:
     with scripted_network(answer) as network:
-        assert validate_credentials(config(), name) == (True, None)
+        assert validate_credentials(config(), CREDENTIALS, name) == (True, None)
     assert [operation(request) for request in network.requests_log] == expected
     for request in network.requests_log:
         assert_matches_service_model(request)
@@ -419,7 +424,7 @@ def test_resume_keeps_original_window_and_stages_before_yield(transport: MagicMo
         {"SavingsPlansCoverages": [{"TimePeriod": {"Start": "2025-01-02", "End": "2025-01-03"}}]}
     )
     source = aws_savings_plans_source(
-        config(), "coverage_daily", manager, True, "2025-01-10", SAVINGS_PLANS_API_VERSION
+        config(), CREDENTIALS, "coverage_daily", manager, True, "2025-01-10", SAVINGS_PLANS_API_VERSION
     )
     iterator = iter(cast(Iterable[Any], source.items()))
     next(iterator)
@@ -482,7 +487,7 @@ def test_error_parsing_and_no_duplicate_status_retry(
     transport: MagicMock, body: Any, headers: dict[str, str], status: int, code: str, error_type: type[Exception]
 ) -> None:
     transport.return_value.post.return_value = response(body, status, headers)
-    client = AwsSavingsPlansClient(config(), SAVINGS_PLANS_API_VERSION)
+    client = AwsSavingsPlansClient(config(), CREDENTIALS, SAVINGS_PLANS_API_VERSION)
     with pytest.raises(error_type) as error:
         cast(Any, AwsSavingsPlansClient.request).__wrapped__(client, ENDPOINTS["savings_plans"], {})
     assert type(error.value) is error_type
@@ -509,7 +514,7 @@ def test_credential_errors(
     transport: MagicMock, code: str, schema: str | None, valid: bool, message: str | None
 ) -> None:
     transport.return_value.post.return_value = response({"__type": code, "message": "private IAM ARN"}, 400)
-    result, reason = validate_credentials(config(), schema)
+    result, reason = validate_credentials(config(), CREDENTIALS, schema)
     assert result is valid
     assert reason is None if message is None else message in (reason or "")
     assert "private" not in (reason or "")
@@ -520,7 +525,7 @@ def test_credential_errors(
 @pytest.mark.parametrize("schema,key", [(None, "maxResults"), ("coverage_daily", "MaxResults")])
 def test_validation_probe_is_one_small_request(schema: str | None, key: str) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        assert validate_credentials(config(), schema) == (True, None)
+        assert validate_credentials(config(), CREDENTIALS, schema) == (True, None)
     assert len(network.requests_log) == 1
     assert network.requests_log[0].json()[key] == 1
 
@@ -544,7 +549,7 @@ def test_history_is_bounded(start_date: str | None) -> None:
 )
 def test_invalid_configuration_makes_no_requests(start_date: str, schema: str | None, expected: str) -> None:
     with scripted_network([]) as network:
-        valid, message = validate_credentials(config(start_date), schema)
+        valid, message = validate_credentials(config(start_date), CREDENTIALS, schema)
     assert not valid
     assert expected in (message or "")
     assert network.requests_log == []
@@ -552,5 +557,5 @@ def test_invalid_configuration_makes_no_requests(start_date: str, schema: str | 
 
 def test_network_failure_closes_session(transport: MagicMock) -> None:
     transport.return_value.post.side_effect = requests.Timeout("private connection detail")
-    assert validate_credentials(config()) == (False, "Could not reach AWS. Try again later.")
+    assert validate_credentials(config(), CREDENTIALS) == (False, "Could not reach AWS. Try again later.")
     transport.return_value.close.assert_called_once()

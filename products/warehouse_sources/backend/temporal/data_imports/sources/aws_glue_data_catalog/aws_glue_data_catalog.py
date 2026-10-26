@@ -95,9 +95,7 @@ def page_items(endpoint: GlueEndpoint, body: dict[str, Any]) -> list[dict[str, A
 
 
 class AwsGlueClient:
-    def __init__(self, config: AwsGlueDataCatalogSourceConfig, api_version: str) -> None:
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
+    def __init__(self, config: AwsGlueDataCatalogSourceConfig, credentials: Credentials, api_version: str) -> None:
         if not _REGION_PATTERN.fullmatch(config.aws_region):
             raise ValueError("Enter an AWS region such as us-east-1.")
         if api_version not in TARGET_PREFIXES:
@@ -106,14 +104,11 @@ class AwsGlueClient:
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://glue.{self.region}.{suffix}/"
         self.target_prefix = TARGET_PREFIXES[api_version]
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "glue",
-            self.region,
-        )
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (config.aws_secret_access_key, config.aws_session_token) if value),
+            redact_values=tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value),
         )
 
     def close(self) -> None:
@@ -133,7 +128,8 @@ class AwsGlueClient:
             data=body,
             headers={"Content-Type": CONTENT_TYPE, "X-Amz-Target": f"{self.target_prefix}.{operation}"},
         )
-        self.signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "glue", self.region).add_auth(request)
         response = self.session.post(
             self.url,
             data=body,
@@ -269,6 +265,7 @@ def walk_rows(
 
 def aws_glue_data_catalog_source(
     config: AwsGlueDataCatalogSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsGlueDataCatalogResumeConfig],
@@ -280,7 +277,7 @@ def aws_glue_data_catalog_source(
     supports_resume = spec.parent is None
 
     def get_rows() -> Iterator[list[dict[str, Any]]]:
-        client = AwsGlueClient(config, api_version)
+        client = AwsGlueClient(config, credentials, api_version)
         try:
             yield from walk_rows(client, endpoint, manager, checkpoint=supports_resume)
         finally:
@@ -315,12 +312,12 @@ def probe_endpoint(client: AwsGlueClient, endpoint: str) -> dict[str, Any] | Non
 
 
 def validate_credentials(
-    config: AwsGlueDataCatalogSourceConfig, api_version: str, schema_name: str | None = None
+    config: AwsGlueDataCatalogSourceConfig, credentials: Credentials, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, f"Unknown AWS Glue table: {schema_name}"
     try:
-        client = AwsGlueClient(config, api_version)
+        client = AwsGlueClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -339,10 +336,10 @@ def validate_credentials(
 
 
 def probe_endpoint_permissions(
-    config: AwsGlueDataCatalogSourceConfig, api_version: str, endpoints: list[str]
+    config: AwsGlueDataCatalogSourceConfig, credentials: Credentials, api_version: str, endpoints: list[str]
 ) -> dict[str, str | None]:
     try:
-        client = AwsGlueClient(config, api_version)
+        client = AwsGlueClient(config, credentials, api_version)
     except ValueError as error:
         return dict.fromkeys(endpoints, str(error))
     permissions: dict[str, str | None] = {}

@@ -92,9 +92,7 @@ def error_for_response(response: requests.Response) -> AwsGuarddutyError:
 
 
 class AwsGuarddutyClient:
-    def __init__(self, config: AwsGuarddutySourceConfig, api_version: str) -> None:
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
+    def __init__(self, config: AwsGuarddutySourceConfig, credentials: Credentials, api_version: str) -> None:
         if not _REGION.fullmatch(config.aws_region):
             raise ValueError("Enter a valid AWS region, such as us-east-1.")
         if api_version != GUARDDUTY_API_VERSION:
@@ -105,16 +103,13 @@ class AwsGuarddutyClient:
         # Pin the REST serializer to the service model because GuardDuty has no versioned URL or target header.
         self._model = get_session().get_service_model("guardduty", api_version=api_version)
         self._serializer = create_serializer(self._model.metadata["protocol"])
-        self._signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "guardduty",
-            self.region,
-        )
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
             redact_values=tuple(
                 value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
                 if value
             ),
         )
@@ -136,7 +131,8 @@ class AwsGuarddutyClient:
         request = AWSRequest(
             method=serialized["method"], url=url, data=serialized["body"], headers=serialized["headers"]
         )
-        self._signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "guardduty", self.region).add_auth(request)
         response = self._session.request(
             serialized["method"],
             url,
@@ -214,13 +210,14 @@ def watermark_milliseconds(value: dt.datetime | str | None) -> int | None:
 
 def get_rows(
     config: AwsGuarddutySourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsGuarddutyResumeConfig],
     updated_since: dt.datetime | str | None,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
-    client = AwsGuarddutyClient(config, api_version)
+    client = AwsGuarddutyClient(config, credentials, api_version)
     try:
         state = manager.load_state() if manager.can_resume() else None
         if state is None:
@@ -296,12 +293,12 @@ def permission_message(error: AwsGuarddutyError, schema_name: str | None) -> str
 
 
 def validate_credentials(
-    config: AwsGuarddutySourceConfig, api_version: str, schema_name: str | None = None
+    config: AwsGuarddutySourceConfig, credentials: Credentials, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, f"Unknown GuardDuty table: {schema_name}"
     try:
-        client = AwsGuarddutyClient(config, api_version)
+        client = AwsGuarddutyClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -330,6 +327,7 @@ def validate_credentials(
 
 def aws_guardduty_source(
     config: AwsGuarddutySourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsGuarddutyResumeConfig],
@@ -338,7 +336,7 @@ def aws_guardduty_source(
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, api_version, manager, updated_since),
+        items=lambda: get_rows(config, credentials, endpoint, api_version, manager, updated_since),
         primary_keys=list(endpoint_config.primary_keys),
         # Findings can change between listing IDs and retrieving details, so global ordering is not guaranteed.
         # "desc" saves the watermark once at job end, so unordered rows cannot strand older ones.
