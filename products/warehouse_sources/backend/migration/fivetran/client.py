@@ -77,10 +77,16 @@ class FivetranClient:
                 return
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        response = self._session.get(f"{self._base_url}{path}", params=params, timeout=_TIMEOUT_SECONDS)
+        try:
+            response = self._session.get(f"{self._base_url}{path}", params=params, timeout=_TIMEOUT_SECONDS)
+        except requests.RequestException as error:
+            raise FivetranAPIError(0, f"could not reach Fivetran ({type(error).__name__})") from error
         if not response.ok:
             raise _error_for(response)
-        return response.json().get("data") or {}
+        try:
+            return response.json().get("data") or {}
+        except ValueError as error:
+            raise FivetranAPIError(response.status_code, "the response was not JSON") from error
 
 
 class FivetranWriteBlockedError(Exception):

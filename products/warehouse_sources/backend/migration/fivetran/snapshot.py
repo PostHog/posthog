@@ -1,11 +1,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from products.warehouse_sources.backend.migration.fivetran.client import (
-    FivetranAPIError,
-    FivetranAuthError,
-    FivetranClient,
-)
+from products.warehouse_sources.backend.migration.fivetran.client import FivetranAPIError, FivetranClient
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
 from products.warehouse_sources.backend.migration.types import (
     MigrationProvider,
@@ -21,6 +17,7 @@ from products.warehouse_sources.backend.migration.types import (
 )
 
 _ALL_DAYS = 7
+_WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
 
 
 def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
@@ -44,10 +41,11 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
         schema_config: dict[str, Any] | None
         try:
             schema_config = client.get_schema_config(listed["id"])
-        except FivetranAuthError:
-            raise
-        except FivetranAPIError:
-            # Some connectors (Magic Folder, unfinished setups) have no schema config.
+        except FivetranAPIError as error:
+            # Some connectors (Magic Folder, unfinished setups) have no schema config. Any other
+            # failure must stop the crawl, or the plan would drop the user's table selection.
+            if error.status_code != 404:
+                raise
             schema_config = None
         offset = utc_offsets.get(raw_connection.get("group_id") or "", 0)
         connections.append(parse_connection(raw_connection, schema_config, utc_offset_hours=offset))
@@ -107,10 +105,11 @@ def _parse_schedule(raw: Mapping[str, Any], utc_offset_hours: int) -> VendorSche
         return VendorSchedule(kind=ScheduleKind.CRON, cron=schedule.get("cron"))
     if schedule_type == "TIME_OF_DAY":
         # Fivetran reads this time in the destination's UTC offset.
+        time_of_day_utc, day_shift = _shift_to_utc(schedule.get("time_of_day"), utc_offset_hours)
         return VendorSchedule(
             kind=ScheduleKind.TIME_OF_DAY,
-            time_of_day_utc=_shift_to_utc(schedule.get("time_of_day"), utc_offset_hours),
-            days_of_week=days,
+            time_of_day_utc=time_of_day_utc,
+            days_of_week=_shift_days(days, day_shift),
         )
 
     interval = schedule.get("interval") or raw.get("sync_frequency")
@@ -131,11 +130,22 @@ def _parse_offset(value: Any) -> int:
         return 0
 
 
-def _shift_to_utc(local_time: str | None, utc_offset_hours: int) -> str | None:
+def _shift_to_utc(local_time: str | None, utc_offset_hours: int) -> tuple[str | None, int]:
+    """Return the UTC time and how many days the shift crossed (-1, 0 or 1)."""
     if not local_time:
-        return None
+        return None, 0
     hours, minutes = local_time.split(":")[:2]
-    return f"{(int(hours) - utc_offset_hours) % 24:02d}:{int(minutes):02d}"
+    utc_hours = int(hours) - utc_offset_hours
+    return f"{utc_hours % 24:02d}:{int(minutes):02d}", utc_hours // 24
+
+
+def _shift_days(days: tuple[str, ...], day_shift: int) -> tuple[str, ...]:
+    if not day_shift:
+        return days
+    return tuple(
+        _WEEKDAYS[(_WEEKDAYS.index(day.upper()) + day_shift) % len(_WEEKDAYS)] if day.upper() in _WEEKDAYS else day
+        for day in days
+    )
 
 
 def _parse_tables(schema_config: Mapping[str, Any]) -> tuple[VendorTable, ...]:

@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FIVETRAN_API_URL,
+    FivetranAPIError,
     FivetranAuthError,
     FivetranClient,
     FivetranCredentials,
@@ -155,12 +156,15 @@ class TestFetchSnapshot(SimpleTestCase):
             assert secret not in stored
         assert VendorSnapshot.from_json(json.loads(stored)) == snapshot
 
-    def test_auth_error_on_schema_config_stops_the_crawl(self) -> None:
+    @parameterized.expand([("auth_error", 403, FivetranAuthError), ("other_error", 400, FivetranAPIError)])
+    def test_schema_config_error_other_than_404_stops_the_crawl(
+        self, _name: str, status_code: int, error: type[Exception]
+    ) -> None:
         with requests_mock.Mocker() as m:
             self._mock_account(m)
             self._mock_connections(m)
-            m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=403, json={"message": "Forbidden"})
-            with pytest.raises(FivetranAuthError):
+            m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=status_code, json={"message": "No"})
+            with pytest.raises(error):
                 fetch_snapshot(_client())
 
 
@@ -190,6 +194,12 @@ class TestParseSchedule(SimpleTestCase):
                 {"schedule": {"schedule_type": "TIME_OF_DAY", "time_of_day": "22:30"}},
                 -5,
                 VendorSchedule(kind=ScheduleKind.TIME_OF_DAY, time_of_day_utc="03:30"),
+            ),
+            (
+                "time_of_day_crossing_midnight_moves_the_day",
+                {"schedule": {"schedule_type": "TIME_OF_DAY", "time_of_day": "22:30", "days_of_week": ["SUNDAY"]}},
+                -5,
+                VendorSchedule(kind=ScheduleKind.TIME_OF_DAY, time_of_day_utc="03:30", days_of_week=("MONDAY",)),
             ),
             (
                 "interval_with_some_days",
@@ -232,6 +242,10 @@ class TestStripSecrets(SimpleTestCase):
                 {"files": [{"pgp_pass_phrase": "fake", "pattern": "*.csv"}, "******"]},
                 {"files": [{"pattern": "*.csv"}]},
             ),
+            ("key_suffix", {"sasl_plain_key": "fake", "account_key": "fake"}, {}),
+            ("camel_case", {"apiKey": "fake", "privateKey": "fake"}, {}),
+            ("auth_object", {"auth": {"client_id": "fake"}, "authorization": "fake"}, {}),
+            ("password_in_url", {"uri": "postgres://reader:fake@db.example.com/app"}, {}),
             (
                 "public_key_is_not_secret",
                 {"public_key": "ssh-rsa AAAA", "host": "db.example.com"},
@@ -244,11 +258,14 @@ class TestStripSecrets(SimpleTestCase):
 
 
 class TestReadOnlyClient(SimpleTestCase):
-    @parameterized.expand([("POST",), ("PATCH",), ("PUT",), ("DELETE",)])
-    def test_write_methods_never_leave_posthog(self, method: str) -> None:
+    @parameterized.expand(
+        [(method, scheme) for method in ("POST", "PATCH", "PUT", "DELETE") for scheme in ("http", "https")]
+    )
+    def test_write_methods_never_leave_posthog(self, method: str, scheme: str) -> None:
         # A closed local port: if the guard ever fails, the call errors here instead of reaching Fivetran.
+        base_url = f"{scheme}://127.0.0.1:9"
         client = FivetranClient(
-            FivetranCredentials(api_key=FAKE_API_KEY, api_secret=FAKE_API_SECRET), base_url="http://127.0.0.1:9"
+            FivetranCredentials(api_key=FAKE_API_KEY, api_secret=FAKE_API_SECRET), base_url=base_url
         )
         with pytest.raises(FivetranWriteBlockedError):
-            client._session.request(method, "http://127.0.0.1:9/connections/conn_example")
+            client._session.request(method, f"{base_url}/connections/conn_example")
