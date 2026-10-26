@@ -108,8 +108,7 @@ class BaseDetector(ABC):
         context = self.context_buckets()
         if len(data) <= context:
             return DetectionResult(is_anomaly=False)
-        processed = self.preprocess(np.asarray(data, dtype=float))[context:]
-        scores, metadata = self._score_rows(artifact, processed)
+        scores, metadata = self._score_processed(artifact, self.preprocess(np.asarray(data, dtype=float)), context)
         return self._scored_result(scores, metadata)
 
     def context_buckets(self) -> int:
@@ -120,6 +119,12 @@ class BaseDetector(ABC):
             + (1 if preprocessing.get("diffs_n") else 0)
             + min(max(preprocessing.get("lags_n") or 0, 0), 10)
         )
+
+    def _score_processed(
+        self, artifact: DetectorArtifact, processed: np.ndarray, context: int
+    ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        """The score and metadata of each preprocessed row after the first ``context`` rows."""
+        return self._score_rows(artifact, processed[context:])
 
     def _score_rows(
         self, artifact: DetectorArtifact, rows: np.ndarray
