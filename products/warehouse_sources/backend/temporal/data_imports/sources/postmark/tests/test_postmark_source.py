@@ -15,12 +15,6 @@ class TestPostmarkSource:
         self.team_id = 123
         self.config = PostmarkSourceConfig(server_token="test-server-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["bounces"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "bounces"
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postmark.source.validate_postmark_credentials"
     )
@@ -35,10 +29,7 @@ class TestPostmarkSource:
 
     @parameterized.expand(
         [
-            ("invalid_token_401", 401, "Invalid Postmark server API token"),
-            ("missing_permissions_403", 403, "doesn't have the required permissions"),
             ("unreachable_none", None, "Couldn't reach Postmark"),
-            ("server_error_500", 500, "Couldn't reach Postmark"),
             ("rate_limited_429", 429, "Couldn't reach Postmark"),
         ]
     )

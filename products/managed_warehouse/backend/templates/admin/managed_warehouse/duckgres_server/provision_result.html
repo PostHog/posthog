@@ -6,6 +6,9 @@
             Provisioned a managed warehouse for organization <code>{{ organization_id }}</code>
             (first team <code>{{ team_id }}</code>).
         </p>
+        {% if internal_only %}
+            <p>Background loading is enabled. Data loading starts when the warehouse is ready. Customer access follows the <code>managed-warehouse-trino-query</code> flag.</p>
+        {% endif %}
         <p style="background: #fff3cd;
                   border: 1px solid #ffe69c;
                   border-radius: 4px;

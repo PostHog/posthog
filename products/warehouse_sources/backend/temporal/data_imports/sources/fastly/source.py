@@ -51,7 +51,7 @@ class FastlySource(ResumableSource[FastlySourceConfig, FastlyResumeConfig]):
             name=ExternalDataSourceType.FASTLY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Fastly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Fastly API token to automatically pull your Fastly account and service configuration into the PostHog Data warehouse.
 
 You can create an API token in your [Fastly account settings](https://manage.fastly.com/account/personal/tokens).

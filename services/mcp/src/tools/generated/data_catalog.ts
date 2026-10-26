@@ -207,8 +207,11 @@ const dataCatalogCertificationPropose = (): ToolBase<
 })
 
 const DataCatalogMetricApproveSchema = () => {
+    const DataCatalogMetricsApproveCreateBody = orvalSchemas.DataCatalogMetricsApproveCreateBody()
     const DataCatalogMetricsApproveCreateParams = orvalSchemas.DataCatalogMetricsApproveCreateParams()
-    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true }).extend(
+        DataCatalogMetricsApproveCreateBody.shape
+    )
 }
 
 const DataCatalogMetricApproveSchemaExecute = z.strictObject({
@@ -265,9 +268,14 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
         }
         const params = __guard.verifiedArgs
         const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.expected_updated_at !== undefined) {
+            body['expected_updated_at'] = params.expected_updated_at
+        }
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
+            body,
         })
         return result
     },
@@ -275,7 +283,11 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
 
 const DataCatalogMetricCreateSchema = () => {
     const DataCatalogMetricsCreateBody = orvalSchemas.DataCatalogMetricsCreateBody()
-    return DataCatalogMetricsCreateBody
+    return DataCatalogMetricsCreateBody.extend({
+        overwrite: DataCatalogMetricsCreateBody.shape['overwrite'].describe(
+            'Set to true only after the user explicitly agreed to overwrite the live metric that already holds this name. Leave it unset on the first call.'
+        ),
+    })
 }
 
 const dataCatalogMetricCreate = (): ToolBase<
@@ -313,6 +325,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
+        }
+        if (params.overwrite !== undefined) {
+            body['overwrite'] = params.overwrite
         }
         body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({

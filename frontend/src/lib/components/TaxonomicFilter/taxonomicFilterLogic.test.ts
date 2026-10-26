@@ -17,6 +17,7 @@ import {
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { getMCPPropertyFilterOptions } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -121,6 +122,30 @@ describe('taxonomicFilterLogic', () => {
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Cohorts }).isMounted()
         ).toBeFalsy()
     })
+
+    it.each([
+        [TaxonomicFilterGroupType.Events, true, false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, true, false, 'true'],
+        [TaxonomicFilterGroupType.Events, true, true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, true, true, 'false'],
+        [TaxonomicFilterGroupType.Events, false, false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, false, false, 'false'],
+    ])(
+        'for %s with the flag %p and allowNonCapturedEvents %p, fuzzy_search is %p',
+        (groupType, flagEnabled, allowNonCapturedEvents, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagEnabled,
+            })
+            const fuzzyLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `fuzzy-${groupType}-${flagEnabled}-${allowNonCapturedEvents}`,
+                taxonomicGroupTypes: [groupType],
+                allowNonCapturedEvents,
+            })
+            fuzzyLogic.mount()
+            const group = fuzzyLogic.values.taxonomicGroups.find((item) => item.type === groupType)
+            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe(expected)
+        }
+    )
 
     it('loads actions when a taxonomic filter mounts', async () => {
         await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
@@ -693,9 +718,21 @@ describe('taxonomicFilterLogic', () => {
                 barrierLogic.actions.setSearchQuery('whatever')
             }).toMatchValues({ revealBarrierOpen: false })
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+
+            const latencyCalls = captureSpy.mock.calls.filter(([event]) => event === 'taxonomic filter search latency')
+            expect(latencyCalls).toHaveLength(1)
+            expect(latencyCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: 'whatever',
+                time_to_see_data_ms: expect.any(Number),
+                revealedBy: 'all_groups_settled',
+                pendingGroupTypes: [],
+            })
+            captureSpy.mockRestore()
         })
     })
 
@@ -1136,6 +1173,69 @@ describe('taxonomicFilterLogic', () => {
 
             testLogic.unmount()
         })
+    })
+
+    describe('search-only groups', () => {
+        it.each([
+            {
+                picker: 'property picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                hidden: [TaxonomicFilterGroupType.EmailAddresses],
+                shown: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.PageviewUrls],
+            },
+            {
+                picker: 'series picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                hidden: [
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            },
+            {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
+                picker: 'picker of only a search-only group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+        ])(
+            'keeps search-only groups searched but out of the categories in a $picker',
+            ({ picker, groupTypes, hidden, shown }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testSearchOnly-${picker}`,
+                    taxonomicGroupTypes: groupTypes,
+                })
+                testLogic.mount()
+
+                for (const groupType of hidden) {
+                    expect(testLogic.values.categoryGroupTypes).not.toContain(groupType)
+                    expect(testLogic.values.taxonomicGroupTypes).toContain(groupType)
+                }
+                for (const groupType of shown) {
+                    expect(testLogic.values.categoryGroupTypes).toContain(groupType)
+                }
+
+                testLogic.unmount()
+            }
+        )
     })
 
     describe('searchPlaceholder', () => {

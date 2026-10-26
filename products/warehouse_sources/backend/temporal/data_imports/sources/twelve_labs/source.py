@@ -54,7 +54,7 @@ class TwelveLabsSource(ResumableSource[TwelveLabsSourceConfig, TwelveLabsResumeC
             name=ExternalDataSourceType.TWELVELABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Twelve Labs",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Twelve Labs API key to sync your video understanding library into the PostHog Data warehouse.
 
 You can create an API key in your [Twelve Labs dashboard](https://playground.twelvelabs.io/dashboard/api-key).""",

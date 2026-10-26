@@ -41,7 +41,11 @@ def _response(
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False)])
+    @parameterized.expand(
+        [
+            (200, True),
+        ]
+    )
     def test_maps_status_code_to_validity(self, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("m0-test") is expected

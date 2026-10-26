@@ -13,7 +13,9 @@ from posthog.schema import (
     EventPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
+    PropertyGroupsMode,
     PropertyOperator,
     SessionPropertyFilter,
 )
@@ -140,6 +142,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         self,
         columns: str,
         where: str = "",
+        modifiers: HogQLQueryModifiers | None = None,
         source: str = "posthog.flag_evaluations",
         *,
         row_uuids: tuple[uuid.UUID, ...] = (),
@@ -158,6 +161,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 placeholders=placeholders,
                 context=context,
+                modifiers=modifiers,
                 pretty=False,
             )
 
@@ -241,6 +245,21 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+
+    def test_custom_property_filter_reads_the_property_group_map_for_an_ordinary_value(self):
+        where = f" AND properties.probe = '{EVENT_PROBE}'"
+        json_read = self._execute(
+            "properties.probe", where, modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.DISABLED)
+        )
+        map_read = self._execute(
+            "properties.probe", where, modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED)
+        )
+
+        # A read that falls back to the JSON returns the same rows. Only the printed SQL shows whether the
+        # filter reads the map. Only a map read can use the bloom filter indexes.
+        assert "equals(flag_evaluations.properties_group_custom[" in (map_read.clickhouse or "")
+        assert "properties_group_custom" not in (json_read.clickhouse or "")
+        assert map_read.results == json_read.results == [(EVENT_PROBE,)]
 
     @parameterized.expand(
         [
@@ -391,20 +410,34 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("event", "properties", "probe", PropertyDefinition.Type.EVENT, "$feature_flag"),
-            ("person", "person.properties", "email", PropertyDefinition.Type.PERSON, "plan"),
+            (f"{kind}_{read}", blob_field, restricted, stored_value, property_type, unrestricted, mode)
+            for kind, blob_field, restricted, stored_value, property_type, unrestricted in [
+                ("event", "properties", "probe", EVENT_PROBE, PropertyDefinition.Type.EVENT, "$feature_flag"),
+                ("person", "person.properties", "email", "probe@example.com", PropertyDefinition.Type.PERSON, "plan"),
+            ]
+            for read, mode in [("json", PropertyGroupsMode.DISABLED), ("map", PropertyGroupsMode.OPTIMIZED)]
         ]
     )
     def test_restricted_property_is_hidden_from_both_read_paths(
-        self, _name: str, blob_field: str, restricted: str, property_type, unrestricted: str
+        self,
+        _name: str,
+        blob_field: str,
+        restricted: str,
+        stored_value: str,
+        property_type,
+        unrestricted: str,
+        mode: PropertyGroupsMode,
     ):
         # The explicit read lowers to a NULL constant and the blob read is scrubbed by the printer.
         # Both consult the same dispatch, so a table dropped from it leaks through both.
+        # A filter that reads the map would reveal the value through the rows it returns.
         self._restrict(restricted, property_type)
+        modifiers = HogQLQueryModifiers(propertyGroupsMode=mode)
 
-        assert self._select(f"{blob_field}.{restricted}") == [(None,)]
+        assert self._execute(f"{blob_field}.{restricted}", modifiers=modifiers).results == [(None,)]
+        assert self._execute("uuid", f" AND {blob_field}.{restricted} = '{stored_value}'", modifiers).results == []
 
-        blob = json.loads(self._select(blob_field)[0][0])
+        blob = json.loads(self._execute(blob_field, modifiers=modifiers).results[0][0])
 
         assert restricted not in blob
         assert unrestricted in blob

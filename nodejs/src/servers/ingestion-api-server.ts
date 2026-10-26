@@ -446,7 +446,9 @@ export class IngestionApiServer implements NodeServer {
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
             createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
         }
-        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
+        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres, {
+            pipeline: 'analytics',
+        }).start()
         const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
             this.featureFlagCalledDedupRedisPool,
             this.config

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 
+use personhog_coordination::types::MigrationPhase;
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
 use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
@@ -18,7 +19,7 @@ use crate::report::{print_report, ConsistencyViolation};
 use crate::scenarios::merge::{self, MergeLane, WideRole};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
-use crate::stack::{PublishConfig, Stack, StackConfig};
+use crate::stack::{MigrationChaos, PublishConfig, Stack, StackConfig, StallAt};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::verify::verify_postgres;
@@ -44,6 +45,8 @@ enum ChaosEvent {
     ReleaseFences,
     PublisherCrash,
     IdentityCrash,
+    Migrate,
+    MigrateAgain,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -68,6 +71,8 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
             ChaosEvent::PublisherCrash => write!(f, "publisher crash-restart"),
             ChaosEvent::IdentityCrash => write!(f, "identity crash-restart"),
+            ChaosEvent::Migrate => write!(f, "changelog migration"),
+            ChaosEvent::MigrateAgain => write!(f, "second changelog migration"),
         }
     }
 }
@@ -112,6 +117,12 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     }
     if let Some(after) = args.router_shutdown_after {
         events.push((after, ChaosEvent::RouterShutdown));
+    }
+    if let Some(after) = args.migrate_after {
+        events.push((after, ChaosEvent::Migrate));
+    }
+    if let Some(after) = args.migrate_again_after {
+        events.push((after, ChaosEvent::MigrateAgain));
     }
     if let Some(after) = args.fence_after {
         events.push((after, ChaosEvent::FencePersons));
@@ -218,6 +229,29 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.fence_after.is_some() && args.fence_count == 0 {
         bail!("--fence-count must be at least 1 with --fence-after");
     }
+    if args.migrate_after.is_some() && args.migrate_to_partitions.is_none_or(|n| n == 0) {
+        bail!("--migrate-after needs --migrate-to-partitions >= 1");
+    }
+    if args.migrate_again_after.is_some() && args.migrate_again_to_partitions.is_none_or(|n| n == 0)
+    {
+        bail!("--migrate-again-after needs --migrate-again-to-partitions >= 1");
+    }
+    if args.migrate_kill_coordinator && args.routers < 3 {
+        bail!("--migrate-kill-coordinator requires --routers >= 3");
+    }
+    if args.migrate_kill_leader && args.migrate_kill_leader_at_sealing {
+        bail!("--migrate-kill-leader and --migrate-kill-leader-at-sealing are exclusive");
+    }
+    let mut router_env = args.router_env.clone();
+    if let Some(ms) = args.migrate_slow_coordinator_ms {
+        router_env.push(("COORDINATOR_MIGRATION_DEBOUNCE_MS".into(), ms.to_string()));
+    }
+    if args.migrate_stall_leader {
+        router_env.push((
+            "COORDINATOR_MIGRATION_PRE_FLIP_DEADLINE_SECS".into(),
+            "5".into(),
+        ));
+    }
     if args.publish && args.external_router_url.is_some() {
         bail!("--publish requires a spawned stack; it cannot target --external-router-url");
     }
@@ -291,6 +325,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
                     extra_leader_env: args.leader_env.clone(),
+                    extra_router_env: router_env,
                     recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                     spawn_identity: create_via_identity,
@@ -298,6 +333,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                         publishers: args.publishers,
                         rows_per_pass: args.publish_rows_per_pass,
                     }),
+                    monitor: None,
                 })
                 .await?,
             )
@@ -702,6 +738,52 @@ async fn run_gate(
                 stack.crash_restart_identity().await?;
                 None
             }
+            ChaosEvent::Migrate | ChaosEvent::MigrateAgain => {
+                let chaos = match event {
+                    ChaosEvent::Migrate => MigrationChaos {
+                        to_partitions: args
+                            .migrate_to_partitions
+                            .expect("validated: --migrate-after needs --migrate-to-partitions"),
+                        kill_coordinator: args.migrate_kill_coordinator,
+                        kill_leader_at: if args.migrate_kill_leader {
+                            Some(MigrationPhase::Resuming)
+                        } else if args.migrate_kill_leader_at_sealing {
+                            Some(MigrationPhase::Sealing)
+                        } else {
+                            None
+                        },
+                        restart_leader: args.migrate_restart_leader,
+                        stall: if args.migrate_stall_leader {
+                            Some(StallAt::BeforeStart)
+                        } else if args.migrate_stall_leader_at_sealing {
+                            Some(StallAt::Sealing)
+                        } else {
+                            None
+                        },
+                        pause_writer: args
+                            .migrate_pause_writer
+                            .then_some(args.writer_pause_duration),
+                    },
+                    // The second migration runs clean; the first carries the chaos.
+                    _ => MigrationChaos {
+                        to_partitions: args.migrate_again_to_partitions.expect(
+                            "validated: --migrate-again-after needs --migrate-again-to-partitions",
+                        ),
+                        kill_coordinator: false,
+                        kill_leader_at: None,
+                        restart_leader: false,
+                        stall: None,
+                        pause_writer: None,
+                    },
+                };
+                let took = stack.migrate(chaos).await?;
+                println!(
+                    "Chaos at {:.1}s: migration ended in {:.1}s",
+                    traffic_start.elapsed().as_secs_f64(),
+                    took.as_secs_f64()
+                );
+                None
+            }
             ChaosEvent::FencePersons | ChaosEvent::ReleaseFences => {
                 unreachable!("fence events are dispatched before the stack match")
             }
@@ -730,6 +812,9 @@ async fn run_gate(
 
     traffic.await.context("traffic task panicked")??;
     let mut prober_violations = probers.await.context("prober task panicked")??;
+    if let Some(stack) = stack.as_mut() {
+        stack.retire_drained().await?;
+    }
     let mut unresolved_merges = Vec::new();
     if let Some(merges) = merges {
         let result = merges.await.context("merge task panicked")??;
@@ -829,7 +914,7 @@ async fn run_gate(
                 .await?;
         violations.extend(publish::verify_published_merges(
             &expected_merges,
-            &published_merges.pairs,
+            &published_merges,
         ));
         println!(
             "  {} mappings and {} merge events for {} pairs read back from Kafka ({foreign_rows} rows and {} events of other teams skipped)",

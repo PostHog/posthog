@@ -55,7 +55,8 @@ pub struct CohortMembershipChange {
     /// Backfill provenance; `None` on the live path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ChangeOrigin>,
-    /// The backfill run that emitted this change; set iff `origin` is.
+    /// The backfill run that emitted this change. A cascade keeps `origin` but not `run_id`, because
+    /// the membership writer sweeps each (run_id, cohort) and the referrer cohort is not in that run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<RunId>,
 }

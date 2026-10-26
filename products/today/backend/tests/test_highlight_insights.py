@@ -367,3 +367,64 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([(m.key, m.url, m.dashboard_name, m.opened_days, m.last_opened) for m in pulse], expected)
         self.assertEqual([m.movers for m in pulse], [[]] * len(expected))
+
+    @parameterized.expand(
+        [
+            ("frecency puts the habit first", "frecency", ["insight:habit", "insight:fresh"]),
+            ("recency puts the latest open first", "recency", ["insight:fresh", "insight:habit"]),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_each_new_ranking_orders_the_same_views_its_own_way(
+        self, _name: str, ranking: str, expected: list[str]
+    ) -> None:
+        for ref, ages in (("habit", range(2, 10)), ("fresh", (1,))):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=age) for age in ages],
+                viewed_at=datetime.combine(TODAY - timedelta(days=min(ages)), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value=ranking),
+            patch.object(
+                routine,
+                "get_insight_series",
+                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+            ),
+        ):
+            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+
+        self.assertEqual([m.key for m in pulse], expected)
+
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_suggestions_skip_pinned_insights_and_leave_their_places_free(self) -> None:
+        for ref in ("pinned", "first", "second", "third"):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=1)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+        queried: list[str] = []
+
+        def series(**kwargs: Any) -> InsightSeries:
+            queried.append(kwargs["short_id"])
+            return insight({"opened": points}, short_id=kwargs["short_id"], name=kwargs["short_id"])
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value="frecency"),
+            patch.object(routine, "get_insight_series", side_effect=series),
+        ):
+            pulse = routine.find(
+                Context(self.team, self.user, TODAY, pinned=frozenset({"insight:pinned", "signup_event"}))
+            ).pulse
+
+        self.assertEqual((len(pulse), "pinned" in queried), (2, False))

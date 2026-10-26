@@ -6,15 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
 from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError
-from products.tasks.backend.logic.services.sandbox import (
-    ExecutionResult,
-    SandboxConfig,
-    SandboxTemplate,
-    needs_full_history,
-)
-from products.tasks.backend.models import Task
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -24,7 +17,6 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     _build_environment_variables,
     _build_sandbox_tags,
     _effective_sandbox_template,
-    _is_blobless_signals_clone_enabled,
     _requested_sandbox_template,
     _to_modal_domain_allowlist,
     checkout_branch_in_sandbox,
@@ -81,21 +73,43 @@ def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
 _WORKFLOW_ID = "review-pr:42:posthog/posthog:7-sandbox"
 
 
-def _build_tags(*args, **kwargs):
+def _build_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+    *,
+    workflow_id: str | None = _WORKFLOW_ID,
+) -> dict[str, str]:
     with patch(f"{_PROVISION}.activity") as mock_activity:
-        mock_activity.info.return_value = MagicMock(workflow_id=_WORKFLOW_ID)
-        return _build_sandbox_tags(*args, **kwargs)
+        mock_activity.info.return_value = MagicMock(workflow_id=workflow_id)
+        return _build_sandbox_tags(ctx, prepared, use_vm_sandbox)
 
 
-def test_build_sandbox_tags_includes_all_identifiers():
-    tags = _build_tags(_context(), _prepared(), use_vm_sandbox=False)
+@pytest.mark.parametrize(
+    ("workflow_prefix", "expected_label"),
+    [
+        ("task-processing", "task-processing"),
+        ("review-pr:42:example/demo:7:validation-c3", "review-pr-42-example-demo-7-validation-c3"),
+        ("scheduled.daily_report", "scheduled.daily_report"),
+        ("review-pr:42:example/" + "r" * 80 + ":7:validation", "review-pr-42-example-" + "r" * 42),
+    ],
+)
+def test_build_sandbox_tags_includes_all_identifiers(workflow_prefix: str, expected_label: str) -> None:
+    task_id = "00000000-0000-4000-8000-000000000001"
+    run_id = "00000000-0000-4000-8000-000000000002"
+    tags = _build_tags(
+        _context(task_id=task_id, run_id=run_id),
+        _prepared(),
+        use_vm_sandbox=False,
+        workflow_id=f"{workflow_prefix}-{task_id}-{run_id}",
+    )
 
     assert tags == {
-        "task_id": "task-123",
-        "task_run_id": "run-456",
+        "task_id": task_id,
+        "task_run_id": run_id,
         "origin_product": "error_tracking",
         "team_id": "42",
-        "workflow_id": _WORKFLOW_ID,
+        "workflow_label": expected_label,
         "image_source": "base_image",
         "sandbox_runtime": "gvisor",
     }
@@ -116,45 +130,11 @@ def test_build_sandbox_tags_reflects_image_source(image_source):
 
 
 def test_build_sandbox_tags_drops_none_values():
-    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False)
+    tags = _build_tags(_context(origin_product=None), _prepared(), use_vm_sandbox=False, workflow_id=None)
 
     assert "origin_product" not in tags
+    assert "workflow_label" not in tags
     assert all(isinstance(value, str) for value in tags.values())
-
-
-@pytest.mark.parametrize(
-    ("origin_product", "flag_result", "expected"),
-    [
-        (Task.OriginProduct.SIGNAL_REPORT, True, True),
-        (Task.OriginProduct.SIGNAL_REPORT, False, False),
-        (Task.OriginProduct.SIGNALS_SCOUT, True, True),
-        (Task.OriginProduct.SIGNALS_SCOUT, False, False),
-        (Task.OriginProduct.ERROR_TRACKING, True, False),
-        (Task.OriginProduct.USER_CREATED, True, False),
-    ],
-)
-def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_product, flag_result, expected):
-    feature_enabled = mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", return_value=flag_result)
-
-    assert _is_blobless_signals_clone_enabled(_context(origin_product=origin_product)) is expected
-
-    if needs_full_history(origin_product):
-        feature_enabled.assert_called_once_with(
-            TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
-            distinct_id="distinct-id",
-            groups={"organization": "org-uuid"},
-            group_properties={"organization": {"id": "org-uuid"}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    else:
-        feature_enabled.assert_not_called()
-
-
-def test_blobless_clone_fails_closed_when_flag_evaluation_fails(mocker):
-    mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", side_effect=RuntimeError("unavailable"))
-
-    assert _is_blobless_signals_clone_enabled(_context(origin_product=Task.OriginProduct.SIGNAL_REPORT)) is False
 
 
 # All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist

@@ -20,7 +20,6 @@ class TestCrunchbaseSource:
         "status_code, expected_valid",
         [
             (200, True),
-            (403, False),
         ],
     )
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:

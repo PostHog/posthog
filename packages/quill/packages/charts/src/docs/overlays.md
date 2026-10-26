@@ -19,7 +19,7 @@ Prop docs live on each component's props interface under `overlays/`.
 
 ### `ReferenceLine` / `ReferenceLines`
 
-Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin).
+Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (thin dashed, in the axis label color so it follows light and dark).
 A numeric line reveals its value on hover of the line itself (via a wider invisible hit area) or of its label, appended as `label: value` when it has a label and shown alone when it does not.
 `showValueOnHover: false` turns that off and removes the hit area, for a line whose caption already states the number or that should not react to the pointer.
 A vertical line resolves x through `scales.x(label)`, so it can only sit on a label.
@@ -60,6 +60,7 @@ Use it to mirror an external selection (the rows visible in a paired virtualized
 On band (bar) charts the box covers the endpoints' full bands; on point (line) charts it runs point to point.
 `color`, `fillOpacity`, and `borderOpacity` tune the look (`borderOpacity: 0` drops the edge border).
 It clamps to the plot area and renders null when an endpoint does not resolve.
+It draws no label. To name the range, such as an incident window, add a vertical `ReferenceLine` whose `value` is the range's start label, and give it a `label`.
 
 ### `AnomalyPointsLayer`
 

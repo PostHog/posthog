@@ -8,7 +8,7 @@ use futures::StreamExt;
 use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
-use object_store::{ClientOptions, ObjectStore};
+use object_store::{BackoffConfig, ClientOptions, ObjectStore};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
@@ -32,9 +32,17 @@ pub async fn create_s3_client(
         .with_bucket_name(&config.s3_bucket)
         .with_client_options(ClientOptions::new().with_timeout(config.s3_attempt_timeout))
         .with_retry(object_store::RetryConfig {
+            // From 1 s instead of object_store's 100 ms, so ten fast failures spread over tens of
+            // seconds and outlast a broken connection. Each wait is a random draw between 1 s and
+            // twice the last wait, capped at 15 s, so the total stays below about 105 s. Slow
+            // attempts reach `retry_timeout` first.
+            backoff: BackoffConfig {
+                init_backoff: Duration::from_secs(1),
+                max_backoff: Duration::from_secs(15),
+                base: 2.0,
+            },
             max_retries: config.s3_max_retries,
             retry_timeout: config.s3_operation_timeout,
-            ..Default::default()
         });
 
     if let Some(ref region) = config.aws_region {

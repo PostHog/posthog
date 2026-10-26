@@ -50,7 +50,7 @@ class FlyIoSource(SimpleSource[FlyIoSourceConfig]):
             name=ExternalDataSourceType.FLYIO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Fly.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Fly.io apps, machines, and volumes into the PostHog Data warehouse.
 
 Create an organization-scoped token with `fly tokens create org` (or from the **Tokens** section of your Fly.io dashboard) and paste it below. A read-only org token is sufficient.""",

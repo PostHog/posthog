@@ -65,6 +65,7 @@ const descriptions: Record<string, string> = {
  * Every other sidebar product must have one — `sidebarProductMeta.test.ts` fails when a new product has neither.
  */
 export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
+    'Application observability',
     'Apps',
     'Autoresearch',
     'Broadcasts',
@@ -75,6 +76,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Identity matching',
     'Product tours',
     'Pulse',
+    'Uptime monitoring',
     'Visual review',
 ])
 

@@ -33,8 +33,10 @@ import structlog
 from pydantic import BaseModel, ValidationError
 from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -285,9 +287,15 @@ def _credentials() -> tuple[str, str]:
     """Resolve Slack app credentials at call time so dev/test overrides via
     instance settings work the same way the workspace install flow does.
     """
-    from_settings = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"])
-    client_id = from_settings.get("SLACK_APP_CLIENT_ID") or ""
-    client_secret = from_settings.get("SLACK_APP_CLIENT_SECRET") or ""
+    try:
+        from_settings = get_many_or_instance_settings(
+            ["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
+        )
+    except CredentialsServiceFailure as exc:
+        # The views catch SlackUserOAuthError and redirect back to settings, rather than answering 500.
+        raise SlackUserOAuthError("Slack app credentials temporarily unavailable") from exc
+    client_id = from_settings["SLACK_APP_CLIENT_ID"]
+    client_secret = from_settings["SLACK_APP_CLIENT_SECRET"]
     if not client_id or not client_secret:
         raise SlackUserOAuthError("Slack app credentials not configured")
     return client_id, client_secret

@@ -57,6 +57,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mcp_exclude_tools_from_state,
     record_delivered_message,
     sandbox_identity_scope,
+    unmounted_mcp_installations_log_fields,
     upgrade_run_to_user_authorship,
 )
 
@@ -787,7 +788,7 @@ def _refresh_sandbox_mcp(
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_from_state(state),
     )
-    user_mcp_configs = get_user_mcp_server_configs(
+    user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
@@ -800,8 +801,17 @@ def _refresh_sandbox_mcp(
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
     )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    if user_mcp.configs:
+        mcp_configs = mcp_configs + user_mcp.configs
+    if user_mcp.unmounted:
+        logger.info(
+            "mcp_installations_not_mounted",
+            team_id=task_run.team_id,
+            task_id=str(task_run.task_id),
+            run_id=run_id,
+            user_id=actor_user.id,
+            unmounted=unmounted_mcp_installations_log_fields(user_mcp.unmounted),
+        )
 
     # refresh_session replaces the session's server list wholesale, so the
     # run's imported servers must ride along or they vanish mid-run.
@@ -947,7 +957,6 @@ def _refresh_sandbox_github(
     if promoted_state is not None:
         state = promoted_state
 
-    scope = sandbox_identity_scope(run_id, state)
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return None
 
@@ -1029,7 +1038,7 @@ def _refresh_sandbox_github(
             if applied:
                 # Record the new actor only on a fully-confirmed rebind. A partial write leaves one
                 # credential location on the prior actor's token, so fall through to logout instead.
-                mark_sandbox_github_identity(scope, actor_user.id)
+                mark_sandbox_github_identity(sandbox.id, actor_user.id)
                 logger.info("refresh_github_rebound", run_id=run_id, user_id=actor_user.id)
                 return None
             logger.warning("refresh_github_apply_incomplete", run_id=run_id, user_id=actor_user.id)
@@ -1049,7 +1058,7 @@ def _refresh_sandbox_github(
             # bound away from the run owner, and clearing it would let the scheduled refresh inject
             # the owner's token into this actor's session. It does not gate the rebind — every turn
             # re-establishes — so a reconnect is still picked up.
-            mark_sandbox_github_identity(scope, actor_user.id)
+            mark_sandbox_github_identity(sandbox.id, actor_user.id)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return None
         logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, had_token=bool(token))

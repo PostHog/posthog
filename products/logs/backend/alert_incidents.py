@@ -15,6 +15,7 @@ from products.alerts.backend.facade.destinations import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
+from products.logs.backend.alert_event_properties import incident_closed_event_properties
 from products.logs.backend.alert_state_machine import IncidentCloseReason
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -37,13 +38,9 @@ def has_incident_destination(alert: LogsAlertConfiguration) -> bool:
 def incident_closed_properties(
     alert: LogsAlertConfiguration, reason: IncidentCloseReason, now: datetime
 ) -> dict[str, Any]:
-    return {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "reason": reason.value,
-        "triggered_at": now.isoformat(),
-    }
+    return incident_closed_event_properties(
+        alert_id=str(alert.id), alert_name=alert.name, team_id=alert.team_id, reason=reason.value, triggered_at=now
+    )
 
 
 def close_incident(

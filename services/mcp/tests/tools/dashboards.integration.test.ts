@@ -270,8 +270,6 @@ describe('Dashboards', { concurrent: false }, () => {
             'filters_hash',
             'dashboards',
             'dashboard_tiles',
-            'effective_restriction_level',
-            'effective_privilege_level',
             'user_access_level',
             'filters',
             'is_sample',

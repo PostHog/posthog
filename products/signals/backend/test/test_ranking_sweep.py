@@ -203,7 +203,9 @@ class TestScoreInboxReports(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.serving = SimpleNamespace(
-            manifest=SimpleNamespace(manifest_version=MANIFEST, served=SimpleNamespace(key=SERVED_KEY)),
+            manifest=SimpleNamespace(
+                manifest_version=MANIFEST, served=SimpleNamespace(key=SERVED_KEY), project_vectors=None
+            ),
             served_override=None,
         )
         self._patch(sweep, "read_ranking_overrides", return_value=NO_OVERRIDES)

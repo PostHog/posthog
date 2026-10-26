@@ -1,6 +1,25 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the prod-us/apm node. Apply to a fresh ClickHouse to build it.
 
+CREATE TABLE posthog.kafka_logs_avro (
+  uuid String,
+  trace_id String,
+  span_id String,
+  trace_flags Int32,
+  timestamp DateTime64(6),
+  observed_timestamp DateTime64(6),
+  body String,
+  severity_text String,
+  severity_number Int32,
+  service_name String,
+  resource_attributes Map(LowCardinality(String), String),
+  instrumentation_scope String,
+  event_name String,
+  attributes Map(LowCardinality(String), String),
+  retention_days Nullable(Int32),
+  pattern Nullable(String),
+  pattern_version Nullable(Int32)
+) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 4, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
 CREATE TABLE posthog.kafka_metrics_avro4 (
   uuid String,
   trace_id String,
@@ -54,6 +73,41 @@ CREATE TABLE posthog.metrics4_input (
   _topic String,
   _offset UInt64
 ) ENGINE = Null();
+CREATE TABLE posthog.writable_logs34 (
+  time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
+  original_expiry_timestamp DateTime64(6),
+  uuid String,
+  team_id Int32,
+  trace_id String,
+  span_id String,
+  trace_flags Int32,
+  timestamp DateTime64(6) CODEC(DoubleDelta),
+  observed_timestamp DateTime64(6),
+  created_at DateTime64(6) MATERIALIZED now(),
+  body String,
+  severity_text LowCardinality(String),
+  severity_number Int32,
+  service_name LowCardinality(String),
+  resource_attributes Map(LowCardinality(String), String),
+  resource_fingerprint UInt64 MATERIALIZED cityHash64(resource_attributes),
+  instrumentation_scope String,
+  event_name String,
+  attributes_map_str Map(LowCardinality(String), String),
+  level String ALIAS severity_text,
+  mat_body_ipv4_matches Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\.)(2, 2)([0-9]))'),
+  time_minute DateTime ALIAS toStartOfMinute(timestamp),
+  attributes Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+  attributes_map_float Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+  attributes_map_datetime Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+  _partition UInt32,
+  _topic String,
+  _offset UInt64,
+  _bytes_uncompressed UInt64,
+  _bytes_compressed UInt64,
+  _record_count UInt64,
+  pattern String,
+  pattern_version UInt8
+) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_metrics4_attributes (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -116,39 +170,6 @@ CREATE TABLE posthog.writable_metrics4_series (
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
   original_expiry_timestamp DateTime64(6)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_series');
-CREATE TABLE posthog.writable_query_log_archive (
-  hostname LowCardinality(String),
-  user LowCardinality(String),
-  query_id String,
-  initial_query_id String,
-  is_initial_query UInt8,
-  type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4),
-  event_date Date,
-  event_time DateTime,
-  event_time_microseconds DateTime64(6),
-  query_start_time DateTime,
-  query_start_time_microseconds DateTime64(6),
-  query_duration_ms UInt64,
-  read_rows UInt64,
-  read_bytes UInt64,
-  written_rows UInt64,
-  written_bytes UInt64,
-  result_rows UInt64,
-  result_bytes UInt64,
-  memory_usage UInt64,
-  peak_threads_usage UInt64,
-  current_database LowCardinality(String),
-  query String,
-  formatted_query String,
-  normalized_query_hash UInt64,
-  query_kind LowCardinality(String),
-  exception_code Int32,
-  exception String,
-  stack_trace String,
-  team_id Int64,
-  log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
-  ProfileEvents Map(String, UInt64)
-) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_buffer');
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
@@ -267,6 +288,39 @@ CREATE TABLE posthog.writable_query_log_archive_v3 (
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8) AS SELECT
+  uuid,
+  trace_id,
+  span_id,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
+  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  timestamp
+  + toIntervalDay(
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
+  ) AS original_expiry_timestamp,
+  _partition,
+  _topic,
+  _offset,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
@@ -430,40 +484,6 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
   original_expiry_timestamp
 FROM posthog.metrics4_input
 WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
-  hostname,
-  user,
-  query_id,
-  initial_query_id,
-  is_initial_query,
-  type,
-  event_date,
-  event_time,
-  event_time_microseconds,
-  query_start_time,
-  query_start_time_microseconds,
-  query_duration_ms,
-  read_rows,
-  read_bytes,
-  written_rows,
-  written_bytes,
-  result_rows,
-  result_bytes,
-  memory_usage,
-  peak_threads_usage,
-  current_database,
-  query,
-  formatted_query,
-  normalized_query_hash,
-  query_kind,
-  exception_code,
-  exception,
-  stack_trace,
-  JSONExtractInt(log_comment, 'team_id') AS team_id,
-  if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
-  ProfileEvents
-FROM system.query_log
-WHERE type != 'QueryStart';
 CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_v3_mv TO posthog.writable_query_log_archive_v3 (initial_query_start_time DateTime64(6, 'UTC'), team_id Int64, initial_query_id String, is_initial_query SimpleAggregateFunction(max, UInt8), hostname SimpleAggregateFunction(max, LowCardinality(String)), user SimpleAggregateFunction(max, LowCardinality(String)), type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)), event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')), query_duration_ms SimpleAggregateFunction(max, UInt64), read_rows SimpleAggregateFunction(sum, UInt64), read_bytes SimpleAggregateFunction(sum, UInt64), written_rows SimpleAggregateFunction(sum, UInt64), written_bytes SimpleAggregateFunction(sum, UInt64), result_rows SimpleAggregateFunction(sum, UInt64), result_bytes SimpleAggregateFunction(sum, UInt64), memory_usage SimpleAggregateFunction(max, UInt64), memory_usage_sum SimpleAggregateFunction(sum, UInt64), peak_threads_usage SimpleAggregateFunction(sum, UInt64), execution_count SimpleAggregateFunction(sum, UInt64), current_database SimpleAggregateFunction(max, LowCardinality(String)), query SimpleAggregateFunction(max, String), normalized_query_hash SimpleAggregateFunction(max, UInt64), query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)), tables SimpleAggregateFunction(max, Array(String)), exception_code SimpleAggregateFunction(max, Int32), exception SimpleAggregateFunction(max, String), stack_trace SimpleAggregateFunction(max, String), ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64), ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64), ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64), lc_org_id SimpleAggregateFunction(max, String), lc_user_id SimpleAggregateFunction(max, Int64), lc_session_id SimpleAggregateFunction(max, String), lc_is_impersonated SimpleAggregateFunction(max, Bool), lc_workflow SimpleAggregateFunction(max, LowCardinality(String)), lc_kind SimpleAggregateFunction(max, LowCardinality(String)), lc_id SimpleAggregateFunction(max, String), lc_route_id SimpleAggregateFunction(max, String), lc_access_method SimpleAggregateFunction(max, LowCardinality(String)), lc_api_key_label SimpleAggregateFunction(max, String), lc_api_key_mask SimpleAggregateFunction(max, String), lc_query_type SimpleAggregateFunction(max, LowCardinality(String)), lc_product SimpleAggregateFunction(max, LowCardinality(String)), lc_chargeable SimpleAggregateFunction(max, Bool), lc_name SimpleAggregateFunction(max, String), lc_request_name SimpleAggregateFunction(max, String), lc_client_query_id SimpleAggregateFunction(max, String), lc_dashboard_id SimpleAggregateFunction(max, Int64), lc_insight_id SimpleAggregateFunction(max, Int64), lc_cohort_id SimpleAggregateFunction(max, Int64), lc_batch_export_id SimpleAggregateFunction(max, String), lc_experiment_id SimpleAggregateFunction(max, Int64), lc_experiment_feature_flag_key SimpleAggregateFunction(max, String), lc_alert_config_id SimpleAggregateFunction(max, String), lc_feature SimpleAggregateFunction(max, LowCardinality(String)), lc_table_id SimpleAggregateFunction(max, String), lc_warehouse_query SimpleAggregateFunction(max, Bool), lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)), lc_service_name SimpleAggregateFunction(max, LowCardinality(String)), lc_workload SimpleAggregateFunction(max, LowCardinality(String)), lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)), lc_query__query SimpleAggregateFunction(max, String), lc_query SimpleAggregateFunction(max, String), lc_modifiers SimpleAggregateFunction(max, String), lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__workflow_id SimpleAggregateFunction(max, String), lc_temporal__workflow_run_id SimpleAggregateFunction(max, String), lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)), lc_temporal__activity_id SimpleAggregateFunction(max, String), lc_temporal__attempt SimpleAggregateFunction(max, Int64), lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)), lc_dagster__run_id SimpleAggregateFunction(max, String), lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_name SimpleAggregateFunction(max, String), lc_experiment_metric_name SimpleAggregateFunction(max, String), lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_precompute_table SimpleAggregateFunction(max, String), lc_experiment_query_group_id SimpleAggregateFunction(max, String), lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)), lc_experiment_scan_date_from SimpleAggregateFunction(max, String), lc_experiment_scan_date_to SimpleAggregateFunction(max, String), lc_precompute_window_start SimpleAggregateFunction(max, String), lc_precompute_window_end SimpleAggregateFunction(max, String), lc_plan_fingerprint SimpleAggregateFunction(max, String), lc_estimated_rows SimpleAggregateFunction(max, Int64), lc_estimated_bytes SimpleAggregateFunction(max, Int64)) AS WITH
   JSONExtract(ql.log_comment, 'Tuple(team_id Int64, org_id String, user_id Int64, session_id String, is_impersonated Bool, workflow String, kind String, id String, route_id String, access_method String, api_key_label String, api_key_mask String, query_type String, product String, chargeable Bool, name String, request_name String, client_query_id String, dashboard_id Int64, insight_id Int64, cohort_id Int64, batch_export_id String, experiment_id Int64, experiment_feature_flag_key String, alert_config_id String, feature String, table_id String, warehouse_query Bool, person_on_events_mode String, service_name String, workload String, experiment_name String, experiment_metric_name String, experiment_execution_path String, experiment_metric_type String, experiment_funnel_order_type String, experiment_exposures_path String, experiment_metric_events_path String, experiment_query_surface String, experiment_precompute_table String, experiment_query_group_id String, experiment_precompute_skip_reason String, experiment_scan_date_from String, experiment_scan_date_to String, precompute_window_start String, precompute_window_end String, plan_fingerprint String, estimated_rows Int64, estimated_bytes Int64, temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, workflow_run_id String, activity_type String, activity_id String, attempt Int64), dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), query Tuple(kind String, query String, source Tuple(kind String, query String)))') AS lc
 SELECT

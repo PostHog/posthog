@@ -348,7 +348,11 @@ class EvaluationBackfillViewSet(
                     f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
                     "backfill has to end before that. Try a range that ends earlier."
                 )
-        window_start: datetime = max(data["window_start"], now - timedelta(days=AI_EVENTS_RETENTION_DAYS))
+        # ai_events expires at toDate(timestamp) + retention_days, so exclude the whole expired day.
+        retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=AI_EVENTS_RETENTION_DAYS - 1
+        )
+        window_start: datetime = max(data["window_start"], retention_start)
         if window_start >= window_end:
             raise ValidationError(
                 f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."
@@ -494,7 +498,6 @@ class EvaluationBackfillViewSet(
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Count what a backfill over the given window would evaluate, without creating one."""
         evaluation = self._evaluation_for_url()
-        self._require_enabled(evaluation)
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
@@ -668,7 +671,7 @@ class EvaluationBackfillViewSet(
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
-                # a failed handle costs nothing and does not need a stack trace.
+                # a failed handle only lets the current page finish and does not need a stack trace.
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()

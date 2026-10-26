@@ -6,9 +6,12 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.settings import (
@@ -85,7 +88,7 @@ def validate_credentials(api_key: str) -> bool:
         return False
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             ReplicateRetryableError,
@@ -218,7 +221,15 @@ def get_rows(
     cursor_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)
 
     while True:
-        data = _fetch_page(session, url, headers, logger)
+        try:
+            data = _fetch_page(session, url, headers, logger)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 416:
+                # Replicate returns 416 Range Not Satisfiable instead of an empty page for some
+                # requests that match nothing (observed on created_after filters predating the
+                # account's data) — treat it like a last page rather than failing the sync.
+                break
+            raise
         items = _extract_items(data, config)
 
         if items:

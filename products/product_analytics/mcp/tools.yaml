@@ -28,6 +28,7 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
+        reads_ingested_data: events
     insight-create:
         operation: insights_create
         enabled: true
@@ -64,6 +65,10 @@ tools:
 
             Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
             so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
+            `InsightVizNode`.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
@@ -124,7 +129,9 @@ tools:
             pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
             newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
             already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert.
+            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
+            changes, check the final saved insight once if browser access is already available. Skip browser checks for
+            small edits.
         exclude_params:
             - query
         include_params:
@@ -224,7 +231,8 @@ tools:
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results. Query uses the same format as
             insight-create. Replacing query replaces the entire definition; include all filters and visualization
-            settings you want to retain.
+            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
+            access is already available. Skip browser checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when

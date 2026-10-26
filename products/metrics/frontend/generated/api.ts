@@ -38,6 +38,8 @@ import type {
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricVariableOptionsRequestApi,
+    _MetricVariableOptionsResponseApi,
     _MetricsOverviewResponseApi,
 } from './api.schemas'
 
@@ -104,7 +106,8 @@ export const getMetricsAttributeValuesRetrieveUrl = (
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const metricsAttributeValuesRetrieve = async (
     projectId: string,
@@ -368,6 +371,24 @@ export const metricsDashboardTemplatesPreviewCreate = async (
     })
 }
 
+export const getMetricsDashboardTemplatesRegenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/regenerate/`
+}
+
+/**
+ * Discard the panels and the preview of a generated template, and generate it again from its metrics.
+ */
+export const metricsDashboardTemplatesRegenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MetricsDashboardTemplateApi> => {
+    return apiMutator<MetricsDashboardTemplateApi>(getMetricsDashboardTemplatesRegenerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMetricsDashboardTemplatesRejectCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/metrics/dashboard_templates/${id}/reject/`
 }
@@ -618,5 +639,25 @@ export const metricsValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricCatalogValuesParamsApi),
+    })
+}
+
+export const getMetricsVariableOptionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/variable_options/`
+}
+
+/**
+ * The options of one dashboard variable, for the variable selects on dashboards.
+ */
+export const metricsVariableOptionsCreate = async (
+    projectId: string,
+    _metricVariableOptionsRequestApi: _MetricVariableOptionsRequestApi,
+    options?: RequestInit
+): Promise<_MetricVariableOptionsResponseApi> => {
+    return apiMutator<_MetricVariableOptionsResponseApi>(getMetricsVariableOptionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricVariableOptionsRequestApi),
     })
 }

@@ -141,10 +141,11 @@ function redactCurrentValue(field: string, current: Record<string, unknown>): un
  */
 export function buildHogFunctionConfigDiff(
     current: Record<string, unknown>,
-    proposed: Record<string, unknown>
+    proposed: Record<string, unknown>,
+    fields: DiffableField[] = DIFFABLE_FIELDS
 ): HogFunctionFieldDiff[] {
     const diffs: HogFunctionFieldDiff[] = []
-    for (const { field, label, kind, normalize } of DIFFABLE_FIELDS) {
+    for (const { field, label, kind, normalize } of fields) {
         if (!(field in proposed)) {
             continue
         }
@@ -174,4 +175,78 @@ export function buildHogFunctionConfigDiff(
         })
     }
     return diffs
+}
+
+/** Mirrors DRAFT_CONTENT_FIELDS in products/cdp/backend/api/hog_function.py. Keep the two lists in sync. */
+export const HOG_FUNCTION_DRAFT_CONTENT_FIELDS = ['hog', 'inputs_schema', 'inputs', 'filters', 'mappings', 'masking']
+
+export function hogFunctionFieldLabel(field: string): string {
+    return DIFFABLE_FIELDS.find((diffable) => diffable.field === field)?.label ?? field
+}
+
+const DERIVED_FILTER_KEYS = ['bytecode', 'bytecode_error', 'bytecode_contract', 'transpiled']
+const DERIVED_INPUT_KEYS = ['bytecode', 'bytecode_contract', 'transpiled', 'order']
+
+// Both sides of a draft diff come from the API, so `comparableContent` already strips derived input
+// keys. Value-only inputs would hide a templating change.
+const DRAFT_DIFFABLE_FIELDS: DiffableField[] = DIFFABLE_FIELDS.filter(({ field }) =>
+    HOG_FUNCTION_DRAFT_CONTENT_FIELDS.includes(field)
+).map((diffable) => ({ ...diffable, normalize: undefined }))
+
+function withoutKeys(value: unknown, keys: string[]): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return value
+    }
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => !keys.includes(key)))
+}
+
+function comparableInputs(inputs: unknown, inputsSchema: unknown): unknown {
+    if (!inputs || typeof inputs !== 'object') {
+        return inputs
+    }
+    const redacted = redactSecretHogFunctionInputs(
+        inputs as Record<string, CyclotronJobInputType>,
+        (inputsSchema ?? []) as CyclotronJobInputSchemaType[]
+    )
+    return Object.fromEntries(
+        Object.entries(redacted).map(([key, entry]) => {
+            // The server treats a missing `templating` as Hog, and an agent edit often sends values only.
+            const derived = entry?.templating === 'hog' ? [...DERIVED_INPUT_KEYS, 'templating'] : DERIVED_INPUT_KEYS
+            return [key, withoutKeys(entry, derived)]
+        })
+    )
+}
+
+/**
+ * Mirrors `comparable_content` in products/cdp/backend/api/hog_function.py: drops the values the
+ * server compiles from the config (bytecode, transpiled JS, input ordering), so a recompile does not
+ * read as a change. Secrets are redacted on both sides, because the API masks them anyway.
+ */
+function comparableContent(content: Record<string, unknown>): Record<string, unknown> {
+    const mappings = content.mappings
+    return {
+        ...content,
+        inputs: comparableInputs(content.inputs, content.inputs_schema),
+        filters: withoutKeys(content.filters, DERIVED_FILTER_KEYS),
+        masking: withoutKeys(content.masking, ['bytecode']),
+        mappings: Array.isArray(mappings)
+            ? mappings.map((mapping) =>
+                  mapping && typeof mapping === 'object'
+                      ? {
+                            ...mapping,
+                            filters: withoutKeys(mapping.filters, DERIVED_FILTER_KEYS),
+                            inputs: comparableInputs(mapping.inputs, mapping.inputs_schema),
+                        }
+                      : mapping
+              )
+            : mappings,
+    }
+}
+
+/** Field-level diff of a function's staged draft against its live config. */
+export function buildHogFunctionDraftDiff(
+    live: Record<string, unknown>,
+    draft: Record<string, unknown>
+): HogFunctionFieldDiff[] {
+    return buildHogFunctionConfigDiff(comparableContent(live), comparableContent(draft), DRAFT_DIFFABLE_FIELDS)
 }

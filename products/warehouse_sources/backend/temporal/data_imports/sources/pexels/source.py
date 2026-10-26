@@ -50,7 +50,7 @@ class PexelsSource(ResumableSource[PexelsSourceConfig, PexelsResumeConfig]):
             name=ExternalDataSourceType.PEXELS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Pexels",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Pexels API key to pull Pexels stock photo and video catalog data into the PostHog Data warehouse.
 
 Generate an API key from your [Pexels API dashboard](https://www.pexels.com/api/).

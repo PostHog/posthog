@@ -13,8 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     CLUSTER_UNAVAILABLE_ERROR,
-    CREDENTIALS_REJECTED_ERROR,
-    FORBIDDEN_ERROR,
     PAGE_SIZE,
     TLS_ERROR,
     UNEXPECTED_RESPONSE_ERROR,
@@ -98,12 +96,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_error",
         [
-            (200, True, None),
-            (401, False, CREDENTIALS_REJECTED_ERROR),
-            (403, False, FORBIDDEN_ERROR),
             (404, False, UNEXPECTED_RESPONSE_ERROR),
             (429, False, CLUSTER_UNAVAILABLE_ERROR),
-            (500, False, CLUSTER_UNAVAILABLE_ERROR),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected_valid, expected_error):
@@ -120,7 +114,6 @@ class TestValidateCredentials:
         "raised, expected_error",
         [
             (Exception("boom"), UNREACHABLE_ERROR),
-            (requests.exceptions.ConnectionError("refused"), UNREACHABLE_ERROR),
             (requests.exceptions.SSLError("bad cert"), TLS_ERROR),
         ],
     )

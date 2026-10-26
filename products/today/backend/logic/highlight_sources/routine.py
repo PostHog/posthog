@@ -8,13 +8,18 @@ from posthog.dataclasses import frozen
 from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
-from products.dashboards.backend.facade.api import dashboard_insights
+from products.dashboards.backend.facade.api import (
+    DashboardInsights,
+    DashboardInsightTile,
+    dashboard_insight_tile,
+    dashboard_insights,
+)
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 
 from ...facade import contracts
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
-from ...feature_flags import FRECENCY_RANKING, pulse_ranking
+from ...feature_flags import FRECENCY_RANKING, RECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
@@ -45,15 +50,20 @@ class ViewedItem:
 
 
 def find(context: Context) -> Found:
-    if pulse_ranking(context.user, context.team) == FRECENCY_RANKING:
-        return Found(pulse=tuple(_frecent_metrics(context)))
+    pinned = context.pinned
+    budget = FRECENCY_TILES - len(pinned)
+    ranking = pulse_ranking(context.user, context.team)
+    if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
+        return Found(pulse=tuple(_frecent_metrics(context, ranking, pinned, budget)))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
-        metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
+        if len(metrics) >= min(ROUTINE_TILES, budget):
+            break
+        if f"insight:{item.ref}" in pinned:
+            continue
+        metric = context.guard(f"routine {item.ref}", partial(insight_metric, context, item.ref, viewed=item), None)
         if metric is not None:
             metrics.append(metric)
-        if len(metrics) == ROUTINE_TILES:
-            break
     return Found(pulse=tuple(metrics))
 
 
@@ -96,19 +106,21 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _frecent_metrics(context: Context) -> list[contracts.HighlightMetric]:
+def _frecent_metrics(
+    context: Context, ranking: str, excluded: Collection[str], budget: int
+) -> list[contracts.HighlightMetric]:
     metrics: list[contracts.HighlightMetric] = []
-    for item in _frecent_views(context)[:FRECENCY_CANDIDATES]:
-        shown = frozenset(metric.key for metric in metrics)
+    for item in _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]:
+        if len(metrics) >= budget:
+            break
+        shown = frozenset([*excluded, *(metric.key for metric in metrics)])
         metric = context.guard(f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown), None)
         if metric is not None:
             metrics.append(metric)
-        if len(metrics) == FRECENCY_TILES:
-            break
     return metrics
 
 
-def _frecent_views(context: Context) -> list[ViewedItem]:
+def _frecent_views(context: Context, ranking: str) -> list[ViewedItem]:
     views = FileSystemViewLog.objects.filter(
         team=context.team,
         user=context.user,
@@ -120,17 +132,17 @@ def _frecent_views(context: Context) -> list[ViewedItem]:
         ViewedItem(kind=kind, ref=ref, days=frozenset({*(days or []), viewed_at.astimezone(timezone_info).date()}))
         for kind, ref, days, viewed_at in views
     ]
-    scored = sorted(
-        ((frecency(item.days, context.today), max(item.days), item) for item in items),
-        key=lambda row: row[:2],
-        reverse=True,
-    )
+    scored = [(frecency(item.days, context.today), max(item.days), item) for item in items]
+    if ranking == RECENCY_RANKING:
+        scored.sort(key=lambda row: (row[1], row[0]), reverse=True)
+    else:
+        scored.sort(key=lambda row: row[:2], reverse=True)
     return [item for score, _last, item in scored if score > 0]
 
 
 def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -> contracts.HighlightMetric | None:
     if item.kind == "insight":
-        return None if f"insight:{item.ref}" in shown else _metric(context, item.ref, viewed=item)
+        return None if f"insight:{item.ref}" in shown else insight_metric(context, item.ref, viewed=item)
     if not item.ref.isdigit():
         return None
     dashboard = dashboard_insights(
@@ -143,17 +155,7 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
             continue
         metric = context.guard(
             f"dashboard {item.ref} tile {tile.insight_short_id}",
-            partial(
-                _metric,
-                context,
-                tile.insight_short_id,
-                dashboard=InsightDashboardContext(
-                    filters=dashboard.filters, tile_filters=tile.filters_overrides, variables=dashboard.variables
-                ),
-                viewed=item,
-                url=f"/dashboard/{dashboard.dashboard_id}",
-                dashboard_name=dashboard.name,
-            ),
+            partial(_tile_metric, context, dashboard, tile, viewed=item),
             None,
         )
         if metric is not None:
@@ -161,7 +163,40 @@ def _frecent_metric(context: Context, item: ViewedItem, shown: frozenset[str]) -
     return None
 
 
-def _metric(
+def dashboard_tile_metric(
+    context: Context, dashboard_id: int, short_id: str, *, blocking: bool = False
+) -> contracts.HighlightMetric | None:
+    dashboard = dashboard_insight_tile(
+        team=context.team, user=context.user, dashboard_id=dashboard_id, short_id=short_id
+    )
+    if dashboard is None:
+        return None
+    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking)
+
+
+def _tile_metric(
+    context: Context,
+    dashboard: DashboardInsights,
+    tile: DashboardInsightTile,
+    *,
+    viewed: ViewedItem | None = None,
+    blocking: bool = False,
+) -> contracts.HighlightMetric | None:
+    return insight_metric(
+        context,
+        tile.insight_short_id,
+        dashboard=InsightDashboardContext(
+            filters=dashboard.filters, tile_filters=tile.filters_overrides, variables=dashboard.variables
+        ),
+        viewed=viewed,
+        url=f"/dashboard/{dashboard.dashboard_id}",
+        dashboard_name=dashboard.name,
+        dashboard_id=dashboard.dashboard_id,
+        blocking=blocking,
+    )
+
+
+def insight_metric(
     context: Context,
     short_id: str,
     *,
@@ -169,8 +204,12 @@ def _metric(
     dashboard: InsightDashboardContext | None = None,
     url: str | None = None,
     dashboard_name: str | None = None,
+    dashboard_id: int | None = None,
+    blocking: bool = False,
 ) -> contracts.HighlightMetric | None:
-    insight = get_insight_series(team=context.team, user=context.user, short_id=short_id, dashboard=dashboard)
+    insight = get_insight_series(
+        team=context.team, user=context.user, short_id=short_id, dashboard=dashboard, blocking=blocking
+    )
     if insight is None:
         return None
     series = usable_series(insight, context.today)
@@ -215,6 +254,7 @@ def _metric(
         value_format=value_format,
         reason=HighlightMetricReason.ROUTINE if dashboard is None else HighlightMetricReason.DASHBOARD,
         dashboard_name=dashboard_name,
+        dashboard_id=dashboard_id,
         opened_days=_opened_days(viewed, context.today) if viewed else None,
         last_opened=max(viewed.days) if viewed and viewed.days else None,
         movers=_movers(series, insight.averaged_series, period, context.today),

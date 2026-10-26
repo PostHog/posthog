@@ -961,7 +961,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # against it, and the failed repos' manual setup instructions tell the user to reuse it.
         return WebhookCreationResult(
             success=False,
-            error="Failed to create the webhook in some repositories — " + "; ".join(failures),
+            error="Couldn't create the webhook in some repositories. " + "; ".join(failures),
             extra_inputs={"signing_secret": secret} if any_success else {},
         )
 

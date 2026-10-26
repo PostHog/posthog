@@ -23,7 +23,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
+import {
+    FLAG_CALLS_NOT_LOADABLE,
+    exampleFlagCall,
+    matchesOnlyFlagCallsOutsideEvents,
+} from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -37,6 +44,8 @@ import {
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
@@ -110,6 +119,8 @@ export const createGlobalsFromResponse = (
     groups: CyclotronJobInvocationGlobals['groups'] = {}
 ): CyclotronJobInvocationGlobals => {
     const projectUrl = `${window.location.origin}/project/${teamId}`
+    // The events query's `person` column names the id `uuid`, and holds only `distinct_id` for an event with no person.
+    const personId = person?.uuid ?? person?.id
     return {
         event: {
             uuid: event.uuid,
@@ -122,12 +133,12 @@ export const createGlobalsFromResponse = (
             event: event.event,
             properties: event.properties,
         },
-        person: person
+        person: personId
             ? {
-                  id: person.id,
+                  id: personId,
                   properties: person.properties,
                   name: person.name || 'Unknown person',
-                  url: `${window.location.origin}/person/${person.id}`,
+                  url: `${window.location.origin}/person/${personId}`,
               }
             : undefined,
         groups,
@@ -149,6 +160,7 @@ export interface hogFlowEditorTestLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     mode: HogFlowEditorMode // hogFlowEditorLogic
     selectedNodeId: string | null // hogFlowEditorLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     triggerAction: TriggerAction | null // workflowLogic
     workflow: HogFlow // workflowLogic
     workflowSanitized: HogFlow // workflowLogic
@@ -183,6 +195,7 @@ export interface hogFlowEditorTestLogicValues {
     testInvocationValidationErrors: DeepPartialMap<HogflowTestInvocation, ValidationErrorType>
     testResult: HogflowTestResult | null
     testResultMode: 'diff' | 'raw'
+    triggerMatchesOnlyFlagCallsOutsideEvents: boolean
     workflowVariableDefaults: Record<string, any>
 }
 
@@ -332,6 +345,144 @@ export interface hogFlowEditorTestLogicActions {
 export interface hogFlowEditorTestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        triggerMatchesOnlyFlagCallsOutsideEvents: (
+            triggerAction:
+                | ({
+                      config:
+                          | {
+                                type: 'api'
+                            }
+                          | {
+                                type: 'schedule'
+                            }
+                          | {
+                                filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
+                                    properties: any[]
+                                    tag_names?: string[] | undefined
+                                }
+                                type: 'batch'
+                            }
+                          | {
+                                filters: {
+                                    actions?: any[] | undefined
+                                    events?: any[] | undefined
+                                    filter_test_accounts?: boolean | undefined
+                                    properties?: any[] | undefined
+                                }
+                                type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'manual'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'tracking_pixel'
+                            }
+                          | {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                template_id: string
+                                template_uuid?: string | undefined
+                                type: 'webhook'
+                            }
+                      created_at?: number | undefined
+                      description: string
+                      filters?:
+                          | {
+                                actions?: any[] | undefined
+                                events?: any[] | undefined
+                                properties?: any[] | undefined
+                            }
+                          | null
+                          | undefined
+                      id: string
+                      name: string
+                      on_error?: 'abort' | 'continue' | null | undefined
+                      output_variable?:
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }
+                          | {
+                                key: string
+                                label?: string | null | undefined
+                                result_path?: string | null | undefined
+                                spread?: boolean | null | undefined
+                            }[]
+                          | null
+                          | undefined
+                      type: 'trigger'
+                      updated_at?: number | undefined
+                  } & Record<string, unknown>)
+                | null,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => boolean
         shouldLoadSampleGlobals: (
             triggerAction:
                 | ({
@@ -909,6 +1060,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             ['groupTypes'],
             groupsAccessLogic,
             ['groupsEnabled'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
@@ -1076,10 +1229,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         if (!response?.results?.[0]) {
                             // No matching events found
-                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            const flagCallsNotLoadable = values.triggerMatchesOnlyFlagCallsOutsideEvents
+                            const triggerFilters =
+                                values.triggerAction?.config.type === 'event' ? values.triggerAction.config.filters : {}
+                            const pageviewGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            // A test run applies the trigger filters, so a flag call trigger needs a flag call example.
+                            const exampleGlobals = flagCallsNotLoadable
+                                ? exampleFlagCall(pageviewGlobals, triggerFilters ?? {})
+                                : pageviewGlobals
                             actions.setNoMatchingEvents(true)
 
-                            if (extendedSearch) {
+                            if (flagCallsNotLoadable) {
+                                // A longer search cannot find a flag call that the events table does not hold.
+                                actions.setSampleGlobalsError(
+                                    `${FLAG_CALLS_NOT_LOADABLE} Using an example ${FEATURE_FLAG_CALLED_EVENT} event instead.`
+                                )
+                                actions.setCanTryExtendedSearch(false)
+                            } else if (extendedSearch) {
                                 // Extended search also failed
                                 actions.setSampleGlobalsError(
                                     `No events match these filters in the last ${EXTENDED_SEARCH_DAYS} days. Using an example $pageview event instead.`
@@ -1216,6 +1382,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         ],
     })),
     selectors(() => ({
+        triggerMatchesOnlyFlagCallsOutsideEvents: [
+            (s) => [s.triggerAction, s.currentTeam],
+            (triggerAction: TriggerAction | null, currentTeam: TeamPublicType | TeamType | null): boolean =>
+                triggerAction?.config.type === 'event' &&
+                matchesOnlyFlagCallsOutsideEvents(currentTeam, triggerAction.config.filters ?? {}),
+        ],
         shouldLoadSampleGlobals: [
             (s) => [s.triggerAction],
             (triggerAction: TriggerAction | null): boolean => {
