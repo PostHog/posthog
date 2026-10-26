@@ -355,7 +355,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             form_fields=("query",),
             filter_fields=(),
             creation_flag=METRICS_FEATURE_FLAG,
-            dashboard_filter_keys=("date_from", "date_to", "metricFilters"),
+            dashboard_filter_keys=("date_from", "date_to"),
             session_throttle="per_viewer",
             # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
             public_config_exclude=("query",),
