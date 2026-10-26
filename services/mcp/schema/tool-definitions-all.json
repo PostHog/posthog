@@ -4583,7 +4583,7 @@
         }
     },
     "data-quality-subjects": {
-        "description": "Every table, view, metric and PostHog table in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window.",
+        "description": "Tables, views, metrics and PostHog tables in this project you can read, with each one's columns and whether you can put a check on it. Start here: a check names its subject by the subject_type and id this returns, and a relationships check can point at a subject you can only read. A subject whose time_column is set can take a lookback_hours window. A project can have thousands of subjects, so pass search (a name fragment, such as 'events') and subject_type to find one. Results are sorted by subject_type, then name, and come back limit at a time (20 by default). When a page has limit rows, call again with offset increased by limit. Set include_columns to false to browse ids and names without column schemas.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "List what a data quality check can be authored on",
@@ -5388,7 +5388,7 @@
         "system_prompt_hint": "Error tracking setup recommendations and how to act on each (error-tracking category)"
     },
     "error-tracking-settings-get": {
-        "description": "Get the error tracking ingestion settings for the current project. Returns the project-wide and per-issue exception rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set. Read these before updating so you can preserve the fields you don't intend to change.",
+        "description": "Get the error tracking ingestion settings for the current project. Returns `ingestion_enabled`, which is false when ingestion drops every exception the project sends, and the project-wide and per-issue exception rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set. Read these before updating so you can preserve the fields you don't intend to change.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Get error tracking settings",
@@ -5403,7 +5403,7 @@
         }
     },
     "error-tracking-settings-update": {
-        "description": "Update the error tracking ingestion settings for the current project. Only the fields you include are applied; omitted fields keep their existing values. Use this to set the project-wide rate limit (`project_rate_limit_value` events per `project_rate_limit_bucket_size_minutes`) and the per-issue rate limit (`per_issue_rate_limit_value` events per `per_issue_rate_limit_bucket_size_minutes`). Set a `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with the user before reducing it.",
+        "description": "Update the error tracking ingestion settings for the current project. Only the fields you include are applied; omitted fields keep their existing values. Use this to set the project-wide rate limit (`project_rate_limit_value` events per `project_rate_limit_bucket_size_minutes`) and the per-issue rate limit (`per_issue_rate_limit_value` events per `per_issue_rate_limit_bucket_size_minutes`). Set a `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with the user before reducing it. Setting `ingestion_enabled` to false drops every exception the project sends, within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop or resume exception ingestion.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Update error tracking settings",
@@ -8177,6 +8177,86 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "inbox-reviewer-exclusions-create": {
+        "description": "Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area, for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first. `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the report removal succeeded but the instruction is not saved: send the same request again. Sending an area that an active instruction already covers returns that instruction with a 200. The instruction does not change other existing reports.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Stay off automatic reviewer selection in an area",
+        "title": "Stay off automatic reviewer selection in an area",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-get": {
+        "description": "Get one of the authenticated user's standing reviewer exclusions by id. Another member's instruction returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get one of your reviewer exclusions",
+        "title": "Get one of your reviewer exclusions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-list": {
+        "description": "List the authenticated user's standing instructions that keep them off automatic reviewer selection, active and revoked. Each instruction covers every repository, one repository, or one path in a repository. Only the user's own instructions come back.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your reviewer exclusions",
+        "title": "List your reviewer exclusions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-revoke": {
+        "description": "Revoke one of the authenticated user's reviewer exclusions, so automatic reviewer selection can pick them in that area again. Revoking does not add the user to any report and does not change old reports.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Revoke one of your reviewer exclusions",
+        "title": "Revoke one of your reviewer exclusions",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/{id}/revoke/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
+    },
+    "inbox-reviewer-exclusions-update": {
+        "description": "Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps the earlier version in the history, and a request that changes nothing records no new version. A revoked instruction cannot change: create a new one instead.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Change one of your reviewer exclusions",
+        "title": "Change one of your reviewer exclusions",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-reviewer-exclusions-mcp"
     },
     "inbox-source-configs-create": {
         "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: evaluation_report, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability evaluation report findings in the inbox, create `source_product=llm_analytics`, `source_type=evaluation_report` — there is no per-evaluation-run source. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals; the warehouse still syncs the whole workspace. Omit it to use every team.",
