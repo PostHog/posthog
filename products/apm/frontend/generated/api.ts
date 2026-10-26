@@ -36,8 +36,8 @@ export const apmServicesList = async (
     projectId: string,
     params?: ApmServicesListParams,
     options?: RequestInit
-): Promise<ServicesHealthResponseApi[]> => {
-    return apiMutator<ServicesHealthResponseApi[]>(getApmServicesListUrl(projectId, params), {
+): Promise<ServicesHealthResponseApi> => {
+    return apiMutator<ServicesHealthResponseApi>(getApmServicesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

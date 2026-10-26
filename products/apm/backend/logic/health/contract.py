@@ -6,7 +6,8 @@ match the prototype so the two implementations stay in step.
 """
 
 from dataclasses import dataclass, replace
-from enum import StrEnum
+
+from posthog.enums import LabeledStrEnum
 
 WARNING_ERROR_RATE = 0.01
 SERIOUS_ERROR_RATE = 0.05
@@ -14,7 +15,7 @@ SERIOUS_ERROR_RATE = 0.05
 _STATUS_RANK = {"critical": 0, "serious": 1, "warning": 2, "good": 3}
 
 
-class HealthStatus(StrEnum):
+class HealthStatus(LabeledStrEnum):
     GOOD = "good"
     WARNING = "warning"
     SERIOUS = "serious"
