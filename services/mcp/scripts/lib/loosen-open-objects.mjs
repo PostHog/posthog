@@ -8,9 +8,10 @@ export function collectOpenObjectPaths(schema, moduleName) {
             if (!bodySchema || !operation.operationId) {
                 continue
             }
-            const target = { moduleName, operationId: operation.operationId, paths: new Set() }
+            const target = { moduleName, operationId: operation.operationId, paths: new Set(), dottedPath: undefined }
             collectFrom(bodySchema, schema, [], false, target, new Set())
             if (target.paths.size > 0) {
+                refuseDottedPropertyNames(target)
                 targetsByExport.set(`${pascalCase(operation.operationId)}Body`, target)
             }
         }
@@ -80,6 +81,9 @@ function collectFrom(node, schema, path, underUnion, target, ancestors) {
         collectFrom(resolved.items, schema, path, underUnion, target, ancestors)
     }
     for (const [key, property] of Object.entries(resolved.properties ?? {})) {
+        if (key.includes('.')) {
+            target.dottedPath ??= [...path, key].join('.')
+        }
         collectFrom(property, schema, [...path, key], underUnion, target, ancestors)
     }
     ancestors.delete(resolved)
@@ -90,13 +94,16 @@ function addOpenPath(target, path, underUnion) {
     if (underUnion) {
         throw targetError(target, joinedPath, 'sits under oneOf or anyOf')
     }
-    if (path.some((key) => key.includes('.'))) {
-        throw targetError(target, joinedPath, 'has a property name with a dot')
-    }
     if (target.paths.has(joinedPath)) {
         throw targetError(target, joinedPath, 'is opened by more than one schema branch')
     }
     target.paths.add(joinedPath)
+}
+
+function refuseDottedPropertyNames(target) {
+    if (target.dottedPath !== undefined) {
+        throw targetError(target, target.dottedPath, 'has a property name with a dot')
+    }
 }
 
 function targetError(target, path, reason) {
