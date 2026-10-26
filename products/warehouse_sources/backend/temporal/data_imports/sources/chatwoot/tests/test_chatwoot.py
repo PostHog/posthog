@@ -406,7 +406,11 @@ class TestGetRowsReportingEvents:
             for pattern, message in ChatwootSource().get_non_retryable_errors().items()
             if pattern in str(result.raised)
         ]
-        assert len(matches) == 1
+        # Pin the actual message, not just that one pattern matched — a key that mapped to None
+        # or the wrong text would otherwise still pass.
+        assert matches == [
+            "Chatwoot rejected a request while syncing this data. Please contact support if this persists."
+        ]
 
 
 class TestWebhookTableTransformer:
