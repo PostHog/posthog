@@ -1058,6 +1058,7 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
+            expect(result.emailSendResult).toEqual({ status: 'accepted' })
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1190,6 +1191,10 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(result.emailSendResult).toEqual({
+                    status: 'skipped',
+                    reason: 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.',
+                })
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
             })
 
@@ -1216,6 +1221,8 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
+                expect(result.emailSendResult?.status).toBe('skipped')
+                expect(result.emailSendResult?.reason).toContain('Resume it from the workflow page')
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
                 expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
                 // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
@@ -1805,6 +1812,7 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+            expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
         it.each([
