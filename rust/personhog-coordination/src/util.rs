@@ -46,14 +46,9 @@ pub(crate) fn is_etcd_unavailable(err: &Error) -> bool {
         .is_some_and(assignment_coordination::failover::is_member_level)
 }
 
-/// Record one supervisor-level failure; returns `false` when the budget is
-/// exhausted. Progress resets both counts first, and INVARIANT: progress
-/// means *applied* work (a completed convergence, an applied snapshot or
-/// event) — never a read that changed nothing, which stays available in
-/// exactly the wedges the budget exists for. Measured rather than
-/// time-based, because a "healthy after N seconds" threshold exempts every
-/// failure detector slower than N. Failures that only say etcd is
-/// unavailable back off but spend nothing.
+/// Records one supervisor failure; returns `false` once the budget is spent.
+/// INVARIANT: only applied work resets the counts, never a read that changed
+/// nothing. Failures that only say etcd is unreachable spend no budget.
 pub(crate) fn note_run_failure(
     failures: &mut RunFailures,
     progress: &AtomicBool,
