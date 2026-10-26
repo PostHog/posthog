@@ -166,6 +166,34 @@ class TestDatasetsApi(APIBaseTest):
             request=ANY,
         )
 
+    @parameterized.expand([("malformed_referer",), ("capture_failure",)])
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_analytics_failure_does_not_interrupt_mutations(self, failure: str, capture: Mock) -> None:
+        if failure == "malformed_referer":
+            self.client.credentials(HTTP_REFERER="http://[invalid")
+        else:
+            capture.side_effect = RuntimeError("Analytics unavailable")
+
+        with self.assertLogs("django.test", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
+            dataset = self._create_dataset()
+            item = self._create_item(dataset["id"])
+            updated = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 1, "input": "Updated input"},
+                format="json",
+            )
+            self.assertEqual(updated.status_code, status.HTTP_200_OK)
+            self.assertEqual(updated.data["version"], 2)
+
+        with self.assertLogs("django.test", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
+            next_update = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 2, "input": "Next input"},
+                format="json",
+            )
+            self.assertEqual(next_update.status_code, status.HTTP_200_OK)
+            self.assertEqual(next_update.data["version"], 3)
+
     def test_dataset_list_filters_by_comma_separated_ids(self) -> None:
         first_dataset = self._create_dataset("First dataset")
         second_dataset = self._create_dataset("Second dataset")

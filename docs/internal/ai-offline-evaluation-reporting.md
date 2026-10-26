@@ -414,8 +414,10 @@ The API reports these product usage events after the database transaction commit
 
 Events include the acting user or service principal, project groups, and request context.
 Experiment lifecycle events include dataset source, run source, status, and expected and accepted counts.
+Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.
 Dataset row actions retain their existing resource-specific `data-attr` values and have stable `data-attr` values on their menu wrappers for aggregate matching.

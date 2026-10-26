@@ -41,6 +41,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.dataset_exports import (
     DatasetExportCreateSerializer,
     DatasetExportErrorSerializer,
@@ -670,7 +671,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         return DatasetReadSerializer
 
     def _report_action(self, event: str, dataset: Dataset, properties: dict[str, object] | None = None) -> None:
-        transaction.on_commit(
+        report_on_commit(
             partial(
                 report_user_action,
                 self.request.user,
@@ -1063,7 +1064,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     ) -> None:
         if not result.created:
             return
-        transaction.on_commit(
+        report_on_commit(
             partial(
                 report_user_action,
                 self.request.user,

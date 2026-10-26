@@ -3,7 +3,6 @@ from functools import partial
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
-from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.utils import OpenApiParameter
@@ -20,6 +19,7 @@ from posthog.api.monitoring import monitor
 from posthog.event_usage import report_user_action
 from posthog.permissions import is_service_auth
 
+from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
 from products.ai_observability.backend.api.offline_experiment_access import (
@@ -158,14 +158,20 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
 
     def _report_experiment_action(self, event: str, receipt: ExperimentReceipt) -> None:
         experiment = receipt.experiment
-        transaction.on_commit(
+        if experiment.dataset_revision_id is not None:
+            dataset_source = "posthog"
+        elif experiment.dataset_source:
+            dataset_source = "external"
+        else:
+            dataset_source = "unknown"
+        report_on_commit(
             partial(
                 report_user_action,
                 self.request.user,
                 event,
                 {
                     "experiment_id": str(experiment.id),
-                    "dataset_source": experiment.dataset_source,
+                    "dataset_source": dataset_source,
                     "run_source": experiment.run_source,
                     "status": experiment.status,
                     **asdict(receipt.counts),
@@ -252,7 +258,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         created_item_count = sum(item.created for item in receipt.items)
         created_result_count = sum(result.created for result in receipt.results)
         if created_item_count or created_result_count:
-            transaction.on_commit(
+            report_on_commit(
                 partial(
                     report_user_action,
                     request.user,
