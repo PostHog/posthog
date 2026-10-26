@@ -383,8 +383,9 @@ _REASON_GUIDANCE = {
         "scoped to the area of the source report, and keep routing other areas to them."
     ),
     "owned_by_someone_else": (
-        "Someone else owns this work. Do not select the removed identity for similar work on the strength of the "
-        "same older evidence. Look for the owner in current ownership evidence."
+        "Someone else owns this work, which transfers responsibility for it and similar work away from the "
+        "removed identity. Do not select them for that work on the strength of the same older evidence. Look for "
+        "the owner in current ownership evidence."
     ),
     "unavailable": (
         "The removed identity is not available. This is not ownership evidence, so do not record an "

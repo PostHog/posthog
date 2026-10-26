@@ -51,6 +51,7 @@ from products.signals.backend.artefact_schemas import (
     RankingModelResult,
     RankingScore,
     ReportLink,
+    SuggestedReviewers,
 )
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, ReportPriority
 from products.signals.backend.implementation_pr import (
@@ -76,6 +77,7 @@ from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -3461,6 +3463,36 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    @parameterized.expand([("wrong_assignee", True), ("analysis_wrong", False)])
+    def test_a_wrong_assignee_dismissal_also_removes_the_caller_with_a_reason(self, reason: str, removed: bool) -> None:
+        report = self._create_report()
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}, {"github_login": "teammate"}]),
+        )
+
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {"state": "suppressed", "dismissal_reason": reason, "dismissal_note": "The payments team owns this."}
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert latest is not None
+        assert (str(self.user.uuid) in {entry.user_uuid for entry in latest.root}) == (not removed)
+        # Research reads the reviewer corrections, never the dismissal note, so the verdict has to land there.
+        corrections = _recent_reviewer_corrections(self.team)["corrections"]
+        assert [(row["removal_reason"], row["removal_note"]) for row in corrections] == (
+            [("owned_by_someone_else", "The payments team owns this.")] if removed else []
+        )
 
     @parameterized.expand([("already_fixed",), ("fixed_outside_posthog",), ("pr_merged",)])
     def test_fixed_reason_cannot_snooze_a_report(self, reason):

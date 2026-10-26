@@ -90,6 +90,7 @@ from products.data_warehouse.backend.facade.api import trigger_external_data_wor
 from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
+    DISMISSAL_REASON_WRONG_ASSIGNEE,
     DISMISSAL_REASON_WRONG_REPO,
     FIXED_DISMISSAL_REASONS,
     NON_WRITABLE_ARTEFACT_TYPES,
@@ -129,7 +130,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
-from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
+from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.free_trial import (
@@ -3206,6 +3207,11 @@ class SignalReportViewSet(
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
         )
+        self._remove_wrong_assignee(
+            reports=[report],
+            dismissal_reason=data.get("dismissal_reason"),
+            dismissal_note=data.get("dismissal_note"),
+        )
         self._capture_background_dismissals(
             reports=[report] if getattr(report, "_newly_suppressed", False) else [],
             target=data["state"],
@@ -3719,6 +3725,37 @@ class SignalReportViewSet(
             request=self.request,
         )
 
+    def _remove_wrong_assignee(
+        self,
+        *,
+        reports: Sequence[SignalReport],
+        dismissal_reason: str | None,
+        dismissal_note: str | None,
+    ) -> None:
+        """Take the caller off the reviewers of reports they dismissed as sent to the wrong person.
+
+        The dismissal note reaches only the scout that filed the report, while research reads the
+        reviewer corrections. The same verdict therefore also lands as a removal with a reason. The
+        dismissal has already committed, so a failed removal is logged and not raised.
+        """
+        if dismissal_reason != DISMISSAL_REASON_WRONG_ASSIGNEE or not reports:
+            return
+        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+        note = (dismissal_note or "").strip()[: SignalReportArtefactWriteSerializer.REMOVAL_NOTE_MAX_LENGTH] or None
+        for report in reports:
+            try:
+                remove_suggested_reviewer(
+                    team=self.team,
+                    report_id=str(report.id),
+                    user=cast(User, self.request.user),
+                    scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                    was_impersonated=is_impersonated_session(self.request),
+                    removal_reason=ReviewerRemovalReason.OWNED_BY_SOMEONE_ELSE,
+                    removal_note=note,
+                )
+            except (StaleReviewerProposal, ReviewerWriteError, NotFound):
+                logger.warning("signals.wrong_assignee_removal_failed", team_id=self.team.id, report_id=str(report.id))
+
     def _request_attribution(self) -> ArtefactAttribution:
         """Attribution for this request, resolved once and reused.
 
@@ -4168,6 +4205,11 @@ class SignalReportViewSet(
             counts[outcome.value] += 1
 
         self._forward_dismissal_note(
+            reports=transitioned,
+            dismissal_reason=dismissal_reason,
+            dismissal_note=dismissal_note,
+        )
+        self._remove_wrong_assignee(
             reports=transitioned,
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
@@ -5511,7 +5553,14 @@ def _stored_reviewer_entry(entry: dict) -> dict:
 
 
 def remove_suggested_reviewer(
-    *, team: Team, report_id: str, user: User, scoped_team_ids: tuple[int, ...] | None, was_impersonated: bool
+    *,
+    team: Team,
+    report_id: str,
+    user: User,
+    scoped_team_ids: tuple[int, ...] | None,
+    was_impersonated: bool,
+    removal_reason: str | None = None,
+    removal_note: str | None = None,
 ) -> bool:
     """Take one person off a report's suggested reviewers and leave everyone else as they are.
 
@@ -5596,7 +5645,12 @@ def remove_suggested_reviewer(
                         field="suggested_reviewers",
                         before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
                         after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
-                    )
+                    ),
+                    *(
+                        Change(type="SignalReport", action="changed", field=field, after=value)
+                        for field, value in (("removal_reason", removal_reason), ("removal_note", removal_note))
+                        if value
+                    ),
                 ],
             ),
         )
@@ -5609,6 +5663,8 @@ def remove_suggested_reviewer(
                 removed_reviewers=(github_login or str(user.uuid),),
                 actor_user_id=user_id,
                 scoped_team_ids=scoped_team_ids,
+                removal_reason=removal_reason,
+                removal_note=removal_note,
             )
         )
         # on_commit so a rolled-back edit steers nothing. No notification: a removal adds no
