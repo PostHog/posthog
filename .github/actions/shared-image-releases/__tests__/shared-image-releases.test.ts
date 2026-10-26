@@ -1,7 +1,7 @@
 import {readFileSync} from 'fs'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
-import {Paths, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
+import {Paths, POLICY_PATH, bindChannels, loadPolicy, policyDigest, serializePolicy} from '../src/shared-image'
 
 const destination = {repository: 'posthog-temporal-workers/data-warehouse-metadata'}
 const source = 'posthog-cloud'
@@ -9,6 +9,17 @@ const fixture = readFileSync(path.join(__dirname, '../../paths-filter/__tests__/
 const literal = JSON.parse(readFileSync(path.join(__dirname, 'fixtures/shared-image-fingerprints.json'), 'utf8')) as
   {paths: Paths; bytes: string; sha256: string}[]
 describe('shared-image publication bindings and fingerprints', () => {
+  test('binds the experiments recalculation activity channel with its bootstrap policy digest', () => {
+    const policy = loadPolicy(readFileSync(path.join(__dirname, '../../../..', POLICY_PATH), 'utf8'))
+    const bindings = bindChannels(policy, 'posthog-cloud')
+    const channel = policy.images['posthog-cloud'].channels['experiments-recalculation-activity']
+    expect(bindings['posthog-cloud']['experiments-recalculation-activity']).toEqual({
+      repository: 'posthog-temporal-workers/experiments-recalculation-activity'
+    })
+    expect(channel.bootstrapPolicyDigest).toBe(policyDigest(policy.filters.experimentsRecalculationActivity))
+    expect(policyDigest(policy.filters[channel.filter])).toBe(channel.bootstrapPolicyDigest)
+  })
+
   test.each([
     ['unknown build', fixture.replace('posthog-cloud:', 'unknown-image:'), 'images.unknown-image: unknown build input'],
     ['prototype build', fixture.replace('posthog-cloud:', '__proto__:'), 'images.__proto__: unknown build input'],

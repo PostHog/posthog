@@ -18,7 +18,23 @@ filters:
         - pyproject.toml
         - bin/temporal-django-worker
         - 'posthog/clickhouse/migrations/**'
+    experimentsRecalculationActivity:
+        - 'products/experiments/backend/**'
+        - 'products/experiments/stats/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - 'posthog/clickhouse/migrations/**'
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
-        channels: {}
+        channels:
+            experiments-recalculation-activity:
+                repository: posthog-temporal-workers/experiments-recalculation-activity
+                filter: experimentsRecalculationActivity
+                bootstrapPolicyDigest: 8a33aecc46c1d5795efa9d385c2ecb81c7df0e5d1d8bf2fd63100229ff8375d1
