@@ -442,8 +442,10 @@ Manual resolve is for fixes a PR merge will never cover — a skill-body change,
 
 A report can offer actions that start an agent run, the same ones the inbox shows as buttons:
 **Get it merged** (`get_it_merged`) fixes CI on the report's open, approved pull request and merges
-it, and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. Use
-these instead of `tasks-create-and-run`: a run started here is linked to the report, so it shows in
+it, **Make it green** (`make_it_green`) fixes failing CI on its open pull request without merging,
+and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. **Ask**
+(`ask`) sends your own `message`, like Ask AI in the inbox. Use these instead of
+`tasks-create-and-run`: a run started here is linked to the report, so it shows in
 the report's runs, counts toward the report's task limit, and gets the report's code access rules.
 The two tools are rolling out behind a flag, so they can be missing from your tool list. If they
 are, send the person to the report's `_posthogUrl` to press the button.
@@ -470,7 +472,23 @@ posthog:inbox-report-actions-run
 { "report_id": "<report_uuid>", "action": "suggested_prompt", "suggested_prompt_index": 0 }
 ```
 
-Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list. A `201`
+Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list.
+
+To ask about the report or request work the listed actions do not cover, use `ask` with a
+`message`. `ask` is not in the list. The run answers a question, and carries out requested work
+only while the report still has work to do and no pull request:
+
+```json
+posthog:inbox-report-actions-run
+{ "report_id": "<report_uuid>", "action": "ask", "message": "Which customers hit this error?" }
+```
+
+`get_it_merged` and `make_it_green` also take an optional `message`. It replaces the action's
+fixed request and keeps its instructions and gates. Pass it only when you know something the report
+does not, such as "#123 lands first, so rebase onto it after it merges" or "the migration check
+also fails on the base branch, so leave it".
+
+A `201`
 returns `task_id`, `run_id`, and `task_url`. Each successful call creates a new task, so do not
 retry it. If `run_error` is set, the task exists but its run did not start: report the error and do
 not start a second one.
