@@ -849,16 +849,36 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             (
                 "issue",
                 True,
+                ErrorTrackingIssue.Severity.HIGH,
                 {"includeSparkline": True},
-                {"include_breakdown": False, "include_sparkline": True, "summary_status": "unavailable"},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-24T12:00:00+00:00",
+                    "issue_severity": "high",
+                },
             ),
             (
                 "issue",
                 False,
+                None,
                 {"includeSparkline": True},
-                {"include_breakdown": False, "include_sparkline": True, "summary_status": "unavailable"},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-24T12:00:00+00:00",
+                    "issue_severity": None,
+                },
             ),
-            ("issue_events", True, {}, {}),
+            (
+                "issue_events",
+                True,
+                ErrorTrackingIssue.Severity.HIGH,
+                {},
+                {"issue_created_at": "2026-04-24T12:00:00+00:00", "issue_severity": "high"},
+            ),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -866,10 +886,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self,
         endpoint: str,
         has_exceptions: bool,
+        severity: str | None,
         extra_body: dict[str, object],
         expected_properties: dict[str, object],
     ) -> None:
-        self.create_issue()
+        self.create_issue(severity=severity)
         if has_exceptions:
             self.create_exception_event()
             flush_persons_and_events()

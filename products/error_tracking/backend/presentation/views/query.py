@@ -264,6 +264,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return self._issue_response(
                 request,
                 issue_id,
+                issue_basics,
                 payload,
                 started_at=started_at,
                 include_breakdown=include_breakdown,
@@ -307,6 +308,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return self._issue_response(
             request,
             issue_id,
+            issue_basics,
             payload,
             started_at=started_at,
             include_breakdown=include_breakdown,
@@ -317,6 +319,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self,
         request: ValidatedRequest,
         issue_id: str,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
         payload: dict[str, object],
         *,
         started_at: float,
@@ -333,6 +336,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request,
             issue_id,
             "issue",
+            issue_created_at=issue_basics.created_at.isoformat(),
+            issue_severity=issue_basics.severity or None,
             include_breakdown=include_breakdown,
             include_sparkline=include_sparkline,
             summary_status=summary_read.status.value,
@@ -441,7 +446,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id = str(params["issueId"])
         limit = cast(int, params.get("limit", 1))
         offset = cast(int, params.get("offset", 0))
-        if not facade_api.issue_exists_by_id(self.team.id, issue_id):
+        issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
+        if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
         requested_includes = params.get("include")
@@ -491,5 +497,11 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(request, issue_id, "issue_events")
+        self._report_issue_read(
+            request,
+            issue_id,
+            "issue_events",
+            issue_created_at=issue_basics.created_at.isoformat(),
+            issue_severity=issue_basics.severity or None,
+        )
         return Response(payload)

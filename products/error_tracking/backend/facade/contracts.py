@@ -312,6 +312,7 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    created_at: datetime
     # Earliest across all fingerprints, merged ones included.
     first_seen: datetime | None
 

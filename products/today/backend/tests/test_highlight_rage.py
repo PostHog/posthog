@@ -1,5 +1,5 @@
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -117,6 +117,7 @@ class TestRage(SimpleTestCase):
             description="Cannot read properties of undefined",
             status="active",
             severity=None,
+            created_at=datetime(2026, 10, 1, tzinfo=UTC),
             first_seen=None,
         )
         registered = next(s for s in load_sources() if s.name == "rage")
