@@ -1061,18 +1061,22 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     message.send()
 
 
+DEFAULT_TIER_DEMOTION_CAUSE = (
+    "Recent workflow emails caused deliverability problems, such as spam complaints or bounces."
+)
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_email_sending_tier_demoted(
-    team_id: int, per_day: int, per_hour: int, demoted_at: str, cause: str = ""
+    team_id: int, per_day: int, per_hour: int, demoted_at: str, cause: str = DEFAULT_TIER_DEMOTION_CAUSE
 ) -> None:
     """
     Tell a project's admins that its workflow email sending limit was lowered for deliverability
     problems. Admin+ recipients and no notification-setting gate, matching the suspension emails:
     the limit stays down until someone acts on the list quality.
 
-    `cause` defaults to empty because a task queued before a deploy arrives without it. The
-    template then falls back to the generic wording.
+    `cause` has a default because a task queued before the argument existed arrives without it.
     """
     if not is_email_available(with_absolute_urls=True):
         return

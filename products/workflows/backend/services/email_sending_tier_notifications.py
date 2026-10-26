@@ -1,9 +1,8 @@
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
 
-from posthog.tasks.email import send_email_sending_tier_demoted
+from posthog.tasks.email import DEFAULT_TIER_DEMOTION_CAUSE, send_email_sending_tier_demoted
 
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -61,9 +60,9 @@ def _demotion_cause(decision: TierDecision) -> str:
         return "A workflow in this project was paused automatically because of spam complaints or bounces."
     evidence = decision.evidence
     if evidence is None:
-        return "Recent sends caused deliverability problems, such as spam complaints or bounces."
+        return DEFAULT_TIER_DEMOTION_CAUSE
     return (
-        f"In the last {settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS} days, this project sent "
+        f"In the last {evidence.window_days} days, this project sent "
         f"{_plural(evidence.sent, 'workflow email')} and got {_plural(evidence.complained, 'spam complaint')} "
         f"and {_plural(evidence.hard_bounced, 'hard bounce')}."
     )

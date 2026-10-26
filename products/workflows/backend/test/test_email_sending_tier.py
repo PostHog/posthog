@@ -220,7 +220,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         assert decision.reason == expected_reason
         # The notice must show the window the demotion read, not the longer promotion window.
         expected_evidence = (
-            TierDemotionEvidence(sent=10_000, complained=recent_complaints, hard_bounced=0)
+            TierDemotionEvidence(window_days=7, sent=10_000, complained=recent_complaints, hard_bounced=0)
             if expected_reason == "rates_above_threshold"
             else None
         )

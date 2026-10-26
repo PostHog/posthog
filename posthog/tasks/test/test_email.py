@@ -24,6 +24,7 @@ from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
+    DEFAULT_TIER_DEMOTION_CAUSE,
     MAX_VIEWS_PER_DIGEST_EMAIL,
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -209,25 +210,28 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("with_a_cause", "Our email provider flagged this project's sending reputation.", True),
-            ("queued_before_the_cause_existed", "", False),
+            (
+                "with_a_cause",
+                {"cause": "Our email provider flagged this project."},
+                "Our email provider flagged this project.",
+            ),
+            ("queued_before_the_cause_existed", {}, DEFAULT_TIER_DEMOTION_CAUSE),
         ]
     )
     def test_send_email_sending_tier_demoted_shows_the_cause(
-        self, MockEmailMessage: MagicMock, _name: str, cause: str, shows_cause: bool
+        self, MockEmailMessage: MagicMock, _name: str, cause_kwargs: dict[str, str], expected_cause: str
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         send_email_sending_tier_demoted(
-            team_id=self.team.id, per_day=30000, per_hour=6000, demoted_at="2026-01-01T00:00:00+00:00", cause=cause
+            team_id=self.team.id, per_day=30000, per_hour=6000, demoted_at="2026-01-01T00:00:00+00:00", **cause_kwargs
         )
 
         assert len(mocked_email_messages) == 1
         html_body = mocked_email_messages[0].html_body
-        assert ("Our email provider flagged this project" in html_body) == shows_cause
-        assert ("caused deliverability problems" in html_body) != shows_cause
+        assert expected_cause in html_body
         assert "30,000 emails per day" in html_body
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(

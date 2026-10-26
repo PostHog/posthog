@@ -210,7 +210,10 @@ def decide_tier(
             new_tier=max(MIN_EMAIL_SENDING_TIER, current_tier - 1),
             reason=demotion_reason,
             evidence=TierDemotionEvidence(
-                sent=recent.sent, complained=recent.complained, hard_bounced=recent.hard_bounced
+                window_days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS,
+                sent=recent.sent,
+                complained=recent.complained,
+                hard_bounced=recent.hard_bounced,
             ),
         )
 

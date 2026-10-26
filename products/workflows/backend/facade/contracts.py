@@ -285,6 +285,7 @@ class EmailSendingTierLimits:
 class TierDemotionEvidence:
     """The team's workflow email totals over the demotion window that a demotion read."""
 
+    window_days: int
     sent: int
     complained: int
     hard_bounced: int

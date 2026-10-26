@@ -4,6 +4,8 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.tasks.email import DEFAULT_TIER_DEMOTION_CAUSE
+
 from products.workflows.backend.facade.contracts import TierDemotionEvidence
 from products.workflows.backend.services.email_sending_tier import TierDecision
 from products.workflows.backend.services.email_sending_tier_notifications import notify_email_sending_tier_changes
@@ -39,15 +41,15 @@ class TestNotifyEmailSendingTierChanges(SimpleTestCase):
         [
             (
                 "rates_above_threshold",
-                TierDemotionEvidence(sent=1890, complained=2, hard_bounced=1),
-                "sent 1,890 workflow emails and got 2 spam complaints and 1 hard bounce.",
+                TierDemotionEvidence(window_days=7, sent=1890, complained=2, hard_bounced=1),
+                "In the last 7 days, this project sent 1,890 workflow emails and got 2 spam complaints and 1 hard bounce.",
             ),
-            ("rates_above_threshold", None, "Recent sends caused deliverability problems"),
+            ("rates_above_threshold", None, DEFAULT_TIER_DEMOTION_CAUSE),
             ("workflow_auto_paused", None, "A workflow in this project was paused automatically"),
             ("ses_reputation_high", None, "Our email provider flagged this project's sending reputation."),
         ]
     )
-    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce", WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS=7)
+    @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_rate_demotion_notifies_in_app_and_by_email_with_its_cause(
         self, reason: str, evidence: TierDemotionEvidence | None, expected_cause: str
     ) -> None:
