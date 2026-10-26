@@ -1997,6 +1997,6 @@ def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None
     return (
         (get_message_actor(str(task_run.id), message_id) if message_id else None)
         or state.get("slack_actor_slack_user_id")
-        or (mapping.latest_actor_slack_user_id if mapping else None)
+        or (mapping.last_joiner_slack_user_id() if mapping else None)
         or (mapping.mentioning_slack_user_id if mapping else None)
     )

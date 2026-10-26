@@ -38,10 +38,6 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
-    # Reply-tag fallback for runs started before per-turn actor capture
-    # (tasks slack_relay); drop the column and its stamp in task_creation
-    # once those runs drain.
-    latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
     # `<slack_thread_context_update>` diff). On each follow-up, anything in the thread
@@ -76,13 +72,23 @@ class SlackThreadTaskMapping(UUIDModel):
             ),
         ]
 
+    def last_joiner_slack_user_id(self) -> str | None:
+        """The person other than the creator who sent the most recent message to the thread's task."""
+        return (
+            SlackThreadJoin.objects.for_team(self.team_id)
+            .filter(thread_mapping_id=self.id)
+            .order_by(models.F("last_message_at").desc(nulls_last=True), "-created_at")
+            .values_list("slack_user_id", flat=True)
+            .first()
+        )
+
 
 class SlackThreadJoin(TeamScopedRootMixin, UUIDModel):
-    """A person the thread creator let join their thread under an ask join mode.
+    """A person other than the creator who sends messages to the thread's task.
 
-    Only the thread creator can approve, so the approver is the mapping's
-    ``mentioning_slack_user_id``. Joining lets the person send messages to the thread's task, so
-    the row keeps when the approval happened.
+    A row exists for each such person whose message the task accepted, and for each person the
+    creator approved under an ask join mode. The row counts as an approval, so a person keeps
+    access when the creator changes the join mode later.
     """
 
     # db_constraint=False: a foreign key constraint to posthog_team locks that hot table when the
@@ -90,6 +96,8 @@ class SlackThreadJoin(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     thread_mapping = models.ForeignKey(SlackThreadTaskMapping, on_delete=models.CASCADE, related_name="joins")
     slack_user_id = models.CharField(max_length=64)
+    # NULL until the task accepts a message from this person, for example while an approval waits.
+    last_message_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

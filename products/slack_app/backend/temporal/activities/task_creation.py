@@ -5,6 +5,7 @@ from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
 from django.db import models
+from django.utils import timezone
 
 import structlog
 from temporalio import activity
@@ -1066,9 +1067,15 @@ def forward_posthog_code_followup_activity(
 
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
     # pre-rollout runs); the actor stamped at delivery normally wins.
-    if slack_user_id != mapping.latest_actor_slack_user_id:
-        mapping.latest_actor_slack_user_id = slack_user_id
-        mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+    if slack_user_id != mapping.mentioning_slack_user_id:
+        from products.slack_app.backend.models import SlackThreadJoin
+
+        SlackThreadJoin.objects.for_team(mapping.team_id).update_or_create(
+            thread_mapping=mapping,
+            slack_user_id=slack_user_id,
+            defaults={"last_message_at": timezone.now()},
+            create_defaults={"team_id": mapping.team_id, "last_message_at": timezone.now()},
+        )
 
     if task_run.is_terminal:
         handled = _resume_task_with_new_run(

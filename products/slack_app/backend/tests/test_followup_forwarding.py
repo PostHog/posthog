@@ -1289,6 +1289,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         if delivered:
             # A run on the creator's plan takes the joiner's turn on that plan.
             assert mock_signal.call_args.kwargs["plan_owner_consented"] is True
+        bob_join = SlackThreadJoin.objects.for_team(self.team.id).filter(thread_mapping=mapping, slack_user_id="U_BOB")
+        assert bob_join.filter(last_message_at__isnull=False).exists() is delivered
 
     @parameterized.expand(
         [
@@ -1553,14 +1555,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.reactions_remove.assert_not_called()
         # Response is delivered by relayAgentResponse from the agent-server, not by this activity.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
-        # The follow-up sender is recorded on the mapping so async reply paths
-        # tag the latest actor instead of the original thread creator
-        # (multiplayer support). The creator (``mentioning_slack_user_id``)
-        # remains immutable; the latest-actor field receives the live actor
-        # even when it's the same person as the creator (one-time seed).
-        mapping.refresh_from_db()
-        assert mapping.latest_actor_slack_user_id == "U_ALICE"
-        assert mapping.mentioning_slack_user_id == "U_ALICE"
+        # The creator is the mapping's mentioner, so a message from them adds no join row.
+        assert not SlackThreadJoin.objects.for_team(self.team.id).filter(thread_mapping=mapping).exists()
 
     def test_attachment_only_followup_uploads_and_forwards_to_sandbox(self) -> None:
         self._create_mapping()

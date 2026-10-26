@@ -42,7 +42,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackChannel, SlackThreadJoin, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
@@ -609,7 +609,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 team=self.team,
                 state={"slack_chart_links": run_links, "slack_actor_slack_user_id": "U_ACTOR"},
             )
-            SlackThreadTaskMapping.objects.create(
+            mapping = SlackThreadTaskMapping.objects.create(
                 team=self.team,
                 integration=self.integration,
                 slack_workspace_id=self.integration.integration_id,
@@ -618,7 +618,9 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 task=task,
                 task_run=run,
                 mentioning_slack_user_id="U_ASKER",
-                latest_actor_slack_user_id="U_STALE",
+            )
+            SlackThreadJoin.objects.for_team(self.team.id).create(
+                team=self.team, thread_mapping=mapping, slack_user_id="U_STALE", last_message_at=timezone.now()
             )
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
 

@@ -1328,19 +1328,24 @@ def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
     access. The run state holds the decision, so no flag call here."""
     if not event.get("thread_ts"):
         return None
-    actors = (
+    mapping = (
         SlackThreadTaskMapping.objects.filter(
             integration=integration,
             channel=event["channel"],
             thread_ts=event["thread_ts"],
             task_run__state__slack_chart_links=True,
         )
-        .values_list(
-            "task_run__state__slack_actor_slack_user_id", "latest_actor_slack_user_id", "mentioning_slack_user_id"
-        )
+        .select_related("task_run")
+        .only("id", "team_id", "mentioning_slack_user_id", "task_run__state")
         .first()
     )
-    return next((actor for actor in actors or () if actor), None)
+    if mapping is None:
+        return None
+    return (
+        (mapping.task_run.state or {}).get("slack_actor_slack_user_id")
+        or mapping.last_joiner_slack_user_id()
+        or mapping.mentioning_slack_user_id
+    )
 
 
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
