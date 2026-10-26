@@ -10,7 +10,7 @@ from posthog.migration_helpers import untrack_field
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1413_event_filter_pipeline_override"),
-        ("signals", "0202_useractivitysummaryqueuestate_pending_score"),
+        ("signals", "0203_reviewer_exclusion"),
     ]
 
     # Receipt history is intentionally discarded for the new spend model.

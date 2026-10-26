@@ -812,10 +812,10 @@ class TestSignalSpend(BaseTest):
             )
 
     def test_reset_discards_receipts_and_keeps_the_existing_table(self) -> None:
-        migration = import_module("products.signals.backend.migrations.0203_reset_signal_spend")
+        migration = import_module("products.signals.backend.migrations.0204_reset_signal_spend")
         with override_settings(MIGRATION_MODULES={}):
             state = MigrationLoader(connection).project_state(
-                [("signals", "0202_useractivitysummaryqueuestate_pending_score")]
+                [("signals", "0203_reviewer_exclusion")]
             )
         with connection.cursor() as cursor:
             cursor.execute("CREATE SCHEMA test_signal_spend_reset")
@@ -835,7 +835,7 @@ class TestSignalSpend(BaseTest):
                 cursor.execute("SELECT 'signals_signalspend'::regclass::oid")
                 original_table = cursor.fetchone()[0]
             with connection.schema_editor() as editor:
-                state = migration.Migration("0203_reset_signal_spend", "signals").apply(state, editor)
+                state = migration.Migration("0204_reset_signal_spend", "signals").apply(state, editor)
             spend = state.apps.get_model("signals", "SignalSpend")
             assert not spend.objects.exists()
             row = spend.objects.create(

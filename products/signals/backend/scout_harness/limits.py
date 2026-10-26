@@ -8,6 +8,7 @@ from __future__ import annotations
 # timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
 # not a per-run override knob.
 DEFAULT_MAX_RUNTIME_S = 20 * 60
+TRIGGERED_BY_ONBOARDING = "onboarding"
 
 # Task teardown can wait up to 15 minutes for spend settlement after the agent stops.
 ACTIVITY_SLACK_S = 15 * 60 + 60

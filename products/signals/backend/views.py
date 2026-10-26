@@ -3068,9 +3068,14 @@ class SignalReportViewSet(
     @action(detail=True, methods=["delete"], url_path="reviewers/me", required_scopes=["task:write"])
     def leave_reviewers(self, request, **kwargs):
         report = cast(SignalReport, self.get_object())
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             remove_suggested_reviewer(
-                team=self.team, report_id=str(report.id), user=cast(User, request.user), request=request
+                team=self.team,
+                report_id=str(report.id),
+                user=cast(User, request.user),
+                scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                was_impersonated=is_impersonated_session(request),
             )
         except StaleReviewerProposal as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
@@ -5483,7 +5488,9 @@ def _stored_reviewer_entry(entry: dict) -> dict:
     }
 
 
-def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request: Request) -> bool:
+def remove_suggested_reviewer(
+    *, team: Team, report_id: str, user: User, scoped_team_ids: tuple[int, ...] | None, was_impersonated: bool
+) -> bool:
     """Take one person off a report's suggested reviewers and leave everyone else as they are.
 
     Returns whether the person was on the list. This is deliberately not routed through
@@ -5498,14 +5505,10 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
     implementation task as the user a reviewers edit is attributed to. Stepping off a report must
     never start work, least of all under the credentials of the person who just declined it.
     """
-    user_id = request.user.id
+    user_id = user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
     attribution = ArtefactAttribution.from_user(user_id)
-    # Read off the request here: scout note forwarding runs after commit, where there is no request.
-    scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
-    scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
-    was_impersonated = is_impersonated_session(request)
     github_login = user.get_github_login()
     github_login = github_login.lower() if github_login else None
 
@@ -5557,7 +5560,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
         log_activity(
             organization_id=None,
             team_id=team.id,
-            user=cast(User, request.user),
+            user=user,
             was_impersonated=was_impersonated,
             item_id=report_id,
             scope="SignalReport",
@@ -5583,7 +5586,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
                 added_reviewers=(),
                 removed_reviewers=(github_login or str(user.uuid),),
                 actor_user_id=user_id,
-                scoped_team_ids=scoped_team_id_tuple,
+                scoped_team_ids=scoped_team_ids,
             )
         )
         # on_commit so a rolled-back edit steers nothing. No notification: a removal adds no

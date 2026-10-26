@@ -63,6 +63,7 @@ _LAZY = {
     "MaterializationRunDirection": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
     "IncrementalConfigRefusedError": "facade.contracts",
+    "SchedulingUnavailableError": "models.datawarehouse_saved_query",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
     "disable_saved_query_materialization": "logic.saved_query_materialization",
     "link_table_if_materializing": "logic.saved_query_dag_sync",
