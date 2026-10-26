@@ -1295,7 +1295,7 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await this.emailSuppressionService.isSuppressed(teamId, to)) {
+        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
