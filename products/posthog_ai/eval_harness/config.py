@@ -52,6 +52,12 @@ class SandboxedEvalCase(BaseEvalCase):
     repo_fixture: str = ""
     """Name of the repo fixture (informational, for tracking)."""
 
+    inherit_demo_data: bool = True
+    """Keep True for normal cases. Opt into False only when the case intentionally requires an empty project.
+
+    For example, insufficient-data cases must avoid inherited Hedgebox data and seed only their required sample.
+    """
+
     disable_bundled_skills: bool = False
     """Remove skills baked into the sandbox image for this case.
 
