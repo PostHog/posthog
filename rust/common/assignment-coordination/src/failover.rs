@@ -15,13 +15,9 @@ const MIN_ATTEMPT_INTERVAL: Duration = Duration::from_secs(5);
 /// Budget for one probe: connect, one linearizable read, one member list.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Whether an etcd error says the member serving this client cannot serve.
-///
-/// etcd reports "no leader", "request timed out" and "leader changed" as
-/// Unavailable. A connection that fails under a call comes back with a
-/// transport error as its source, whatever the code. Errors about the
-/// request itself (NOSPACE, a failed compare, a compacted revision, a
-/// missing key) say nothing about the member.
+/// Whether an etcd error says this member cannot serve: Unavailable,
+/// DeadlineExceeded, or a transport failure under the call. Errors about the
+/// request itself (NOSPACE, a failed compare, a compacted revision) do not.
 pub fn is_member_level(err: &etcd_client::Error) -> bool {
     match err {
         etcd_client::Error::GRpcStatus(status) => {

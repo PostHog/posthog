@@ -71,22 +71,10 @@ fn record_payload_bytes(op: &'static str, bytes: usize) {
         .record(bytes as f64);
 }
 
-// Transport-level liveness so a silent network partition fails
-// fast instead of hanging until TCP retransmission gives up
-// (minutes — far past any lease TTL): HTTP/2 pings ride every
-// connection, including idle ones and long-lived watch streams,
-// and error all in-flight requests within roughly one ping
-// interval plus its timeout of the peer going dark. Deliberately
-// no per-request timeout — it would apply to the whole lifetime
-// of a watch stream and kill healthy watches.
-// The ping interval must clear etcd's server-side gRPC keepalive
-// enforcement (--grpc-keepalive-min-time, default 5s): pings at or
-// under the floor are strikes, and two strikes close the
-// connection with GOAWAY. Idle pings are likewise strikes unless
-// the server permits them, so they stay off — every component
-// that matters holds an active watch or keepalive stream, and an
-// idle channel is revalidated on next use within the connect
-// timeout.
+// HTTP/2 pings fail a silent connection in about 15s. A per-request timeout
+// would also end healthy watch streams, so there is none. The interval stays
+// above etcd's 5s keepalive floor, and idle pings stay off because etcd
+// counts them as strikes.
 fn connect_options() -> ConnectOptions {
     ConnectOptions::new()
         .with_connect_timeout(Duration::from_secs(5))
@@ -108,12 +96,9 @@ impl EtcdStore {
         })
     }
 
-    /// Like `connect`, and moves to a different cluster member when the one
-    /// serving this client keeps failing with member-level errors.
-    ///
-    /// Requests carry etcd's require-leader flag, so a member without a
-    /// leader rejects them at once instead of holding them until they time
-    /// out.
+    /// Like `connect`, and moves to another member when this one keeps
+    /// failing. Requests carry etcd's require-leader flag, so a member
+    /// without a leader rejects them at once.
     pub async fn connect_with_member_failover(config: StoreConfig) -> Result<Self> {
         let options = connect_options().with_require_leader(true);
         let client = Client::connect(&config.endpoints, Some(options.clone())).await?;
