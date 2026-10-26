@@ -66,9 +66,11 @@ class FlagEditAuthor(StrEnum):
     edit, the author is PERSON, because `log_activity` adds the agent trigger only when the product sets no trigger.
     """
 
-    # A user saved the flag, and no agent or scheduled change acted for them.
+    # A user saved the flag, and no agent or scheduled change acted for them. A save outside a request that sets no
+    # trigger also reads as PERSON, because the row records the flag's last modifier.
     PERSON = "person"
-    # An agent saved the flag for a user.
+    # An agent saved the flag for a user. The agent trigger comes from a server-set task id or from the intent
+    # header that agent clients such as the MCP server send, so the caller can claim it.
     AGENT = "agent"
     # A scheduled change applied the edit.
     SCHEDULED_CHANGE = "scheduled_change"
@@ -85,6 +87,8 @@ class FlagEdit:
     # The user on the activity log row, which is the flag's last modifier at save time. An agent and a scheduled
     # change carry one too, so read `author` to learn who made the edit. None when that user was deleted.
     user_id: int | None
+    # True when a staff member made the edit while impersonating the user in `user_id`.
+    was_impersonated: bool
     before: FlagEditSide
     after: FlagEditSide
 
@@ -115,7 +119,7 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
             **{f"after_{setting}": _changed(field, "after") for setting, field in _SETTING_FIELDS.items()},
         )
-        .values("created_at", "job_type", "is_system", "user_id", *_PROJECTED)[:limit]
+        .values("created_at", "job_type", "is_system", "user_id", "was_impersonated", *_PROJECTED)[:limit]
     )
     return tuple(
         FlagEdit(
@@ -123,6 +127,7 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
             job_type=row["job_type"],
             author=_author(job_type=row["job_type"], is_system=row["is_system"], user_id=row["user_id"]),
             user_id=row["user_id"],
+            was_impersonated=bool(row["was_impersonated"]),
             before=_side(row, "before"),
             after=_side(row, "after"),
         )

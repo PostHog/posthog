@@ -16,17 +16,24 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 class TestFlagEditsSince(BaseTest):
     @parameterized.expand(
         [
-            ("person", True, False, None, FlagEditAuthor.PERSON),
-            ("agent", True, False, "agent", FlagEditAuthor.AGENT),
-            ("scheduled_change", True, False, "scheduled_change", FlagEditAuthor.SCHEDULED_CHANGE),
-            ("system", False, True, None, FlagEditAuthor.SYSTEM),
-            ("deleted_user", False, False, None, FlagEditAuthor.PERSON),
-            ("legacy_row_without_a_user", False, None, None, FlagEditAuthor.SYSTEM),
-            ("exposure_freeze_by_a_person", True, False, "experiment_exposure_frozen", FlagEditAuthor.PERSON),
+            ("person", True, False, None, False, FlagEditAuthor.PERSON),
+            ("agent", True, False, "agent", False, FlagEditAuthor.AGENT),
+            ("scheduled_change", True, False, "scheduled_change", False, FlagEditAuthor.SCHEDULED_CHANGE),
+            ("system", False, True, None, False, FlagEditAuthor.SYSTEM),
+            ("deleted_user", False, False, None, False, FlagEditAuthor.PERSON),
+            ("legacy_row_without_a_user", False, None, None, None, FlagEditAuthor.SYSTEM),
+            ("exposure_freeze_by_a_person", True, False, "experiment_exposure_frozen", False, FlagEditAuthor.PERSON),
+            ("impersonated", True, False, None, True, FlagEditAuthor.PERSON),
         ]
     )
     def test_author(
-        self, _name: str, has_user: bool, is_system: bool | None, job_type: str | None, expected: FlagEditAuthor
+        self,
+        _name: str,
+        has_user: bool,
+        is_system: bool | None,
+        job_type: str | None,
+        was_impersonated: bool | None,
+        expected: FlagEditAuthor,
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="authored")
         detail: dict[str, Any] = {
@@ -41,6 +48,7 @@ class TestFlagEditsSince(BaseTest):
             activity="updated",
             user=self.user if has_user else None,
             is_system=is_system,
+            was_impersonated=was_impersonated,
             detail=detail,
         )
 
@@ -50,3 +58,4 @@ class TestFlagEditsSince(BaseTest):
 
         assert edit.author == expected
         assert edit.user_id == (self.user.id if has_user else None)
+        assert edit.was_impersonated == bool(was_impersonated)
