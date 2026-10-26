@@ -22,6 +22,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
@@ -1084,7 +1085,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.content
-        assert response["Retry-After"] == "5"
+        assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
 
     def test_a_member_without_query_access_can_only_check_a_saved_insight(self) -> None:
         insight = Insight.objects.create(team=self.team, query=self._query())
