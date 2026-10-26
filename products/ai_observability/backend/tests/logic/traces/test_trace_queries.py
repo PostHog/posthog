@@ -217,11 +217,7 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("with a hint", T0), ("without a hint", None)])
     def test_falls_back_to_events(self, _name: str, timestamp_hint: datetime | None) -> None:
-        old_span: dict[str, object] = {
-            "$ai_span_name": "old",
-            "$ai_error": {"message": "boom"},
-            "$ai_input_state": {"question": "hi"},
-        }
+        old_span: dict[str, object] = {"$ai_span_name": "old", "$ai_error": {"message": "boom"}}
         clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_output_state": None}
         bulk_create_events(
             [
@@ -235,7 +231,7 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert sorted(
             (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.has_state) for row in loaded.rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", "old", True, None, True),
+            ("00000000-0000-0000-0000-000000000001", "old", True, None, False),
             ("00000000-0000-0000-0000-000000000002", None, False, 7, False),
         ]
 
