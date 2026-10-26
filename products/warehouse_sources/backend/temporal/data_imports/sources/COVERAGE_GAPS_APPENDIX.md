@@ -8433,12 +8433,12 @@ Today (10): `activities`, `categories`, `client_folders`, `fields`, `leads`, `pi
 
 Diffed against: <https://www.nocrm.io/api>
 
-- [ ] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high)
-- [ ] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high)
-- [ ] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium)
+- [x] `leads/{lead_id}/action_histories` — per-lead action and step-change history - the state-transition table needed for pipeline velocity and conversion timing (high). Added as `lead_action_histories` (fan-out over `leads`).
+- [x] `follow_ups` — scheduled follow-up tasks/reminders on leads, the core activity object driving rep workload analysis (high). Added as `follow_ups` (fan-out over `users`, since the endpoint requires a `lead_id` or `user_id`).
+- [x] `leads/{lead_id}/comments` — comment thread per lead, the narrative activity stream alongside activities (medium). Added as `lead_comments` (fan-out over `leads`).
 - [ ] `spreadsheets` — prospecting lists - the top-of-funnel container that leads are created from, with no equivalent table today (medium)
 - [ ] `spreadsheets/{spreadsheet_id}/rows` — prospect rows inside prospecting lists, plus their conversion-to-lead linkage (medium)
-- [ ] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium)
+- [x] `follow_ups/{follow_up_id}/tasks` — individual tasks within a follow-up sequence, the completion-level detail (medium). Skipped: the API has no list endpoint for tasks, only `PUT /follow_ups/{follow_up_id}/tasks/{task_id}`; `follow_ups` rows carry `tasks_count` and `tasks_done_count`.
 - [ ] `spreadsheets/{spreadsheet_id}/comments` — comments on prospecting lists and rows, engagement history before a lead exists (low)
 - [ ] `leads/{lead_id}/attachments` — attachment metadata per lead (counts/types, not file bytes) (low)
 
@@ -8795,12 +8795,12 @@ Note: Parsed every GET operation in the official API reference, including nested
 
 ## OpenExchangeRates — gaps
 
-Today (4): `currencies`, `historical`, `latest`, `usage`
+Today (6): `currencies`, `historical`, `latest`, `ohlc`, `time_series`, `usage`
 
 Diffed against: <https://docs.openexchangerates.org/reference/api-introduction>
 
-- [ ] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
-- [ ] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
+- [x] `time-series.json` — pulls a whole date range in one call instead of day-by-day historical requests (high)
+- [x] `ohlc.json` — open/high/low/close/average per period - the vendor's analytical rate summary (medium)
 
 Note: Small API. Remaining endpoints are convert (a single-value calculator, not a table), plus bid-ask and alternative-currencies which are request options on latest/historical rather than separate resources.
 
