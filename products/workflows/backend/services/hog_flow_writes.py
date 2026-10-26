@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from copy import copy
 from datetime import datetime
 from typing import Any, Literal, Optional
@@ -233,10 +233,9 @@ def enable(*, team_id: int, hog_flow_id: UUID, user_id: int, validated_data: Map
     return StatusChange(workflow_id=locked.id, previous=previous, current=HogFlowState(locked.status), events=events)
 
 
-def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusChange, ...]:
-    """Take live each waiting workflow that sends from ``sender_ids`` and has no unverified sender left."""
-    changes = []
-    went_live: list[tuple[HogFlow, HogFlow]] = []
+def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> Iterator[StatusChange]:
+    """Take live each waiting workflow that sends from ``sender_ids`` and has no unverified sender left.
+    Yields each one as it commits, so a later workflow that fails cannot lose the follow-ups of earlier ones."""
     for hog_flow_id in waiting_flows_using(team_id=team_id, sender_ids=sender_ids):
         with transaction.atomic():
             locked = (
@@ -251,15 +250,12 @@ def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusC
             if change is None:
                 continue
             locked.save()
-        changes.append(change)
-        went_live.append((before, locked))
-    # The workflows are live already, so a sweep that cannot be queued must not lose their events.
-    for before, after in went_live:
+        # The workflow is live already, so a sweep that cannot be queued must not lose its event.
         try:
-            _reschedule_timing_edits(team_id, before, after)
+            _reschedule_timing_edits(team_id, before, locked)
         except Exception:
-            logger.exception("workflows.enable_waiting.sweep_failed", team_id=team_id, hog_flow_id=str(after.id))
-    return tuple(changes)
+            logger.exception("workflows.enable_waiting.sweep_failed", team_id=team_id, hog_flow_id=str(locked.id))
+        yield change
 
 
 def disable(*, team_id: int, hog_flow_id: UUID) -> StatusChange:

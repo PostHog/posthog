@@ -25,6 +25,7 @@ from products.workflows.backend.facade.tasks import refresh_new_email_senders, r
 from products.workflows.backend.facade.writes import disable
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
+from products.workflows.backend.services.integration_usage import lock_unverified_senders
 from products.workflows.backend.tasks.waiting_workflows import enable_waiting_workflows_task
 
 
@@ -496,6 +497,28 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
         assert [log["event"] for log in logs if log["log_level"] == "error"] == ["workflows.enable_waiting.failed"]
         assert REGISTRY.get_sample_value("workflows_enable_waiting_failed_total") == failures_before + 1
         assert self._workflow(flow_id)["status"] == "waiting_for_domain"
+
+    def test_a_retry_after_a_partial_batch_keeps_the_go_live_events_of_workflows_already_live(self) -> None:
+        sender = self._sender("example.com", verified=True)
+        flow_ids = {self._waiting_flow(sender), self._waiting_flow(sender)}
+        real_lock = lock_unverified_senders
+        lock_calls = 0
+
+        def connection_lost_on_the_second_workflow(**kwargs: Any) -> frozenset[int]:
+            nonlocal lock_calls
+            lock_calls += 1
+            if lock_calls == 2:
+                raise OperationalError("connection lost")
+            return real_lock(**kwargs)
+
+        with patch(
+            "products.workflows.backend.services.hog_flow_writes.lock_unverified_senders",
+            side_effect=connection_lost_on_the_second_workflow,
+        ):
+            enable_waiting_workflows_task.apply(kwargs={"team_id": self.team.id, "sender_ids": [sender.id]})
+
+        assert {self._workflow(flow_id)["status"] for flow_id in flow_ids} == {"active"}
+        assert sorted(properties["workflow_id"] for _, _, properties in self._captured_events()) == sorted(flow_ids)
 
     @parameterized.expand([("database", OperationalError("connection lost")), ("redis", RedisError("publish failed"))])
     def test_task_logs_and_counts_a_go_live_that_fails_after_its_last_retry(self, _name, error: Exception) -> None:
