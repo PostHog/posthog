@@ -1777,7 +1777,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         targets: content,
                         action,
                         ...(removal?.reason ? { removal_reason: removal.reason } : {}),
-                        ...(removal?.note.trim() ? { removal_note: removal.note.trim() } : {}),
+                        ...(removal?.note?.trim() ? { removal_note: removal.note.trim() } : {}),
                     }
                 )
                 saved = true

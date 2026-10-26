@@ -97,7 +97,9 @@ describe('Suggested reviewer presentation', () => {
         expect(removeButton).toBeVisible()
         expect(removeButton).not.toHaveClass('opacity-0')
         await userEvent.click(removeButton)
-        expect(onRemove).toHaveBeenCalledWith([maya])
+        // The remove control is a menu, and the picked reason travels with the removal.
+        await userEvent.click(await screen.findByText("This isn't their area"))
+        expect(onRemove).toHaveBeenCalledWith([maya], { reason: 'wrong_area' })
     })
     test.each([
         ['your own row while your claim is saving', 'me', true, 'Updating…'],

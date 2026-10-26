@@ -73,7 +73,7 @@ export function removeSuggestedReviewers({
                 suggested_reviewer_login: target.github_login || undefined,
                 suggested_reviewer_uuid: target.user?.uuid,
                 removal_reason: removal?.reason ?? undefined,
-                has_removal_note: removal ? removal.note.trim().length > 0 : undefined,
+                has_removal_note: removal ? !!removal.note?.trim() : undefined,
             },
         })
     }

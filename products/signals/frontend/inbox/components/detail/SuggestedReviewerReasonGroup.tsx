@@ -1,9 +1,9 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
-import { EnrichedReviewer } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval } from '../../types'
+import { RemoveReviewerButton } from './RemoveReviewerButton'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import {
     ReviewerClaim,
@@ -23,7 +23,7 @@ export function SuggestedReviewerReasonGroup({
     reviewers: EnrichedReviewer[]
     reason: string
     disabled: boolean
-    onRemove: (reviewer: EnrichedReviewer) => void
+    onRemove: (reviewer: EnrichedReviewer, removal?: ReviewerRemoval) => void
     claim?: ReviewerClaim
 }): JSX.Element {
     const scoutNames = new Set<string>()
@@ -80,16 +80,14 @@ export function SuggestedReviewerReasonGroup({
                             </Tooltip>
                             <div className="flex items-center gap-2">
                                 <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    icon={<IconX />}
+                                <RemoveReviewerButton
+                                    reviewer={reviewer}
+                                    displayName={displayName}
                                     disabledReason={
                                         reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
                                         (disabled ? 'Updating…' : undefined)
                                     }
-                                    onClick={() => onRemove(reviewer)}
-                                    tooltip={`Remove ${displayName}`}
+                                    onRemove={(removal) => onRemove(reviewer, removal)}
                                 />
                             </div>
                         </div>

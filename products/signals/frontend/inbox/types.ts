@@ -25,10 +25,10 @@ import {
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
 
-/** Why a person removed a reviewer, sent with the remove edit. Both parts are optional. */
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
 export interface ReviewerRemoval {
     reason: ReviewerRemovalReasonEnumApi | null
-    note: string
+    note?: string
 }
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON

@@ -1,9 +1,9 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
-import { EnrichedReviewer } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval } from '../../types'
+import { RemoveReviewerButton } from './RemoveReviewerButton'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import {
     ReviewerClaim,
@@ -49,7 +49,7 @@ export function SuggestedReviewerPerson({
 }: {
     reviewer: EnrichedReviewer
     disabled: boolean
-    onRemove: () => void
+    onRemove: (removal?: ReviewerRemoval) => void
     claim?: ReviewerClaim
 }): JSX.Element {
     const displayName = getReviewerDisplayName(reviewer)
@@ -83,16 +83,14 @@ export function SuggestedReviewerPerson({
             )}
             <div className="flex items-center gap-2">
                 <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    icon={<IconX />}
+                <RemoveReviewerButton
+                    reviewer={reviewer}
+                    displayName={displayName}
                     disabledReason={
                         reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
                         (disabled ? 'Updating…' : undefined)
                     }
-                    onClick={onRemove}
-                    tooltip={`Remove ${displayName}`}
+                    onRemove={onRemove}
                 />
             </div>
         </div>
