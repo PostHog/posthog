@@ -341,14 +341,15 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("relative", "-1d", True),
-            ("absolute", "2026-04-23T12:00:00Z", True),
-            ("milliseconds", "2026-04-24T10:00:00.500Z", False),
+            ("relative", "-1d", False, True),
+            ("absolute", "2026-04-23T12:00:00Z", False, True),
+            ("milliseconds", "2026-04-24T10:00:00.500Z", False, False),
+            ("before_both", "-3d", True, True),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_accepts_typed_filters_and_matches_release_precisely(
-        self, _name: str, first_seen_after: str, included: bool
+        self, _name: str, first_seen_after: str, old_included: bool, new_included: bool
     ) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -408,9 +409,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert [row["id"] for row in response.json()["results"]] == ([self.issue_id] if included else [])
-        if included:
-            assert "summary" not in response.json()["results"][0]
+        expected_ids = [
+            issue_id for issue_id, kept in [(self.issue_id, new_included), (old_issue_id, old_included)] if kept
+        ]
+        assert sorted(row["id"] for row in response.json()["results"]) == sorted(expected_ids)
+        assert all("summary" not in row for row in response.json()["results"])
         start_generation.assert_not_called()
 
         project_response = self.client.post(
@@ -451,9 +454,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [({"key": "1 = 1", "type": "hogql", "value": "1"}, "HogQL property filters are not supported here")]
         + [
-            ({"key": key, "type": "error_tracking_issue", "operator": operator, "value": "-24h"}, "firstSeenAfter")
-            for key in ("first_seen", "last_seen")
-            for operator in ("gt", "gte", "lt", "lte")
+            (
+                {"key": "first_seen", "type": "error_tracking_issue", "operator": operator, "value": "-24h"},
+                "firstSeenAfter",
+            )
+            for operator in ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
         ]
     )
     def test_rejects_unsupported_property_filters(self, item: dict[str, object], message: str) -> None:
@@ -465,6 +470,17 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
         assert message in str(response.json())
+
+    @parameterized.expand([("not_a_date", "yesterday"), ("out_of_range", "-100000y")])
+    def test_rejects_invalid_first_seen_after(self, _name: str, value: str) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"firstSeenAfter": value},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "firstSeenAfter" in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(
