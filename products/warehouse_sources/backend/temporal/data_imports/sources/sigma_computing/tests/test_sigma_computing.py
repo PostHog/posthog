@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from typing import Any, Optional, cast
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -337,3 +337,51 @@ class TestSigmaComputingSourceFanout:
 
         assert rows == [{**child_row, "workbookId": "wb1"}]
         assert response.primary_keys == expected_primary_keys
+
+    @pytest.mark.parametrize(
+        "endpoint, child_path_suffix, first_row, second_row, expected_primary_keys",
+        [
+            ("ReportElements", "elements", {"elementId": "e1"}, {"elementId": "e2"}, ["reportId", "elementId"]),
+            ("ReportPages", "pages", {"pageId": "p1"}, {"pageId": "p2"}, ["reportId", "pageId"]),
+            ("ReportQueries", "queries", {"elementId": "e1"}, {"elementId": "e2"}, ["reportId", "elementId"]),
+        ],
+    )
+    def test_report_scoped_children_walk_page_token_pagination(
+        self,
+        requests_mock: Any,
+        endpoint: str,
+        child_path_suffix: str,
+        first_row: dict[str, Any],
+        second_row: dict[str, Any],
+        expected_primary_keys: list[str],
+    ) -> None:
+        _mock_token(requests_mock)
+        requests_mock.get(f"{BASE_URL}/v2/reports", json={"entries": [{"reportId": "rp1"}], "nextPage": None})
+        child_path = f"/v2/reports/rp1/{child_path_suffix}"
+        requests_mock.get(
+            f"{BASE_URL}{child_path}",
+            [
+                {"json": {"entries": [first_row], "nextPageToken": "TOKEN1"}},
+                {"json": {"entries": [second_row]}},
+            ],
+        )
+
+        response = sigma_computing_source(
+            region="gcp_us",
+            client_id="client",
+            client_secret="secret",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=_FakeResumeManager(),
+        )
+        rows = _collect_rows(response)
+
+        assert rows == [{**first_row, "reportId": "rp1"}, {**second_row, "reportId": "rp1"}]
+        assert response.primary_keys == expected_primary_keys
+
+        def query(path: str) -> list[dict[str, list[str]]]:
+            return [parse_qs(urlparse(r.url).query) for r in requests_mock.request_history if r.path == path]
+
+        assert query("/v2/reports") == [{"limit": ["1000"]}]
+        assert query(child_path) == [{"pageSize": ["1000"]}, {"pageSize": ["1000"], "pageToken": ["TOKEN1"]}]

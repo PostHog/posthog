@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
-import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
+import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -14,6 +14,28 @@ import { IntegrationManagerService } from './managers/integration-manager.servic
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+
+const EMAIL_INPUT_TYPES = ['native_email', 'email']
+
+// Email fields that become headers or the plain-text part, where an HTML entity shows up literally.
+// `html` and `preheader` are not here: both are written into the HTML body, so their output stays escaped.
+const EMAIL_PLAIN_TEXT_FIELDS = [
+    'subject',
+    'text',
+    'replyTo',
+    'cc',
+    'bcc',
+    'to.email',
+    'to.name',
+    'from.email',
+    'from.name',
+]
+
+const ACCESS_TOKEN_PLACEHOLDER_PURPOSE = 'integration-access-token-placeholder'
+
+const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
+
+const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
 export class HogInputsService {
     constructor(
@@ -32,24 +54,43 @@ export class HogInputsService {
             ...globals,
             inputs: {},
         }
-        const inputs: HogFunctionType['inputs'] = {
+        const ownInputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
             // Plus any additional inputs
             ...additionalInputs,
+        }
+        const inputs: HogFunctionType['inputs'] = {
+            ...ownInputs,
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)
-            ...(await this.loadIntegrationInputs(hogFunction, newGlobals)),
+            ...(await this.loadIntegrationInputs(hogFunction, newGlobals, { throwIfMissingIn: ownInputs })),
         }
 
         // One budget for the whole invocation, so many small liquid leaves cannot add up to a stall.
         const liquidBudget = new LiquidRenderBudget()
 
+        // Build a lookup of schema types for rendering and post-render coercion
+        const schemaTypes: Record<string, string> = {}
+        for (const schema of hogFunction.inputs_schema ?? []) {
+            schemaTypes[schema.key] = schema.type
+        }
+
         const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
             const templating = input.templating ?? 'hog'
 
             if (templating === 'liquid') {
-                return formatLiquidInput(input.value, newGlobals, key, liquidBudget)
+                let value = input.value
+                // `design` is the email editor's state and is never sent. Its JSON-encoded strings escape quotes
+                // as \", which Liquid cannot parse. validation.py drops it the same way before it compiles hog.
+                if (EMAIL_INPUT_TYPES.includes(schemaTypes[key]) && value?.design !== undefined) {
+                    const { design: _design, ...rest } = value
+                    value = rest
+                }
+                const plainTextKeys = EMAIL_INPUT_TYPES.includes(schemaTypes[key])
+                    ? new Set(EMAIL_PLAIN_TEXT_FIELDS.map((field) => `${key}.${field}`))
+                    : undefined
+                return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
@@ -63,9 +104,7 @@ export class HogInputsService {
         }
 
         // Add unsubscribe url if we have an email input here
-        const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
-            ['native_email', 'email'].includes(input.type)
-        )
+        const emailInputSchema = hogFunction.inputs_schema?.find((input) => EMAIL_INPUT_TYPES.includes(input.type))
         const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
 
         if (emailInputSchema && emailInput) {
@@ -84,12 +123,6 @@ export class HogInputsService {
                     identifier: emailValue.to.email,
                 })
             }
-        }
-
-        // Build a lookup of schema types for post-render coercion
-        const schemaTypes: Record<string, string> = {}
-        for (const schema of hogFunction.inputs_schema ?? []) {
-            schemaTypes[schema.key] = schema.type
         }
 
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_k1, input1], [_k2, input2]) => {
@@ -160,9 +193,25 @@ export class HogInputsService {
         return result
     }
 
+    // The fetch step swaps these values for the token wherever they appear in the request, so they must not be
+    // something a request can contain unless the function read it from these inputs.
+    private accessTokenPlaceholder(integrationId: number): string {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return signedAccessTokenPlaceholder(base, this.encryptedFields.sign(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base))
+    }
+
+    public acceptedAccessTokenPlaceholders(integrationId: number): string[] {
+        const base = accessTokenPlaceholderBase(integrationId)
+        return this.encryptedFields
+            .signatures(ACCESS_TOKEN_PLACEHOLDER_PURPOSE, base)
+            .map((signature) => signedAccessTokenPlaceholder(base, signature))
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
-        newGlobals?: HogFunctionInvocationGlobalsWithInputs
+        newGlobals?: HogFunctionInvocationGlobalsWithInputs,
+        // Loading covers every mapping, so only the inputs this invocation uses may fail it.
+        options?: { throwIfMissingIn?: HogFunctionType['inputs'] }
     ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
         // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
         const singleInputsToLoad: Record<string, number> = {}
@@ -221,7 +270,7 @@ export class HogInputsService {
                 ...integration.sensitive_config,
                 ...(integration.sensitive_config.access_token || integration.config.access_token
                     ? {
-                          access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
+                          access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
                               integration.sensitive_config.access_token ?? integration.config.access_token,
                       }
@@ -230,6 +279,13 @@ export class HogInputsService {
         }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
+            // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
+            const isUsed = options?.throwIfMissingIn?.[key]?.value === id
+            if (isUsed && (!integrations[id] || integrations[id].team_id !== hogFunction.team_id)) {
+                throw new HogConfigurationError(
+                    `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 
@@ -328,7 +384,8 @@ export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
     key?: string,
-    budget: LiquidRenderBudget = new LiquidRenderBudget()
+    budget: LiquidRenderBudget = new LiquidRenderBudget(),
+    plainTextKeys?: ReadonlySet<string>
 ): any => {
     if (value === null || value === undefined) {
         return value
@@ -336,7 +393,9 @@ export const formatLiquidInput = (
 
     if (typeof value === 'string') {
         try {
-            return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
+            return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
+                escapeHtml: !(key && plainTextKeys?.has(key)),
+            })
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.
             const message = error instanceof Error ? error.message : String(error)
@@ -345,14 +404,14 @@ export const formatLiquidInput = (
     }
 
     if (Array.isArray(value)) {
-        return value.map((item) => formatLiquidInput(item, globals, key, budget))
+        return value.map((item) => formatLiquidInput(item, globals, key, budget, plainTextKeys))
     }
 
     if (typeof value === 'object' && value !== null) {
         return Object.fromEntries(
             Object.entries(value).map(([key2, value]) => [
                 key2,
-                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget),
+                formatLiquidInput(value, globals, key ? `${key}.${key2}` : key2, budget, plainTextKeys),
             ])
         )
     }

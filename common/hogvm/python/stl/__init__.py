@@ -22,7 +22,7 @@ from ..utils import (
     like,
     regex_extract,
 )
-from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
+from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -90,7 +90,8 @@ def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
                 datetime.datetime(args[0]["year"], args[0]["month"], args[0]["day"]) - datetime.datetime(1970, 1, 1)
             ).days
         return int(args[0])
-    except ValueError:
+    # TypeError covers null and other unconvertible types; the TS and Rust VMs return null for those too.
+    except (TypeError, ValueError):
         return None
 
 
@@ -105,7 +106,8 @@ def toFloat(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]]
                 ).days
             )
         return float(args[0])
-    except ValueError:
+    # TypeError covers null and other unconvertible types; the TS and Rust VMs return null for those too.
+    except (TypeError, ValueError):
         return None
 
 
@@ -1113,6 +1115,13 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
         minArgs=1,
         maxArgs=2,
+    ),
+    "sha256HmacBase64Key": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256HmacBase64Key(
+            args[0], args[1], args[2] if len(args) > 2 and args[2] is not None else "hex"
+        ),
+        minArgs=2,
+        maxArgs=3,
     ),
     "isIPAddressInRange": STLFunction(
         fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2

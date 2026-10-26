@@ -42,6 +42,7 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.exposure_config` — the exposure event and its property filters.
   Unset, or naming `$feature_flag_called`, means the default exposure event: read which one
   from `resolved_exposure_event`.
+  When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
   A config that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
   Any other event, or an action, is a _custom exposure event_.
   Property filters in the config apply to either (B12).

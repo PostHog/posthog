@@ -14,6 +14,21 @@ x-logging: &default-logging
         max-size: '50m'
         max-file: '3'
 
+# HyperCache's S3 tier for the Rust readers. With no endpoint the AWS SDK dials real S3 on
+# every Redis miss and waits out its retries (~4s) before falling back to Postgres.
+# Services using this also wait for objectstorage to be healthy: it registers these
+# credentials after start and rejects them until then.
+x-hypercache-s3: &hypercache-s3
+    OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+    AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+    AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
+# Hobby runs one temporal-django-worker, and a worker polls one task queue. The services that
+# start workflows and the worker that runs them collapse every Temporal task queue onto that
+# one queue, so workflows on other queues (exports, PostHog AI, replay, batch exports) still run.
+x-single-temporal-queue: &single-temporal-queue
+    TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
+
 services:
     db:
         extends:
@@ -101,6 +116,7 @@ services:
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -110,9 +126,13 @@ services:
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
+            <<: *single-temporal-queue
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -123,6 +143,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -162,6 +184,7 @@ services:
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -173,9 +196,13 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            <<: *single-temporal-queue
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -186,6 +213,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
@@ -290,9 +319,11 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            # Must resolve to the same value as the web and worker services, which send it as
-            # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
-            # stays on the legacy shared secret until that scheme is rolled out.
+            # Both must resolve to the same values as on the web, worker and temporal-django-worker
+            # services. Those services sign a team-scoped token with RECORDING_API_JWT_SECRET, and
+            # this service verifies it. They also send INTERNAL_API_SECRET as X-Internal-Api-Secret,
+            # which this service still accepts in place of a token.
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
             - db
@@ -456,7 +487,7 @@ services:
         environment:
             - ENABLE_ES=false
         ports:
-            - 7233:7233
+            - '127.0.0.1:7233:7233'
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     elasticsearch:
@@ -477,7 +508,7 @@ services:
             service: temporal-ui
         logging: *default-logging
         ports:
-            - 8081:8080
+            - '127.0.0.1:8081:8080'
         depends_on:
             temporal:
                 condition: service_started
@@ -501,13 +532,20 @@ services:
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED: ${HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:-false}
             # This worker runs the recording deletion Temporal activities, which call
-            # recording-api. Without these two the calls go out unauthenticated and
-            # recording-api rejects them with a 401.
+            # recording-api. Without the URL and a credential the calls go out unauthenticated
+            # and recording-api rejects them with a 401.
             RECORDING_API_URL: http://recording-api:6738
             INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            RECORDING_API_JWT_SECRET: ${RECORDING_API_JWT_SECRET:-}
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
+            <<: *single-temporal-queue
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
+            # Must match INTERNAL_REQUEST_TOKEN on the feature-flags service; flag test
+            # evaluation otherwise fails with "Internal request token not configured".
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
             # The logs product uses a dedicated ClickHouse cluster config (separate
             # from CLICKHOUSE_HOST) whose host defaults to localhost and whose SECURE
             # defaults to true outside DEBUG. Point it at the stack's ClickHouse over
@@ -520,6 +558,8 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
         depends_on:
             - db
             - redis7
@@ -529,6 +569,7 @@ services:
             - seaweedfs
             - temporal
             - browserless
+            - personhog-router
 
     capture:
         build:
@@ -536,6 +577,14 @@ services:
         extends:
             file: docker-compose.base.yml
             service: capture
+        logging: *default-logging
+
+    capture-ai:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-ai
         logging: *default-logging
 
     capture-logs:
@@ -623,9 +672,20 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         logging: *default-logging
+        environment:
+            <<: *hypercache-s3
+            # Shared secret for authenticated Django → flags calls (flag test evaluation);
+            # must match INTERNAL_REQUEST_TOKEN on web and worker. The installers generate it.
+            # Never fall back to POSTHOG_SECRET: this container faces the internet, and that
+            # value is Django's SECRET_KEY.
+            INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
         depends_on:
-            - db
-            - redis7
+            db:
+                condition: service_started
+            redis7:
+                condition: service_started
+            objectstorage:
+                condition: service_healthy
 
     hypercache-server:
         build:
@@ -634,8 +694,12 @@ services:
             file: docker-compose.base.yml
             service: hypercache-server
         logging: *default-logging
+        environment: *hypercache-s3
         depends_on:
-            - redis7
+            redis7:
+                condition: service_started
+            objectstorage:
+                condition: service_healthy
 
     kafka-init:
         image: docker.io/redpandadata/redpanda:v25.1.9

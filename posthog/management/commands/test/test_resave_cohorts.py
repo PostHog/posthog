@@ -209,7 +209,7 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         # cohort would pull the deprecated taxonomy columns (which TOAST out to megabytes per team)
         # back once per cohort. The command already holds the team object, so the cohort SELECT must
         # not JOIN and hydrate `posthog_team`. A query-count guard would miss a re-added
-        # `select_related("team")`, so assert the SQL directly, as `test_list_cohorts_does_not_hydrate_team`
+        # `select_related("team")`, so assert the SQL directly, as `test_list_cohorts_does_not_join_team`
         # does.
         team: Team = self.team
         for i in range(3):
@@ -274,6 +274,44 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
 
         # 3. Realtime cohort should be realtime (no problematic dependencies)
         assert realtime_cohort.cohort_type == "realtime"
+
+    def test_cohort_with_unparseable_filters_is_counted_as_an_error_without_stopping_the_run(self):
+        malformed = Cohort.objects.create(team=self.team, name="malformed", filters=_make_person_only_filters())
+        Cohort.objects.filter(id=malformed.id).update(
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "email", "value": "a@example.com"}],
+                                },
+                                {"type": "person", "key": "email", "value": "b@example.com"},
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+        referencing = Cohort.objects.create(
+            team=self.team,
+            name="referencing",
+            filters={"properties": {"type": "AND", "values": [{"type": "cohort", "key": "id", "value": malformed.id}]}},
+        )
+        healthy = Cohort.objects.create(team=self.team, name="healthy", filters=_make_person_only_filters())
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], stdout=out)
+
+        healthy.refresh_from_db()
+        referencing.refresh_from_db()
+        assert healthy.cohort_type == "realtime"
+        assert referencing.cohort_type is None
+        assert "3 cohorts" in out.getvalue()
+        assert "2 errors" in out.getvalue()
 
     def test_cohort_with_multiple_leaf_dependencies_can_be_realtime(self):
         """Test that a cohort referencing multiple leaf cohorts (no dependencies) can be realtime."""

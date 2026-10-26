@@ -4,7 +4,13 @@ import { SignalSourceConfig } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { sourceTriggerCopy } from './emptyStateCopy'
 
-export function SignalSourceFlowRow({ source }: { source: SignalSourceConfig }): JSX.Element {
+export function SignalSourceFlowRow({
+    source,
+    outcome = 'Investigate and open a pull request when fixable.',
+}: {
+    source: Pick<SignalSourceConfig, 'source_product' | 'source_type'>
+    outcome?: string
+}): JSX.Element {
     const sourceMeta = getSourceProductMeta(source.source_product)
     const SourceIcon = sourceMeta?.Icon ?? IconBolt
 
@@ -32,7 +38,7 @@ export function SignalSourceFlowRow({ source }: { source: SignalSourceConfig }):
                     </div>
                     <div className="min-w-0">
                         <div className="mb-0.5 text-[10px] font-medium text-secondary">Then</div>
-                        <div className="text-tertiary">Investigate and open a pull request when fixable.</div>
+                        <div className="text-tertiary">{outcome}</div>
                     </div>
                 </div>
             </div>

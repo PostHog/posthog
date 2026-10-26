@@ -48,6 +48,7 @@ from products.conversations.backend.services.delivery import (
     cleanup_delivery_snapshots,
     complete_slack_body_delivery,
     defer_delivery_part,
+    delivery_ticket_is_live,
     drain_delivery_retention,
     due_delivery_part_ids,
     fail_delivery_part,
@@ -1050,6 +1051,10 @@ def _process_slack_delivery_part(delivery_part_id: str) -> None:
         return
     runtime = _load_slack_delivery_runtime(claim)
     if runtime is None:
+        return
+    # The delete cancels open parts, but a part claimed before it can still reach this point.
+    if not delivery_ticket_is_live(part.delivery):
+        _fail_claimed_delivery_part(claim, error_code="ticket_deleted", error="The ticket was deleted")
         return
     try:
         if part.part_key == DELIVERY_PART_KEY_BODY:

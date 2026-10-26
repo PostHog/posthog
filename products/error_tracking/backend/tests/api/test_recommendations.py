@@ -7,13 +7,16 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.utils import uuid7
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition, Team
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.cdp.backend.facade.models import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
-from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
@@ -22,10 +25,8 @@ from products.error_tracking.backend.models import (
     ErrorTrackingRecommendation,
     ErrorTrackingSettings,
     ErrorTrackingStackFrame,
-    sync_issues_to_clickhouse,
+    ErrorTrackingSymbolSet,
 )
-
-from ee.clickhouse.materialized_columns.columns import materialize
 
 MOCK_ALERTS_META = {
     "alerts": [
@@ -41,18 +42,45 @@ MOCK_ALERTS_META_UPDATED = {
         {"key": "error-tracking-issue-spiking", "enabled": True},
     ]
 }
+MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 
 
-def _days_ago(n: int) -> str:
-    return (timezone.now() - timedelta(days=n)).isoformat()
+class _StackFrameFactory:
+    team: Team
+
+    def _make_frame(
+        self,
+        contents: dict | None = None,
+        resolved: bool = False,
+        with_symbol_set: bool = False,
+        created_hours_ago: int = 1,
+        team: Team | None = None,
+    ) -> ErrorTrackingStackFrame:
+        team = team or self.team
+        symbol_set = (
+            ErrorTrackingSymbolSet.objects.create(team=team, ref=str(uuid4()), storage_ptr=str(uuid4()))
+            if with_symbol_set
+            else None
+        )
+        frame = ErrorTrackingStackFrame.objects.create(
+            team=team,
+            raw_id=str(uuid4()),
+            contents={"lang": "javascript", **(contents or {})},
+            resolved=resolved,
+            symbol_set=symbol_set,
+        )
+        ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
+            created_at=timezone.now() - timedelta(hours=created_hours_ago)
+        )
+        return frame
+
+    def _make_missing_symbols_frame(self, **kwargs) -> ErrorTrackingStackFrame:
+        return self._make_frame(
+            contents={"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "column": 4321}, **kwargs
+        )
 
 
-class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        materialize("events", "$exception_issue_id", is_nullable=True)
-
+class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
     def _list(self):
         return self.client.get(f"/api/environments/{self.team.id}/error_tracking/recommendations/")
 
@@ -66,31 +94,25 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
-    @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
+    def test_first_list_creates_registered_recommendations_and_hides_unregistered_types(self, mock_alerts):
+        ErrorTrackingRecommendation.objects.create(team=self.team, type="long_running_issues")
 
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 4)
+        self.assertEqual(
+            ErrorTrackingRecommendation.objects.filter(team=self.team).exclude(type="long_running_issues").count(), 3
+        )
         types = {r["type"] for r in response.json()["results"]}
-        self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
+        self.assertEqual(types, {"alerts", "rate_limits", "source_maps"})
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
     )
-    def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running):
+    def test_alerts_recomputes_on_every_list(self, mock_alerts):
         mock_alerts.return_value = MOCK_ALERTS_META
         self._list()
 
@@ -102,36 +124,32 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(alerts["meta"], MOCK_ALERTS_META_UPDATED)
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running):
+    def test_source_maps_is_cached_until_interval_elapses(self, mock_alerts, mock_source_maps):
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen_time:
-            mock_long_running.return_value = {"issues": []}
             self._list()
-            self.assertEqual(mock_long_running.call_count, 1)
+            self.assertEqual(mock_source_maps.call_count, 1)
 
             # Re-listing within the same refresh window doesn't recompute.
             self._list()
-            self.assertEqual(mock_long_running.call_count, 1)
+            self.assertEqual(mock_source_maps.call_count, 1)
 
             # A full refresh_interval always crosses into the next window — recompute, regardless of phase.
-            frozen_time.shift(LongRunningIssuesRecommendation.refresh_interval)
+            frozen_time.shift(SourceMapsRecommendation.refresh_interval)
             self._list()
-            self.assertEqual(mock_long_running.call_count, 2)
+            self.assertEqual(mock_source_maps.call_count, 2)
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running):
+    def test_dismiss_persists_across_requests(self, mock_alerts):
         response = self._list()
         alerts_id = next(r["id"] for r in response.json()["results"] if r["type"] == "alerts")
 
@@ -165,127 +183,6 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
         self.assertFalse(by_key["error-tracking-issue-created"])
-
-    def _create_issue(self, created_at, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"):
-        issue = ErrorTrackingIssue.objects.create(
-            id=uuid7(),
-            team=self.team,
-            status=status,
-            name=name,
-            description="boom",
-        )
-        ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=created_at)
-        issue.refresh_from_db()
-        fingerprint = f"fp::{issue.id}"
-        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
-        ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, fingerprint=fingerprint).update(
-            first_seen=created_at
-        )
-        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
-        return issue
-
-    def _create_exception(self, issue_id, timestamp, fingerprint=None):
-        _create_event(
-            distinct_id="user_1",
-            event="$exception",
-            team=self.team,
-            properties={
-                "$exception_issue_id": str(issue_id),
-                "$exception_fingerprint": fingerprint or f"fp::{issue_id}",
-            },
-            timestamp=timestamp,
-        )
-
-    def test_long_running_returns_oldest_active_issues_with_recent_occurrences(self):
-        old_active = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Oldest")
-        mid_active = self._create_issue(created_at=timezone.now() - timedelta(days=20), name="MidAged")
-        recent_active = self._create_issue(created_at=timezone.now() - timedelta(days=3), name="Recent")
-        self._create_exception(old_active.id, _days_ago(1))
-        self._create_exception(mid_active.id, _days_ago(1))
-        # Recent issue still has activity but was first seen <7d ago, so it shouldn't qualify as long-running.
-        self._create_exception(recent_active.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        names = [i["name"] for i in meta["issues"]]
-        self.assertEqual(names, ["Oldest", "MidAged"])
-
-    def test_long_running_ignores_issues_without_recent_occurrences(self):
-        stale = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Stale")
-        self._create_exception(stale.id, _days_ago(30))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_excludes_non_active_issues(self):
-        resolved = self._create_issue(
-            created_at=timezone.now() - timedelta(days=60),
-            status=ErrorTrackingIssue.Status.RESOLVED,
-            name="Resolved",
-        )
-        self._create_exception(resolved.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_limits_to_five(self):
-        for i in range(15):
-            issue = self._create_issue(
-                created_at=timezone.now() - timedelta(days=60 - i),
-                name=f"Issue {i:02d}",
-            )
-            self._create_exception(issue.id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(len(meta["issues"]), 5)
-        self.assertEqual(meta["issues"][0]["name"], "Issue 00")
-        self.assertEqual(meta["issues"][4]["name"], "Issue 04")
-
-    def test_long_running_ignores_other_teams_issues(self):
-        other_issue_id = str(uuid4())
-        self._create_exception(other_issue_id, _days_ago(1))
-        flush_persons_and_events()
-
-        meta = LongRunningIssuesRecommendation().compute(self.team)
-
-        self.assertEqual(meta["issues"], [])
-
-    def test_long_running_enrich_overrides_status_with_live_value(self):
-        issue = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Boom")
-        meta = {"issues": [{"id": str(issue.id), "name": "Boom", "status": ErrorTrackingIssue.Status.ACTIVE}]}
-        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.SUPPRESSED)
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.SUPPRESSED)
-
-    def test_long_running_enrich_with_empty_issues_returns_unchanged(self):
-        meta: dict = {"issues": []}
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched, {"issues": []})
-
-    def test_long_running_enrich_keeps_cached_status_when_issue_missing(self):
-        meta = {"issues": [{"id": str(uuid4()), "name": "Gone", "status": ErrorTrackingIssue.Status.ACTIVE}]}
-
-        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
-
-        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
-
-    def test_long_running_is_completed_when_no_issues(self):
-        self.assertTrue(LongRunningIssuesRecommendation().is_completed({"issues": []}))
-
-    def test_long_running_is_completed_false_when_issues_present(self):
-        meta = {"issues": [{"id": "x"}]}
-        self.assertFalse(LongRunningIssuesRecommendation().is_completed(meta))
 
     def test_alerts_is_completed_when_all_enabled(self):
         self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))
@@ -339,94 +236,73 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_long_running):
+    def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_source_maps):
         response = self._list()
-        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
-        mock_long_running.reset_mock()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "source_maps")
+        mock_source_maps.reset_mock()
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/?force=false"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_long_running.assert_not_called()
+        mock_source_maps.assert_not_called()
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_long_running):
+    def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_source_maps):
         response = self._list()
-        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
-        mock_long_running.reset_mock()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "source_maps")
+        mock_source_maps.reset_mock()
 
         response = self._refresh(rec_id)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_long_running.assert_called_once()
+        mock_source_maps.assert_called_once()
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
+    def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_source_maps):
         response = self._list()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         statuses = {r["type"]: r["status"] for r in response.json()["results"]}
-        self.assertEqual(
-            statuses,
-            {"alerts": "ready", "long_running_issues": "ready", "rate_limits": "ready", "source_maps": "ready"},
-        )
+        self.assertEqual(statuses, {"alerts": "ready", "rate_limits": "ready", "source_maps": "ready"})
         # Each recommendation row should have been computed exactly once via the celery task path.
         self.assertEqual(mock_alerts.call_count, 1)
-        self.assertEqual(mock_long_running.call_count, 1)
+        self.assertEqual(mock_source_maps.call_count, 1)
 
-    @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
-    )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_poll_does_not_kick_off_new_computations(self, mock_alerts, mock_long_running):
+    def test_poll_does_not_kick_off_new_computations(self, mock_alerts):
         self._list()
         mock_alerts.reset_mock()
-        mock_long_running.reset_mock()
 
         response = self._poll()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_alerts.assert_not_called()
-        mock_long_running.assert_not_called()
-
-    def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
-        frame = ErrorTrackingStackFrame.objects.create(
-            team=self.team,
-            raw_id=str(uuid4()),
-            contents={"lang": lang},
-            resolved=resolved,
-        )
-        ErrorTrackingStackFrame.objects.filter(id=frame.id).update(
-            created_at=timezone.now() - timedelta(hours=created_hours_ago)
-        )
-        return frame
 
     def test_source_maps_compute_with_no_frames(self):
         meta = SourceMapsRecommendation().compute(self.team)
@@ -435,31 +311,198 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(meta["unresolved_frames"], 0)
         self.assertEqual(meta["unresolved_pct"], 0.0)
 
-    def test_source_maps_compute_counts_unresolved_js_frames(self):
+    def test_source_maps_compute_counts_frames_missing_symbols_among_frames_that_need_them(self):
         for _ in range(8):
-            self._make_frame(lang="javascript", resolved=True)
+            self._make_frame(resolved=True, with_symbol_set=True)
         for _ in range(2):
-            self._make_frame(lang="javascript", resolved=False)
+            self._make_missing_symbols_frame()
+        self._make_frame(contents={"line": 12, "column": 4321}, resolved=True)
+        self._make_frame(contents={"lang": "python"}, resolved=True)
+        self._make_frame(contents={"line": 12}, resolved=True)
+        self._make_frame(resolved=True)
+        self._make_frame(
+            contents={"resolve_failure": "Could not find sourcemap for source url: https://example.com/app.js"},
+            resolved=True,
+            with_symbol_set=True,
+        )
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 10)
+        self.assertEqual(meta["platform"], "javascript")
+        self.assertEqual(meta["total_frames"], 11)
         self.assertEqual(meta["unresolved_frames"], 2)
-        self.assertEqual(meta["unresolved_pct"], 0.2)
+        self.assertEqual(meta["unresolved_pct"], 2 / 11)
 
-    def test_source_maps_compute_ignores_non_js_frames(self):
-        self._make_frame(lang="python", resolved=False)
-        self._make_frame(lang="ruby", resolved=False)
-        self._make_frame(lang="javascript", resolved=True)
+    @parameterized.expand(
+        [
+            (
+                "chunk_id_without_upload",
+                {"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "column": 4321},
+                True,
+            ),
+            (
+                "script_without_source_map",
+                {"resolve_failure": "Could not find sourcemap for source url: https://example.com/app.js"},
+                True,
+            ),
+            (
+                "source_map_not_found",
+                {"resolve_failure": "HTTP error 404 while fetching: https://example.com/app.js.map"},
+                True,
+            ),
+            (
+                "source_map_url_serves_html",
+                {"resolve_failure": "Invalid source map: expected value at line 1 column 1"},
+                True,
+            ),
+            (
+                "source_map_over_fetch_limit",
+                {
+                    "resolve_failure": "Network error while fetching: Response from https://example.com/app.js.map exceeded the 25000000 byte limit"
+                },
+                True,
+            ),
+            (
+                "hermes_bundle_without_chunk_id",
+                {"resolve_failure": "No chunk id sent with frame", "column": 1234, "source": "index.android.bundle"},
+                True,
+            ),
+            (
+                "proguard_map_missing",
+                {"lang": "java", "module": "a.b.c", "resolve_failure": "No proguard map uploaded for id: 5d2c"},
+                True,
+            ),
+            (
+                "dsym_missing_for_app_code",
+                {
+                    "lang": "swift",
+                    "in_app": True,
+                    "module": "Example",
+                    "resolve_failure": "No dSYM uploaded for debug_id: 8a9b-11",
+                },
+                True,
+            ),
+            (
+                "dsym_missing_for_frame_without_module",
+                {"lang": "swift", "in_app": True, "resolve_failure": "No dSYM uploaded for debug_id: 8a9b-11"},
+                True,
+            ),
+            (
+                "debug_symbols_missing_for_app_code",
+                {"lang": "rust", "in_app": True, "resolve_failure": "No debug symbols uploaded for debug_id: 8a9b-11"},
+                True,
+            ),
+            (
+                "private_ip_address",
+                {"resolve_failure": "Refusing to fetch from non-public address: http://127.0.0.1:5173/app.js"},
+                False,
+            ),
+            (
+                "localhost_unreachable",
+                {
+                    "resolve_failure": "Network error while fetching: error sending request for url (http://localhost:3000/app.js)"
+                },
+                False,
+            ),
+            ("timeout", {"resolve_failure": "Request timed out while fetching: https://example.com/app.js"}, False),
+            ("server_error", {"resolve_failure": "HTTP error 503 while fetching: https://example.com/app.js"}, False),
+            ("rate_limited", {"resolve_failure": "HTTP error 429 while fetching: https://example.com/app.js"}, False),
+            (
+                "localhost_refused_by_egress_proxy",
+                {"resolve_failure": "HTTP error 407 while fetching: http://localhost:3000/app.js"},
+                False,
+            ),
+            ("bad_request", {"resolve_failure": "HTTP error 400 while fetching: https://example.com/gtm.js"}, False),
+            ("unparseable_source_map_url", {"resolve_failure": "Invalid source url: https://[bad"}, False),
+            ("source_map_without_token", {"resolve_failure": "Token not found for frame: a:1:5021"}, False),
+            (
+                "hermes_internal_bytecode",
+                {"resolve_failure": "No chunk id sent with frame", "column": 12, "source": "InternalBytecode.js"},
+                False,
+            ),
+            (
+                "hermes_frame_without_column",
+                {"resolve_failure": "No chunk id sent with frame", "source": "native"},
+                False,
+            ),
+            (
+                "chunk_id_without_upload_or_column",
+                {"resolve_failure": "No sourcemap uploaded for chunk id: 0f1e2d", "source": "index.android.bundle"},
+                False,
+            ),
+            (
+                "hermes_metro_dev_server_bundle",
+                {
+                    "resolve_failure": "No chunk id sent with frame",
+                    "column": 17,
+                    "source": "http://localhost:8081/index.bundle?platform=ios&dev=true",
+                },
+                False,
+            ),
+            (
+                "android_framework_class",
+                {
+                    "lang": "java",
+                    "module": "android.os.Handler",
+                    "resolve_failure": "No proguard map uploaded for id: 5d2c",
+                },
+                False,
+            ),
+            (
+                "dsym_missing_for_system_framework",
+                {"lang": "swift", "in_app": False, "resolve_failure": "No dSYM uploaded for debug_id: 8a9b-11"},
+                False,
+            ),
+            (
+                "dsym_missing_for_xcode_debug_build",
+                {
+                    "lang": "swift",
+                    "in_app": True,
+                    "module": "Example.debug.dylib",
+                    "resolve_failure": "No dSYM uploaded for debug_id: 8a9b-11",
+                },
+                False,
+            ),
+            (
+                "native_frame_already_readable",
+                {
+                    "lang": "go",
+                    "in_app": True,
+                    "line": 42,
+                    "resolved_name": "main.handler",
+                    "resolve_failure": "No debug symbols uploaded for debug_id: 8a9b-11",
+                },
+                False,
+            ),
+        ]
+    )
+    def test_source_maps_compute_counts_only_failures_an_upload_fixes(self, _name, contents, counted):
+        self._make_frame(contents=contents)
 
         meta = SourceMapsRecommendation().compute(self.team)
 
-        self.assertEqual(meta["total_frames"], 1)
-        self.assertEqual(meta["unresolved_frames"], 0)
+        self.assertEqual(meta["unresolved_frames"], 1 if counted else 0)
+        self.assertEqual(meta["total_frames"], 1 if counted else 0)
+
+    def test_source_maps_compute_scores_each_platform_on_its_own(self):
+        for _ in range(100):
+            self._make_frame(contents={"lang": "java"}, resolved=True, with_symbol_set=True)
+        for _ in range(25):
+            self._make_missing_symbols_frame()
+        for _ in range(5):
+            self._make_frame(resolved=True, with_symbol_set=True)
+
+        recommendation = SourceMapsRecommendation()
+        meta = recommendation.compute(self.team)
+
+        self.assertEqual(meta["platform"], "javascript")
+        self.assertEqual((meta["total_frames"], meta["unresolved_frames"]), (30, 25))
+        self.assertEqual(meta["platforms"]["java"]["total_frames"], 100)
+        self.assertFalse(recommendation.is_completed(meta))
 
     def test_source_maps_compute_ignores_frames_outside_lookback(self):
-        self._make_frame(lang="javascript", resolved=False, created_hours_ago=48)
-        self._make_frame(lang="javascript", resolved=True, created_hours_ago=1)
+        self._make_missing_symbols_frame(created_hours_ago=48)
+        self._make_frame(resolved=True, with_symbol_set=True, created_hours_ago=1)
 
         meta = SourceMapsRecommendation().compute(self.team)
 
@@ -467,13 +510,7 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(meta["unresolved_frames"], 0)
 
     def test_source_maps_compute_ignores_other_teams_frames(self):
-        other_team = self.organization.teams.create(name="other")
-        ErrorTrackingStackFrame.objects.create(
-            team=other_team,
-            raw_id=str(uuid4()),
-            contents={"lang": "javascript"},
-            resolved=False,
-        )
+        self._make_missing_symbols_frame(team=self.organization.teams.create(name="other"))
 
         meta = SourceMapsRecommendation().compute(self.team)
 
@@ -512,25 +549,230 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(SourceMapsRecommendation().is_completed(meta))
 
     @patch(
-        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
-        return_value={"issues": []},
+        "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",
+        return_value=MOCK_SOURCE_MAPS_META,
     )
     @patch(
         "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
-    def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_long_running):
-        # Simulate a worker that died mid-compute for long_running: row stays in
+    def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_source_maps):
+        # Simulate a worker that died mid-compute for source_maps: row stays in
         # "computing" with a stale status_changed_at and never reaches "ready".
-        long_running = ErrorTrackingRecommendation.objects.create(
+        source_maps = ErrorTrackingRecommendation.objects.create(
             team=self.team,
-            type="long_running_issues",
+            type="source_maps",
             status=ErrorTrackingRecommendation.Status.COMPUTING,
             status_changed_at=timezone.now() - timedelta(minutes=10),
         )
 
         self._list()
 
-        long_running.refresh_from_db()
-        self.assertEqual(long_running.status, ErrorTrackingRecommendation.Status.READY)
-        mock_long_running.assert_called_once()
+        source_maps.refresh_from_db()
+        self.assertEqual(source_maps.status, ErrorTrackingRecommendation.Status.READY)
+        mock_source_maps.assert_called_once()
+
+
+CHUNK_NOT_UPLOADED = "No sourcemap uploaded for chunk id: 0f1e2d"
+NOT_FOUND = (
+    "HTTP error 404 while fetching: HTTP status client error (404 Not Found) for url (https://example.com/app.js.map)"
+)
+
+
+class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBaseTest):
+    def _issue(self, description: str, fingerprint: str) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError", description=description)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        return issue
+
+    def _exception(self, fingerprint: str, value: str, frames: list[ErrorTrackingStackFrame]) -> None:
+        _create_event(
+            event="$exception",
+            team=self.team,
+            distinct_id="user",
+            properties={
+                "$exception_fingerprint": fingerprint,
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": value,
+                        "stacktrace": {
+                            "type": "resolved",
+                            "frames": [
+                                {"raw_id": f"{frame.raw_id}/{frame.part}", "resolved": frame.resolved, **frame.contents}
+                                for frame in frames
+                            ],
+                        },
+                    }
+                ],
+            },
+        )
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_source_maps_examples_group_missing_frames_with_the_exceptions_they_appear_in(self):
+        chunk_contents = {
+            "resolve_failure": CHUNK_NOT_UPLOADED,
+            "source": "/assets/app.js",
+            "mangled_name": "e",
+            "line": 1,
+            "column": 4321,
+            "in_app": True,
+        }
+        # The examples search the 20 newest frames of each file, so the frame in the exceptions is the newest.
+        crash_frame = self._make_frame(contents=chunk_contents)
+        for _ in range(20):
+            self._make_frame(contents=chunk_contents, created_hours_ago=2)
+        not_found_frames = [
+            self._make_frame(contents={"resolve_failure": NOT_FOUND, "source": "/app.js"}) for _ in range(2)
+        ]
+        entry = self._make_frame(
+            contents={"source": "src/main.ts", "resolved_name": "main", "line": 3, "in_app": True},
+            resolved=True,
+            with_symbol_set=True,
+        )
+        self._make_frame(contents={"resolve_failure": "Request timed out while fetching: https://example.com/b.js"})
+        for module in ("a.b", "a.c"):
+            self._make_frame(
+                contents={"lang": "java", "module": module, "resolve_failure": "No proguard map uploaded for id: 5d2c"}
+            )
+        type_error = self._issue("Cannot read properties of undefined", "fp-type-error")
+        fetch_error = self._issue("Failed to fetch", "fp-fetch-error")
+        for _ in range(2):
+            self._exception("fp-type-error", "Cannot read properties of undefined", [entry, crash_frame])
+        self._exception("fp-fetch-error", "Failed to fetch", [not_found_frames[0]])
+        self._exception("fp-unrelated", "Unrelated", [entry])
+
+        base = f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/"
+        # A default row limit of 1 fails the test when a query relies on HogQL's default limit.
+        with patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 1):
+            javascript = self.client.get(f"{base}?platform=javascript")
+            java = self.client.get(f"{base}?platform=java")
+
+        self.assertEqual(javascript.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            javascript.json(),
+            {
+                "platform": "javascript",
+                "lookback_hours": 24,
+                "exceptions_loaded": True,
+                "results": [
+                    {
+                        "reason": "chunk_not_uploaded",
+                        "location": "/assets/app.js",
+                        "symbol_id": "0f1e2d",
+                        "http_status": None,
+                        "frames": 21,
+                        "issues": [
+                            {
+                                "id": str(type_error.id),
+                                "name": "TypeError",
+                                "description": "Cannot read properties of undefined",
+                                "occurrences": 2,
+                            }
+                        ],
+                        "issue_count": 1,
+                        "issue_count_capped": True,
+                        "example_exception": {
+                            "issue_id": str(type_error.id),
+                            "fingerprint": "fp-type-error",
+                            "timestamp": "2026-10-20T12:00:00Z",
+                            "type": "TypeError",
+                            "value": "Cannot read properties of undefined",
+                            "frames": [
+                                {
+                                    "function": "e",
+                                    "source": "/assets/app.js",
+                                    "line": 1,
+                                    "column": 4321,
+                                    "in_app": True,
+                                    "missing_symbols": True,
+                                },
+                                {
+                                    "function": "main",
+                                    "source": "src/main.ts",
+                                    "line": 3,
+                                    "column": None,
+                                    "in_app": True,
+                                    "missing_symbols": False,
+                                },
+                            ],
+                        },
+                    },
+                    {
+                        "reason": "file_not_reachable",
+                        "location": "https://example.com/app.js.map",
+                        "symbol_id": None,
+                        "http_status": 404,
+                        "frames": 2,
+                        "issues": [
+                            {
+                                "id": str(fetch_error.id),
+                                "name": "TypeError",
+                                "description": "Failed to fetch",
+                                "occurrences": 1,
+                            }
+                        ],
+                        "issue_count": 1,
+                        "issue_count_capped": False,
+                        "example_exception": {
+                            "issue_id": str(fetch_error.id),
+                            "fingerprint": "fp-fetch-error",
+                            "timestamp": "2026-10-20T12:00:00Z",
+                            "type": "TypeError",
+                            "value": "Failed to fetch",
+                            "frames": [
+                                {
+                                    "function": None,
+                                    "source": "/app.js",
+                                    "line": None,
+                                    "column": None,
+                                    "in_app": False,
+                                    "missing_symbols": True,
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        )
+        self.assertEqual(
+            [(r["reason"], r["symbol_id"], r["frames"], r["issues"]) for r in java.json()["results"]],
+            [("mapping_not_uploaded", "5d2c", 2, [])],
+        )
+
+    def test_source_maps_examples_hide_exceptions_from_a_user_who_cannot_read_the_exception_list(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        exception_list = PropertyDefinition.objects.create(
+            team=self.team, name="$exception_list", type=PropertyDefinition.Type.EVENT
+        )
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                access_level=PropertyAccessLevel.NONE,
+                property_definition_id=str(exception_list.id),
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+        frame = self._make_frame(
+            contents={"resolve_failure": CHUNK_NOT_UPLOADED, "source": "/assets/app.js", "column": 4321}
+        )
+        self._issue("Cannot read properties of undefined", "fp-type-error")
+        self._exception("fp-type-error", "Cannot read properties of undefined", [frame])
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/?platform=javascript"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [
+                (r["frames"], r["location"], r["symbol_id"], r["issues"], r["issue_count"], r["example_exception"])
+                for r in response.json()["results"]
+            ],
+            [(1, None, None, [], 0, None)],
+        )

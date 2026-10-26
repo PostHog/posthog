@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
     COLUMN_TYPE_WIDENED_KEY,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
     CoalesceCaps,
     CoalesceMember,
@@ -43,6 +44,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    release_group_table_handle,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -70,9 +77,12 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     GAUGE_STATEMENT_TIMEOUT_MS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
+    AgedOutRunRef,
     BatchQueue,
     ClaimCursor,
+    ExecutingAttempt,
     FailedRunRef,
+    InterruptionHistory,
     PendingBatch,
     QueueDepth,
     _Unset,
@@ -88,6 +98,7 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
+    RUNS_FAILED_AGED_OUT_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
     SERIALIZED_BATCHES,
@@ -125,6 +136,13 @@ BACKLOG_THRESHOLD_SECONDS = 900
 # describing the internal queue mechanics.
 STRANDED_RUN_ERROR = (
     "This sync run stopped before it finished, so it did not complete. "
+    "The next scheduled sync retries automatically. No action is needed."
+)
+
+# Stamped on a run with a batch that aged out of the claim window before it loaded. Shown to the
+# customer verbatim as latest_error, like STRANDED_RUN_ERROR.
+AGED_OUT_RUN_ERROR = (
+    "Part of this sync run waited too long to load, so the sync did not complete. "
     "The next scheduled sync retries automatically. No action is needed."
 )
 
@@ -173,9 +191,14 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a role-based AWS destination has no external role configured in this environment — every
+    # retry fails identically until that's fixed, independent of the customer's own role ARN
+    "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set",
     # a destination's own settings refuse the connection (bad credentials, unknown database,
     # unroutable host); the next scheduled run tries again after the customer fixes them
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    # an earlier batch of the run did not load, and a retry of the final batch cannot load it
+    INCOMPLETE_RUN_ERROR,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -283,8 +306,9 @@ class DeltaBatchConsumerAdapter:
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
-        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token)
+        await BatchQueue.unlock_for_batches(conn, batches=batches, owner_token=owner_token, skip_locked=skip_locked)
 
     async def release_all_owned(
         self,
@@ -477,6 +501,25 @@ class DeltaBatchConsumerAdapter:
                 exclude_sync_types=self._claim_exclude_sync_types,
             )
 
+    async def mark_shutdown_interruptions(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        attempts: list[ExecutingAttempt],
+    ) -> int:
+        with observe_queue_query("mark_shutdown_interruptions"):
+            return await BatchQueue.mark_shutdown_interruptions(conn, attempts=attempts)
+
+    async def get_interruption_history(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        attempt: int,
+    ) -> InterruptionHistory:
+        with observe_queue_query("get_interruption_history"):
+            return await BatchQueue.get_interruption_history(conn, batch_id=batch_id, attempt=attempt)
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -536,6 +579,20 @@ class DeltaBatchConsumerAdapter:
                 capture_exception(e)
         except Exception as e:
             logger.exception("orphaned_batch_drain_failed")
+            capture_exception(e)
+
+        # Before the stranded pass, so that a run with an aged-out batch gets this reason. Isolated so
+        # its failure can't take the sweep down.
+        try:
+            await self._fail_aged_out_runs(conn, limit=limit)
+        except psycopg.OperationalError as e:
+            if _is_transient_queue_connection_drop(e, conn):
+                logger.warning("aged_out_run_sweep_closed_connection", error=str(e))
+            else:
+                logger.exception("aged_out_run_sweep_failed")
+                capture_exception(e)
+        except Exception as e:
+            logger.exception("aged_out_run_sweep_failed")
             capture_exception(e)
 
         # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
@@ -672,6 +729,91 @@ class DeltaBatchConsumerAdapter:
             )
             capture_exception(e)
 
+    async def _fail_aged_out_runs(self, conn: psycopg.AsyncConnection[Any], *, limit: int) -> None:
+        """Fail runs with a batch that aged out of the claim window before it loaded.
+
+        The batch never loads, but the run gates do not see it, so the later batches of the run stay
+        claimable. Without this pass the final batch could complete the job and promote the cursor
+        past the rows that never loaded. The stranded-run pass does not catch it, because the group
+        makes progress on those later batches.
+
+        Batches are failed FIRST, for the same reason as in ``_reconcile_stale_stranded_runs``: the
+        later batches are still claimable, and a crash after this write leaves a failed batch for
+        ``reconcile_failed_runs`` to finalize the job from.
+        """
+        with observe_queue_query("get_aged_out_runs"):
+            refs = await BatchQueue.get_aged_out_runs(conn, limit=limit)
+        for ref in refs:
+            try:
+                failed_batches = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=AGED_OUT_RUN_ERROR,
+                )
+            except Exception as e:
+                if _is_transient_queue_connection_drop(e, conn):
+                    raise
+                logger.exception("aged_out_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+
+            job_reconciled = await self._mark_aged_out_job_failed(ref)
+            RUNS_FAILED_AGED_OUT_TOTAL.inc()
+            logger.warning(
+                "aged_out_run_failed",
+                job_id=ref.job_id,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                external_data_schema_id=ref.schema_id,
+                first_aged_out_batch_index=ref.first_aged_out_batch_index,
+                aged_out_batches=ref.aged_out_batches,
+                failed_batches=failed_batches,
+                job_reconciled=job_reconciled,
+            )
+
+            if ref.workflow_run_id:
+                try:
+                    await sync_to_async(release_v3_pipeline_lock)(
+                        team_id=ref.team_id,
+                        schema_id=ref.schema_id,
+                        token=ref.workflow_run_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "failed_to_release_v3_pipeline_lock",
+                        job_id=ref.job_id,
+                        schema_id=ref.schema_id,
+                        exc_info=True,
+                    )
+                    capture_exception(e)
+
+    async def _mark_aged_out_job_failed(self, ref: AgedOutRunRef) -> bool:
+        """Write the run's failure to the app DB. Returns whether this call moved the job to Failed.
+
+        A miss is safe: the run's batches are already failed, so ``reconcile_failed_runs`` finishes
+        the job on a later cycle.
+        """
+        try:
+            return await sync_to_async(mark_job_failed_if_not_terminal)(
+                job_id=ref.job_id,
+                team_id=ref.team_id,
+                error=AGED_OUT_RUN_ERROR,
+            )
+        except Exception as e:
+            if is_transient_internal_db_error(e):
+                logger.warning(
+                    "aged_out_run_job_status_update_app_db_not_ready",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    error=str(e),
+                )
+            else:
+                logger.exception("aged_out_run_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+            return False
+
     async def _reconcile_stale_stranded_runs(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -765,7 +907,17 @@ class DeltaBatchConsumerAdapter:
                     )
                     capture_exception(e)
 
-    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
+    async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
+        return await self._observe_queue_freshness(conn)
+
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        await BatchQueue.release_queue_gauges_slot(
+            conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
+        )
+        self._depth_sample = None
+        clear_queue_sample_gauges()
+
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 
         This is the loader's data-freshness signal: it rises whenever loading
@@ -789,6 +941,8 @@ class DeltaBatchConsumerAdapter:
         and exports NaN. The whole probe also has a client timeout,
         so it cannot eat the reconcile sweep's budget. Other failures are
         swallowed-with-capture so a broken probe can't take the sweep down.
+
+        Returns True when this pod holds the gauge slot.
         """
         clear_queue_sample_gauges()
         holds_slot = False
@@ -800,7 +954,7 @@ class DeltaBatchConsumerAdapter:
                 if not holds_slot:
                     self._depth_sample = None
                     logger.debug("queue_gauges_slot_held_elsewhere")
-                    return
+                    return False
                 await self._sample_queue_gauges(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
@@ -810,11 +964,12 @@ class DeltaBatchConsumerAdapter:
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
             if holds_slot:
                 self._export_last_depth_sample()
-            return
+            return holds_slot
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
-            return
+            return holds_slot
+        return True
 
     async def _sample_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> None:
         try:
@@ -950,6 +1105,10 @@ class DeltaBatchConsumerAdapter:
         only promotes on a Completed job (``load/processor.py``). The job stays Failed here,
         so the cursor does not advance, the next run re-extracts the same window, and its
         primary key makes that merge idempotent. Loading is therefore strictly progress.
+
+        The exception is a job that worker restarts stopped: the next job continues its source
+        cursor and does not read those rows again, so this drain is the only way they land. That
+        job may not complete while one of these batches is unloaded (``continued_job_ids``).
         """
         if batch.sync_type != "incremental":
             return False
@@ -1030,7 +1189,7 @@ class DeltaBatchConsumerAdapter:
         Only adjacent batches join, so every set keeps the claim order: the order the loader would
         have taken the batches in one at a time.
         """
-        caps = CoalesceCaps.from_settings()
+        caps = CoalesceCaps.from_settings(slot_budget_mb=get_governor().slot_budget_mb())
         sets: list[list[PendingBatch]] = []
         current: list[PendingBatch] = []
         current_members: list[CoalesceMember] = []
@@ -1082,6 +1241,14 @@ class BatchConsumer(SharedBatchConsumer):
             health_reporter=health_reporter,
             process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        try:
+            await super()._process_group(key, batches)
+        finally:
+            # The loader keeps the table handle of the last batch for the next batch of this group
+            # run. No batch follows now, so the handle must not hold its file list in memory.
+            release_group_table_handle(*key)
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket

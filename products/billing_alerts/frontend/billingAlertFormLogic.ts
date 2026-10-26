@@ -9,27 +9,25 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 
+import { billingAlertsCreate, billingAlertsPartialUpdate } from 'products/billing/frontend/generated/api'
+import type {
+    BillingAlertConfigurationApi,
+    BillingAlertConfigurationMetricEnumApi,
+    PatchedBillingAlertConfigurationApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
 import { billingAlertNotificationLogic } from './billingAlertNotificationLogic'
 import type { PendingBillingAlertDestination } from './billingAlertNotificationLogic'
 import { billingAlertsLogic } from './billingAlertsLogic'
 import { billingAlertRequestError } from './billingAlertUtils'
-import { billingAlertsCreate, billingAlertsPartialUpdate } from './generated/api'
-import type {
-    BillingAlertConfigurationApi,
-    BillingAlertMetricEnumApi,
-    PatchedBillingAlertConfigurationApi,
-} from './generated/api.schemas'
 
 export interface BillingAlertFormValues {
     name: string
     description: string
     enabled: boolean
-    metric: BillingAlertMetricEnumApi
+    metric: BillingAlertConfigurationMetricEnumApi
     /** null while the input is cleared, so an empty threshold fails validation instead of saving as 0. */
     thresholdValue: number | null
-    minimumValue: number
-    evaluationDelayHours: number
-    cooldownHours: number
 }
 
 export interface BillingAlertFormLogicProps {
@@ -42,9 +40,6 @@ const API_FIELD_TO_FORM_FIELD: Record<string, keyof BillingAlertFormValues> = {
     enabled: 'enabled',
     metric: 'metric',
     threshold_value: 'thresholdValue',
-    minimum_value: 'minimumValue',
-    evaluation_delay_hours: 'evaluationDelayHours',
-    cooldown_hours: 'cooldownHours',
 }
 
 function firstErrorMessage(value: unknown): string | undefined {
@@ -90,13 +85,6 @@ function numberValue(value: string | null | undefined, fallback: number): number
     return Number.isFinite(parsed) ? parsed : fallback
 }
 
-// Shared with the editor's advanced-options badge, which counts fields diverging from these.
-export const ADVANCED_OPTION_DEFAULTS = {
-    minimumValue: 0,
-    evaluationDelayHours: 6,
-    cooldownHours: 24,
-} as const
-
 function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertFormValues {
     return {
         name: alert?.name ?? '',
@@ -104,9 +92,6 @@ function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertF
         enabled: alert?.enabled ?? true,
         metric: alert?.metric ?? 'spend',
         thresholdValue: numberValue(alert?.threshold_value, 100),
-        minimumValue: numberValue(alert?.minimum_value, ADVANCED_OPTION_DEFAULTS.minimumValue),
-        evaluationDelayHours: alert?.evaluation_delay_hours ?? ADVANCED_OPTION_DEFAULTS.evaluationDelayHours,
-        cooldownHours: alert?.cooldown_hours ?? ADVANCED_OPTION_DEFAULTS.cooldownHours,
     }
 }
 
@@ -122,9 +107,6 @@ export function billingAlertWritePayload(
         threshold_type: 'absolute_value',
         // Validation rejects a null threshold before submit, so fall back to 0 only for typing.
         threshold_value: String(form.thresholdValue ?? 0),
-        minimum_value: String(form.minimumValue),
-        evaluation_delay_hours: form.evaluationDelayHours,
-        cooldown_hours: form.cooldownHours,
         ...(pending.length > 0 ? { destination_changes: { create: pending.map(({ payload }) => payload) } } : {}),
     }
 }
@@ -234,15 +216,6 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                         : form.thresholdValue < 0
                           ? 'Enter a value of 0 or more.'
                           : undefined,
-                minimumValue: form.minimumValue < 0 ? 'Enter a value of 0 or more.' : undefined,
-                evaluationDelayHours:
-                    form.evaluationDelayHours < 0 || form.evaluationDelayHours > 72
-                        ? 'Use a delay between 0 and 72 hours.'
-                        : undefined,
-                cooldownHours:
-                    form.cooldownHours < 0 || form.cooldownHours > 720
-                        ? 'Use a cooldown between 0 and 720 hours.'
-                        : undefined,
             }),
             submit: async (form) => {
                 const organizationId = values.currentOrganization?.id

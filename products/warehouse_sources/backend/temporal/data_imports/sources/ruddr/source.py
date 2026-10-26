@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RuddrSource(ResumableSource[RuddrSourceConfig, RuddrResumeConfig]):
+    codebase_detection = detect(env=("^RUDDR_",))
+
     api_docs_url = "https://docs.ruddr.io"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -48,7 +51,7 @@ class RuddrSource(ResumableSource[RuddrSourceConfig, RuddrResumeConfig]):
             name=ExternalDataSourceType.RUDDR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Ruddr",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Ruddr API key to pull your professional services data into the PostHog Data warehouse.
 
 You can create a workspace API key under **Settings → API Keys** in [Ruddr](https://www.ruddr.io). The key grants read access to your clients, projects, tasks, members, and time entries.

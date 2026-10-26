@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
+import { BatchBudget } from './batch-budget'
 import { PipelineResult, PipelineResultOk } from './results'
 
 export type PipelineWarning = IngestionWarning
@@ -60,6 +61,8 @@ export type PipelineContext<C = { message: Message }> = C & {
     debugContext?: unknown
     /** The batch's trace context. Steps parent on it because the pump that runs them is a shared loop. */
     traceContext?: Context
+    /** Absent outside a fed batch, for example in the beforeBatch and afterBatch hooks. */
+    budget?: BatchBudget
     /**
      * Work that outlives the step, drained with the batch. A side effect must
      * not reject. What a rejection does depends on the host: consumer-v2

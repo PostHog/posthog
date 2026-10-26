@@ -60,6 +60,7 @@ To run:
 
 from __future__ import annotations
 
+from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import (
     ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION,
     DEPENDENTS_READ_TOOLS,
@@ -87,6 +88,8 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
+
+NO_SEND_LOGS = True
 
 SKILL_NAME = "cleaning-up-stale-feature-flags"
 TRIGGER_SCORER_NAME = "cleanup_skill_triggered"
@@ -226,7 +229,24 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-feature-flags-cleanup-stale-cli",
+        offline_suite=offline_suite(
+            "feature_flags/eval_cleanup_stale_flags::eval_cleanup_stale_flags",
+            metrics=[
+                "cleanup_skill_triggered",
+                "no_flag_mutation",
+                "flag_state_unchanged",
+                "code_edit_direction",
+                "flag_lookup_direction",
+                "dependents_check_direction",
+                "schedule_check_direction",
+                "recency_refusal_without_override",
+                "tour_unknown_waits",
+                "assessment_only_no_edit_claim",
+            ],
+        ),
+        send_to_posthog=True,
         cases=cases,
         scorers=[
             SkillTriggered(SKILL_NAME, name=TRIGGER_SCORER_NAME),

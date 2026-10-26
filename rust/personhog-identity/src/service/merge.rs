@@ -16,29 +16,150 @@ use serde_json::Value;
 use tonic::Status;
 
 use personhog_proto::personhog::identity::v1::{
-    MergePersonsRequest, MergePersonsResponse, MergeSourceOutcome, MergeSourceResult,
+    MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome, MergeSourceResult,
 };
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
-use crate::leader::PropertyWriter;
-use crate::lifecycle::engine::OpRow;
+use crate::leader::{PersonStateReader, PropertyWriter};
+use crate::lifecycle::engine::{OpRow, STEP_COMPLETED};
 use crate::lifecycle::merge::{
-    record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest,
-    MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED,
-    OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
-    OUTCOME_SKIPPED_MOVE_LIMIT, OUTCOME_SKIPPED_REFUSED,
+    outcome_settled, record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome,
+    MergeRequest, MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ATTACHED,
+    OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
+    OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_ILLEGAL, OUTCOME_SKIPPED_MOVE_LIMIT,
+    OUTCOME_SKIPPED_REFUSED,
 };
 use crate::lifecycle::validation::{
-    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
+    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons, UnmergeableId,
 };
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
-
-/// Handler-decided outcomes that never reach the saga.
-const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
-const OUTCOME_ATTACHED: &str = "attached";
+use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_ENTRANCE};
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 const MERGE_PHASE_DURATION: &str = "personhog_identity_merge_phase_duration_ms";
+const MERGE_CALLS_TOTAL: &str = "personhog_identity_merge_calls_total";
+const MERGE_CALL_DURATION: &str = "personhog_identity_merge_call_duration_ms";
+
+const PATH_UNCLASSIFIED: &str = "unclassified";
+const PATH_INLINE: &str = "inline";
+const PATH_SAGA: &str = "saga";
+const PATH_RESUMED: &str = "resumed";
+const RESULT_SETTLED: &str = "settled";
+const RESULT_COMPLETED: &str = "completed";
+const RESULT_ABORTED: &str = "aborted";
+const RESULT_ABORTED_CLAIM: &str = "aborted_claim";
+const RESULT_ERROR: &str = "error";
+const RESULT_CANCELLED: &str = "cancelled";
+
+/// `Adopted`: establishment attached the target distinct id to a source's person.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetOrigin {
+    Existing,
+    Born,
+    Adopted,
+}
+
+impl TargetOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            TargetOrigin::Existing => "existing",
+            TargetOrigin::Born => "born",
+            TargetOrigin::Adopted => "adopted",
+        }
+    }
+}
+
+/// Labels of the per-call merge metrics; the values are a dashboard contract.
+struct MergeShape {
+    path: &'static str,
+    target: &'static str,
+    sources: &'static str,
+    mode: &'static str,
+    result: &'static str,
+}
+
+/// Records the call once, on `finish` or on drop. A caller deadline or
+/// disconnect drops the handler future mid-call, and those calls are the
+/// slow ones, so they are recorded as `cancelled` rather than lost.
+struct MergeCall {
+    shape: MergeShape,
+    start: Instant,
+    recorded: bool,
+}
+
+impl MergeCall {
+    fn start(request: &MergePersonsRequest) -> Self {
+        Self {
+            shape: MergeShape {
+                path: PATH_UNCLASSIFIED,
+                target: "unresolved",
+                sources: if request.sources.len() > 1 {
+                    "multi"
+                } else {
+                    "single"
+                },
+                mode: if request.allow_identified_sources {
+                    "dangerous"
+                } else {
+                    "identify"
+                },
+                result: RESULT_ERROR,
+            },
+            start: Instant::now(),
+            recorded: false,
+        }
+    }
+
+    fn finish(mut self, ok: bool) {
+        if !ok {
+            self.shape.result = RESULT_ERROR;
+        }
+        self.record();
+    }
+
+    fn record(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        let shape = &self.shape;
+        let labels = [
+            ("path", shape.path),
+            ("target", shape.target),
+            ("sources", shape.sources),
+            ("mode", shape.mode),
+            ("result", shape.result),
+        ]
+        .map(|(key, value)| (key.to_string(), value.to_string()));
+        common_metrics::inc(MERGE_CALLS_TOTAL, &labels, 1);
+        common_metrics::histogram(
+            MERGE_CALL_DURATION,
+            &labels,
+            self.start.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
+}
+
+impl Drop for MergeCall {
+    fn drop(&mut self) {
+        if !self.recorded {
+            self.shape.result = RESULT_CANCELLED;
+            self.record();
+        }
+    }
+}
+
+fn saga_result(row: &OpRow) -> &'static str {
+    if row.step == STEP_COMPLETED {
+        RESULT_COMPLETED
+    } else if MergeOpExecutor::is_claim_abort(row) {
+        RESULT_ABORTED_CLAIM
+    } else {
+        RESULT_ABORTED
+    }
+}
+const ESTABLISH_IDENTIFIED_READS_TOTAL: &str =
+    "personhog_identity_merge_establish_identified_reads_total";
 
 fn record_phase(phase: &'static str, start: Instant) {
     common_metrics::histogram(
@@ -54,19 +175,65 @@ const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
 pub struct MergeEntrance {
     storage: Arc<dyn IdentityStorage>,
     property_writer: Arc<dyn PropertyWriter>,
+    person_state: Arc<dyn PersonStateReader>,
     ops: MergeOpExecutor,
+    warnings: MergeWarnings,
 }
 
 impl MergeEntrance {
     pub fn new(
         storage: Arc<dyn IdentityStorage>,
         property_writer: Arc<dyn PropertyWriter>,
+        person_state: Arc<dyn PersonStateReader>,
         ops: MergeOpExecutor,
     ) -> Self {
         Self {
             storage,
             property_writer,
+            person_state,
             ops,
+            warnings: MergeWarnings::disabled(),
+        }
+    }
+
+    pub fn with_warnings(mut self, warnings: MergeWarnings) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    fn emit_rejection_warning(&self, request: &MergePersonsRequest, id: UnmergeableId) {
+        if !self.warnings.is_enabled() {
+            return;
+        }
+        // An illegal target is one warning about the target, whatever the
+        // batch size; the first source stands in as the other side.
+        let source: Option<&MergeSource> = match id {
+            UnmergeableId::Target => request.sources.first(),
+            UnmergeableId::Source(index) => request.sources.get(index),
+        };
+        let Some(source) = source else {
+            return;
+        };
+        let pair = MergePair {
+            source_distinct_id: &source.source_distinct_id,
+            target_distinct_id: &request.target_distinct_id,
+            event_uuid: effective_event_uuid(&source.event_uuid, &request.creator_event_uuid),
+            source_person_id: None,
+            source_person_uuid: None,
+            survivor_uuid: None,
+        };
+        match id {
+            UnmergeableId::Target => {
+                self.warnings
+                    .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair)
+            }
+            UnmergeableId::Source(_) => self.warnings.emit_verdict(
+                request.team_id,
+                MERGE_ENTRANCE,
+                OUTCOME_SKIPPED_ILLEGAL,
+                true,
+                &pair,
+            ),
         }
     }
 
@@ -77,7 +244,28 @@ impl MergeEntrance {
         &self,
         request: MergePersonsRequest,
     ) -> Result<MergePersonsResponse, Status> {
-        let (op_id, move_limit) = validate_merge_persons(&request)?;
+        let mut call = MergeCall::start(&request);
+        let response = self.run(request, &mut call.shape).await;
+        call.finish(response.is_ok());
+        response
+    }
+
+    // See `handle` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    async fn run(
+        &self,
+        request: MergePersonsRequest,
+        shape: &mut MergeShape,
+    ) -> Result<MergePersonsResponse, Status> {
+        let (op_id, move_limit) = match validate_merge_persons(&request) {
+            Ok(validated) => validated,
+            Err(rejection) => {
+                if let Some(id) = rejection.unmergeable {
+                    self.emit_rejection_warning(&request, id);
+                }
+                return Err(rejection.status);
+            }
+        };
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
         let mut event_set = parse_json_map(&request.event_set, "event_set")?;
         let mut event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
@@ -129,10 +317,24 @@ impl MergeEntrance {
                     "op_id_reused",
                 ));
             }
+            shape.path = PATH_RESUMED;
+            // The frozen request records a birth but not an adoption, so an
+            // adopted target reports as existing on this path.
+            shape.target = if row
+                .request
+                .get("target_born")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                TargetOrigin::Born.as_str()
+            } else {
+                TargetOrigin::Existing.as_str()
+            };
             let frozen = row.request.clone();
             let start = Instant::now();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             record_phase("saga", start);
+            shape.result = saga_result(&row);
             let start = Instant::now();
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
             record_phase("deliver", start);
@@ -168,8 +370,8 @@ impl MergeEntrance {
         record_phase("resolve", start);
 
         let target_key = (request.team_id, request.target_distinct_id.clone());
-        let (target_person, target_was_born) = match resolved.get(&target_key) {
-            Some(target) => (target.clone(), false),
+        let (target_person, target_origin) = match resolved.get(&target_key) {
+            Some(target) => (target.clone(), TargetOrigin::Existing),
             None => {
                 let start = Instant::now();
                 let established = self.establish_target(&request, &resolved).await?;
@@ -177,6 +379,8 @@ impl MergeEntrance {
                 established
             }
         };
+        shape.target = target_origin.as_str();
+        let target_was_born = target_origin == TargetOrigin::Born;
 
         let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
@@ -190,6 +394,14 @@ impl MergeEntrance {
                 None => attach.push(did.clone()),
                 Some(person) if person.id == target_person.id => {
                     inline_results.insert(did.clone(), OUTCOME_NOOP_SAME_PERSON.to_string());
+                }
+                // The same Postgres pre-filter the claim step applies. Postgres
+                // lags the leader and is_identified only ever flips to true, so
+                // this can under-drop but never over-drop; a source it lets
+                // through meets the authoritative check on the sealed state.
+                Some(person) if person.is_identified && !request.allow_identified_sources => {
+                    inline_results
+                        .insert(did.clone(), OUTCOME_SKIPPED_ALREADY_IDENTIFIED.to_string());
                 }
                 Some(_) => saga_sources.push(MergeSourceEntry {
                     distinct_id: did.clone(),
@@ -237,10 +449,38 @@ impl MergeEntrance {
             *inline_counts.entry(outcome.as_str()).or_default() += 1;
         }
         for (outcome, count) in inline_counts {
-            record_outcome_count(outcome, count);
+            record_outcome_count(PATH_INLINE, outcome, count);
+        }
+        if self.warnings.is_enabled() {
+            for source in &request.sources {
+                let Some(outcome) = inline_results.get(&source.source_distinct_id) else {
+                    continue;
+                };
+                let source_person =
+                    resolved.get(&(request.team_id, source.source_distinct_id.clone()));
+                self.warnings.emit_verdict(
+                    request.team_id,
+                    MERGE_ENTRANCE,
+                    outcome,
+                    outcome_settled(outcome),
+                    &MergePair {
+                        source_distinct_id: &source.source_distinct_id,
+                        target_distinct_id: &request.target_distinct_id,
+                        event_uuid: effective_event_uuid(
+                            &source.event_uuid,
+                            &request.creator_event_uuid,
+                        ),
+                        source_person_id: source_person.map(|p| p.id),
+                        source_person_uuid: source_person.map(|p| p.uuid),
+                        survivor_uuid: Some(target_person.uuid),
+                    },
+                );
+            }
         }
 
         if saga_sources.is_empty() {
+            shape.path = PATH_INLINE;
+            shape.result = RESULT_SETTLED;
             // Nothing to destroy, so no op row. Inline settlement is
             // idempotent: a retry re-executes against the current world,
             // the same at-least-once semantics as event redelivery — and
@@ -250,12 +490,14 @@ impl MergeEntrance {
             // is not a dedupe of idempotent work (an attached source
             // re-answers noop_same_person). The event's properties still
             // reach the survivor.
-            // An identify that actually joined identities makes the
-            // survivor identified; a call whose every pair was skipped
-            // proves nothing.
-            let flip_identified = inline_results
-                .values()
-                .any(|o| o == OUTCOME_ATTACHED || o == OUTCOME_NOOP_SAME_PERSON);
+            // Ingestion marks the target identified for every legal pair
+            // before it looks at the source, so an identified-source skip
+            // flips the target too; only illegal pairs prove nothing.
+            let flip_identified = inline_results.values().any(|o| {
+                o == OUTCOME_ATTACHED
+                    || o == OUTCOME_NOOP_SAME_PERSON
+                    || o == OUTCOME_SKIPPED_ALREADY_IDENTIFIED
+            });
             let start = Instant::now();
             let pushed = self
                 .push_event_properties(&request, &target_person, flip_identified, target_was_born)
@@ -304,9 +546,11 @@ impl MergeEntrance {
         frozen["inline_results"] = serde_json::to_value(&inline_results)
             .map_err(|e| Status::internal(format!("failed to freeze inline results: {e}")))?;
 
+        shape.path = PATH_SAGA;
         let start = Instant::now();
         let row = self.ops.execute(op_id, request.team_id, &frozen).await?;
         record_phase("saga", start);
+        shape.result = saga_result(&row);
         let start = Instant::now();
         let delivered = self.deliver_aborted_writes(&request, &row).await?;
         record_phase("deliver", start);
@@ -425,7 +669,7 @@ impl MergeEntrance {
         &self,
         request: &MergePersonsRequest,
         resolved: &HashMap<(i64, String), Person>,
-    ) -> Result<(Person, bool), Status> {
+    ) -> Result<(Person, TargetOrigin), Status> {
         let target_did = &request.target_distinct_id;
 
         // Sources decide in request order, as one-at-a-time identifies would:
@@ -433,18 +677,29 @@ impl MergeEntrance {
         // personless one births the target. An identified source is skipped
         // unless allowed, so the saga still refuses it rather than aliasing
         // the target onto it.
-        let first_eligible = request
-            .sources
-            .iter()
-            .filter(|s| {
-                !is_distinct_id_illegal(&s.source_distinct_id)
-                    && !is_distinct_id_oversized(&s.source_distinct_id)
-            })
-            .map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())))
-            .find(|person| {
-                person.is_none_or(|p| request.allow_identified_sources || !p.is_identified)
-            })
-            .flatten();
+        let mut first_eligible: Option<&Person> = None;
+        for source in request.sources.iter().filter(|s| {
+            !is_distinct_id_illegal(&s.source_distinct_id)
+                && !is_distinct_id_oversized(&s.source_distinct_id)
+        }) {
+            let Some(person) = resolved.get(&(request.team_id, source.source_distinct_id.clone()))
+            else {
+                break;
+            };
+            if request.allow_identified_sources {
+                first_eligible = Some(person);
+                break;
+            }
+            if person.is_identified {
+                continue;
+            }
+            // The identity row's flag lags the leader's; only the leader can clear the source.
+            if self.leader_identified(request.team_id, person.id).await? != Some(false) {
+                continue;
+            }
+            first_eligible = Some(person);
+            break;
+        }
         if let Some(survivor) = first_eligible {
             let attached = self
                 .storage
@@ -456,12 +711,15 @@ impl MergeEntrance {
                 .await
                 .map_err(|e| Status::internal(format!("target attach failed: {e}")))?;
             return match attached.get(target_did) {
-                Some(AttachOutcome::Attached { .. }) => Ok((survivor.clone(), false)),
+                Some(AttachOutcome::Attached { .. }) => {
+                    Ok((survivor.clone(), TargetOrigin::Adopted))
+                }
                 // The target distinct id got mapped concurrently; that
                 // mapping wins and its person is the survivor.
-                Some(AttachOutcome::AlreadyMapped { .. }) => {
-                    Ok((self.resolve_target_after_race(request).await?, false))
-                }
+                Some(AttachOutcome::AlreadyMapped { .. }) => Ok((
+                    self.resolve_target_after_race(request).await?,
+                    TargetOrigin::Existing,
+                )),
                 // The survivor row vanished under the attach (a racing
                 // lifecycle op committed). Nothing durable happened for
                 // this op, so the retry re-classifies against the settled
@@ -499,12 +757,41 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
         match outcomes.into_iter().next() {
             // A rival's insert winning the row makes this call not the creator.
-            Some(StubOutcome::Committed { person, created }) => Ok((person, created)),
-            // The race winner's person keeps its own establishment's creator.
-            Some(StubOutcome::LostRace) | None => {
-                Ok((self.resolve_target_after_race(request).await?, false))
+            Some(StubOutcome::Committed { person, created }) => {
+                let origin = if created {
+                    TargetOrigin::Born
+                } else {
+                    TargetOrigin::Existing
+                };
+                Ok((person, origin))
             }
+            // The race winner's person keeps its own establishment's creator.
+            Some(StubOutcome::LostRace) | None => Ok((
+                self.resolve_target_after_race(request).await?,
+                TargetOrigin::Existing,
+            )),
         }
+    }
+
+    /// `None` is a person the leader no longer holds, which cannot survive either.
+    async fn leader_identified(
+        &self,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<Option<bool>, Status> {
+        let identified = self.person_state.is_identified(team_id, person_id).await;
+        let result = match identified {
+            Ok(Some(true)) => "identified",
+            Ok(Some(false)) => "unidentified",
+            Ok(None) => "absent",
+            Err(_) => "error",
+        };
+        common_metrics::inc(
+            ESTABLISH_IDENTIFIED_READS_TOTAL,
+            &[("result".to_string(), result.to_string())],
+            1,
+        );
+        identified
     }
 
     /// Re-resolve the target distinct id after losing an establishment
@@ -609,13 +896,6 @@ fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
         Some(recorded) => strip(recorded) == strip(incoming),
         None => false,
     }
-}
-
-/// The caller's durability decision: every outcome is final under retry
-/// except a claim conflict, and only where a retry actually re-runs it
-/// (a discarded claim abort, or an inline answer with no op row).
-fn outcome_settled(outcome: &str) -> bool {
-    outcome != OUTCOME_SKIPPED_CONFLICT
 }
 
 fn outcome_enum(outcome: &str) -> MergeSourceOutcome {

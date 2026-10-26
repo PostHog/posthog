@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # `INCREMENTAL_FIELDS` is therefore empty for all endpoints; see the module docstring in netlify.py.
 
 
-@dataclass
+@dataclass(frozen=True)
 class NetlifyEndpointConfig:
     name: str
     # Path template appended to the API base. Fan-out children carry a placeholder filled from the
@@ -42,6 +42,9 @@ class NetlifyEndpointConfig:
     # Static query params sent on every request to this endpoint (on top of `per_page` and, for
     # fan-out children, the resolve param — which always wins a key collision).
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Child statuses that mean "this parent contributes no rows", so the parent is skipped instead of
+    # failing the whole table.
+    skip_parent_statuses: list[int] = field(default_factory=lambda: [404])
     # Credential-bearing fields dropped from every row before it's persisted, so they never land in
     # a queryable warehouse table. Dotted paths reach nested objects (e.g. `default_hooks_data.access_token`);
     # a bare name targets a top-level field. A missing key is a no-op.
@@ -114,6 +117,16 @@ NETLIFY_ENDPOINTS: dict[str, NetlifyEndpointConfig] = {
         partition_key="created_at",
         page_size=None,
     ),
+    "dns_records": NetlifyEndpointConfig(
+        name="dns_records",
+        path="/dns_zones/{zone_id}/dns_records",
+        # Record ids are only documented per zone, so key on the zone too. A record has no timestamp.
+        primary_keys=["dns_zone_id", "id"],
+        page_size=None,
+        fan_out_parent="dns_zones",
+        fan_out_path_param="zone_id",
+        fan_out_include_parent_fields={"id": "dns_zone_id"},
+    ),
     "accounts": NetlifyEndpointConfig(
         name="accounts",
         path="/accounts",
@@ -131,6 +144,30 @@ NETLIFY_ENDPOINTS: dict[str, NetlifyEndpointConfig] = {
         fan_out_path_param="account_slug",
         fan_out_parent_field="slug",
         fan_out_include_parent_fields={"slug": "account_slug"},
+    ),
+    "audit_events": NetlifyEndpointConfig(
+        name="audit_events",
+        path="/accounts/{account_id}/audit",
+        # The event timestamp lives inside `payload`, so there is no top-level field to partition by.
+        primary_keys=["account_id", "id"],
+        fan_out_parent="accounts",
+        fan_out_path_param="account_id",
+        fan_out_include_parent_fields={"id": "account_id"},
+        # An active team's audit log runs far longer than a site's deploy list.
+        max_pages_per_parent=1000,
+        # Only account owners on plans with the audit log can read it. Another account's events
+        # must still sync when the token's user can't read one account's log.
+        skip_parent_statuses=[403, 404],
+    ),
+    "traffic_splits": NetlifyEndpointConfig(
+        name="traffic_splits",
+        path="/sites/{site_id}/traffic_splits",
+        primary_keys=["site_id", "id"],
+        partition_key="created_at",
+        page_size=None,  # no page/per_page params; a site has few split tests
+        fan_out_parent="sites",
+        fan_out_path_param="site_id",
+        fan_out_include_parent_fields={"id": "site_id"},
     ),
 }
 

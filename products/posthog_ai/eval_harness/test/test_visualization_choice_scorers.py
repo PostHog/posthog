@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
-from products.posthog_ai.evals.product_analytics.scorers import InsightShape
+from products.posthog_ai.evals.product_analytics.scorers import AnswerFromTypedQuery, InsightShape
 
 
 def _output(calls) -> dict:
@@ -52,6 +52,30 @@ UPLOADS_BY_FILE_TYPE = {
     "breakdown": "file_type",
     "events": ["uploaded_file"],
 }
+
+
+def _scorecard_call(maths: list[str | None], formula: bool = False, test_accounts: bool | None = None) -> tuple:
+    series = [{"kind": "EventsNode", "event": "uploaded_file", **({"math": m} if m else {})} for m in maths]
+    query: dict = {"series": series}
+    if formula:
+        query["trendsFilter"] = {"formulaNodes": [{"formula": "A-B"}]}
+    if test_accounts is not None:
+        query["filterTestAccounts"] = test_accounts
+    return ("mcp__posthog__query-trends", query, "ok")
+
+
+_NODES = [{"kind": "EventsNode", "event": "uploaded_file"}, {"kind": "EventsNode", "event": "downloaded_file"}]
+_DAU_NODES = [{**node, "math": "dau"} for node in _NODES]
+
+
+def _filtered_call(series_key: str | None = None, query_key: str | None = None) -> tuple:
+    node: dict = {"kind": "EventsNode", "event": "uploaded_file"}
+    if series_key:
+        node["properties"] = [{"key": series_key, "operator": "is_set", "type": "event"}]
+    query: dict = {"series": [node]}
+    if query_key:
+        query["properties"] = {"type": "AND", "values": [{"key": query_key, "value": "/pricing/", "type": "event"}]}
+    return ("mcp__posthog__query-trends", query, "ok")
 
 
 def _sql_call(status: str = "completed") -> tuple:
@@ -209,6 +233,28 @@ PAGEVIEWS_BY_BROWSER = {
             0.0,
             None,
         ),
+        ([_scorecard_call(["dau", None])], {"math": ["total", "dau"]}, 1.0, []),
+        ([_scorecard_call([None, None])], {"math": ["total", "dau"]}, 0.0, ["math"]),
+        ([_scorecard_call(["median", "p95"])], {"math": ["p95"]}, 1.0, []),
+        ([_scorecard_call(["dau", None], formula=True)], {"formula": True}, 1.0, []),
+        ([_scorecard_call(["dau", None])], {"formula": True}, 0.0, ["formula"]),
+        ([_scorecard_call(["dau"], test_accounts=True)], {"filter_test_accounts": True}, 1.0, []),
+        ([_scorecard_call(["dau"])], {"filter_test_accounts": True}, 0.0, ["filter_test_accounts"]),
+        (
+            [("mcp__posthog__query-trends", {"series": [{"kind": "GroupNode", "math": "dau", "nodes": _NODES}]}, "ok")],
+            {"math": ["dau"]},
+            1.0,
+            [],
+        ),
+        (
+            [("mcp__posthog__query-trends", {"series": [{"kind": "GroupNode", "nodes": _DAU_NODES}]}, "ok")],
+            {"math": ["dau"]},
+            0.0,
+            ["math"],
+        ),
+        ([_filtered_call(series_key="file_name")], {"filtered_on": ["file_name"]}, 1.0, []),
+        ([_filtered_call(query_key="$pathname")], {"filtered_on": ["$pathname", "$current_url"]}, 1.0, []),
+        ([_filtered_call()], {"filtered_on": ["file_name"]}, 0.0, ["filtered_on"]),
     ],
 )
 def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismatched) -> None:
@@ -220,3 +266,69 @@ def test_insight_shape_checks_only_the_expected_keys(calls, shape, score, mismat
 
 def test_insight_shape_skips_without_expectation() -> None:
     assert InsightShape()._run_eval_sync(_output([_trends_call()]), {}).score is None
+
+
+def _result(tool: str, text: str, query: dict | None = None) -> tuple:
+    return (f"mcp__posthog__{tool}", query or {}, {"content": [{"type": "text", "text": text}]})
+
+
+_TYPED = _result("query-trends", "Date range|Uploads|Unique uploaders\n2026-10-12 to 2026-10-19|21|917")
+_SQL = _result("execute-sql", "uploads|downloads\n20|846", {"query": "SELECT count() FROM events"})
+_CATALOG = _result("execute-sql", "id|name\n42|Weekly logins", {"query": "SELECT id, name FROM system.insights"})
+_SQL_LINK = "[Uploads](https://us.example.com/project/1/sql?open_query=SELECT%20count()%20FROM%20events)"
+
+
+@pytest.mark.parametrize(
+    "calls,answer,score",
+    [
+        ([_TYPED], "Oct 12 to Oct 19: 21 uploads and 917 unique uploaders.", 1.0),
+        (
+            [_TYPED, _SQL],
+            f"There were 21 uploads and 917 downloads.\n\n{_SQL_LINK}\n\nA rolling window gives 20 and 846.",
+            1.0,
+        ),
+        ([_TYPED, _SQL], "There were 20 uploads and 846 downloads.", 0.0),
+        ([_SQL], "There were 20 uploads and 846 downloads.", 0.0),
+        ([_CATALOG, _TYPED], "No saved insight exists. There were 21 uploads.", 1.0),
+        ([_CATALOG], "Insight 42 already tracks weekly logins.", None),
+        ([_result("execute-sql", "n\n846", {"query": "SELECT count() FROM system.insights, events"})], "846", 0.0),
+        (
+            [_result("execute-sql", "n\n846", {"query": "SELECT count() FROM `events` JOIN system.insights i ON 1"})],
+            "846",
+            0.0,
+        ),
+        ([_TYPED, _SQL], "Uploads rose by a third.", None),
+        ([_result("query-trends", "Net|-42"), _result("execute-sql", "net\n42")], "Net upgrades: 42.", 0.0),
+        ([_result("query-trends", "Net|-42"), _result("execute-sql", "net\n42")], "Net upgrades: -42.", 1.0),
+        (
+            [
+                _result("query-funnel", "Step|Conversion\nUploaded file|45\n\nExample: 90% of users convert."),
+                _result("execute-sql", "rate\n90"),
+            ],
+            "Conversion is 90%.",
+            0.0,
+        ),
+        ([_result("query-trends", "Signups|2026")], "There were 2,026 signups.", 1.0),
+        (
+            [
+                _result(
+                    "query-trends",
+                    '{"query": {"trendsFilter": {"smoothingIntervals": 30}}, "results": [{"label": "x", "count": 917}]}',
+                ),
+                _result("execute-sql", "users\n30"),
+            ],
+            "30 users uploaded a file.",
+            0.0,
+        ),
+    ],
+)
+def test_answer_from_typed_query_traces_reported_values(calls, answer, score) -> None:
+    output = {
+        "raw_log": _raw_tool_log(calls),
+        "prompt": "How many uploads in the last 7 days?",
+        "messages": [{"role": "assistant", "content": [{"type": "text", "text": answer}]}],
+    }
+
+    result = AnswerFromTypedQuery()._run_eval_sync(output, {"answer_from_typed_query": {}})
+
+    assert result.score == score

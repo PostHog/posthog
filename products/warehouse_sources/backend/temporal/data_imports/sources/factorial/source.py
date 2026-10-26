@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01)
     default_version = API_VERSION_2026_07_01
@@ -60,7 +63,7 @@ class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConf
             name=ExternalDataSourceType.FACTORIAL,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Factorial",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Factorial API key to sync your HR, time-off, attendance, payroll, and recruiting data into the PostHog Data warehouse.
 
 Create an API key in your Factorial account under **Settings > API keys** (or **Integrations > Public API**). The key grants read access to your company's data across every table listed below.""",

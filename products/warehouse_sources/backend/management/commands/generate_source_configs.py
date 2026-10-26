@@ -38,8 +38,6 @@ logger.setLevel(logging.INFO)
 
 # Leftover TODO:
 # - allow custom converter options (see meta ads and google ads source)
-# - define metadata to add fields onto the config that come from settings, e.g:
-#       field: str = config.value(default_factory=config.default_from_settings("ENV_VAR"))
 # - Allow types to be given in `SourceFieldFileUploadJsonFormatConfig`
 
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenAQSource(ResumableSource[OpenAQSourceConfig, OpenAQResumeConfig]):
+    codebase_detection = detect(env=("^(OPEN_AQ|OPENAQ)_", "^OPENAQ_API_KEY$"), pypi=("openaq",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -46,7 +49,7 @@ class OpenAQSource(ResumableSource[OpenAQSourceConfig, OpenAQResumeConfig]):
             name=ExternalDataSourceType.OPENAQ,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenAQ",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenAQ API key to pull global air-quality data into the PostHog Data warehouse.
 
 You can create a free API key from your [OpenAQ Explorer account](https://explore.openaq.org/account).
@@ -97,8 +100,11 @@ The free tier is limited to 60 requests per minute. The measurement tables fetch
         def _description(endpoint: str) -> str | None:
             if endpoint == "sensors":
                 return "Sensors materialized from each location's embedded sensor list. Full refresh only"
-            if OPENAQ_ENDPOINTS[endpoint].kind == "measurement":
+            kind = OPENAQ_ENDPOINTS[endpoint].kind
+            if kind in ("measurement", "sensor_fanout"):
                 return "Fetched per sensor across all locations — request-heavy, so off by default"
+            if kind == "location_fanout":
+                return "Fetched per location — request-heavy, so off by default"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

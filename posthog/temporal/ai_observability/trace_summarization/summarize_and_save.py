@@ -10,7 +10,6 @@ import temporalio
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.redis import get_async_client
-from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.models import (
     SummarizationActivityResult,
@@ -19,6 +18,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 )
 from posthog.temporal.ai_observability.trace_summarization.state import delete_text_repr, load_text_repr
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -209,7 +209,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         model_enum = OpenAIModel(input.model) if input.model else None
 
         t0 = time.monotonic()
-        summary_result = await database_sync_to_async(summarize, thread_sensitive=False)(
+        summary_result = await on_asyncify_pool(summarize)(
             text_repr=text_repr,
             team_id=input.team_id,
             mode=mode_enum,
@@ -230,7 +230,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         )
 
         # Step 3: Save event to ClickHouse
-        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=input.team_id)
+        team = await on_asyncify_pool(Team.objects.get)(id=input.team_id)
         t0 = time.monotonic()
         save_ctx = SaveSummaryEventContext(
             summary_result=summary_result,
@@ -246,11 +246,9 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         )
         if is_generation:
             assert input.generation_id is not None
-            await database_sync_to_async(_save_generation_summary_event, thread_sensitive=False)(
-                save_ctx, input.generation_id
-            )
+            await on_asyncify_pool(_save_generation_summary_event)(save_ctx, input.generation_id)
         else:
-            await database_sync_to_async(_save_trace_summary_event, thread_sensitive=False)(save_ctx, input.event_count)
+            await on_asyncify_pool(_save_trace_summary_event)(save_ctx, input.event_count)
         save_duration_s = time.monotonic() - t0
 
         # Step 4: Request embedding
@@ -260,11 +258,11 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         try:
             if is_generation:
                 assert input.generation_id is not None
-                await database_sync_to_async(_embed_generation_summary, thread_sensitive=False)(
+                await on_asyncify_pool(_embed_generation_summary)(
                     summary_result, input.generation_id, input.mode, input.batch_run_id, input.job_id, team
                 )
             else:
-                await database_sync_to_async(_embed_trace_summary, thread_sensitive=False)(
+                await on_asyncify_pool(_embed_trace_summary)(
                     summary_result, input.trace_id, input.mode, input.batch_run_id, input.job_id, team
                 )
             embedding_requested = True

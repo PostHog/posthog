@@ -315,7 +315,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         is_onboarding: bool = False,
     ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
-        from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.file_system.starred_products import star_products_from_intent
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -358,7 +358,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             )
 
             try:
-                UserProductList.create_from_product_intent(product_intent, user)
+                if created:
+                    star_products_from_intent(product_intent, user)
             except Exception as e:
                 capture_exception(
                     e, additional_properties={"product_type": product_type, "context": context, "user_id": user.id}

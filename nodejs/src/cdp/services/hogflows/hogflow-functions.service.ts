@@ -110,7 +110,8 @@ export class HogFlowFunctionsService {
             // Include workflow-level variables
             variables: invocation.state.variables,
             source: {
-                name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
+                id: invocation.hogFlow.id,
+                name: invocation.hogFlow.name || `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
             },
             project: {

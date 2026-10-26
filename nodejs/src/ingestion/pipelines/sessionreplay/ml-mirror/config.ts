@@ -52,10 +52,12 @@ export type MlMirrorConfig = {
 
     /**
      * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
-     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blurred data URIs, so
+     * shape: image fields carry `image:<teamId>:<hash>` refs instead of blank images, so
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
+    /** At most the sidecar's IMAGE_SCRUB_MAX_BODY_BYTES, or the sidecar refuses the image and its ref dangles. */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES: number
 
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
@@ -258,6 +260,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_REDIS_HOST: '',
         SESSION_RECORDING_ML_REDIS_PORT: 6379,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: true,

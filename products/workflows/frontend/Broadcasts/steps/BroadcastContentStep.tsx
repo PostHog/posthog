@@ -10,8 +10,11 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
+import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
 import {
     BroadcastEmailValue,
     DEFAULT_BROADCAST_EMAIL,
@@ -21,7 +24,7 @@ import {
 } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, aiEmailDraftStatus } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -115,10 +118,12 @@ export function BroadcastContentStep(): JSX.Element {
             {senderSetup ? (
                 <EmailSetupModal
                     integration={senderSetup === 'new' ? undefined : senderSetup}
+                    entry="broadcast"
                     onClose={closeSenderSetup}
                     onComplete={closeSenderSetup}
                 />
             ) : null}
+            {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"
@@ -155,14 +160,29 @@ export function BroadcastContentStep(): JSX.Element {
                 data-attr="broadcast-utm-tags-toggle"
             />
             {emailSettings.utmTagsEnabled && (
-                <UtmTagFields
-                    value={emailSettings.utmParams}
-                    onChange={(utmParams) => setEmailSettings({ utmParams })}
-                    campaignDefault={name || 'Broadcast name'}
-                    contentDefault={
-                        broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
-                    }
-                />
+                <>
+                    <UtmTagFields
+                        value={emailSettings.utmParams}
+                        onChange={(utmParams) =>
+                            setEmailSettings({
+                                utmParams,
+                                utmParamsFromDefault: utmKeysFromDefaultAfterEdit(
+                                    emailSettings.utmParamsFromDefault,
+                                    emailSettings.utmParams,
+                                    utmParams
+                                ),
+                            })
+                        }
+                        campaignDefault={name || 'Broadcast name'}
+                        contentDefault={
+                            broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
+                        }
+                    />
+                    <UtmTeamDefaultControls
+                        value={emailSettings.utmParams}
+                        onSavedAsTeamDefault={() => setEmailSettings({ utmParamsFromDefault: [...UTM_TAG_KEYS] })}
+                    />
+                </>
             )}
         </div>
     )

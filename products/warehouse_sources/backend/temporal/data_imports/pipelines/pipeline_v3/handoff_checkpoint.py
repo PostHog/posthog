@@ -105,6 +105,10 @@ class IncrementalHandoffCheckpoint:
     def resume_value(self) -> Any:
         return None if self._void else self._resume_value
 
+    @property
+    def is_void(self) -> bool:
+        return self._void
+
     def observe(self, batch: IncrementalBatchRange | None) -> None:
         if self._void:
             return
