@@ -41,10 +41,8 @@ def make_inputs(schema_name: str) -> SourceInputs:
 class TestAwsOrganizationsSource:
     def setup_method(self) -> None:
         self.source = AwsOrganizationsSource()
-        self.config = AwsOrganizationsSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
+        self.config = AwsOrganizationsSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"}
         )
 
     def test_source_for_pipeline_passes_the_credentials_and_resolved_version_to_the_transport(self) -> None:
@@ -55,8 +53,8 @@ class TestAwsOrganizationsSource:
             response = self.source.source_for_pipeline(self.config, manager, inputs)
             cast(Iterable[Any], response.items())
 
-        assert get_rows.call_args.kwargs["aws_access_key_id"] == "AKIAEXAMPLE"
-        assert get_rows.call_args.kwargs["aws_secret_access_key"] == "secret"
+        assert get_rows.call_args.kwargs["credentials"].access_key == "AKIAEXAMPLE"
+        assert get_rows.call_args.kwargs["credentials"].secret_key == "secret"
         assert get_rows.call_args.kwargs["endpoint"] == "accounts"
         assert get_rows.call_args.kwargs["api_version"] == ORGANIZATIONS_API_VERSION
 
@@ -66,5 +64,5 @@ class TestAwsOrganizationsSource:
                 "accounts": None
             }
 
-        assert probe.call_args.args == ("AKIAEXAMPLE", "secret", None, ["accounts"])
+        assert probe.call_args.args[1] == ["accounts"]
         assert probe.call_args.kwargs == {"api_version": ORGANIZATIONS_API_VERSION}

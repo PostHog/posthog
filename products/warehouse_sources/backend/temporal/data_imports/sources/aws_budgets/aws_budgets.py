@@ -274,8 +274,9 @@ def error_for_response(response: requests.Response) -> AwsBudgetsError:
     return AwsBudgetsError(text)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
+def make_session(credentials: Credentials) -> requests.Session:
+    frozen_credentials = credentials.get_frozen_credentials()
+    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
     return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
 
 
@@ -302,7 +303,8 @@ def send_operation(
             "X-Amz-Target": f"{BUDGETS_TARGET_PREFIX}.{operation}",
         },
     )
-    SigV4Auth(credentials, BUDGETS_SIGNING_NAME, BUDGETS_SIGNING_REGION).add_auth(aws_request)
+    # Role credentials refresh, so sign each request with one consistent snapshot of them.
+    SigV4Auth(credentials.get_frozen_credentials(), BUDGETS_SIGNING_NAME, BUDGETS_SIGNING_REGION).add_auth(aws_request)
 
     response = session.post(
         BUDGETS_ENDPOINT_URL,
@@ -347,7 +349,7 @@ def fetch_account_id(session: requests.Session, credentials: Credentials) -> str
         data=body,
         headers={"Content-Type": "application/x-www-form-urlencoded; charset=utf-8"},
     )
-    SigV4Auth(credentials, STS_SIGNING_NAME, STS_SIGNING_REGION).add_auth(aws_request)
+    SigV4Auth(credentials.get_frozen_credentials(), STS_SIGNING_NAME, STS_SIGNING_REGION).add_auth(aws_request)
 
     response = session.post(
         STS_ENDPOINT_URL,
@@ -557,9 +559,7 @@ def _fanout_rows(
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsBudgetsResumeConfig],
     should_use_incremental_field: bool,
@@ -567,8 +567,7 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_BUDGETS_ENDPOINTS[endpoint]
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    session = make_session(credentials)
     account_id = fetch_account_id(session, credentials)
 
     if endpoint_config.per_budget:
@@ -629,14 +628,8 @@ def endpoint_permission_reason(
     return None
 
 
-def probe_endpoint_permissions(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
-    endpoints: list[str],
-) -> dict[str, str | None]:
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+def probe_endpoint_permissions(credentials: Credentials, endpoints: list[str]) -> dict[str, str | None]:
+    session = make_session(credentials)
 
     try:
         account_id = fetch_account_id(session, credentials)
@@ -654,17 +647,8 @@ def probe_endpoint_permissions(
     return reasons
 
 
-def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
-    schema_name: Optional[str] = None,
-) -> tuple[bool, Optional[str]]:
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
-
-    session = make_session(aws_secret_access_key, aws_session_token)
-    credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+def validate_credentials(credentials: Credentials, schema_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    session = make_session(credentials)
 
     try:
         account_id = fetch_account_id(session, credentials)
@@ -692,9 +676,7 @@ def validate_credentials(
 
 
 def aws_budgets_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[AwsBudgetsResumeConfig],
     should_use_incremental_field: bool,
@@ -706,9 +688,7 @@ def aws_budgets_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             endpoint=endpoint,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

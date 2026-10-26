@@ -20,6 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -60,13 +66,13 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         return ExternalDataSourceType.AWSCOSTEXPLORER
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        errors: dict[str, str | None] = {
-            f"AWS Cost Explorer request failed: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{
+                f"AWS Cost Explorer request failed: {code}": message
+                for code, message in VALIDATION_ERROR_MESSAGES.items()
+            },
         }
-        errors["AWS access key ID and secret access key are required"] = (
-            "Enter both an AWS access key ID and a secret access key."
-        )
-        return errors
 
     def get_retryable_errors(self) -> set[str]:
         # `send_operation` already exhausts a transport-level retry (429/5xx) and, for the
@@ -105,11 +111,11 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_aws_cost_explorer_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
-        )
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_cost_explorer_credentials(credentials)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsCostExplorerResumeConfig]:
         return ResumableSourceManager[AwsCostExplorerResumeConfig](inputs, AwsCostExplorerResumeConfig)
@@ -121,9 +127,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cost_explorer_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             start_date=config.start_date,
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
@@ -142,7 +146,7 @@ class AwsCostExplorerSource(ResumableSource[AwsCostExplorerSourceConfig, AwsCost
             label="AWS Cost Explorer",
             caption="""Sync your AWS cost and usage data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetCostAndUsageWithResources`, `ce:GetDimensionValues`, `ce:GetReservationUtilization`, `ce:GetReservationCoverage`, `ce:GetSavingsPlansUtilization` and `ce:GetSavingsPlansCoverage` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ce:GetCostAndUsage`, `ce:GetCostAndUsageWithResources`, `ce:GetDimensionValues`, `ce:GetReservationUtilization`, `ce:GetReservationCoverage`, `ce:GetSavingsPlansUtilization` and `ce:GetSavingsPlansCoverage` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 The per-resource cost table needs resource-level data turned on in your Cost Explorer settings, and only covers the last 14 days.
 
@@ -154,30 +158,7 @@ Connect the management (payer) account to see spend across every member account.
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token (only for temporary credentials)",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="start_date",
                         sync_setting=True,

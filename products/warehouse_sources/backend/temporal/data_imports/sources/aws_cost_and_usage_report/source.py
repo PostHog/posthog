@@ -25,6 +25,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -69,7 +75,8 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
-            f"{ERROR_PREFIX}: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"{ERROR_PREFIX}: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()},
         }
         errors.update({f"{ERROR_PREFIX}: {code}": WRONG_REGION_MESSAGE for code in WRONG_REGION_CODES})
         errors["Enter the first billing period as YYYY-MM"] = (
@@ -119,10 +126,12 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_cost_and_usage_report_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             config.aws_region,
             config.bucket,
             config.prefix,
@@ -142,9 +151,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
         if inputs.reset_pipeline and inputs.activity_attempt == 1:
             resumable_source_manager.clear_state()
         return aws_cost_and_usage_report_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             aws_region=config.aws_region,
             bucket=config.bucket,
             prefix=config.prefix,
@@ -162,7 +169,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
             label="AWS Cost and Usage Report",
             caption="""Sync the line items of an AWS Data Exports export (Cost and Usage Report 2.0 or FOCUS) from its S3 bucket into the PostHog Data warehouse.
 
-Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Parquet keeps the column types of the export; gzip CSV takes them from the export's manifest. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix, and paste its access key ID and secret access key.
+Create the export in the AWS Billing console under **Data Exports**, delivered to S3 as Parquet or gzip CSV. Parquet keeps the column types of the export; gzip CSV takes them from the export's manifest. Then create an IAM user or role with `s3:ListBucket` on the bucket and `s3:GetObject` on the export's prefix. Connect with the IAM role, or paste an access key ID and secret access key.
 
 AWS rewrites a whole billing period on each delivery and restates the previous month for up to two weeks after it ends, so every sync rebuilds the table from the latest delivery of each billing period. Each sync reads every month from the first billing period on, and each read counts as synced rows, so start at the earliest month you need.""",
             iconPath="/static/services/aws_cost_and_usage_report.png",
@@ -172,30 +179,7 @@ AWS rewrites a whole billing period on each delivery and restates the previous m
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token (only for temporary credentials)",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="Bucket region",
