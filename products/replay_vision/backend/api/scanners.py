@@ -150,6 +150,7 @@ from products.replay_vision.backend.quota import (
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     is_experiment_accessible,
+    readable_experiment_ids,
     readable_observation_scanner_ids,
     scanner_experiment_scope_q,
 )
@@ -2763,8 +2764,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
         if ranker == "embedding":
-            # Keyed on the bucket `as_of` falls in, so loads in one bucket share picks, and on the dismissals, so a
-            # dismissal or its undo ranks afresh.
+            # Keyed on the bucket `as_of` falls in, so loads in one bucket share picks, and on the dismissals and the
+            # readable experiments, so a dismissal or an access change ranks afresh.
             picks_key = (
                 "replay_vision:watch_picks:"
                 + hashlib.sha256(
@@ -2776,6 +2777,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                             params["date_from"],
                             params.get("date_to"),
                             list(map(str, dismissed_ids)),
+                            sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
                             sorted(map(str, allowed_ids)),
                             params.get("search"),
                             params.get("scanner_type"),

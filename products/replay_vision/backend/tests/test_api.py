@@ -5221,7 +5221,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             )
 
         def sessions(as_of: datetime) -> list[str]:
-            response = self.client.get(self.feed_url, {"limit": 20, "as_of": as_of.isoformat()}).json()
+            response = self.client.get(self.feed_url, {"limit": "20", "as_of": as_of.isoformat()}).json()
             return [item["observation"]["session_id"] for item in response["results"]]
 
         with patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value="embedding"):
@@ -5839,6 +5839,21 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["results"][0]["reason"]["kind"], "unviewed_recent")
+
+    @parameterized.expand([("weighted_score", "control"), ("embedding", "embedding")])
+    def test_a_scope_with_no_readable_scanner_returns_an_empty_feed(self, _name: str, variant: str) -> None:
+        hidden = self._create_scanner(name="hidden")
+        self._succeeded_observation(hidden, "hidden-sess", 1, self._monitor_result("no"))
+        with (
+            patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value=variant),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+                side_effect=lambda qs, **_: qs.none() if qs.model is ReplayScanner else qs,
+            ),
+        ):
+            resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"], [])
 
     def test_unreadable_and_cross_team_scanners_are_dropped_silently(self) -> None:
         visible = self._create_scanner(name="visible")

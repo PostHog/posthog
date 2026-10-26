@@ -1,9 +1,12 @@
-import django.db.models.deletion
 import django.db.models.fields.json
 import django.db.models.functions.comparison
 from django.db import migrations, models
 
-from posthog.migration_helpers import DropIndexConcurrently, SafeAddIndexConcurrently, SafeRemoveIndexConcurrently
+from posthog.migration_helpers import (
+    DropFieldIndexesConcurrently,
+    SafeAddIndexConcurrently,
+    SafeRemoveIndexConcurrently,
+)
 
 
 class Migration(migrations.Migration):
@@ -68,42 +71,16 @@ class Migration(migrations.Migration):
             model_name="replayobservation",
             name="rlo_workflow_id_idx",
         ),
-        # Databases from before the replaylensobservation rename keep the old index names; fresh ones have Django's.
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AlterField(
-                    model_name="replayobservation",
-                    name="team",
-                    field=models.ForeignKey(
-                        db_index=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="+",
-                        to="posthog.team",
-                    ),
-                ),
-                migrations.AlterField(
-                    model_name="replayobservation",
-                    name="scanner",
-                    field=models.ForeignKey(
-                        db_index=False,
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="observations",
-                        to="replay_vision.replayscanner",
-                    ),
-                ),
+        # Databases from before the replaylensobservation rename hold these under the old table's names.
+        migrations.RunSQL(
+            sql=[
+                "ALTER INDEX IF EXISTS replay_vision_replaylensobservation_team_id_b10decc8 "
+                "RENAME TO replay_vision_replayobservation_team_id_b204b330",
+                "ALTER INDEX IF EXISTS replay_vision_replaylensobservation_lens_id_4a4cd5c2 "
+                "RENAME TO replay_vision_replayobservation_scanner_id_f2400b26",
             ],
-            database_operations=[
-                DropIndexConcurrently(
-                    index_name=index_name,
-                    table_name="replay_vision_replayobservation",
-                    columns=columns,
-                )
-                for index_name, columns in (
-                    ("replay_vision_replaylensobservation_team_id_b10decc8", '("team_id")'),
-                    ("replay_vision_replayobservation_team_id_b204b330", '("team_id")'),
-                    ("replay_vision_replaylensobservation_lens_id_4a4cd5c2", '("scanner_id")'),
-                    ("replay_vision_replayobservation_scanner_id_f2400b26", '("scanner_id")'),
-                )
-            ],
+            reverse_sql=migrations.RunSQL.noop,
         ),
+        DropFieldIndexesConcurrently(model_name="replayobservation", name="team"),
+        DropFieldIndexesConcurrently(model_name="replayobservation", name="scanner"),
     ]

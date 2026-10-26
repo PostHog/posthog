@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
+from django.core.exceptions import EmptyResultSet
 from django.db import connections
 from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Window
 from django.db.models.expressions import RawSQL
@@ -376,6 +377,7 @@ def _pick_window_rows(
         .values("scanner_id", "scanner_rows")
     )
     scanner_top = (
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (a fixed column reference to the CTE below)
         current_ranks.filter(scanner_id=RawSQL('"scanner_counts"."scanner_id"', ()))
         .annotate(
             scanner_rank=Window(RowNumber(), order_by=[contrast.desc(), F("id").desc()]),
@@ -385,8 +387,12 @@ def _pick_window_rows(
         .order_by(contrast.desc(), "-id")
         .values("id", "created_at", "scanner_rank", "watch_group_root", "pick_category")
     )
-    counts_sql, counts_params = scanner_counts.query.sql_with_params()
-    top_sql, top_params = scanner_top.query.sql_with_params()
+    try:
+        counts_sql, counts_params = scanner_counts.query.sql_with_params()
+        top_sql, top_params = scanner_top.query.sql_with_params()
+    except EmptyResultSet:
+        # Django compiles a filter that can match nothing, such as an empty scanner list, to this.
+        return []
     # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
     sql = f"""
         WITH scanner_counts AS ({counts_sql})
