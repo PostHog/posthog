@@ -74,7 +74,7 @@ from products.dashboards.backend.access import dashboard_access_method, record_d
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
-from products.exports.backend.facade.api import export_limit_context
+from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -1168,6 +1168,15 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # Add hideExtraDetails to context so that PII related information is not returned to the client
             insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
+            if (
+                is_export_render
+                and isinstance(resource, ExportedAsset)
+                and resource.export_context
+                and resource.export_context.get("reference_lines")
+            ):
+                insight_data["query"] = query_with_reference_lines(
+                    insight_data.get("query") or {}, resource.export_context["reference_lines"]
+                )
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
             exported_data.update({"cohorts": _collect_cohorts_for_sharing([resource.insight], resource.team)})
