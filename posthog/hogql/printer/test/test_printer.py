@@ -1446,7 +1446,8 @@ class TestPrinter(BaseTest):
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
             f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
-            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            "CAST('{}', %(temporary_type)s) AS temporary_properties, CAST([], 'Array(String)') AS properties_null_keys, "
+            "CAST([], 'Array(String)') AS temporary_properties_null_keys) AS events",
             {
                 "raw": json.dumps(properties),
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
