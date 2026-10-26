@@ -102,6 +102,15 @@ def cover_dropped(governed_now: dict[str, WriteGate], governed_after: dict[str, 
     )
 
 
+def _adoption_guard_applies(organization) -> bool:
+    """Whether adoption can move a flag out of review in this organization.
+
+    Before scoping, `feature_flag.*` covers every flag whoever owns it. Without the Approvals
+    feature, the gate admits every write, so a policy row left behind protects nothing.
+    """
+    return scope_by_owner_enabled(organization) and decorators._is_approvals_enabled(organization)
+
+
 def adoption_drops_approval_cover(
     current_owner_kind: Optional[str],
     target_owner_kind: str,
@@ -128,7 +137,7 @@ def adoption_drops_approval_cover(
     False before the organization is scoped by flag owner: `feature_flag.*` still covers every
     flag whoever owns it, so no owner change can drop the cover.
     """
-    if not scope_by_owner_enabled(organization):
+    if not _adoption_guard_applies(organization):
         return False
     return cover_dropped(
         governing_gates(current_owner_kind, team, organization),
@@ -154,6 +163,6 @@ def adoption_skips_enable_review(
     """
     if not flag_active or current_owner_kind == target_owner_kind:
         return False
-    if not scope_by_owner_enabled(organization):
+    if not _adoption_guard_applies(organization):
         return False
     return "enable" in governing_gates(target_owner_kind, team, organization)

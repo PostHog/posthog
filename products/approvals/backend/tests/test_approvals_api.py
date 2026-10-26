@@ -1082,6 +1082,15 @@ class TestAdoptingAFlagCannotDropItsApprovalCover(APIBaseTest):
         with self._scoped_by_owner(True):
             self._adopt("survey")
 
+    def test_adoption_is_untouched_without_the_approvals_feature(self, _mock_enabled) -> None:
+        self._policy("feature_flag.enable")
+
+        with (
+            self._scoped_by_owner(True),
+            patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=False),
+        ):
+            self._adopt("survey")
+
     # TODO(experiment-approval-policies): remove with the sync, once every organization is rolled out.
     def test_adoption_is_untouched_before_the_rollout(self, _mock_enabled) -> None:
         """`feature_flag.*` still covers every flag then, so no owner change can drop the cover."""
