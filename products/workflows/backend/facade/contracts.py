@@ -172,6 +172,10 @@ class WorkflowScheduleNotFound(Exception):
     pass
 
 
+class WorkflowScheduleExists(Exception):
+    pass
+
+
 @frozen
 class ProcessedSchedules:
     """The schedule ids one scheduler pass fired, initialized, or failed on."""

@@ -203,6 +203,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
     WorkflowSchedule,
+    WorkflowScheduleExists,
     WorkflowScheduleNotFound,
     WorkflowStale,
     WorkflowWriteResult,
@@ -7280,7 +7281,15 @@ class HogFlowViewSet(
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
-            schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
+            try:
+                schedule = create_schedule(
+                    team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data
+                )
+            except WorkflowScheduleExists:
+                raise exceptions.ValidationError(
+                    "This workflow already has a schedule. Change its cadence on the existing schedule "
+                    "instead of adding a second one."
+                )
             self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
             return Response(HogFlowScheduleSerializer(schedule).data, status=201)

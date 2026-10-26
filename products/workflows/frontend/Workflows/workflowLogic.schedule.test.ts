@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
@@ -17,7 +18,7 @@ const makeSchedule = (overrides: Partial<HogFlowSchedule> = {}): HogFlowSchedule
     ...overrides,
 })
 
-describe('workflowLogic schedule reducers', () => {
+describe('workflowLogic schedules', () => {
     let logic: ReturnType<typeof workflowLogic.build>
 
     beforeEach(() => {
@@ -346,6 +347,94 @@ describe('workflowLogic schedule reducers', () => {
                 isScheduleRepeating: false,
                 pendingSchedule: false,
             })
+        })
+    })
+
+    describe('saving a schedule the editor has not loaded', () => {
+        const SAVED_WORKFLOW_ID = 'wf-schedule-1'
+        let createCalls: number
+        let updatedRrule: string | null
+
+        beforeEach(async () => {
+            createCalls = 0
+            updatedRrule = null
+            let schedulesReads = 0
+            const workflow = {
+                id: SAVED_WORKFLOW_ID,
+                name: 'Weekly digest',
+                status: 'draft',
+                version: 1,
+                team_id: 1,
+                actions: [
+                    {
+                        id: 'trigger_node',
+                        type: 'trigger',
+                        name: 'Trigger',
+                        description: '',
+                        created_at: 0,
+                        updated_at: 0,
+                        config: { type: 'schedule' },
+                    },
+                    {
+                        id: 'exit_node',
+                        type: 'exit',
+                        name: 'Exit',
+                        description: '',
+                        created_at: 0,
+                        updated_at: 0,
+                        config: { reason: 'Default exit' },
+                    },
+                ],
+                edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+                conversion: { filters: [] },
+                exit_condition: 'exit_only_at_end',
+                trigger: { type: 'schedule' },
+                created_at: '2026-04-01T00:00:00.000Z',
+                updated_at: '2026-04-01T00:00:00.000Z',
+            }
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': workflow,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                    // The read on load fails, so the editor never learns about the saved schedule.
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': () => {
+                        schedulesReads += 1
+                        return schedulesReads === 1 ? [500, {}] : [200, [makeSchedule()]]
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': workflow,
+                    '/api/environments/:team_id/hog_flows/:id/schedules/:schedule_id/': async ({ request }) => {
+                        updatedRrule = ((await request.json()) as { rrule?: string }).rrule ?? null
+                        return [200, makeSchedule()]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': () => {
+                        createCalls += 1
+                        return [201, makeSchedule()]
+                    },
+                },
+            })
+
+            initKeaTests()
+            logic = workflowLogic({ id: SAVED_WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        it('updates the saved schedule instead of adding a second one', async () => {
+            expect(logic.values.currentSchedule).toBeNull()
+            logic.actions.setScheduleStartsAt(STARTS_AT)
+            logic.actions.setScheduleRepeating(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess', 'setSchedules'])
+
+            expect(createCalls).toBe(0)
+            expect(updatedRrule).not.toBeNull()
         })
     })
 })

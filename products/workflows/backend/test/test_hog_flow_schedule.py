@@ -97,7 +97,13 @@ class TestHogFlowScheduleAPI(APIBaseTest):
     def test_list_schedules(self):
         workflow = self._create_batch_workflow()
         self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
-        self.client.post(self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "FREQ=DAILY;INTERVAL=1"})
+        # The API refuses a second schedule, but workflows created before that still hold one.
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow_id=workflow["id"],
+            rrule="FREQ=DAILY;INTERVAL=1",
+            starts_at=datetime(2030, 1, 1, 9, tzinfo=UTC),
+        )
 
         response = self.client.get(self._schedules_url(workflow["id"]))
         assert response.status_code == status.HTTP_200_OK
@@ -259,13 +265,27 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         response = self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_multiple_schedules_per_workflow(self):
+    def test_rejects_a_second_schedule(self):
         workflow = self._create_batch_workflow()
         self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
-        self.client.post(self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "FREQ=DAILY;INTERVAL=1"})
 
-        schedules = HogFlowSchedule.objects.filter(hog_flow_id=workflow["id"])
-        assert schedules.count() == 2
+        response = self.client.post(
+            self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "FREQ=DAILY;INTERVAL=1"}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert HogFlowSchedule.objects.filter(hog_flow_id=workflow["id"]).count() == 1
+
+    def test_allows_a_schedule_after_the_previous_one_completed(self):
+        workflow = self._create_batch_workflow()
+        first = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()
+        HogFlowSchedule.objects.filter(id=first["id"]).update(status="completed")
+
+        response = self.client.post(
+            self._schedules_url(workflow["id"]), {**SCHEDULE_DATA, "rrule": "FREQ=DAILY;INTERVAL=1"}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_rejects_invalid_rrule(self):
         workflow = self._create_batch_workflow()

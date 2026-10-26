@@ -11,7 +11,12 @@ import structlog
 
 from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocation
 
-from products.workflows.backend.facade.contracts import ProcessedSchedules, WorkflowSchedule, WorkflowScheduleNotFound
+from products.workflows.backend.facade.contracts import (
+    ProcessedSchedules,
+    WorkflowSchedule,
+    WorkflowScheduleExists,
+    WorkflowScheduleNotFound,
+)
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -73,6 +78,16 @@ def get_schedule(*, team_id: int, hog_flow_id: UUID, schedule_id: str) -> Workfl
 
 def create_schedule(*, team_id: int, hog_flow_id: UUID, fields: Mapping[str, Any]) -> WorkflowSchedule:
     values = {key: value for key, value in fields.items() if key in WRITABLE_SCHEDULE_FIELDS}
+    # Every editor surface reads one schedule, so a second one is invisible to the author and
+    # still fires. A completed schedule has no sends left, so it does not block a new one.
+    # shortcut: two concurrent creates can both pass this check, upgrade to a partial unique
+    # index on hog_flow_id once the existing duplicates are cleaned up.
+    if (
+        HogFlowSchedule.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id)
+        .exclude(status=HogFlowScheduleStatus.COMPLETED)
+        .exists()
+    ):
+        raise WorkflowScheduleExists()
     schedule = HogFlowSchedule.objects.create(team_id=team_id, hog_flow_id=hog_flow_id, **values)
     return _to_schedule(schedule)
 

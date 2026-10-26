@@ -4487,7 +4487,14 @@ export const workflowLogic = kea<workflowLogicType>([
                         } else if (pendingSchedule !== null && existingScheduleId) {
                             await api.hogFlows.updateHogFlowSchedule(workflowId, existingScheduleId, pendingSchedule)
                         } else if (pendingSchedule !== null) {
-                            await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            // An empty currentSchedule does not prove the workflow has none: the
+                            // schedules read on load can still be in flight, or can have failed.
+                            const saved = await api.hogFlows.getHogFlowSchedules(workflowId)
+                            if (saved[0]) {
+                                await api.hogFlows.updateHogFlowSchedule(workflowId, saved[0].id, pendingSchedule)
+                            } else {
+                                await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
+                            }
                         }
 
                         if (pendingSchedule !== null) {
