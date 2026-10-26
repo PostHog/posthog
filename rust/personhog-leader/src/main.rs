@@ -48,7 +48,7 @@ use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
 use personhog_leader::warming::{
     changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
-use personhog_leader::warnings::WarningsProducer;
+use personhog_leader::warnings;
 
 common_alloc::used!();
 
@@ -149,6 +149,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let changelog_handle = manager.register("changelog-config", ComponentOptions::new());
     let migration_handle = manager.register("migration-duty", ComponentOptions::new());
+    let warnings_settings = config.ingestion_warnings_settings();
+    let warnings_handle = warnings_settings.disabled_reason().is_none().then(|| {
+        manager.register(
+            "ingestion-warnings",
+            ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        )
+    });
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -418,10 +427,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
-    let warnings = WarningsProducer::new(
-        kafka_producer.clone(),
-        config.ingestion_warnings_topic.clone(),
-    );
+    let warnings = warnings::install(&warnings_settings, warnings_handle);
+    let warnings_to_flush = warnings.clone();
     let fence_scan = fallback.clone();
     // All derived from LEASE_TTL, so an operator debugging a timeout
     // cannot recover them without redoing the derivation.
@@ -677,18 +684,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks, refilled warning-throttle
-    // keys, and parked fence connections nothing consumed (a cancelled
-    // inbound handoff leaves no convergence behind to discard them).
+    // Periodic sweep of idle per-key locks and parked fence connections
+    // nothing consumed (a cancelled inbound handoff leaves no convergence
+    // behind to discard them).
     let sweep_locks = Arc::clone(&locks);
-    let sweep_warnings = warnings.clone();
     let sweep_fenced = Arc::clone(&fenced);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
-            sweep_warnings.sweep_throttle();
             sweep_fenced.sweep_prepared();
         }
     });
@@ -784,7 +789,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    monitor_guard.wait().await?;
+    let waited = monitor_guard.wait().await;
+
+    // Flush before the result propagates: a failed component or a timed-out
+    // drain is exactly the shutdown that leaves warnings queued.
+    if let Err(e) = tokio::task::spawn_blocking(move || warnings_to_flush.flush()).await {
+        tracing::warn!(error = %e, "ingestion warnings flush task panicked");
+    }
+
+    waited?;
     Ok(())
 }
 

@@ -89,6 +89,10 @@ For these, denied objects are filtered out of the results.
 
 At print time the printer appends a guard that excludes the user's denied object IDs by primary key — effectively `WHERE <id> NOT IN (<denied ids>)`.
 Child tables filter on the parent's FK — e.g. `system.dashboard_tiles` uses `access_control_id_field="dashboard_id"`.
+A table whose rows can also be denied by a rule on another object overrides `PostgresTable.blocked_object_ids`.
+`system.data_warehouse_tables` does this: it resolves each table through its source, as described in [how a table's access level resolves](#how-a-tables-access-level-resolves), so denying a source also hides its tables there.
+A child table drops the creator exemption by default, because its rows carry no creator of the parent.
+A child table that must keep it overrides `PostgresTable.creator_owned_object_ids`: `system.data_modeling_jobs` returns the views the reader created, so the creator of a denied view still sees its jobs.
 
 When rows are filtered, the response carries a warning: "Results may exclude {resources} you don't have access to".
 
@@ -227,6 +231,8 @@ Several catalog tables expose such columns because reading them scans far less d
 `intent_text` on `posthog.mcp_intent_assignments` and `posthog.raw_mcp_intent_assignments` holds a truncated copy of `$mcp_intent` and masks the same way.
 `intent_hash` on both tables masks with it, because it is the unsalted sha256 of the full text, so a reader could confirm a guessed text by comparing hashes.
 When `intent_hash` is masked, `posthog.mcp_intent_assignments` returns no rows, because it picks one row per hash and a NULL hash would merge every intent into one row.
+The intent pipeline also embeds each `$mcp_intent` value into the shared embedding tables (`document_embeddings`, `raw_document_embeddings` and the per-model tables), with the text in `content` and the hash in `document_id`.
+Other products share those columns, so `restricted_embedding_documents()` masks them per row: a row with `product = 'mcp_analytics'` and `document_type = 'mcp-intent'` reads as NULL, and every other row reads as stored.
 `conversation_hashes` on `posthog.mcp_intent_calls_hourly` and `posthog.mcp_intent_topic_daily` holds the unsalted cityHash64 of each conversation id, read from `$mcp_session_id` or `$session_id`, so it masks when either property is restricted.
 It reads as an empty array rather than NULL, so array functions over it still run and count no conversations.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.

@@ -21,7 +21,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, CyclotronJobFiltersType } from '~/types'
 
-import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanner'
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
@@ -103,15 +102,12 @@ export function ErrorTrackingScene(): JSX.Element {
                 // content must deny too — not just the tab button.
                 <AccessDenied reason={configurationAccessDeniedReason} />
             ) : (
-                <>
-                    <IntegrationsMovedBanner />
-                    <Settings
-                        logicKey={ERROR_TRACKING_LOGIC_KEY}
-                        sectionId="environment-error-tracking-configuration"
-                        settingId="error-tracking-alerting"
-                        handleLocally
-                    />
-                </>
+                <Settings
+                    logicKey={ERROR_TRACKING_LOGIC_KEY}
+                    sectionId="environment-error-tracking-configuration"
+                    settingId="error-tracking-alerting"
+                    handleLocally
+                />
             ),
         },
     ]

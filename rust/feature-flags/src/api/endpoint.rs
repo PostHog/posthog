@@ -5,7 +5,7 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse,
+            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV4, LegacyFlagsResponse,
             ServiceResponse,
         },
     },
@@ -167,13 +167,13 @@ fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
     is_from_legacy_decide: bool,
-    v3_enabled: bool,
+    v4_enabled: bool,
 ) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
     // `None` is preserved so `get_versioned_response` can apply its
     // decide/non-decide defaults.
-    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
+    let version_num = version.map(parse_version);
 
     let mut config = ConfigResponse::new();
     config.set(
@@ -192,10 +192,14 @@ fn get_minimal_flags_response(
     response.config = config;
 
     let (service_response, _) =
-        get_versioned_response(is_from_legacy_decide, version_num, v3_enabled, response).expect(
+        get_versioned_response(is_from_legacy_decide, version_num, v4_enabled, response).expect(
             "get_versioned_response is total for any (bool, Option<i32>, bool, FlagsResponse)",
         );
     Json(service_response)
+}
+
+fn parse_version(version: &str) -> i32 {
+    version.parse::<i32>().unwrap_or(1)
 }
 
 /// Determines the response format based on whether the request came from decide and the version parameter.
@@ -207,15 +211,15 @@ fn get_minimal_flags_response(
 /// - v>=4 -> FlagsV2 response format
 ///
 /// When the request is not from decide:
-/// - v>=3 -> FlagsV3 response format when `v3_enabled`, otherwise FlagsV2
-/// - v=2 -> FlagsV2 response format
+/// - v=4 -> FlagsV4 response format when `v4_enabled`, otherwise FlagsV2
+/// - any other v>=2 -> FlagsV2 response format
 /// - v=1 or missing -> FlagsV1 response format
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
 fn get_versioned_response(
     is_from_legacy_decide: bool,
     version: Option<i32>,
-    v3_enabled: bool,
+    v4_enabled: bool,
     response: FlagsResponse,
 ) -> Result<(ServiceResponse, &'static str), FlagError> {
     if is_from_legacy_decide {
@@ -247,10 +251,10 @@ fn get_versioned_response(
                 ))
             }
         }
-    } else if serves_flags_v3(is_from_legacy_decide, version, v3_enabled) {
+    } else if serves_flags_v4(is_from_legacy_decide, version, v4_enabled) {
         Ok((
-            ServiceResponse::V3(FlagsResponseV3::from_response(response)),
-            "FlagsV3",
+            ServiceResponse::V4(FlagsResponseV4::from_response(response)),
+            "FlagsV4",
         ))
     } else if version.is_some_and(|v| v >= 2) {
         Ok((ServiceResponse::V2(response), "FlagsV2"))
@@ -262,10 +266,13 @@ fn get_versioned_response(
     }
 }
 
-/// True when [`get_versioned_response`] returns the v3 record. The body log
+/// True when [`get_versioned_response`] returns the v4 record. The body log
 /// uses it too, so the logged record matches the record the client receives.
-fn serves_flags_v3(is_from_legacy_decide: bool, version: Option<i32>, v3_enabled: bool) -> bool {
-    v3_enabled && !is_from_legacy_decide && version.is_some_and(|v| v >= 3)
+///
+/// Only an exact `v=4` selects it: clients already send `v=3` and arbitrary
+/// `v` values (cache busters, typos), and those keep the v2 record.
+fn serves_flags_v4(is_from_legacy_decide: bool, version: Option<i32>, v4_enabled: bool) -> bool {
+    v4_enabled && !is_from_legacy_decide && version == Some(4)
 }
 
 /// Feature flag evaluation endpoint.
@@ -313,7 +320,7 @@ where
                 &headers,
                 query_params.version.as_deref(),
                 false,
-                state.config.flags_v3_response_enabled,
+                state.config.flags_v4_response_enabled,
             )
             .into_response());
         }
@@ -453,7 +460,7 @@ where
             &headers,
             query_params.version.as_deref(),
             is_from_legacy_decide,
-            state.config.flags_v3_response_enabled,
+            state.config.flags_v4_response_enabled,
         )
         .into_response());
     }
@@ -472,11 +479,8 @@ where
     }
 
     // Parse version from query params (needed for response formatting)
-    let query_version = modified_query_params
-        .version
-        .as_deref()
-        .map(|v| v.parse::<i32>().unwrap_or(1));
-    let v3_enabled = state.config.flags_v3_response_enabled;
+    let query_version = modified_query_params.version.as_deref().map(parse_version);
+    let v4_enabled = state.config.flags_v4_response_enabled;
 
     // Install a body-logging side channel only when at least one team is
     // opted in. The OnceLock is filled inside the request decode flow with
@@ -581,11 +585,11 @@ where
                 log.team_id,
                 decoded_body,
                 &response,
-                serves_flags_v3(is_from_legacy_decide, query_version, v3_enabled),
+                serves_flags_v4(is_from_legacy_decide, query_version, v4_enabled),
             );
 
             // Determine the response format based on whether request is from decide and version
-            match get_versioned_response(is_from_legacy_decide, query_version, v3_enabled, response)
+            match get_versioned_response(is_from_legacy_decide, query_version, v4_enabled, response)
             {
                 Ok((versioned_response, response_format)) => {
                     log.http_status = 200;
@@ -720,6 +724,36 @@ mod tests {
         extract::{FromRequest, Request},
         http::Uri,
     };
+
+    #[rstest]
+    #[case::exact_v4("4", false, true, "FlagsV4")]
+    #[case::v4_setting_off("4", false, false, "FlagsV2")]
+    #[case::v3("3", false, true, "FlagsV2")]
+    #[case::v3_setting_off("3", false, false, "FlagsV2")]
+    #[case::v5("5", false, true, "FlagsV2")]
+    #[case::cache_buster("17380067", false, true, "FlagsV2")]
+    #[case::v2("2", false, true, "FlagsV2")]
+    #[case::fractional_v4("4.0", false, true, "FlagsV1")]
+    #[case::huge("12345678901234567890123456789012345678901234", false, true, "FlagsV1")]
+    #[case::junk("abc", false, true, "FlagsV1")]
+    #[case::decide_v4("4", true, true, "FlagsV2")]
+    #[case::decide_v3("3", true, true, "FlagsV1")]
+    fn test_only_an_exact_v4_selects_the_v4_record(
+        #[case] v: &str,
+        #[case] is_from_legacy_decide: bool,
+        #[case] v4_enabled: bool,
+        #[case] expected: &str,
+    ) {
+        let version = Some(parse_version(v));
+        let response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+        let (_, format) =
+            get_versioned_response(is_from_legacy_decide, version, v4_enabled, response).unwrap();
+        assert_eq!(format, expected);
+        assert_eq!(
+            serves_flags_v4(is_from_legacy_decide, version, v4_enabled),
+            expected == "FlagsV4"
+        );
+    }
 
     #[tokio::test]
     async fn test_query_param_extraction() {

@@ -12,6 +12,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.test import APIClient
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckObservation
@@ -22,7 +23,12 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
 )
 from products.signals.backend.report_check_authoring import cancel_check
-from products.signals.backend.report_check_execution import expire_overdue_checks, run_due_report_checks
+from products.signals.backend.report_check_evaluation import CheckVerdict
+from products.signals.backend.report_check_execution import (
+    expire_overdue_checks,
+    record_check_verdict,
+    run_due_report_checks,
+)
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
 from products.signals.backend.report_monitoring_attempts import complete_implementation
@@ -82,6 +88,52 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                     return
         self.fail("The competing write did not wait for the holder transaction")
 
+    @parameterized.expand([(False,), (True,)])
+    def test_stopping_monitoring_rejects_a_verdict_waiting_for_the_report_lock(self, bulk: bool) -> None:
+        now = timezone.now()
+        self.report.status = SignalReport.Status.MONITORING
+        self.report.monitoring_started_at = now - timedelta(days=1)
+        self.report.save(update_fields=["status", "monitoring_started_at"])
+        self.check.expires_at = now + timedelta(days=30)
+        self.check.save(update_fields=["expires_at"])
+        client = APIClient()
+        client.force_authenticate(self.user)
+        url = (
+            f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+            if bulk
+            else f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+        )
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            with transaction.atomic():
+                SignalReport.objects.select_for_update().get(id=self.report.id, team_id=self.team.id)
+                future = self._start_write(
+                    executor,
+                    lambda: record_check_verdict(
+                        self.check, CheckVerdict(outcome="passed", explanation="Late query result", observed_value=1)
+                    ),
+                )
+                self._assert_write_waits(future)
+                response = client.post(
+                    url,
+                    {
+                        "state": "resolved",
+                        "dismissal_reason": "verified_manually",
+                        **({"ids": [str(self.report.id)]} if bulk else {}),
+                    },
+                    format="json",
+                )
+                assert response.status_code == 200, response.json()
+            future.result(timeout=10)
+        self.report.refresh_from_db()
+        self.check.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
+        assert self.check.status == SignalReportCheck.Status.CANCELLED
+        assert self.check.last_outcome is None
+        assert not SignalReportArtefact.objects.filter(report=self.report, type="check_result").exists()
+
     @parameterized.expand([("cancelled",), ("extended",)])
     def test_expiry_sweep_preserves_a_concurrent_change(self, change: str) -> None:
         now = timezone.now()
@@ -110,12 +162,37 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             team_id=self.team.id, report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @parameterized.expand([("cancelled",), ("expired",)])
-    def test_monitoring_entry_rechecks_eligibility_after_a_lock_wait(self, outcome: str) -> None:
+    @parameterized.expand(
+        [(outcome, entry) for outcome in ("cancelled", "expired") for entry in ("service", "single", "bulk")]
+    )
+    def test_monitoring_entry_rechecks_eligibility_after_a_lock_wait(self, outcome: str, entry: str) -> None:
         now = timezone.now()
         SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(status=SignalReport.Status.READY)
         checks = SignalReportCheck.objects.for_team(self.team.id).filter(id=self.check.id)
         checks.update(expires_at=now + timedelta(days=1))
+
+        def enter_monitoring() -> object:
+            if entry == "service":
+                return complete_implementation(
+                    team_id=self.team.id, report_id=self.report.id, monitoring_started_at=now
+                )
+            client = APIClient()
+            client.force_authenticate(self.user)
+            url = (
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+                if entry == "bulk"
+                else f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/state/"
+            )
+            response = client.post(
+                url,
+                {"state": "monitoring", **({"ids": [str(self.report.id)]} if entry == "bulk" else {})},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
+            result = response.json()["results"][0] if entry == "bulk" else response.json()
+            assert result["status"] == SignalReport.Status.RESOLVED
+            return None
+
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
@@ -123,12 +200,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
         ):
             with transaction.atomic():
                 checks.select_for_update().get()
-                future = self._start_write(
-                    executor,
-                    lambda: complete_implementation(
-                        team_id=self.team.id, report_id=self.report.id, monitoring_started_at=now
-                    ),
-                )
+                future = self._start_write(executor, enter_monitoring)
                 self._assert_write_waits(future)
                 if outcome == "cancelled":
                     assert cancel_check(
@@ -152,8 +224,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             else SignalReportArtefact.ArtefactType.CHECK_EXPIRED,
         ).exists()
 
-    @parameterized.expand([("enabled", True), ("disabled", False)])
-    def test_schedule_repair_preserves_a_concurrent_observation(self, _name: str, flag: bool) -> None:
+    def test_schedule_repair_preserves_a_concurrent_observation(self) -> None:
         now = timezone.now()
         start = now - timedelta(days=1)
         self.report.status = SignalReport.Status.MONITORING
@@ -173,7 +244,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             explanation="The metric query failed.",
         )
         with (
-            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=flag),
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
         ):
             with transaction.atomic():

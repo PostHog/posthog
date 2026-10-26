@@ -9,6 +9,7 @@ import type { CommandKRow, CommandKSection } from './commandKSections'
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
 const FLAT_LIST_LIMIT = 8
+const LOCAL_GROUPS = ['products', 'persons']
 
 interface RankedItem {
     item: SearchItem
@@ -26,8 +27,8 @@ function groupLabel(groupKey: string): string {
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
 
-function rankProducts(products: SearchItem[], query: string): RankedItem[] {
-    return products.flatMap((item) => {
+function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+    return items.flatMap((item) => {
         const ranked = rankLocalItem(
             query,
             String(item.displayName || item.name),
@@ -39,7 +40,7 @@ function rankProducts(products: SearchItem[], query: string): RankedItem[] {
                   {
                       item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
                       rank: ranked.rank,
-                      groupKey: 'products',
+                      groupKey,
                   },
               ]
             : []
@@ -57,7 +58,7 @@ const itemRow = (
     kind: 'item',
     key: `${section}/${item.id}`,
     item,
-    section: item.category === 'results' ? 'results' : 'products',
+    section: item.category === 'results' ? 'results' : item.category === 'persons' ? 'persons' : 'products',
     highlightWords,
     ranked: true,
     showType,
@@ -135,6 +136,7 @@ interface RankedResultsInput {
     highlightWords: string[]
     results: SearchItem[]
     products: SearchItem[]
+    persons?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
 }
@@ -144,12 +146,14 @@ export function buildRankedResults({
     highlightWords,
     results,
     products,
+    persons = [],
     state,
     scoped,
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = [
         ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-        ...rankProducts(products, query),
+        ...rankLocalItems(products, query, 'products'),
+        ...rankLocalItems(persons, query, 'persons'),
     ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
@@ -256,7 +260,7 @@ export function buildRankedResults({
             itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
         )
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (groupKey !== 'products' && total > covered) {
+        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
             rows.push({
                 kind: 'scope',
                 key: `group-${groupKey}/see-all`,
@@ -273,7 +277,7 @@ export function buildRankedResults({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
             count: total,
-            countIsLowerBound: capped && groupKey !== 'products',
+            countIsLowerBound: capped && !LOCAL_GROUPS.includes(groupKey),
             rows,
             state,
         })
