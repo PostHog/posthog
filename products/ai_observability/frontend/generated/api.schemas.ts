@@ -76,10 +76,14 @@ export interface _ModelBreakdownRowApi {
     generation_count: number
     /** Total cost in USD for this model. */
     cost_usd: number
-    /** Sum of `$ai_input_tokens` for this model. */
+    /** Uncached prompt tokens. Events that count cache inside `$ai_input_tokens` have their cache reads and writes subtracted, so `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` add up to the full prompt without double counting. An event counts cache separately when `$ai_cache_reporting_exclusive` is true, when it came through the AI gateway, or when its input is smaller than its cache counts. For this model. */
     input_tokens: number
     /** Sum of `$ai_output_tokens` for this model. */
     output_tokens: number
+    /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache). For this model. */
+    cache_read_input_tokens: number
+    /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache). For this model. */
+    cache_creation_input_tokens: number
 }
 
 export interface _ModelBreakdownApi {
@@ -96,10 +100,14 @@ export interface _DayBreakdownRowApi {
     event_count: number
     /** Total cost in USD on this day for the scoped product. */
     cost_usd: number
-    /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+    /** Uncached prompt tokens. Events that count cache inside `$ai_input_tokens` have their cache reads and writes subtracted, so `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` add up to the full prompt without double counting. An event counts cache separately when `$ai_cache_reporting_exclusive` is true, when it came through the AI gateway, or when its input is smaller than its cache counts. On this day for the scoped product. */
     input_tokens: number
     /** Sum of `$ai_output_tokens` on this day for the scoped product. */
     output_tokens: number
+    /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache). On this day for the scoped product. */
+    cache_read_input_tokens: number
+    /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache). On this day for the scoped product. */
+    cache_creation_input_tokens: number
 }
 
 export interface _DayBreakdownApi {
@@ -119,10 +127,14 @@ export interface _DayModelBreakdownRowApi {
     model: string | null
     /** Total cost in USD for this model on this day. */
     cost_usd: number
-    /** Sum of `$ai_input_tokens` for this model on this day. */
+    /** Uncached prompt tokens. Events that count cache inside `$ai_input_tokens` have their cache reads and writes subtracted, so `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` add up to the full prompt without double counting. An event counts cache separately when `$ai_cache_reporting_exclusive` is true, when it came through the AI gateway, or when its input is smaller than its cache counts. For this model on this day. */
     input_tokens: number
     /** Sum of `$ai_output_tokens` for this model on this day. */
     output_tokens: number
+    /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache). For this model on this day. */
+    cache_read_input_tokens: number
+    /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache). For this model on this day. */
+    cache_creation_input_tokens: number
     /** Number of $ai_generation + $ai_embedding events for this model on this day. */
     generation_count: number
 }
