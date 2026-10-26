@@ -830,6 +830,9 @@ export interface dashboardLogicActions {
     cancelLayoutEdit: () => {
         value: true
     }
+    cancelWidgetRefresh: (tileIds: number[]) => {
+        tileIds: number[]
+    }
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1980,6 +1983,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** A newly added tile whose widget settings open as soon as it renders. */
         setWidgetEditorTileId: (tileId: number | null) => ({ tileId }),
         setWidgetFiltersKeys: (tileIds: number[], filtersKey: string) => ({ tileIds, filtersKey }),
+        cancelWidgetRefresh: (tileIds: number[]) => ({ tileIds }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3295,6 +3299,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   },
                         ])
                     ),
+                }),
+                cancelWidgetRefresh: (state, { tileIds }) => ({
+                    ...state,
+                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, { ...state[tileId], loading: false }])),
                 }),
                 setWidgetRunResults: (state, { results }) => {
                     const next = { ...state }
