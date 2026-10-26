@@ -65281,6 +65281,40 @@ export namespace Schemas {
       readonly safety_verdict: SafetyVerdictEnum;
     }
 
+    /**
+     * One billing meter: this project's usage, and the organization's usage and limit from billing.
+     */
+    export interface KnowledgeUsageMeter {
+      /** Units this project used in the current period. */
+      readonly used: number;
+      /**
+         * Units the whole organization used in the current period, as last synced from billing. Null until billing has synced usage for this product.
+         * @nullable
+         */
+      readonly organization_used: number | null;
+      /** Units included free each month. */
+      readonly free_allowance: number;
+      /**
+         * Units the organization may use this period: the free allowance on the free plan, or the billing limit on a paid plan. Null when unsynced, or on a paid plan with no billing limit.
+         * @nullable
+         */
+      readonly billing_limit: number | null;
+      /** True when the billing quota blocks this work. */
+      readonly limited: boolean;
+    }
+
+    /**
+     * Business knowledge usage for the current billing period. Output-only.
+     */
+    export interface KnowledgeUsage {
+      readonly period_start: string;
+      readonly period_end: string;
+      /** Chunks ingested. A refresh that re-indexes changed content counts again. */
+      readonly chunks: KnowledgeUsageMeter;
+      /** Knowledge searches, on any surface. */
+      readonly queries: KnowledgeUsageMeter;
+    }
+
     export interface KustomerConversationSignalExtra {
       status: string | null;
       priority: string | null;

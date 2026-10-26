@@ -614,6 +614,40 @@ export interface PaginatedKnowledgeSourceDocumentListApi {
     results: KnowledgeSourceDocumentApi[]
 }
 
+/**
+ * One billing meter: this project's usage, and the organization's usage and limit from billing.
+ */
+export interface KnowledgeUsageMeterApi {
+    /** Units this project used in the current period. */
+    readonly used: number
+    /**
+     * Units the whole organization used in the current period, as last synced from billing. Null until billing has synced usage for this product.
+     * @nullable
+     */
+    readonly organization_used: number | null
+    /** Units included free each month. */
+    readonly free_allowance: number
+    /**
+     * Units the organization may use this period: the free allowance on the free plan, or the billing limit on a paid plan. Null when unsynced, or on a paid plan with no billing limit.
+     * @nullable
+     */
+    readonly billing_limit: number | null
+    /** True when the billing quota blocks this work. */
+    readonly limited: boolean
+}
+
+/**
+ * Business knowledge usage for the current billing period. Output-only.
+ */
+export interface KnowledgeUsageApi {
+    readonly period_start: string
+    readonly period_end: string
+    /** Chunks ingested. A refresh that re-indexes changed content counts again. */
+    readonly chunks: KnowledgeUsageMeterApi
+    /** Knowledge searches, on any surface. */
+    readonly queries: KnowledgeUsageMeterApi
+}
+
 export type BusinessKnowledgeDocumentsWindowListParams = {
     /**
      * Zero-based chunk ordinal to center the window on (from a search result).
