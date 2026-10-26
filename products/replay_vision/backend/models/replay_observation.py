@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 
 from posthog.models.utils import UUIDModel
 
@@ -40,6 +40,11 @@ class ObservationTrigger(models.TextChoices):
     ON_DEMAND = "on_demand", "On demand"
     RETRY = "retry", "Retry"
     BACKFILL = "backfill", "Backfill"
+
+
+def watch_group_root() -> Coalesce:
+    """A ranked row's duplicate group: the observation it duplicates, or itself. `rlo_ranked_group_idx` indexes it."""
+    return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
 
 
 class ReplayObservation(UUIDModel):
@@ -175,11 +180,26 @@ class ReplayObservation(UUIDModel):
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
             ),
-            # Serves the embedding feed's whole-window pick query, which reads only these columns of ranked rows.
+            # The pick query counts each scanner's ranked rows here; the anchor version sits in the condition so the count never reads `watch_rank`.
             models.Index(
                 fields=["scanner", "created_at"],
-                include=["id", "team", "completed_at", "watch_rank", "distinct_id", "session_id"],
-                name="rlo_scanner_ranked_idx",
+                include=["id", "team", "completed_at"],
+                name="rlo_ranked_count_idx",
+                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
+            ),
+            # The pick query reads each scanner's top rows by score from here.
+            models.Index(
+                F("scanner"),
+                Cast(KeyTextTransform("contrast", "watch_rank"), models.FloatField()).desc(),
+                F("id").desc(),
+                include=["team", "created_at", "completed_at", "watch_rank"],
+                name="rlo_ranked_contrast_idx",
+                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
+            ),
+            # Finds the members of the feed picks' duplicate groups, to count the sessions and people each one reached.
+            models.Index(
+                watch_group_root(),
+                name="rlo_ranked_group_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.

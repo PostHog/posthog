@@ -1,1 +1,1 @@
-0130_rom_small_asset_idx
+0131_ranked_pick_indexes

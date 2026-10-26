@@ -5883,26 +5883,28 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
         self.assertEqual(second["results"], [])
 
-    def test_not_useful_hides_a_row_for_that_user_only_until_undone(self) -> None:
-        scanner = self._create_scanner(name="m")
-        dismissed = self._succeeded_observation(scanner, "dismissed-sess", 1, self._monitor_result("yes"))
-        self._succeeded_observation(scanner, "kept-sess", 2, self._monitor_result("yes"))
-        dismissal_url = f"/api/projects/{self.team.id}/vision/observations/{dismissed.id}/feed_dismissal/"
+    @parameterized.expand([("weighted_score", "control"), ("embedding_reload_in_one_bucket", "embedding")])
+    def test_not_useful_hides_a_row_for_that_user_only_until_undone(self, _name: str, variant: str) -> None:
+        with patch("products.replay_vision.backend.api.scanners.watch_feed_ranker_variant", return_value=variant):
+            scanner = self._create_scanner(name="m")
+            dismissed = self._succeeded_observation(scanner, "dismissed-sess", 1, self._monitor_result("yes"))
+            self._succeeded_observation(scanner, "kept-sess", 2, self._monitor_result("yes"))
+            dismissal_url = f"/api/projects/{self.team.id}/vision/observations/{dismissed.id}/feed_dismissal/"
 
-        def feed_sessions() -> list[str]:
-            return [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
+            def feed_sessions() -> list[str]:
+                return [item["observation"]["session_id"] for item in self.client.get(self.feed_url).json()["results"]]
 
-        self.assertEqual(self.client.post(dismissal_url, {"reason": "nonsense"}).status_code, 400)
-        self.assertEqual(self.client.post(dismissal_url, {"reason": "already_known"}).status_code, 204)
-        self.assertEqual(feed_sessions(), ["kept-sess"])
+            self.assertEqual(self.client.post(dismissal_url, {"reason": "nonsense"}).status_code, 400)
+            self.assertEqual(self.client.post(dismissal_url, {"reason": "already_known"}).status_code, 204)
+            self.assertEqual(feed_sessions(), ["kept-sess"])
 
-        other = User.objects.create_and_join(self.organization, "other@example.com", None)
-        self.client.force_login(other)
-        self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
+            other = User.objects.create_and_join(self.organization, "other@example.com", None)
+            self.client.force_login(other)
+            self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
 
-        self.client.force_login(self.user)
-        self.assertEqual(self.client.delete(dismissal_url).status_code, 204)
-        self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
+            self.client.force_login(self.user)
+            self.assertEqual(self.client.delete(dismissal_url).status_code, 204)
+            self.assertEqual(sorted(feed_sessions()), ["dismissed-sess", "kept-sess"])
 
     def test_requires_session_recording_read(self) -> None:
         with patch(
