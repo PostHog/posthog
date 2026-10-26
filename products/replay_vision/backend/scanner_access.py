@@ -57,6 +57,11 @@ def _accessible_experiment_ids(
     return accessible_experiment_ids(access, team_id, experiment_ids=experiment_ids)
 
 
+def accessible_experiment_ids(access: UserAccessControl | None, team_id: int, experiment_ids: set[int]) -> set[int]:
+    """Batch form of `is_experiment_accessible`: the subset of `experiment_ids` the caller may view."""
+    return _accessible_experiment_ids(access, team_id, experiment_ids)
+
+
 def is_experiment_accessible(access: UserAccessControl | None, team_id: int, experiment_id: int) -> bool:
     """Whether the caller may view this experiment, filtered by object-level access (not just team).
 
