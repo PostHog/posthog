@@ -692,6 +692,33 @@ describe('workflowLogic send once verified', () => {
             ])
         })
 
+        it('keeps an edit whose auto-save lands after the workflow went live, and saves it to the live copy', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        if (body.base_updated_at !== storedWorkflow.updated_at) {
+                            return [409, { detail: 'stale_update', code: 'stale_update' }]
+                        }
+                        storedWorkflow = { ...storedWorkflow, name: body.name, updated_at: '2026-05-03T09:00:00Z' }
+                        return [200, storedWorkflow]
+                    },
+                },
+            })
+            await mountWaiting()
+            storedWorkflow = wentLive
+
+            logic.actions.setWorkflowValue('name', 'Renamed while waiting')
+            await jest.advanceTimersByTimeAsync(3_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.originalWorkflow?.status).toEqual('active')
+            expect(logic.values.workflow.name).toEqual('Renamed while waiting')
+            expect(storedWorkflow).toMatchObject({ status: 'active', name: 'Renamed while waiting' })
+            expect(patchBodies.at(-1)).not.toHaveProperty('status')
+        })
+
         it('drops a status answer that lands after the editor closed', async () => {
             await mountWaiting()
             let releaseCheck!: () => void
