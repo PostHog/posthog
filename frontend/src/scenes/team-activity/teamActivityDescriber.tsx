@@ -168,7 +168,11 @@ function createExperimentsDefaultHandler(fieldName: string, format: (value: unkn
 }
 
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | keyof ExperimentsConfig | 'heatmaps_screenshot_allowed_hostnames' | 'conversations_signing_secret',
+    | keyof TeamType
+    | keyof ExperimentsConfig
+    | 'heatmaps_screenshot_allowed_hostnames'
+    | 'conversations_signing_secret'
+    | 'conversations_signing_secret_previous',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
@@ -179,6 +183,14 @@ const TEAM_PROPERTIES_MAPPING: Record<
         'generated',
         'rotated'
     ),
+    conversations_signing_secret_previous: (change) => {
+        if (change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Expired the previous Conversations identity verification secret</>],
+        }
+    },
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
