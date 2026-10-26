@@ -9,6 +9,7 @@ import type { CommandKRow, CommandKSection } from './commandKSections'
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
 const FLAT_LIST_LIMIT = 8
+const LOCAL_GROUPS = ['products', 'persons']
 
 interface RankedItem {
     item: SearchItem
@@ -259,7 +260,7 @@ export function buildRankedResults({
             itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
         )
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (groupKey !== 'products' && total > covered) {
+        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
             rows.push({
                 kind: 'scope',
                 key: `group-${groupKey}/see-all`,
@@ -276,7 +277,7 @@ export function buildRankedResults({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
             count: total,
-            countIsLowerBound: capped && groupKey !== 'products',
+            countIsLowerBound: capped && !LOCAL_GROUPS.includes(groupKey),
             rows,
             state,
         })
