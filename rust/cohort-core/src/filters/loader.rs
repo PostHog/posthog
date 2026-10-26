@@ -1,6 +1,4 @@
-//! SQL load + pure row→catalog transform. [`load_realtime_cohorts`] and
-//! [`load_realtime_cohorts_for_teams`] are the only DB touches; [`build_catalog_from_rows`] is pure
-//! so the catalog logic is testable without Postgres.
+//! SQL loads + pure row→catalog transform.
 
 use std::collections::HashMap;
 
@@ -20,8 +18,6 @@ use crate::metrics::{
 };
 use crate::seed::{BehavioralShapeHash, PersonShapeHash, ScopeKind, ShapeHashError};
 
-/// The query both load texts share. A macro rather than a `const`, because `concat!` accepts only
-/// literals and macro expansions.
 macro_rules! realtime_cohorts_select {
     () => {
         "SELECT c.id, c.team_id, c.filters, \
@@ -36,8 +32,7 @@ macro_rules! realtime_cohorts_select {
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
 pub const REALTIME_COHORTS_SQL: &str = realtime_cohorts_select!();
 
-/// [`REALTIME_COHORTS_SQL`] for the teams in `$1`. It is a second text rather than one
-/// `$1 IS NULL OR ...` query, so that a cached generic plan cannot lose the `team_id` index.
+/// Separate from [`REALTIME_COHORTS_SQL`] so a generic plan keeps the `team_id` index.
 const REALTIME_COHORTS_FOR_TEAMS_SQL: &str =
     concat!(realtime_cohorts_select!(), " AND c.team_id = ANY($1)");
 
@@ -60,8 +55,6 @@ pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, Filt
     Ok(rows)
 }
 
-/// [`load_realtime_cohorts`] for `team_ids` only, so Postgres does not read the `filters` of other
-/// teams.
 pub async fn load_realtime_cohorts_for_teams(
     pool: &PgPool,
     team_ids: &[i32],

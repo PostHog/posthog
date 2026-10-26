@@ -295,9 +295,7 @@ async fn load_allowlisted(
     }
 }
 
-/// Drop rows outside the configured team scope before catalog construction. [`load_allowlisted`]
-/// already scopes the query; this repeats the filter in memory so the scope holds even if the SQL
-/// stops filtering.
+/// Backstop for the load query's team filter.
 fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
     rows.retain(|row| allowlist.includes(row.team_id));
 }
@@ -654,7 +652,7 @@ mod tests {
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
 
-        // Raw loads, because `retain_allowlisted` would mask a scoped query that does not filter.
+        // Bypass `retain_allowlisted`, which would hide a missing SQL filter.
         let keys = |rows: &[CohortRow]| -> BTreeSet<(i32, i32)> {
             rows.iter().map(|row| (row.team_id, row.id)).collect()
         };
