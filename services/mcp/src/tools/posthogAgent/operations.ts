@@ -36,6 +36,8 @@ export interface AgentOperationApprovalOption {
 export interface AgentOperationApproval {
     request_id: string
     title: string
+    /** What the step will run, such as the PostHog command, when the sandbox reports it. */
+    detail?: string | null
     options: AgentOperationApprovalOption[]
 }
 
@@ -103,6 +105,8 @@ export interface AgentOperation {
     posthog_url: string
     plan: AgentOperationPlanItem[]
     new_steps: string[]
+    /** Steps recorded so far for the whole operation. */
+    steps_total: number
     summary: string | null
     cursor: string
     retry_after_seconds: number
@@ -277,6 +281,9 @@ export function formatAgentOperationText(operation: AgentOperation): string {
     const question = operation.result?.question ?? operation.question
     if (operation.approval) {
         agentLines.push('', 'Approval needed for this tool call:', operation.approval.title)
+        if (operation.approval.detail) {
+            agentLines.push(operation.approval.detail)
+        }
     } else if (question) {
         agentLines.push('', 'Question for the user:', question)
     }

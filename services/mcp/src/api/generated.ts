@@ -12211,8 +12211,13 @@ export namespace Schemas {
     export interface AgentOperationApproval {
       /** The pending approval request. */
       request_id: string;
-      /** The tool call that waits for approval. */
+      /** A short label for the tool call that waits for approval, such as 'Execute SQL query'. */
       title: string;
+      /**
+         * The PostHog command that waits for approval, such as 'call execute-sql {...}', cut to 600 characters. Null for other tools.
+         * @nullable
+         */
+      detail: string | null;
       /** The answers that the sandbox accepts. */
       options: AgentOperationApprovalOption[];
     }
@@ -12328,6 +12333,8 @@ export namespace Schemas {
       plan: AgentOperationPlanItem[];
       /** Steps since the cursor that the client sent. */
       new_steps: string[];
+      /** The number of steps that the operation recorded so far, across all its runs. new_steps shows at most 20 of them. */
+      steps_total: number;
       /**
          * PostHog AI's running summary of the work.
          * @nullable

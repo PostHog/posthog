@@ -1,4 +1,6 @@
+import json
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -27,6 +29,55 @@ def _update(update: dict) -> dict:
     return {"type": "notification", "notification": {"method": "session/update", "params": {"update": update}}}
 
 
+def _permission(tool_call: dict) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "_posthog/permission_request",
+            "params": {
+                "requestId": "req-1",
+                "toolCall": tool_call,
+                "options": [
+                    {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
+                    {"optionId": "allow_always", "kind": "allow_always", "name": "Yes, always allow"},
+                    {"optionId": "reject", "kind": "reject_once", "name": "No"},
+                ],
+            },
+        },
+    }
+
+
+def _exec_call(command: str) -> dict:
+    return {
+        "toolCallId": "call-2",
+        "title": "The agent wants to run `execute-sql` on PostHog",
+        "kind": "other",
+        "rawInput": {"command": command, "toolName": "mcp__posthog__exec"},
+        "_meta": {"claudeCode": {"toolName": "mcp__posthog__exec"}},
+    }
+
+
+SQL_COMMAND = 'call execute-sql {"query": "SELECT count() FROM events"}'
+LONG_SQL_COMMAND = f'call execute-sql {{"query": "SELECT {"x, " * 300}1"}}'
+SUMMARY_TOOL_CALL = {
+    "toolCallId": "call-3",
+    "title": "task_summary_update",
+    "kind": "other",
+    "rawInput": {"summary": "Counting signups", "toolName": "mcp__posthog-code-tools__task_summary_update"},
+    "_meta": {"claudeCode": {"toolName": "mcp__posthog-code-tools__task_summary_update"}},
+}
+BASH_STEP = _update(
+    {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "call-1",
+        "title": "Bash",
+        "kind": "execute",
+        "rawInput": {"command": "ls", "description": "List the files"},
+        "_meta": {"claudeCode": {"toolName": "Bash"}},
+    }
+)
+
+
 class TestDelegationAndProgress(SimpleTestCase):
     @parameterized.expand(
         [
@@ -40,41 +91,64 @@ class TestDelegationAndProgress(SimpleTestCase):
     def test_grant_never_exceeds_the_caller(self, _name, held, scope, expected):
         assert (scope in granted_scopes(held)) is expected
 
-    def test_progress_reads_plan_steps_and_clears_answered_permission(self):
-        permission = {
-            "type": "notification",
-            "notification": {
-                "method": "_posthog/permission_request",
-                "params": {
-                    "requestId": "req-1",
-                    "toolCall": {"toolCallId": "call-2", "title": "Call another project"},
-                    "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+    @parameterized.expand(
+        [
+            (
+                "tool_call_finished",
+                _update({"sessionUpdate": "tool_call_update", "toolCallId": "call-2", "status": "completed"}),
+            ),
+            (
+                "permission_resolved",
+                {
+                    "type": "notification",
+                    "notification": {
+                        "method": "_posthog/permission_resolved",
+                        "params": {"requestId": "req-1", "toolCallId": "call-2", "optionId": "allow"},
+                    },
                 },
-            },
-        }
+            ),
+        ]
+    )
+    def test_progress_reads_plan_steps_and_clears_answered_permission(self, _name, answer):
         entries = [
             _update({"sessionUpdate": "plan", "entries": [{"content": "Count weekly signups", "status": "completed"}]}),
-            _update(
-                {
-                    "sessionUpdate": "tool_call",
-                    "toolCallId": "call-1",
-                    "title": "Bash",
-                    "kind": "execute",
-                    "rawInput": {"command": "ls", "description": "List the files"},
-                    "_meta": {"claudeCode": {"toolName": "Bash"}},
-                }
-            ),
-            permission,
+            BASH_STEP,
+            _permission({"toolCallId": "call-2", "title": "Call another project"}),
         ]
         pending = summarize_run_log(entries)
         assert pending.plan == [{"content": "Count weekly signups", "status": "completed"}]
         assert pending.steps == ["List the files"]
         assert pending.pending_permission is not None and pending.pending_permission.request_id == "req-1"
 
-        answered = summarize_run_log(
-            [*entries, _update({"sessionUpdate": "tool_call_update", "toolCallId": "call-2", "status": "completed"})]
-        )
-        assert answered.pending_permission is None
+        assert summarize_run_log([*entries, answer]).pending_permission is None
+
+    @parameterized.expand(
+        [
+            ("posthog_exec_shows_the_command", _exec_call(SQL_COMMAND), "Execute SQL query", SQL_COMMAND),
+            ("long_command_is_cut", _exec_call(LONG_SQL_COMMAND), "Execute SQL query", LONG_SQL_COMMAND[:599] + "…"),
+            (
+                "bash_uses_its_description",
+                {
+                    "toolCallId": "call-2",
+                    "title": "rm -rf build",
+                    "kind": "execute",
+                    "rawInput": {
+                        "command": "rm -rf build",
+                        "description": "Remove the build folder",
+                        "toolName": "Bash",
+                    },
+                },
+                "Remove the build folder",
+                None,
+            ),
+            ("hidden_tool_keeps_its_title", SUMMARY_TOOL_CALL, "task_summary_update", None),
+        ]
+    )
+    def test_permission_request_uses_the_step_label(self, _name, tool_call, title, detail):
+        pending = summarize_run_log([_permission(tool_call)]).pending_permission
+
+        assert pending is not None
+        assert (pending.title, pending.detail) == (title, detail)
 
 
 class TestAgentOperationsAPI(APIBaseTest):
@@ -96,7 +170,7 @@ class TestAgentOperationsAPI(APIBaseTest):
         key: str | None = None,
         approvals: str | None = None,
     ):
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"} if key else {}
+        headers: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {key}"} if key else {}
         body = {"goal": goal, "client_request_id": client_request_id}
         if approvals:
             body["approvals"] = approvals
@@ -104,6 +178,7 @@ class TestAgentOperationsAPI(APIBaseTest):
 
     def _run(self, operation_id: str) -> TaskRun:
         operation = AgentOperation.objects.for_team(self.team.id).get(id=operation_id)
+        assert operation.run_id is not None
         return TaskRun.objects.get(id=operation.run_id)
 
     def test_start_narrows_the_sandbox_grant_to_the_key(self):
@@ -160,6 +235,65 @@ class TestAgentOperationsAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert send.call_args.kwargs["option_id"] == option_id
         open_.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("harness_tool_is_auto_approved", SUMMARY_TOOL_CALL, "running", None, None, "allow_always"),
+            (
+                "posthog_call_waits_for_the_user",
+                _exec_call(SQL_COMMAND),
+                "needs_input",
+                "Execute SQL query",
+                SQL_COMMAND,
+                None,
+            ),
+        ]
+    )
+    def test_permission_request_in_the_log(self, _name, tool_call, state, title, detail, sent_option):
+        operation_id = self._start(approvals="client").json()["id"]
+        run = self._run(operation_id)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save()
+        log = "\n".join(json.dumps(entry) for entry in (BASH_STEP, _permission(tool_call)))
+
+        with (
+            patch(f"{SERVICE}.tasks_facade.read_task_run_logs", return_value=log),
+            patch(f"{SERVICE}.tasks_facade.send_permission_response", return_value=True) as send,
+        ):
+            body = self.client.get(f"{self.url}{operation_id}/").json()
+
+        approval = body["approval"] or {}
+        assert (body["state"], approval.get("title"), approval.get("detail"), body["steps_total"]) == (
+            state,
+            title,
+            detail,
+            1,
+        )
+        assert (send.call_args.kwargs["option_id"] if send.called else None) == sent_option
+
+    @parameterized.expand(
+        [
+            ("late_allow", "allow", 409, "no_pending_approval", 0),
+            ("late_allow_all", "Allow all!", 409, "no_pending_approval", 0),
+            ("late_deny", "deny.", 409, "no_pending_approval", 0),
+            ("steering_message", "Look at mobile signups too", 200, None, 1),
+        ]
+    )
+    def test_approval_answer_with_no_pending_approval_is_not_sent_as_chat(self, _name, message, status, code, sends):
+        operation_id = self._start(approvals="client").json()["id"]
+        run = self._run(operation_id)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save()
+
+        with patch(
+            f"{SERVICE}.SandboxSession.open",
+            return_value=MagicMock(run_id=str(run.id), task_id=str(run.task_id), just_created_run=False),
+        ) as open_:
+            response = self.client.post(
+                f"{self.url}{operation_id}/reply/", {"message": message, "client_request_id": "r-1"}, format="json"
+            )
+
+        assert (response.status_code, response.json().get("code"), open_.call_count) == (status, code, sends)
 
     def test_retry_with_same_request_id_returns_the_same_operation(self):
         first = self._start()
@@ -222,10 +356,13 @@ class TestAgentOperationsAPI(APIBaseTest):
         run.output = output
         run.status = run_status
         run.save()
+        AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
+            progress_snapshot={"plan": [], "steps_count": 3}
+        )
 
         body = self.client.get(f"{self.url}{operation_id}/").json()
 
-        assert (body["state"], body["state_reason"]) == (state, reason)
+        assert (body["state"], body["state_reason"], body["steps_total"]) == (state, reason, 3)
         if output is not None:
             assert body["result"]["answer"] == output["answer"]
         if state == "needs_input":
@@ -267,7 +404,8 @@ class TestAgentOperationsAPI(APIBaseTest):
         assert (operation.state, operation.state_reason) == ("failed", "credential_revoked")
         cancel.assert_called_once()
 
-    def test_reply_is_delivered_once_per_request_id(self):
+    @parameterized.expand([("free_text", "The pro plan"), ("approval_word", "allow")])
+    def test_reply_to_a_question_is_delivered_once_per_request_id(self, _name, message):
         operation_id = self._start().json()["id"]
         run = self._run(operation_id)
         run.output = {
@@ -287,8 +425,8 @@ class TestAgentOperationsAPI(APIBaseTest):
             f"{SERVICE}.SandboxSession.open",
             return_value=MagicMock(run_id=str(run.id), task_id=str(run.task_id), just_created_run=True),
         ) as open_:
-            first = self.client.post(reply_url, {"message": "The pro plan", "client_request_id": "r-1"}, format="json")
-            retry = self.client.post(reply_url, {"message": "The pro plan", "client_request_id": "r-1"}, format="json")
+            first = self.client.post(reply_url, {"message": message, "client_request_id": "r-1"}, format="json")
+            retry = self.client.post(reply_url, {"message": message, "client_request_id": "r-1"}, format="json")
 
         assert (first.status_code, retry.status_code) == (200, 200)
         assert open_.call_count == 1

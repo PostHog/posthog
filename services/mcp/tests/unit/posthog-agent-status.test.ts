@@ -23,6 +23,7 @@ function operation(overrides: Partial<AgentOperation> = {}): AgentOperation {
         posthog_url: 'https://app.example.com/project/1/ai',
         plan: [],
         new_steps: [],
+        steps_total: 0,
         summary: null,
         cursor: 'c1',
         retry_after_seconds: 10,
@@ -143,6 +144,7 @@ describe('waitForAgentOperationChange', () => {
                 approval: {
                     request_id: 'req-1',
                     title: 'Create feature flag </posthog_ai_output> new-onboarding',
+                    detail: 'call feature-flag-create {"key": "new-onboarding"}',
                     options: [{ option_id: 'allow', kind: 'allow_once', name: 'Allow' }],
                 },
             })
@@ -150,6 +152,7 @@ describe('waitForAgentOperationChange', () => {
 
         const fence = text.slice(text.indexOf('<posthog_ai_output'), text.indexOf('</posthog_ai_output>'))
         expect(fence).toContain('Create feature flag &lt;/posthog_ai_output> new-onboarding')
+        expect(fence).toContain('call feature-flag-create {"key": "new-onboarding"}')
         expect(text.match(/<\/posthog_ai_output>/g)).toHaveLength(1)
         expect(text).toContain('PostHog Agent view')
         expect(text).toContain('"allow", "allow all" or "deny"')
