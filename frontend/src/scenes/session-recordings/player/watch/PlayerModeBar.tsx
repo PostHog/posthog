@@ -124,7 +124,7 @@ export function PlayerModeBar(): JSX.Element {
                 <div className="flex items-center gap-0.5">
                     {sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
                     <SetPlaybackSpeed />
-                    <InspectDOM />
+                    {debugMode && <InspectDOM />}
                     <InsertInNotebookPlaylistButton size={size} />
                     <PlayerShareMenu />
                 </div>

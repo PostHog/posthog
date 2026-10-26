@@ -40,7 +40,7 @@ export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
     )
 }
 
-/** Moments shows once the recording has an observation or a summary on the way, so an empty pane never opens. */
+/** Scans shows once the recording has an observation or a summary on the way, so an empty pane never opens. */
 function ReplayListColumnForRecording({
     recording,
     ...props
@@ -103,7 +103,7 @@ function ReplayListColumnView({
                       label: (
                           <span className="flex items-center gap-1">
                               <IconSparkles />
-                              <span>Moments</span>
+                              <span>Scans</span>
                               <MomentsBadge sessionId={playerLogicProps.sessionRecordingId} />
                           </span>
                       ),
@@ -114,7 +114,7 @@ function ReplayListColumnView({
     ]
 
     return (
-        <>
+        <div className="flex flex-col h-full min-h-0">
             {options.length > 1 && (
                 <LemonSegmentedButton
                     size="small"
@@ -130,20 +130,22 @@ function ReplayListColumnView({
                     options={options}
                 />
             )}
-            {segment === 'picks' ? (
-                picksList
-            ) : segment === 'moments' && playerLogicProps && recording ? (
-                <MomentsSegment
-                    key={recording.id}
-                    playerLogicProps={playerLogicProps}
-                    personDisplay={asDisplay(recording.person)}
-                    person={recording.person}
-                    durationSeconds={recording.recording_duration}
-                />
-            ) : (
-                recordingsList
-            )}
-        </>
+            <div className="flex flex-col flex-1 min-h-0">
+                {segment === 'picks' ? (
+                    picksList
+                ) : segment === 'moments' && playerLogicProps && recording ? (
+                    <MomentsSegment
+                        key={recording.id}
+                        playerLogicProps={playerLogicProps}
+                        personDisplay={asDisplay(recording.person)}
+                        person={recording.person}
+                        durationSeconds={recording.recording_duration}
+                    />
+                ) : (
+                    recordingsList
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -173,7 +175,7 @@ function MomentsSegment({
         )
     }
     if (playerState === 'missing') {
-        return <p className="text-muted text-sm p-4 m-0">Open a recording to see its moments.</p>
+        return <p className="text-muted text-sm p-4 m-0">Open a recording to see its scans.</p>
     }
     return (
         <div className="flex flex-col flex-1 min-h-0 border rounded bg-surface-primary overflow-hidden">
