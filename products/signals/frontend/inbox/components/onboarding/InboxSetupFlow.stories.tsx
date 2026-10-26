@@ -320,7 +320,7 @@ export const TreatmentEntry = {
     name: 'Guided intro with manual setup only',
     render: () => <InboxOnboardingEntry />,
     play: async ({ canvas }) => {
-        await canvas.findByText('Start manually')
+        await canvas.findByText('Set up Self-Driving')
         await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
     },
     decorators: [
@@ -401,7 +401,7 @@ export const QuickEntry: Story = {
     },
     render: () => <QuickActivationPreview />,
     play: async ({ canvas }) => {
-        await canvas.findByText('Start manually')
+        await canvas.findByText('Connect GitHub')
         await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
     },
     decorators: [
@@ -432,6 +432,10 @@ export const QuickEntry: Story = {
 export const QuickConnected: Story = {
     ...QuickEntry,
     name: 'Quick setup with GitHub connected',
+    play: async ({ canvas }) => {
+        await canvas.findByText('Activate Self-Driving')
+        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+    },
     decorators: [
         mswDecorator({
             get: {

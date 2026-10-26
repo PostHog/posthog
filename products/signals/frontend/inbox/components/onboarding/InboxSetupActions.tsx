@@ -35,13 +35,14 @@ export function InboxSetupActions(): JSX.Element {
                 // pinned: autocapture data-attr - dashboards and test selectors match on this string
                 <div data-attr="inbox-welcome-set-up-manually" className="self-start">
                     <LemonButton
-                        type="secondary"
+                        type={experimentVariant === 'control' ? 'secondary' : 'primary'}
+                        status={experimentVariant === 'control' ? undefined : 'alt'}
                         sideIcon={<IconArrowRight />}
                         onClick={continueFromWelcome}
                         // pinned: data-attr - the welcome funnel and test selectors match on this string
                         data-attr="inbox-setup-welcome-continue"
                     >
-                        Start manually
+                        {experimentVariant === 'control' ? 'Start manually' : 'Set up Self-Driving'}
                     </LemonButton>
                 </div>
             )}

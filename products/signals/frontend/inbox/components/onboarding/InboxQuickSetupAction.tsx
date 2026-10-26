@@ -47,7 +47,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                     }
                     data-attr="inbox-quick-activate"
                 >
-                    Start manually
+                    Activate Self-Driving
                 </LemonButton>
             ) : restrictionReason ? (
                 <IntegrationAccessRequest kind="github" name="GitHub" />
@@ -57,7 +57,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                     connectSurface="inbox_welcome"
                     onAuthorize={connectGithub}
                     authorizing={saving || (integrationsLoading && integrations === null)}
-                    connectText="Start manually"
+                    connectText="Connect GitHub"
                     emphasizeConnect
                     showPersonalConnectionHelp={false}
                     showManageButton={false}
