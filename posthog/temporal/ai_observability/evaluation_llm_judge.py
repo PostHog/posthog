@@ -492,6 +492,23 @@ def _build_rejected_request_skip_result(
     return result
 
 
+def _build_rate_limit_skip_result(
+    error: RetryableRateLimitError, *, allows_na: bool, output_type: str
+) -> EvaluationActivityResult:
+    reasoning = require_user_error_spec("rate_limit_retries_exhausted").safe_message
+    # Only the SDK error the adapter wrapped carries the provider's sentence. Our own message on
+    # `error` is generic, and the provider's text names the limit that the customer has to change.
+    detail = truncate_error_detail(provider_error_detail(error.__cause__))
+    if detail:
+        reasoning = f"{reasoning} Provider message: {detail}"
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning=reasoning,
+        skip_reason="rate_limit_retries_exhausted",
+    )
+
+
 @temporalio.activity.defn
 @close_db_connections
 # capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
@@ -849,25 +866,15 @@ def call_llm_judge(
     except RetryableRateLimitError as e:
         retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
         last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
-        if is_byok:
-            # The customer sets the limits on their own key, so no attempt reaches error tracking.
-            # A backfill still fails its run, because the backfill decides whether to pause or stop.
-            increment_user_errors("provider_rate_limited", provider=provider)
-            if last and not backfill:
-                return build_skipped_evaluation_result(
-                    output_type=output_type,
-                    allows_na=allows_na,
-                    reasoning=require_user_error_spec("provider_rate_limited").safe_message,
-                    skip_reason="provider_rate_limited",
-                )
-            raise NonReportableApplicationError(
-                str(e),
-                {"error_type": "provider_unavailable", "provider": provider},
-                next_retry_delay=retry_delay,
-            ) from e
+        # Decision endpoints raise this error for outages too (408, 503, 529). Only a 429 on the
+        # customer's own key is a limit that the customer sets and PostHog cannot act on.
+        customer_limited = is_byok and e.status == 429
+        if customer_limited and last and not backfill:
+            increment_user_errors("rate_limit_retries_exhausted", provider=provider)
+            return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
         increment_errors("rate_limit", provider=provider)
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if last else NonReportableApplicationError
+        error_class = ApplicationError if last and not customer_limited else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
