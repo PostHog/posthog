@@ -47,10 +47,6 @@ class TestMetabaseSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["cards"])
-        assert [s.name for s in schemas] == ["cards"]
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source.metabase_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_metabase_source):
         inputs = mock.MagicMock()

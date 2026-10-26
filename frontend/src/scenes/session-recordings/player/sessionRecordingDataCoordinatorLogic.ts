@@ -234,24 +234,6 @@ export interface SessionRecordingDataCoordinatorLogicProps {
 // ~5 minutes but measure from different events, so tune them together, not in isolation.
 export const INGESTION_GRACE_PERIOD_MINUTES = 5
 
-export function recordingDurationMs(
-    start: Dayjs | null,
-    end: Dayjs | null,
-    meta: SessionRecordingType | null,
-    fullyLoaded: boolean,
-    livePolling: boolean
-): number {
-    if (!start || !end) {
-        return 0
-    }
-    const snapshotDuration = end.diff(start)
-    // metadata is not reloaded while live, so its duration falls behind the new snapshots
-    if (fullyLoaded && meta?.recording_duration && !livePolling) {
-        return Math.min(snapshotDuration, meta.recording_duration * 1000)
-    }
-    return snapshotDuration
-}
-
 export function isWithinIngestionGracePeriod(start: Dayjs | null): boolean {
     return start != null && now().diff(start, 'minute') <= INGESTION_GRACE_PERIOD_MINUTES
 }
@@ -284,7 +266,6 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     snapshotsLoading: boolean // metaLogic
     trackedWindow: number | null // metaLogic
     uuidToIndex: Record<string, number> // metaLogic
-    livePolling: boolean // snapLogic
     snapshotStore: SnapshotStore // snapLogic
     sourceLoadingStates: SourceLoadingState[] // snapLogic
     storeVersion: number // snapLogic
@@ -510,8 +491,7 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             start: Dayjs | null,
             end: Dayjs | null,
             sessionPlayerMetaData: SessionRecordingType | null,
-            fullyLoaded: boolean,
-            livePolling: boolean
+            fullyLoaded: boolean
         ) => number
         segments: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -673,7 +653,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookCommentsLoading',
                 ],
                 snapLogic,
-                ['snapshotStore', 'storeVersion', 'sourceLoadingStates', 'livePolling'],
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
             ],
         }
     }),
@@ -912,14 +892,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded, s.livePolling],
+            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
             (
                 start: Dayjs | null,
                 end: Dayjs | null,
                 meta: SessionRecordingType | null,
-                fullyLoaded: boolean,
-                livePolling: boolean
-            ): number => recordingDurationMs(start, end, meta, fullyLoaded, livePolling),
+                fullyLoaded: boolean
+            ): number => {
+                if (!start || !end) {
+                    return 0
+                }
+                const snapshotDuration = end.diff(start)
+                if (fullyLoaded && meta?.recording_duration) {
+                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
+                }
+                return snapshotDuration
+            },
         ],
 
         segments: [

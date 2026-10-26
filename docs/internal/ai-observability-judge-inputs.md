@@ -35,7 +35,11 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 ## Generation formatting
 
 Generation evaluations extract message text without the per-message character cutoff.
-They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
+They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
+If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
+
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
@@ -63,6 +67,7 @@ Decision models are available under the existing LLM judge option. They return t
 The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
 Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
 Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+Leaving decision judging for LLM judging or Hog resets an invalid threshold to its default and preserves valid thresholds.
 Changing the judge method marks the evaluation as edited, including when the selected model supports both methods.
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
@@ -146,7 +151,10 @@ API compatibility does not guarantee equivalent judgments or calibration across 
 Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
-A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
+The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
+For boolean judges, selecting **Decision model** shows **Decision threshold** as a percentage inside the **Judge model** section, below the model selector.
+Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
@@ -182,10 +190,27 @@ The playground keeps the provider's explanation so users can correct the setting
 
 ## Backfill recovery
 
+Estimates and new backfills clamp their start to UTC midnight 29 days before the current UTC date.
+This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
+Ranges ending at or before that boundary are rejected.
+Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
+
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
+Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
+A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
+Lower the setting if backfills crowd out live evaluations.
 Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
 A backfill run that still hits a DNS failure on its last attempt fails instead of recording a skip, so **Retry remaining** can run it again.
+After 10 failed runs in a row, the backfill pauses for 1, 2, 5, 10, then 30 minutes, and a success resets that sequence.
+The failure count and the pauses carry over between pages.
+When the pauses run out, or a run reports an error that disables the evaluation, the backfill stops as **Interrupted** and keeps its cursor.
+Its stop reason says whether the evaluation was disabled or the runs kept failing.
 Live evaluation retry budgets remain unchanged.
 Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
 Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
@@ -194,6 +219,8 @@ An interrupted backfill preserves completed results.
 **Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
 It preserves usable existing results and retries units without usable results.
 It is not available for a backfill that re-ran existing results.
+A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
+Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
 ## Result encoding
 
@@ -261,6 +288,10 @@ Existing reports remain accessible through the Reports tab and the report list, 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
 
 ## Browser compatibility
 

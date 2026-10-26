@@ -25,8 +25,10 @@ import {
     FrequencyCapChoice,
     RECOMMENDED_FREQUENCY_CAP,
     ONBOARDING_WIZARD_TAB,
+    WIZARD_ENTRIES,
     WIZARD_STEP_COPY,
     WizardConnection,
+    WizardEntry,
     WizardStepKey,
     chosenFrequencyCap,
     customFrequencyCapError,
@@ -36,6 +38,10 @@ import {
     sendingRulesToSave,
     wizardSteps,
 } from './onboardingWizardSteps'
+
+function isWizardEntry(value: unknown): value is WizardEntry {
+    return WIZARD_ENTRIES.includes(value as WizardEntry)
+}
 
 function isOnboardingPath(value: unknown): value is WorkflowsOnboardingPath {
     return value === 'messaging' || value === 'automation' || value === 'broadcast'
@@ -57,6 +63,7 @@ export interface workflowsOnboardingWizardLogicValues {
     currentStep: WizardStepKey
     customFrequencyCap: FrequencyCap | null
     engagementEventsChoice: boolean | null
+    entry: WizardEntry | null
     frequencyCapChoice: FrequencyCapChoice | null
     frequencyCapError: string | null
     hasPositioned: boolean
@@ -126,8 +133,16 @@ export interface workflowsOnboardingWizardLogicActions {
         path: WorkflowsOnboardingPath,
         step: WizardStepKey | null,
         stepIndex: number,
-        templateId: string | null
+        templateId: string | null,
+        entry: WizardEntry | null
     ) => {
+        entry:
+            | 'automation_banner'
+            | 'automation_empty_state'
+            | 'broadcasts_empty_state'
+            | 'messaging_setup_guide'
+            | 'path_choice'
+            | null
         path: WorkflowsOnboardingPath
         step: WizardStepKey | null
         stepIndex: number
@@ -196,7 +211,7 @@ export interface workflowsOnboardingWizardLogicMeta {
         canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
         stepKeys: (wizardPath: WorkflowsOnboardingPath, pushEnabled: boolean) => readonly WizardStepKey[]
         currentStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => WizardStepKey
-        offersSuggestions: (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet) => boolean
+        offersSuggestions: (wizardPath: WorkflowsOnboardingPath) => boolean
         suggestionsFirst: (offersSuggestions: boolean, currentStep: WizardStepKey, templatesShown: boolean) => boolean
         isLastStep: (stepKeys: readonly WizardStepKey[], stepIndex: number) => boolean
         templates: (workflowTemplates: HogFlowTemplate[], wizardPath: WorkflowsOnboardingPath) => HogFlowTemplate[]
@@ -266,12 +281,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             path: WorkflowsOnboardingPath,
             step: WizardStepKey | null,
             stepIndex: number,
-            templateId: string | null
+            templateId: string | null,
+            entry: WizardEntry | null
         ) => ({
             path,
             step,
             stepIndex,
             templateId,
+            entry,
         }),
         setStepIndex: (index: number) => ({ index }),
         next: true,
@@ -293,6 +310,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             'messaging' as WorkflowsOnboardingPath,
             {
                 initWizard: (_, { path }) => path,
+            },
+        ],
+        entry: [
+            null as WizardEntry | null,
+            {
+                initWizard: (_, { entry }) => entry,
             },
         ],
         stepIndex: [
@@ -442,12 +465,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (stepKeys: readonly WizardStepKey[], stepIndex: number): WizardStepKey =>
                 stepKeys[Math.min(stepIndex, stepKeys.length - 1)],
         ],
-        // The suggestions logic starts an AI run when it mounts, so nothing mounts it without the flag. Suggestions are
-        // messages to users, so the automation path never offers them.
+        // Suggestions are messages to users, so the automation path never offers them.
         offersSuggestions: [
-            (s) => [s.wizardPath, s.featureFlags],
-            (wizardPath: WorkflowsOnboardingPath, featureFlags: FeatureFlagsSet): boolean =>
-                wizardPath === 'messaging' && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+            (s) => [s.wizardPath],
+            (wizardPath: WorkflowsOnboardingPath): boolean => wizardPath === 'messaging',
         ],
         suggestionsFirst: [
             (s) => [s.offersSuggestions, s.currentStep, s.templatesShown],
@@ -571,109 +592,132 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        next: () => {
-            const step = values.currentStep
+    listeners(({ actions, values }) => {
+        // Sent once the wizard settles on a step, so a person who opens it fresh does not count a view of
+        // the first step before it moves to their first open one.
+        const captureStepViewed = (): void => {
             // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard step completed', {
+            posthog.capture('workflows onboarding wizard step viewed', {
                 path: values.wizardPath,
-                step,
-                skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
-                ...(step === 'sending-rules'
-                    ? { frequency_cap: values.shownFrequencyCapChoice, engagement_events: values.shownEngagementEvents }
-                    : {}),
+                step: values.currentStep,
+                step_index: values.stepIndex,
+                entry: values.entry,
             })
-            const rulesToSave =
-                step === 'sending-rules'
-                    ? sendingRulesToSave(
-                          {
-                              ...values.savedFrequencyCap,
-                              engagementEvents:
-                                  !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
-                          },
-                          values.chosenFrequencyCap,
-                          values.shownEngagementEvents,
-                          values.canEditSendingRules
-                      )
-                    : null
-            if (rulesToSave) {
-                actions.updateCurrentTeam({ workflows_config: rulesToSave })
-            }
-            if (values.isLastStep) {
-                actions.finish()
-            } else {
-                actions.setStepIndex(values.stepIndex + 1)
-            }
-        },
-        back: () => {
-            actions.setStepIndex(Math.max(0, values.stepIndex - 1))
-        },
-        initWizard: () => {
-            actions.positionIfReady()
-        },
-        positionIfReady: () => {
-            const { stepDone, initialized, hasPositioned, wizardPath, stepKeys } = values
-            if (stepDone && initialized && !hasPositioned && wizardPath !== 'automation') {
-                actions.positionAtFirstOpenStep(firstOpenStepIndex(stepKeys, stepDone))
-            }
-        },
-        finish: () => {
-            if (values.wizardPath === 'broadcast') {
+        }
+        return {
+            setStepIndex: captureStepViewed,
+            positionAtFirstOpenStep: captureStepViewed,
+            next: () => {
+                const step = values.currentStep
                 // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('workflows onboarding wizard finished', { path: values.wizardPath })
-                actions.startNewBroadcast()
-                return
-            }
-            if (values.startsBlank) {
+                posthog.capture('workflows onboarding wizard step completed', {
+                    path: values.wizardPath,
+                    step,
+                    skipped: WIZARD_STEP_COPY[step].optional && !values.stepDone?.[step],
+                    ...(step === 'sending-rules'
+                        ? {
+                              frequency_cap: values.shownFrequencyCapChoice,
+                              engagement_events: values.shownEngagementEvents,
+                          }
+                        : {}),
+                })
+                const rulesToSave =
+                    step === 'sending-rules'
+                        ? sendingRulesToSave(
+                              {
+                                  ...values.savedFrequencyCap,
+                                  engagementEvents:
+                                      !!values.currentTeam?.workflows_config?.capture_workflows_engagement_events,
+                              },
+                              values.chosenFrequencyCap,
+                              values.shownEngagementEvents,
+                              values.canEditSendingRules
+                          )
+                        : null
+                if (rulesToSave) {
+                    actions.updateCurrentTeam({ workflows_config: rulesToSave })
+                }
+                if (values.isLastStep) {
+                    actions.finish()
+                } else {
+                    actions.setStepIndex(values.stepIndex + 1)
+                }
+            },
+            back: () => {
+                actions.setStepIndex(Math.max(0, values.stepIndex - 1))
+            },
+            initWizard: ({ path, step }) => {
+                // The automation path and a link to a named step never move, so their first step is already settled.
+                // Reads the payload, because positioning can run before this listener and set `hasPositioned`.
+                if (step !== null || path === 'automation') {
+                    captureStepViewed()
+                }
+                actions.positionIfReady()
+            },
+            positionIfReady: () => {
+                const { stepDone, initialized, hasPositioned, wizardPath, stepKeys } = values
+                if (stepDone && initialized && !hasPositioned && wizardPath !== 'automation') {
+                    actions.positionAtFirstOpenStep(firstOpenStepIndex(stepKeys, stepDone))
+                }
+            },
+            finish: () => {
+                if (values.wizardPath === 'broadcast') {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows onboarding wizard finished', { path: values.wizardPath })
+                    actions.startNewBroadcast()
+                    return
+                }
+                if (values.startsBlank) {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows onboarding wizard finished', {
+                        path: values.wizardPath,
+                        template_id: BLANK_START_ID,
+                    })
+                    actions.createEmptyWorkflow()
+                    return
+                }
+                const template = values.selectedTemplate
+                if (!template) {
+                    return
+                }
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows onboarding wizard finished', {
                     path: values.wizardPath,
-                    template_id: BLANK_START_ID,
+                    template_id: template.id,
+                    template_scope: template.scope,
                 })
-                actions.createEmptyWorkflow()
-                return
-            }
-            const template = values.selectedTemplate
-            if (!template) {
-                return
-            }
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard finished', {
-                path: values.wizardPath,
-                template_id: template.id,
-                template_scope: template.scope,
-            })
-            actions.createWorkflowFromTemplate(template)
-        },
-        // A suggestion card creates and opens the workflow itself, so it skips `next` and `finish`.
-        finishWithSuggestion: () => {
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard step completed', {
-                path: values.wizardPath,
-                step: values.currentStep,
-                skipped: false,
-            })
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard finished', {
-                path: values.wizardPath,
-                template_id: DATA_SUGGESTION_START_ID,
-            })
-        },
-        exit: () => {
-            // pinned: analytics event name - renaming breaks dashboards
-            posthog.capture('workflows onboarding wizard exited', {
-                path: values.wizardPath,
-                step: values.currentStep,
-            })
-            router.actions.push(
-                values.wizardPath === 'messaging'
-                    ? urls.workflows('channels')
-                    : values.wizardPath === 'broadcast'
-                      ? urls.broadcasts()
-                      : urls.workflows()
-            )
-        },
-    })),
+                actions.createWorkflowFromTemplate(template)
+            },
+            // A suggestion card creates and opens the workflow itself, so it skips `next` and `finish`.
+            finishWithSuggestion: () => {
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard step completed', {
+                    path: values.wizardPath,
+                    step: values.currentStep,
+                    skipped: false,
+                })
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard finished', {
+                    path: values.wizardPath,
+                    template_id: DATA_SUGGESTION_START_ID,
+                })
+            },
+            exit: () => {
+                // pinned: analytics event name - renaming breaks dashboards
+                posthog.capture('workflows onboarding wizard exited', {
+                    path: values.wizardPath,
+                    step: values.currentStep,
+                })
+                router.actions.push(
+                    values.wizardPath === 'messaging'
+                        ? urls.workflows('channels')
+                        : values.wizardPath === 'broadcast'
+                          ? urls.broadcasts()
+                          : urls.workflows()
+                )
+            },
+        }
+    }),
     subscriptions(({ actions }) => ({
         stepDone: () => {
             actions.positionIfReady()
@@ -688,8 +732,14 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             const steps = wizardSteps(path, values.pushEnabled)
             const step = steps.includes(searchParams.step) ? (searchParams.step as WizardStepKey) : null
             const templateId = searchParams.template ? String(searchParams.template) : null
-            if (path !== values.wizardPath || step !== values.currentStep || templateId !== values.selectedTemplateId) {
-                actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId)
+            const entry = isWizardEntry(searchParams.entry) ? searchParams.entry : null
+            if (
+                !values.initialized ||
+                path !== values.wizardPath ||
+                step !== values.currentStep ||
+                templateId !== values.selectedTemplateId
+            ) {
+                actions.initWizard(path, step, step ? steps.indexOf(step) : 0, templateId, entry)
             }
         },
     })),

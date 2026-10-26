@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -19,6 +20,7 @@ import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
 import { GenerationChecks } from './GenerationChecks'
 import { metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
+import { QuillDashboardTemplateDetailActions } from './QuillDashboardTemplateDetailActions'
 
 // PostHog AI edits the preview with these tools. The embedded dashboard reloads after each one.
 const DASHBOARD_EDIT_TOOLS = [
@@ -41,12 +43,12 @@ function PreviewDashboard({ dashboardId }: { dashboardId: number }): JSX.Element
 }
 
 export function DashboardTemplateDetail(): JSX.Element {
-    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable } = useValues(
-        metricsDashboardReviewSceneLogic
-    )
-    const { approveTemplate, rejectTemplate } = useActions(metricsDashboardReviewSceneLogic)
+    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable, regenerable } =
+        useValues(metricsDashboardReviewSceneLogic)
+    const { approveTemplate, rejectTemplate, confirmRegenerate } = useActions(metricsDashboardReviewSceneLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!template) {
         return templateLoading ? (
@@ -70,58 +72,73 @@ export function DashboardTemplateDetail(): JSX.Element {
                 description={template.description}
                 resourceType={{ type: 'metrics' }}
                 actions={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconSparkles className="text-ai" />}
-                            onClick={editWithAI}
-                            disabledReason={
-                                !reviewable
-                                    ? 'Only a dashboard that waits for review can be changed'
-                                    : !previewDashboardId
-                                      ? 'Open the preview first'
-                                      : !dataProcessingAccepted
-                                        ? (dataProcessingApprovalDisabledReason ??
-                                          'Approve AI data processing to use PostHog AI')
-                                        : undefined
-                            }
-                            data-attr="metrics-dashboard-review-edit-with-ai"
-                        >
-                            <span
-                                className={cn(
-                                    'rainbow-text font-semibold',
-                                    !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
-                                )}
-                            >
-                                Edit with PostHog AI
-                            </span>
-                        </LemonButton>
-                        {reviewable && template.status !== 'rejected' && (
+                    todayRailNav ? (
+                        <QuillDashboardTemplateDetailActions template={template} onEditWithAI={editWithAI} />
+                    ) : (
+                        <>
                             <LemonButton
                                 type="secondary"
-                                status="danger"
                                 size="small"
-                                onClick={rejectTemplate}
-                                loading={templateLoading}
-                                data-attr="metrics-dashboard-review-reject"
+                                icon={<IconSparkles className="text-ai" />}
+                                onClick={editWithAI}
+                                disabledReason={
+                                    !reviewable
+                                        ? 'Only a dashboard that waits for review can be changed'
+                                        : !previewDashboardId
+                                          ? 'Open the preview first'
+                                          : !dataProcessingAccepted
+                                            ? (dataProcessingApprovalDisabledReason ??
+                                              'Approve AI data processing to use PostHog AI')
+                                            : undefined
+                                }
+                                data-attr="metrics-dashboard-review-edit-with-ai"
                             >
-                                Reject
+                                <span
+                                    className={cn(
+                                        'rainbow-text font-semibold',
+                                        !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
+                                    )}
+                                >
+                                    Edit with PostHog AI
+                                </span>
                             </LemonButton>
-                        )}
-                        {reviewable && (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={approveTemplate}
-                                loading={templateLoading}
-                                tooltip="Projects that send these metrics see this dashboard as a suggestion. Your changes to the preview become part of it."
-                                data-attr="metrics-dashboard-review-approve"
-                            >
-                                Approve
-                            </LemonButton>
-                        )}
-                    </>
+                            {regenerable && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={confirmRegenerate}
+                                    loading={templateLoading}
+                                    data-attr="metrics-dashboard-review-regenerate"
+                                >
+                                    Regenerate
+                                </LemonButton>
+                            )}
+                            {reviewable && template.status !== 'rejected' && (
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={rejectTemplate}
+                                    loading={templateLoading}
+                                    data-attr="metrics-dashboard-review-reject"
+                                >
+                                    Reject
+                                </LemonButton>
+                            )}
+                            {reviewable && (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={approveTemplate}
+                                    loading={templateLoading}
+                                    tooltip="Projects that send these metrics see this dashboard as a suggestion. Your changes to the preview become part of it."
+                                    data-attr="metrics-dashboard-review-approve"
+                                >
+                                    Approve
+                                </LemonButton>
+                            )}
+                        </>
+                    )
                 }
             />
             <div className="flex flex-wrap items-center gap-2">

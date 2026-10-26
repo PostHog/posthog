@@ -23,6 +23,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
 from posthog.models.team.team import Team
@@ -203,6 +204,8 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         "The tool raised an internal error. Do not immediately retry the tool call. "
                         f"Error id: {error_id}"
                     ),
+                    "error_type": "internal",
+                    "error_code": error_code_from_type(e),
                 }
             )
 

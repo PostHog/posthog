@@ -370,6 +370,11 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -455,6 +460,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
+                "prefers_full_refresh": schema.prefers_full_refresh,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

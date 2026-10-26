@@ -14,6 +14,12 @@ class StripeAuthMethodConfig(config.Config):
 
 
 @config.config
+class StripeBalanceHistoryAllCustomersConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
+    balance_history_all_customers: StripeBalanceHistoryAllCustomersConfig | None = None

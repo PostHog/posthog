@@ -1,5 +1,8 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
+import { hogErrorTrackingStacktraceFn } from '../../hog-helpers'
+
 export const template: HogFunctionTemplate = {
     status: 'stable',
     free: false,
@@ -10,10 +13,15 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/gitlab.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `let posthog_issue_url := inputs.posthog_issue_url
+    code: `${hogErrorTrackingStacktraceFn}
+
+let posthog_issue_url := inputs.posthog_issue_url
 if (empty(posthog_issue_url)) {
     posthog_issue_url := f'{project.url}/error-tracking/{inputs.posthog_issue_id}'
 }
+// GitLab links @mentions and URLs in an issue title, and notifies each mentioned user. Client-sent text
+// in a code span stays plain text.
+let title := notEmpty(inputs.title) ? concat('\`', replaceAll(replaceAll(inputs.title, '\`', '\\''), '\\n', ' '), '\`') : inputs.title
 let payload := {
     'method': 'POST',
     'headers': {
@@ -21,8 +29,8 @@ let payload := {
         'Content-Type': 'application/json'
     },
     'body': {
-        'title': inputs.title,
-        'description': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
+        'title': title,
+        'description': f'{inputs.description}{errorTrackingStacktrace(event.properties.$exception_list)}\n\n[View in PostHog]({posthog_issue_url})'
     }
 }
 
@@ -47,7 +55,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_types[1]}',
+            default: ERROR_TRACKING_TICKET_TITLE,
         },
         {
             key: 'description',
@@ -56,7 +64,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_values[1]}',
+            default: ERROR_TRACKING_TICKET_DESCRIPTION,
         },
         {
             key: 'posthog_issue_id',

@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from posthoganalytics import Posthog
 
@@ -67,11 +68,18 @@ class _StubReporter:
     ) -> None:
         self.done.append((case_name, status))
 
-    async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
+    async def experiment_started(
+        self, experiment_name: str, planned_cases: int, log_dir: Path, *, case_names: Sequence[str] = ()
+    ) -> None:
         self.started.append((experiment_name, planned_cases))
 
     async def record_summary(
-        self, experiment_name: str, summary: Any, error_count: int, trial_stats: Sequence[ScorerTrialStats] = ()
+        self,
+        experiment_name: str,
+        summary: Any,
+        error_count: int,
+        trial_stats: Sequence[ScorerTrialStats] = (),
+        case_results: Sequence[Any] = (),
     ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
 
@@ -85,7 +93,7 @@ class _StubEngine:
         self.calls: list[ExperimentSpec] = []
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
         return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
@@ -278,7 +286,7 @@ def test_run_routes_through_the_engine(
         ),
     ):
         harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
-        with harness._stack:
+        with override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6381/5"), harness._stack:
             harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
@@ -290,6 +298,7 @@ def test_run_routes_through_the_engine(
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
                 asyncio.run(run_suite(run))
             assert settings.TEST
+            assert settings.AI_GATEWAY_REDIS_URL is None
             assert ctx.posthog_client is not None
             assert ctx.posthog_client.disabled
             ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")

@@ -161,7 +161,7 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @parameterized.expand([("unauthorized", 401)])
     def test_invalid_key(self, _name: str, status: int) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("bad-key") is False

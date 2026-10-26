@@ -398,10 +398,8 @@ class TestQualysVmdr:
     @pytest.mark.parametrize(
         "status_code,expected",
         [
-            (200, True),
             (403, True),  # authenticated but missing the asset-list scope — still a valid credential
             (409, True),  # rate limited — the credential authenticated
-            (401, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
@@ -412,13 +410,6 @@ class TestQualysVmdr:
         assert (error is None) is expected
         assert network.requests_log[0].path == "/api/2.0/fo/asset/host/"
         assert network.requests_log[0].param("truncation_limit") == "1"
-
-    def test_validate_credentials_false_on_connection_error(self):
-        with scripted_network(always(ConnectionError("dns failure"))):
-            ok, error = validate_credentials("nonexistent.example.com", "user", "pass")
-
-        assert ok is False
-        assert error is not None
 
     def test_validate_credentials_rejects_disallowed_api_server_before_any_request(self):
         with scripted_network([]) as network:

@@ -156,11 +156,14 @@ class TestEndpointCatalog:
         # Without a server-side filter an "incremental" sync would still fetch every page. A fan-out
         # child is filtered through its parent listing instead.
         for name, config in DODOPAYMENTS_ENDPOINTS.items():
-            filter_config = DODOPAYMENTS_ENDPOINTS[config.fanout.parent_name] if config.fanout else config
-            if config.incremental_fields:
-                assert filter_config.start_param is not None, name
-            if config.fanout:
-                assert config.start_param is None, name
+            if not config.incremental_fields:
+                continue
+            filter_config = (
+                DODOPAYMENTS_ENDPOINTS[config.fanout.parent_name]
+                if config.fanout and config.start_param is None
+                else config
+            )
+            assert filter_config.start_param is not None, name
 
     def test_incremental_cursor_matches_the_partition_key(self):
         # The cursor and the partition key must both be creation timestamps that never change.
@@ -215,6 +218,25 @@ class TestFanout:
                 {"id": "bal_1", "credit_entitlement_id": "cde_1", "customer_id": "cus_1", "balance": "10"},
                 {"id": "bal_1", "credit_entitlement_id": "cde_1", "customer_id": "cus_1", "balance": "10"},
             ),
+            (
+                "customer_emails",
+                {"customer_id": "cus_1", "created_at": "2024-05-01T00:00:00Z"},
+                "/customers/cus_1/emails",
+                {"email_log_id": "eml_1", "email_type": "payment_successful", "status": "delivered"},
+                {
+                    "email_log_id": "eml_1",
+                    "email_type": "payment_successful",
+                    "status": "delivered",
+                    "customer_id": "cus_1",
+                },
+            ),
+            (
+                "customer_wallets",
+                {"customer_id": "cus_1", "created_at": "2024-05-01T00:00:00Z"},
+                "/customers/cus_1/wallets",
+                {"customer_id": "cus_1", "currency": "USD", "balance": 500},
+                {"customer_id": "cus_1", "currency": "USD", "balance": 500},
+            ),
         ],
     )
     def test_child_is_read_per_parent_with_parent_fields(
@@ -263,6 +285,46 @@ class TestFanout:
         assert result.raised is None
         assert result.requests[0].param("created_at_gte") == expected_parent_filter
         assert set(result.requests[1].query) == expected_child_query
+
+    @pytest.mark.parametrize(
+        "endpoint, should_use_incremental_field, expected_child_filter",
+        [
+            # The ledger filters its own requests, so the parent listings stay unfiltered.
+            ("credit_entitlement_ledger", True, "2024-05-01T10:00:00Z"),
+            ("credit_entitlement_grants", False, None),
+        ],
+    )
+    def test_customer_credit_child_binds_both_ids_from_each_balance(
+        self, endpoint: str, should_use_incremental_field: bool, expected_child_filter: str | None
+    ) -> None:
+        child = endpoint.removeprefix("credit_entitlement_")
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "cde_1"}]),
+                _response(
+                    [
+                        {"id": "bal_1", "credit_entitlement_id": "cde_1", "customer_id": "cus_1"},
+                        {"id": "bal_2", "credit_entitlement_id": "cde_1", "customer_id": "cus_2"},
+                    ]
+                ),
+                _response([{"id": "row_1", "credit_entitlement_id": "cde_1", "customer_id": "cus_1"}]),
+                _response([{"id": "row_2", "credit_entitlement_id": "cde_1", "customer_id": "cus_2"}]),
+            ],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=datetime(2024, 5, 1, 10, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/credit-entitlements",
+            "/credit-entitlements/cde_1/balances",
+            f"/credit-entitlements/cde_1/balances/cus_1/{child}",
+            f"/credit-entitlements/cde_1/balances/cus_2/{child}",
+        ]
+        assert [set(request.query) for request in result.requests[:2]] == [{"page_size", "page_number"}] * 2
+        assert [request.param("start_date") for request in result.requests[2:]] == [expected_child_filter] * 2
+        assert [row["id"] for row in result.rows] == ["row_1", "row_2"]
 
     def test_paginated_child_walks_every_page_of_each_parent(self) -> None:
         def periods(count: int, prefix: str) -> ScriptedResponse:

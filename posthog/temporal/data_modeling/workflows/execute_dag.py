@@ -31,6 +31,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_dag_finished_metric,
     get_dag_node_count_metric,
     get_trino_shadow_start_metric,
+    tier_label,
 )
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
@@ -565,8 +566,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         else:
             dag_status = "partial_failure"
         engine = _serving_engine(inputs)
-        get_dag_finished_metric(dag_status, engine).add(1)
-        get_dag_duration_metric(engine).record(duration_seconds)
+        tier = tier_label(temporalio.workflow.info().workflow_id)
+        get_dag_finished_metric(dag_status, engine, tier=tier).add(1)
+        get_dag_duration_metric(engine, tier=tier).record(duration_seconds)
         get_dag_node_count_metric("successful", engine).record(successful_nodes)
         get_dag_node_count_metric("failed", engine).record(failed_nodes)
         get_dag_node_count_metric("skipped", engine).record(skipped_nodes)

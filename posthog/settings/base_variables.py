@@ -66,6 +66,10 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
+# PostHog's internal US project is also used by callers running in the EU region.
+POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
+POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
+
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.
@@ -84,6 +88,11 @@ DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 # HOGTOWER_API_URL is set, control-plane calls go to hogtower's /api/v2 instead of duckgres.
 HOGTOWER_API_URL: str | None = get_from_env("HOGTOWER_API_URL", optional=True)
 HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", optional=True)
+# MANAGED_WAREHOUSE_INGRESS_IPS is the comma-separated address set the shared managed-warehouse
+# `dw` load balancer answers on. The warehouse-source host guard exempts a managed warehouse host
+# from the private-address check only when every resolved address is in this set, so an empty value
+# refuses every managed warehouse host. posthog-cloud-infra owns the values.
+MANAGED_WAREHOUSE_INGRESS_IPS: str = get_from_env("MANAGED_WAREHOUSE_INGRESS_IPS", "", type_cast=str)
 MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
     "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
 )

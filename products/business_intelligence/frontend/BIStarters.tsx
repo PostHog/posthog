@@ -36,29 +36,11 @@ const EVENTS_CONFIG: BIConfig = {
 }
 
 export function BIStarters(): JSX.Element {
-    const { metrics, sources } = useValues(biStartersLogic)
+    const { sources } = useValues(biStartersLogic)
     return (
         <section className="flex flex-col gap-2" aria-label="Worksheet starting points">
             <h3 className="m-0">Start with a question</h3>
             <div className="flex flex-wrap gap-2">
-                {metrics.map((metric) => (
-                    <LemonButton
-                        key={metric.id}
-                        type="secondary"
-                        size="small"
-                        className="max-w-full"
-                        to={`${urls.businessIntelligenceNew()}?metric=${encodeURIComponent(metric.name)}`}
-                        tooltip={`${metric.description} · Fixed query snapshot; dates and dimensions are not editable.`}
-                        onClick={() =>
-                            captureBIWorksheetAction('starter_selected', DEFAULT_BI_CONFIG, { starter_kind: 'metric' })
-                        }
-                    >
-                        <span className="flex items-center gap-1 min-w-0">
-                            <span className="truncate">Explore {metric.display_name || metric.name}</span>
-                            <LemonTag type="success">Approved metric</LemonTag>
-                        </span>
-                    </LemonButton>
-                ))}
                 {sources.map((source) => {
                     const config = { ...DEFAULT_BI_CONFIG, source: { table: source.target_name } }
                     return (
@@ -94,8 +76,8 @@ export function BIStarters(): JSX.Element {
                 </LemonButton>
             </div>
             <p className="m-0 text-xs text-secondary">
-                Choose a starting point, check its definition, then Run. Save your worksheet to return to it or add it
-                to a dashboard.
+                Choose a starting point, add fields, then Run. Save your worksheet to return to it or add it to a
+                dashboard.
             </p>
         </section>
     )

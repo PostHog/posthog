@@ -13,6 +13,7 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
     LemonSwitch,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -27,7 +28,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -118,6 +119,7 @@ export function SharingModalContent({
     const {
         whitelabelAvailable,
         accessControlAvailable,
+        canManagePublicSharing,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -237,21 +239,40 @@ export function SharingModalContent({
                         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
                             Public sharing
                         </h4>
-                        {!sharingAllowed ? (
-                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
-                        ) : (
-                            <LemonSwitch
-                                id="sharing-switch"
-                                label={`Share ${resource} publicly`}
-                                checked={sharingConfiguration.enabled}
-                                data-attr="sharing-switch"
-                                onChange={(active) => setIsEnabled(active)}
-                                bordered
-                                fullWidth
-                                loading={sharingConfigurationLoading}
-                                disabledReason={sharingManageDisabledReason}
-                            />
-                        )}
+                        {sharingAllowed &&
+                            accessControlAvailable &&
+                            sharingConfiguration.has_relevant_access_controls && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    <p className="mb-0">
+                                        {`Anyone with the public link can view this ${resource} and its data, including people outside your organization. Access controls do not apply when viewing public ${pluralizeResource(getResourceType(dashboardId, insightShortId, recordingId, notebookShortId))}.`}
+                                    </p>
+                                    {canManagePublicSharing && (
+                                        <p className="mt-2 mb-0">
+                                            <Link
+                                                to={urls.settings('organization-security')}
+                                                data-attr="sharing-public-sharing-settings"
+                                            >
+                                                Disable public sharing for your organization
+                                            </Link>
+                                        </p>
+                                    )}
+                                </LemonBanner>
+                            )}
+                        <LemonSwitch
+                            id="sharing-switch"
+                            label={`Share ${resource} publicly`}
+                            checked={sharingAllowed && sharingConfiguration.enabled}
+                            data-attr="sharing-switch"
+                            onChange={(active) => setIsEnabled(active)}
+                            bordered
+                            fullWidth
+                            loading={sharingConfigurationLoading}
+                            disabledReason={
+                                !sharingAllowed
+                                    ? 'Public sharing is disabled for this organization.'
+                                    : sharingManageDisabledReason
+                            }
+                        />
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <div className="mt-2 flex flex-col gap-2">

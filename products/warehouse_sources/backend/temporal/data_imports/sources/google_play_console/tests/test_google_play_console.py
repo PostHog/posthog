@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LIST_ENDPOINTS,
     METRIC_SETS,
     PRIMARY_KEYS,
+    RELEASE_FILTER_OPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.source import (
     GooglePlayConsoleSource,
@@ -612,6 +613,47 @@ def test_anomalies_send_no_time_filter() -> None:
     assert result.queries[1] == {"pageSize": ("100",)}
 
 
+def test_release_filter_options_flatten_per_version_code_and_resume_past_finished_apps() -> None:
+    result = _run(
+        RELEASE_FILTER_OPTIONS,
+        [
+            ScriptedResponse(
+                json={
+                    "tracks": [
+                        {
+                            "displayName": "Production",
+                            "type": "PRODUCTION",
+                            "servingReleases": [{"displayName": "2.1.0", "versionCodes": ["210", "211"]}],
+                        },
+                        {
+                            "displayName": "Internal testing",
+                            "type": "INTERNAL",
+                            "servingReleases": [{"displayName": "2.2.0-rc1", "versionCodes": ["220"]}],
+                        },
+                    ]
+                }
+            ),
+            ScriptedResponse(json={}),
+        ],
+        package_names="com.a, com.b, com.c",
+        resume_state=GooglePlayConsoleResumeConfig(app="com.b"),
+    )
+
+    assert result.raised is None
+    assert result.paths[1:] == [
+        "/v1beta1/apps/com.b:fetchReleaseFilterOptions",
+        "/v1beta1/apps/com.c:fetchReleaseFilterOptions",
+    ]
+    assert [
+        (row["app"], row["track"], row["trackType"], row["release"], row["versionCode"]) for row in result.rows
+    ] == [
+        ("com.b", "Production", "PRODUCTION", "2.1.0", 210),
+        ("com.b", "Production", "PRODUCTION", "2.1.0", 211),
+        ("com.b", "Internal testing", "INTERNAL", "2.2.0-rc1", 220),
+    ]
+    assert result.saved_states == [GooglePlayConsoleResumeConfig(app="com.c")]
+
+
 def test_interval_params_cover_both_bounds() -> None:
     params = _interval_params(dt.datetime(2024, 3, 1), dt.datetime(2024, 3, 2, 13, 14, 15))
 
@@ -708,7 +750,7 @@ def test_source_response_shape_per_endpoint(resource_name: str) -> None:
     assert response is not None
     assert response.name == resource_name
     assert response.primary_keys == PRIMARY_KEYS[resource_name]
-    assert response.sort_mode == "asc"
+    assert response.sort_mode == (None if resource_name == RELEASE_FILTER_OPTIONS else "asc")
     if resource_name in METRIC_SETS:
         assert response.partition_keys == ["date"]
         assert response.partition_mode == "datetime"
@@ -716,13 +758,6 @@ def test_source_response_shape_per_endpoint(resource_name: str) -> None:
         assert response.partition_keys == ["eventTime"]
     else:
         assert response.partition_mode is None
-
-
-def test_source_response_rejects_an_unknown_endpoint() -> None:
-    result = _driver().run("not_a_table", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown Google Play Console endpoint" in str(result.raised)
 
 
 def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:

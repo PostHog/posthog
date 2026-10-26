@@ -134,7 +134,7 @@ INCREMENTAL_TALK_ENDPOINTS = {
 CURSOR_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class ZendeskEndpointConfig:
     """Declarative config for a Zendesk Support API list endpoint.
 
@@ -157,7 +157,7 @@ class ZendeskEndpointConfig:
     # Query param carrying the server-side time filter, when the endpoint has one.
     incremental_start_param: str | None = None
     partition_key: str | None = None
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = "asc"
     page_size: int = CURSOR_PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
     params: dict[str, Any] = field(default_factory=dict)
@@ -233,6 +233,8 @@ ZENDESK_ENDPOINTS: dict[str, ZendeskEndpointConfig] = {
         # the comments that fall outside the bound.
         incremental_fields=[_datetime_incremental_field("created_at")],
         default_incremental_field="created_at",
+        # Comments arrive grouped per ticket, so the row order starts again for each ticket.
+        sort_mode=None,
         fanout=DependentEndpointConfig(
             parent_name=TICKET_COMMENTS_PARENT_NAME,
             resolve_param="ticket_id",

@@ -8,6 +8,7 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
+    IntercomConversationCursor,
     IntercomPagesPaginator,
     IntercomResumeConfig,
     IntercomSearchPaginator,
@@ -73,6 +75,8 @@ def _drive(
 ) -> DriveResult:
     source = IntercomSource()
     config = IntercomSourceConfig(intercom_integration_id=456)
+    # The pipeline gives every schema of a cursor source a manager, with no cursor on a first run.
+    inputs.setdefault("source_cursor", SourceCursorManager(IntercomConversationCursor, None, source))
     with mock.patch.object(source, "get_oauth_integration", return_value=mock.MagicMock(access_token="token")):
         return SourceDriver(source, config).run(endpoint, script, resume_state=resume_state, **inputs)
 
@@ -437,7 +441,7 @@ class TestIntercomSource:
     @pytest.mark.parametrize("endpoint", list(INTERCOM_ENDPOINTS.keys()))
     def test_source_response_metadata(self, endpoint: str):
         cfg = INTERCOM_ENDPOINTS[endpoint]
-        result = _drive(endpoint, [], api_version="2.16")
+        result = _drive(endpoint, [], api_version="2.17")
         response = result.response
 
         assert response is not None
@@ -447,6 +451,20 @@ class TestIntercomSource:
         assert response.sort_mode == cfg.sort_mode
         # A companies scroll expires within a minute and cannot restart mid-walk.
         assert response.supports_resume is (cfg.paginator_kind != "scroll")
+
+    @pytest.mark.parametrize("pin", ["2.13", "2.15", "2.16", "2.17"])
+    @pytest.mark.parametrize(
+        "endpoint,response",
+        [
+            ("admins", ScriptedResponse(json={"admins": []})),
+            ("conversation_parts", ScriptedResponse(json={"conversations": [], "pages": {}})),
+        ],
+    )
+    def test_sync_requests_send_the_pinned_version(self, pin: str, endpoint: str, response: ScriptedResponse):
+        result = _drive(endpoint, [response], api_version=pin)
+
+        assert result.raised is None
+        assert [request.headers["intercom-version"] for request in result.requests] == [pin]
 
     @pytest.mark.parametrize(
         "endpoint", [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is not None]
@@ -549,6 +567,7 @@ class TestResumableRestEndpoints:
         assert result.raised is None
         assert "starting_after" not in result.requests[0].json()["pagination"]
         assert result.requests[0].json()["query"]["value"] == 1700000000
+        assert result.requests[0].json()["sort"] == {"field": "updated_at", "order": "ascending"}
 
     @pytest.mark.parametrize(
         "endpoint,selector,state,expected_url,expected_params",
@@ -598,29 +617,33 @@ class TestResumableRestEndpoints:
             assert result.urls[0] == expected_url
 
 
-def _numbered_page(ids: list[int], page: int, total_pages: int) -> ScriptedResponse:
-    return ScriptedResponse(
-        json={
-            "type": "list",
-            "data": [{"id": i} for i in ids],
-            "page": page,
-            "per_page": 50,
-            "total_pages": total_pages,
-        }
-    )
+def _numbered_page(ids: list[int], page: int, total_pages: int, nested: bool = False) -> ScriptedResponse:
+    counts = {"page": page, "per_page": 50, "total_pages": total_pages}
+    body: dict[str, Any] = {"type": "list", "data": [{"id": i} for i in ids]}
+    body.update({"pages": {"type": "pages", **counts}} if nested else counts)
+    return ScriptedResponse(json=body)
 
 
 class TestPageNumberEndpoints:
-    @pytest.mark.parametrize("endpoint", ["audiences", "content_snippets"])
-    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str):
-        responses = [_numbered_page([1], 1, 2), _numbered_page([2], 2, 2)]
+    @pytest.mark.parametrize(
+        "endpoint,per_page,nested",
+        [
+            ("audiences", "50", False),
+            ("content_snippets", "50", False),
+            ("dynamic_contents", "50", False),
+            ("folders", "50", True),
+            ("deleted_contacts", "150", True),
+        ],
+    )
+    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str, per_page: str, nested: bool):
+        responses = [_numbered_page([1], 1, 2, nested), _numbered_page([2], 2, 2, nested)]
 
         result = _drive(endpoint, responses)
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [1, 2]
         # The last page is known from `total_pages`, so no trailing empty-page request goes out.
-        assert result.params("per_page") == ["50", "50"]
+        assert result.params("per_page") == [per_page, per_page]
         assert result.params("page") == ["1", "2"]
         assert result.saved_states == [IntercomResumeConfig(page=2)]
 
@@ -760,3 +783,55 @@ class TestResumableConversationParts:
         assert body["pagination"]["starting_after"] == "p2"
         assert body["query"]["value"] == 1600000000
         assert result.paths == ["/conversations/search", "/conversations/c4"]
+
+    def test_hitl_events_walk_parents_from_the_source_cursor_and_advance_it(self):
+        cursor_manager = SourceCursorManager(
+            IntercomConversationCursor, IntercomConversationCursor(updated_at=1700000000), IntercomSource()
+        )
+        rounds = [
+            {"hitl_cycle_id": "h1", "event_type": "fin_consultation_started", "created_at": 1700000050, "data": {}},
+            *(
+                {
+                    "hitl_cycle_id": "h1",
+                    "event_type": "fin_teammate_input_received",
+                    "created_at": 1700000060,
+                    "data": {"round_index": i},
+                }
+                for i in (1, 2)
+            ),
+        ]
+        result = _drive(
+            "conversation_hitl_events",
+            [
+                ScriptedResponse(
+                    json={
+                        "conversations": [
+                            {"id": "c1", "updated_at": 1700000100},
+                            {"id": "c2", "updated_at": 1700000200},
+                        ],
+                        "pages": {"next": None},
+                    }
+                ),
+                ScriptedResponse(json={"type": "list", "data": rounds}),
+                ScriptedResponse(json={"type": "list", "data": []}),
+            ],
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            db_incremental_field_last_value=1700000060,
+            source_cursor=cursor_manager,
+        )
+
+        assert result.raised is None
+        assert [(e["conversation_id"], e["event_type"], e["round_index"]) for e in result.rows] == [
+            ("c1", "fin_consultation_started", 0),
+            ("c1", "fin_teammate_input_received", 1),
+            ("c1", "fin_teammate_input_received", 2),
+        ]
+        assert result.requests[0].json()["query"] == {"field": "updated_at", "operator": ">", "value": 1700000000}
+        assert result.paths == [
+            "/conversations/search",
+            "/conversations/c1/hitl_events",
+            "/conversations/c2/hitl_events",
+        ]
+        # A conversation with no events still moves the cursor, so the next run skips it.
+        assert cursor_manager.staged == IntercomConversationCursor(updated_at=1700000200)

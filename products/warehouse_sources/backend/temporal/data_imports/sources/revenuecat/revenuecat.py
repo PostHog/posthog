@@ -179,6 +179,12 @@ def _project_not_found_error(entered_project_id: str, accessible_ids: list[str])
     )
 
 
+UNSUPPORTED_KEY_CHARACTER_MESSAGE = (
+    "Your RevenueCat API key contains an unsupported character, such as a curly quote, a line break, "
+    "or an invisible character pasted from another app. Copy the key again from RevenueCat and paste "
+    "only the key."
+)
+
 # A transport failure leaves the key unjudged, so it must not read as a credential problem.
 UNREACHABLE_MESSAGE = "PostHog couldn't reach RevenueCat. Wait a few minutes and try again."
 
@@ -242,6 +248,12 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     error names the project ids the key *can* reach instead of a dead-end
     "double-check the project id".
     """
+    # The key rides in the Authorization header, which http.client encodes as latin-1, so a
+    # non-ASCII character raises UnicodeEncodeError mid-request. A line break is ASCII but makes
+    # requests raise InvalidHeader, which would otherwise read as RevenueCat being unreachable.
+    if not api_key.isascii() or "\r" in api_key or "\n" in api_key:
+        return False, UNSUPPORTED_KEY_CHARACTER_MESSAGE
+
     session = _session(api_key)
     normalized_project_id = _normalize_project_id(project_id)
     try:

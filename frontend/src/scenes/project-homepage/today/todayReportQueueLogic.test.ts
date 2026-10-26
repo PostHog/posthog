@@ -15,10 +15,7 @@ describe('todayReportQueueLogic', () => {
         let reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': () => [
-                    200,
-                    { results: reports, count: reports.length },
-                ],
+                '/api/projects/:team_id/signals/reports/': () => [200, { results: reports, count: reports.length }],
                 '/api/projects/:team_id/today/highlights/': makeHighlights(),
             },
         })

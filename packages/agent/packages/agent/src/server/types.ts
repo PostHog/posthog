@@ -3,6 +3,7 @@ import type {
   EffortLevel,
   ServiceTier,
 } from "@posthog/agent-contracts/domain-types";
+import type { ProductSelector } from "../sdk/product";
 import type { AgentMode } from "../types";
 import type { RtkSavingsSummary } from "./rtk-savings";
 
@@ -15,6 +16,7 @@ export interface ClaudeCodeConfig {
 
 export interface AgentServerConfig {
   port: number;
+  selectProduct?: ProductSelector;
   agentStateDir?: string;
   repositoryPath?: string;
   repoReadyFile?: string;

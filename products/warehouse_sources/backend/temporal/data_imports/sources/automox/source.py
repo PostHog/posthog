@@ -55,7 +55,7 @@ class AutomoxSource(ResumableSource[AutomoxSourceConfig, AutomoxResumeConfig]):
             name=ExternalDataSourceType.AUTOMOX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Automox",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Automox API key to sync your patch management and device compliance data into the PostHog Data warehouse.
 
 Create an API key in the Automox console under **Settings → API Keys**, then paste it here.

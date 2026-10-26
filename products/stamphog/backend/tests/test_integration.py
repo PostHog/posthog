@@ -15,12 +15,14 @@ from django.utils import timezone
 import requests
 from celery.exceptions import Retry
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
@@ -416,6 +418,12 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
         assert reviewer_commands
         # A PR can add a .stamphog/ between the checkout root and the engine, so the root is named, not found.
         assert all("STAMPHOG_REPO_ROOT=" in command for command in reviewer_commands)
+        # uv must not discover its interpreter from the checkout, so it gets one resolved before the cd.
+        assert all(
+            command.index('STAMPHOG_PYTHON="$(command -v python3)" && ') < command.index("cd ")
+            and 'uv run --no-config --no-project --python "$STAMPHOG_PYTHON" ' in command
+            for command in reviewer_commands
+        )
         assert "fast_path" not in run.output
         return
 
@@ -507,6 +515,29 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
     # The marker only saves a run from a second bill while the policy excludes it and retries the rest.
     assert SANDBOX_RETRY_POLICY.maximum_attempts > 1
     assert SandboxPhaseError.__name__ in (SANDBOX_RETRY_POLICY.non_retryable_error_types or [])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_head_that_moved_before_the_fetch_supersedes_the_run_quietly(team, stamphog_chain: StamphogChain) -> None:
+    # The push that moved the head queues the review of the new head. A failure notice would ask the
+    # author to push again, and a failure event would count a routine race as breakage.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha119a"
+    recorder.register_pr(REPO, 119, _pr_object(119, author, head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    stamphog_chain.sandbox_class.head_fetch_exit_code = activities._HEAD_MOVED_EXIT_CODE
+
+    capture_fn = MagicMock()
+    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+        mock_capture_cm.return_value.__enter__.return_value = capture_fn
+        mock_capture_cm.return_value.__exit__.return_value = False
+        stamphog_chain.post_webhook(_opened_event(119, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.SUPERSEDED
+    assert [w for w in recorder.github_writes if w["kind"] == "comment_review"] == []
+    assert "stamphog_review_failed" not in [c.kwargs.get("event") for c in capture_fn.call_args_list]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1362,8 +1393,9 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
     recorder = stamphog_chain.recorder
     head_sha = "sha132a"
     recorder.register_pr(REPO, 132, _pr_object(132, "devex-dev", head_sha), _pr_files())
+    # The NUL byte stands for PR text that Postgres refuses in jsonb, which used to fail every review of the PR.
     recorder.review_threads[(REPO, 132)] = [
-        fakes.review_thread_node(path="src/util.py", comments=[("maintainer", "do not merge")], is_resolved=False)
+        fakes.review_thread_node(path="src/util.py", comments=[("maintainer", "do not\x00 merge")], is_resolved=False)
     ]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=132, author_login="devex-dev"
@@ -1386,6 +1418,67 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
             ],
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "error,attempt,expect_reported,retry_delay",
+    [
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 1, False, None, id="5xx_first_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 2, False, None, id="timeout_second_attempt"),
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 3, True, None, id="5xx_final_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 3, True, None, id="timeout_final_attempt"),
+        pytest.param(StamphogGitHubError("not found", status_code=404), 1, True, None, id="4xx_first_attempt"),
+        pytest.param(StamphogGitHubError("truncated list"), 1, True, None, id="no_status_first_attempt"),
+        pytest.param(
+            GitHubRateLimitError("secondary rate limit"), 1, False, timedelta(seconds=60), id="rate_limit_no_reset"
+        ),
+        pytest.param(
+            GitHubRateLimitError("rate limit", retry_after=120),
+            2,
+            False,
+            timedelta(seconds=120),
+            id="rate_limit_retry_after",
+        ),
+        pytest.param(GitHubRateLimitError("rate limit", retry_after=120), 3, True, None, id="rate_limit_final_attempt"),
+        pytest.param(
+            GitHubEgressBudgetExhausted("shed", scope=INSTALLATION_ID),
+            1,
+            False,
+            timedelta(seconds=60),
+            id="egress_budget_shed",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fetch_review_context_reports_transient_github_errors_only_on_final_attempt(
+    team,
+    stamphog_chain: StamphogChain,
+    error: Exception,
+    attempt: int,
+    expect_reported: bool,
+    retry_delay: timedelta | None,
+) -> None:
+    repo_config = _repo_config(team.id)
+    head_sha = "sha134a"
+    stamphog_chain.recorder.register_pr(REPO, 134, _pr_object(134, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=134, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
+    )
+
+    with (
+        patch.object(activities.activity, "info", return_value=MagicMock(attempt=attempt)),
+        patch.object(StamphogGitHubClient, "get_pr_reactions", side_effect=error),
+        pytest.raises(Exception) as raised,
+    ):
+        _run_activity(fetch_review_context, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    # The activity fails either way, so a review never runs with incomplete context.
+    assert is_expected_activity_failure(raised.value) is not expect_reported
+    assert raised.value is error or raised.value.__cause__ is error
+    assert getattr(raised.value, "next_retry_delay", None) == retry_delay
 
 
 @pytest.mark.parametrize(

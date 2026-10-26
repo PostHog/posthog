@@ -36,7 +36,6 @@ export function WatchPicksExtraRows(): JSX.Element | null {
                         key={observation.id}
                         item={{ observation, reason: { kind: 'recent' } } as WatchFeedItemApi}
                         position={index}
-                        surface="list"
                         isActive={false}
                     />
                 ))

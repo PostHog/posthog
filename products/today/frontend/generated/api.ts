@@ -13,6 +13,7 @@ import type {
     ExcerptChoiceRequestApi,
     FigureMarksApi,
     HighlightsApi,
+    PulsePinsApi,
     ReportKeyClausesApi,
     ReportPageApi,
     TodayReportsKeyClausesRetrieveParams,
@@ -51,6 +52,42 @@ export const todayHighlightsRetrieve = async (projectId: string, options?: Reque
     return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTodayPulsePinsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/pulse_pins/`
+}
+
+/**
+ * The numbers the person keeps at the start of the key numbers on their home, in order. Suggestions fill the free places. 404 when the person does not have the new navigation.
+ * @summary Get the numbers the person keeps
+ */
+export const todayPulsePinsRetrieve = async (projectId: string, options?: RequestInit): Promise<PulsePinsApi> => {
+    return apiMutator<PulsePinsApi>(getTodayPulsePinsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayPulsePinsUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/pulse_pins/`
+}
+
+/**
+ * Replaces the numbers the person keeps at the start of the key numbers, in order. Repeated keys are dropped and only the first 4 are kept. The next highlights request computes the new numbers. 404 when the person does not have the new navigation.
+ * @summary Set the numbers the person keeps
+ */
+export const todayPulsePinsUpdate = async (
+    projectId: string,
+    pulsePinsApi: PulsePinsApi,
+    options?: RequestInit
+): Promise<PulsePinsApi> => {
+    return apiMutator<PulsePinsApi>(getTodayPulsePinsUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pulsePinsApi),
     })
 }
 

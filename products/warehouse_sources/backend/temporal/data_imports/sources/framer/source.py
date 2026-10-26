@@ -62,14 +62,15 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
 
     def get_retryable_errors(self) -> set[str]:
         # Transient channel conditions the next Temporal attempt recovers from: a busy
-        # headless pool, a concurrent-session collision, a dropped connection, or an
-        # egress-proxy hiccup.
+        # headless pool, a concurrent-session collision, a dropped connection, an
+        # egress-proxy hiccup, or the server telling us it's overloaded.
         return {
             "Framer API error POOL_EXHAUSTED",
             "Framer API error TOKEN_SESSION_LIMIT",
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
             "Framer API error PROXY",
+            "Framer API error SERVER_BUSY",
             # The server also reports a dropped connection to its headless browser mid-navigation
             # as a generic `INTERNAL` code, so this one is matched on message text rather than
             # code — `INTERNAL` alone is too broad to classify as retryable.
@@ -118,7 +119,7 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
             name=ExternalDataSourceType.FRAMER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Framer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Framer site's pages, CMS collections and items, locales, redirects, and deployments into the PostHog Data warehouse.
 
 Create an API key in your Framer project under **Site Settings → General**, then paste your project URL (https://framer.com/projects/...) and the API key. API keys are project-specific, so add one source per project.""",

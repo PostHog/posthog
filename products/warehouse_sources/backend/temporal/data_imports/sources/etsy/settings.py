@@ -23,6 +23,24 @@ LISTING_STATES: tuple[str, ...] = ("active", "inactive", "sold_out", "draft", "e
 
 
 @dataclass(frozen=True)
+class EtsyBatchLookup:
+    """Rows fetched by id from a batch endpoint, one request per page of a parent endpoint."""
+
+    # Endpoint whose pages supply the ids. Its walk, windows and resume state drive the lookup.
+    parent: str
+    # Absolute path under /v3/application. `{shop_id}` is filled in with the resolved shop.
+    path: str
+    ids_param: str
+    # Field on each parent row that holds the id to look up.
+    id_field: str
+    # Each result is a listing carrying its inventory record, and every product in it becomes a row.
+    inventory_products: bool = False
+    # Different parent pages can return the same row, e.g. a payment and its later refund are
+    # separate ledger entries, so rows already yielded this run are dropped.
+    dedupe_key: str | None = None
+
+
+@dataclass(frozen=True)
 class EtsyEndpointConfig:
     name: str
     # Appended to /shops/{shop_id}. Empty string is the shop record itself.
@@ -51,6 +69,12 @@ class EtsyEndpointConfig:
     # derive transactions from the receipts endpoint, which is the only place Etsy exposes them
     # behind a time filter.
     expand_key: str | None = None
+    # Path is absolute under /v3/application rather than appended to /shops/{shop_id}.
+    shop_scoped: bool = True
+    # Results are a tree whose nodes nest under this key. Every node becomes a row.
+    flatten_key: str | None = None
+    # Rows come from a batch endpoint keyed on ids the parent endpoint pages through.
+    batch_lookup: EtsyBatchLookup | None = None
 
 
 ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
@@ -116,6 +140,49 @@ ETSY_ENDPOINTS: dict[str, EtsyEndpointConfig] = {
         # and rejects a window wider than 31 days.
         default_window_param="created",
         max_window_seconds=31 * 24 * 60 * 60,
+    ),
+    "payments": EtsyEndpointConfig(
+        name="payments",
+        path="",
+        primary_keys=["payment_id"],
+        # Etsy reads payments only by id. The ledger is the one place payment ids appear behind a
+        # time filter, so the walk pages the ledger and resolves each page's entries to payments.
+        # The window filters ledger entries, not payments, so a payment-level watermark would be
+        # wrong. Full refresh only.
+        batch_lookup=EtsyBatchLookup(
+            parent="ledger_entries",
+            path="/shops/{shop_id}/payment-account/ledger-entries/payments",
+            ids_param="ledger_entry_ids",
+            id_field="entry_id",
+            dedupe_key="payment_id",
+        ),
+    ),
+    "listing_inventory": EtsyEndpointConfig(
+        name="listing_inventory",
+        path="",
+        # Product ids are only documented as unique within a listing.
+        primary_keys=["listing_id", "product_id"],
+        batch_lookup=EtsyBatchLookup(
+            parent="listings",
+            path="/listings/batch/inventory",
+            ids_param="listing_ids",
+            id_field="listing_id",
+            inventory_products=True,
+        ),
+    ),
+    "return_policies": EtsyEndpointConfig(
+        name="return_policies",
+        path="/policies/return",
+        primary_keys=["return_policy_id"],
+        paginated=False,
+    ),
+    "seller_taxonomy_nodes": EtsyEndpointConfig(
+        name="seller_taxonomy_nodes",
+        path="/seller-taxonomy/nodes",
+        primary_keys=["id"],
+        paginated=False,
+        shop_scoped=False,
+        flatten_key="children",
     ),
 }
 

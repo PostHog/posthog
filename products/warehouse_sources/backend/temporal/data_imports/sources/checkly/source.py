@@ -100,7 +100,7 @@ class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
             "Copy your account ID from [account settings](https://app.checklyhq.com/settings/account/general). "
             "Check results include up to 30 days of available history.",
             iconPath="/static/services/checkly.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
