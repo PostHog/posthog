@@ -1,4 +1,6 @@
+import json
 import uuid
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -11,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
+import numpy as np
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
@@ -22,12 +25,14 @@ from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedE
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team, User
+from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.anomaly_scores.config import DISABLED, AnomalyScoringConfig, parse_config
+from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
+from products.signals.backend.anomaly_scores.config import DISABLED, AnomalyScoringConfig, ScoringRun, parse_config
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
@@ -53,6 +58,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
 )
 from products.signals.backend.anomaly_scores.selection import SelectionConfig, Weighting
+from products.signals.backend.anomaly_scores.state import RunPlan, load_state, plan_run
 from products.signals.backend.anomaly_scores.tick import (
     AnomalyScoringTickInput,
     AnomalyScoringTickPlan,
@@ -63,6 +69,7 @@ from products.signals.backend.anomaly_scores.tick import (
     plan_tick,
     run_insight,
 )
+from products.signals.backend.models import AnomalyScoringState
 
 NEW_YORK = ZoneInfo("America/New_York")
 ORGANIZATION_ID = "4dc8564d-bd82-1065-2f40-97f7c50f67cf"
@@ -121,6 +128,8 @@ class TestTickConfig(SimpleTestCase):
                 "intervals": ["minute", "week"],
                 "max_insights_per_tick": 0,
                 "limits": {"max_backfill_buckets": 100_000, "max_series": -1},
+                "train_score_split": "true",
+                "train_every_buckets": {"hour": 100_000, "day": 0, "week": 2},
             }
         )
 
@@ -129,6 +138,13 @@ class TestTickConfig(SimpleTestCase):
         assert config.intervals == (IntervalType.WEEK,)
         assert config.max_insights_per_tick == DISABLED.max_insights_per_tick
         assert (config.limits.max_backfill_buckets, config.limits.max_series) == (90, 20)
+        assert config.train_score_split is False
+        assert config.train_every_buckets == {
+            IntervalType.HOUR: 168,
+            IntervalType.DAY: 7,
+            IntervalType.WEEK: 2,
+            IntervalType.MONTH: 3,
+        }
 
     @parameterized.expand(
         [
@@ -136,6 +152,8 @@ class TestTickConfig(SimpleTestCase):
             ("max_concurrency", 100, 8),
             ("max_queries_per_hour", 1_000_000, 2000),
             ("max_queries_per_project_per_hour", 501, 500),
+            ("max_score_queries_per_hour", 1_000_000, 5000),
+            ("max_score_queries_per_project_per_hour", 1001, 1000),
         ]
     )
     def test_tick_levers_above_their_maximum_parse_to_the_maximum(self, field: str, value: int, expected: int) -> None:
@@ -170,6 +188,28 @@ class TestQueryBudget(SimpleTestCase):
             ("tick_cap", {1: 1, 2: 1, 3: 1}, QueryBudget(fleet=100, projects={1: 30}), 1, [1], 0, 0),
             # Another tick reserved the queries after the snapshot.
             ("reservation_fails", {1: 1, 2: 1, 3: 1}, QueryBudget(fleet=100, projects={1: 30}), 10, [2, 3], 1, 1),
+            # The train budget is spent, and the score step of the second insight charges its own budget.
+            (
+                "score_step_uses_its_own_budget",
+                {1: 1, 2: 1, 3: 1},
+                QueryBudget(fleet=0, projects={1: 0}),
+                10,
+                [2],
+                2,
+                0,
+                QueryBudget(fleet=5, projects={1: 5}),
+            ),
+            # A score step does not fit a spent score budget, even with train budget left.
+            (
+                "score_budget_spent",
+                {1: 1, 2: 1, 3: 1},
+                QueryBudget(fleet=100, projects={1: 30}),
+                10,
+                [1, 3],
+                1,
+                0,
+                QueryBudget(fleet=0, projects={1: 0}),
+            ),
         ]
     )
     def test_the_walk_skips_picks_over_budget_and_continues(
@@ -181,20 +221,28 @@ class TestQueryBudget(SimpleTestCase):
         expected: list[int],
         skipped: int,
         refused_reservations: int,
+        score_budget: QueryBudget | None = None,
     ) -> None:
-        costs = {1: 3, 2: 3, 3: 2}
-        calls: list[int] = []
+        plans = {
+            1: RunPlan(queries=3),
+            2: RunPlan(queries=3, run=ScoringRun.SCORE if score_budget else None),
+            3: RunPlan(queries=2),
+        }
+        budgets = {ScoringRun.TRAIN: budget}
+        if score_budget is not None:
+            budgets[ScoringRun.SCORE] = score_budget
+        calls: list[RunPlan] = []
 
-        def reserve(team_id: int, cost: int) -> bool:
-            calls.append(cost)
+        def reserve(team_id: int, plan: RunPlan) -> bool:
+            calls.append(plan)
             return len(calls) > refused_reservations
 
         picked, skipped_count = within_budget(
-            [1, 2, 3], team_ids, budget, limit, lambda ids: {i: costs[i] for i in ids}, reserve
+            [1, 2, 3], team_ids, budgets, limit, lambda ids: {i: plans[i] for i in ids}, reserve
         )
 
         assert (list(picked), skipped_count) == (expected, skipped)
-        assert picked == {insight_id: costs[insight_id] for insight_id in expected}
+        assert picked == {insight_id: plans[insight_id] for insight_id in expected}
 
     @parameterized.expand(
         [
@@ -207,28 +255,52 @@ class TestQueryBudget(SimpleTestCase):
     ) -> None:
         batches: list[list[int]] = []
 
-        def costs_for(insight_ids: list[int]) -> dict[int, int]:
+        def plans_for(insight_ids: list[int]) -> dict[int, RunPlan]:
             batches.append(insight_ids)
-            return dict.fromkeys(insight_ids, 1)
+            return dict.fromkeys(insight_ids, RunPlan(queries=1))
 
-        within_budget([1, 2, 3, 4], {1: 1, 2: 2, 3: 1, 4: 2}, budget, 10, costs_for, lambda _team, _cost: True)
+        within_budget(
+            [1, 2, 3, 4],
+            {1: 1, 2: 2, 3: 1, 4: 2},
+            {ScoringRun.TRAIN: budget},
+            10,
+            plans_for,
+            lambda _team, _plan: True,
+        )
 
         assert batches == loaded
 
-    def test_a_reservation_takes_both_budgets_or_neither_and_resets_each_hour(self) -> None:
-        config = AnomalyScoringConfig(enabled=True, max_queries_per_hour=10, max_queries_per_project_per_hour=6)
+    @parameterized.expand([(ScoringRun.TRAIN, ScoringRun.SCORE), (ScoringRun.SCORE, ScoringRun.TRAIN)])
+    def test_a_reservation_takes_both_budgets_or_neither_and_resets_each_hour(
+        self, kind: ScoringRun, other: ScoringRun
+    ) -> None:
+        config = AnomalyScoringConfig(
+            enabled=True,
+            max_queries_per_hour=10,
+            max_queries_per_project_per_hour=6,
+            max_score_queries_per_hour=10,
+            max_score_queries_per_project_per_hour=6,
+        )
         next_hour = NOW + timedelta(hours=1)
         for now in (NOW, next_hour):
-            cache.delete_many([_fleet_budget_key(now), _project_budget_key(1, now), _project_budget_key(2, now)])
+            for budget in ScoringRun:
+                cache.delete_many(
+                    [
+                        _fleet_budget_key(now, budget),
+                        _project_budget_key(1, now, budget),
+                        _project_budget_key(2, now, budget),
+                    ]
+                )
 
         reserved = [
-            reserve_queries(config, team_id, queries, NOW + timedelta(minutes=minute))
+            reserve_queries(config, team_id, queries, NOW + timedelta(minutes=minute), kind)
             for team_id, queries, minute in [(1, 3, 0), (1, 3, 10), (1, 1, 20), (2, 4, 30), (2, 1, 40)]
         ]
 
         assert reserved == [True, True, False, True, False]
-        assert remaining_budget(config, [1, 2], NOW) == QueryBudget(fleet=0, projects={1: 0, 2: 2})
-        assert remaining_budget(config, [1, 2], next_hour) == QueryBudget(fleet=10, projects={1: 6, 2: 6})
+        assert remaining_budget(config, [1, 2], NOW, kind) == QueryBudget(fleet=0, projects={1: 0, 2: 2})
+        assert remaining_budget(config, [1, 2], NOW, other) == QueryBudget(fleet=10, projects={1: 6, 2: 6})
+        assert remaining_budget(config, [1, 2], next_hour, kind) == QueryBudget(fleet=10, projects={1: 6, 2: 6})
 
 
 class TestTickSelection(SimpleTestCase):
@@ -414,6 +486,117 @@ class TestRunInsight(SimpleTestCase):
 
         assert status == "raised"
         assert SKIP_COOLDOWN not in cooldowns
+
+
+class TestTrainScoreSplit(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.timezone = "UTC"
+        self.team.save()
+        self.blobs: dict[str, bytes] = {}
+        storage = "products.signals.backend.anomaly_scores.artifacts.object_storage"
+        for name, fake in [
+            ("write", lambda key, blob: self.blobs.__setitem__(key, blob)),
+            ("read_bytes", lambda key, missing_ok: self.blobs.get(key)),
+            ("delete", lambda key: self.blobs.pop(key, None)),
+        ]:
+            patcher = patch(f"{storage}.{name}", side_effect=fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        clear_artifact_cache()
+        self.addCleanup(clear_artifact_cache)
+
+    def _run(
+        self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]
+    ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
+        days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
+        results = [{"action": {"order": 0}, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        with (
+            patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
+            patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
+            patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+        ):
+            runner.return_value.run.return_value = MagicMock(results=results)
+            result = run_insight(ScoreInsightInput(pick=pick), now)
+        return result, emit.call_args.args[1] if emit.called else []
+
+    def _train(self, insight: Insight, trained_at: datetime) -> list[dict[str, Any]]:
+        values = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
+        _result, events = self._run(
+            insight,
+            InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}, run=ScoringRun.TRAIN),
+            trained_at,
+            values,
+        )
+        self.values = values
+        return events
+
+    def _score_pick(self, insight: Insight, trained: list[dict[str, Any]]) -> InsightPick:
+        return InsightPick(
+            team_id=self.team.id,
+            insight_id=insight.id,
+            scored_through={trained[-1]["properties"]["$anomaly_series_key"]: datetime(2026, 10, 19, tzinfo=UTC)},
+            run=ScoringRun.SCORE,
+        )
+
+    def test_a_train_pick_stores_the_artifact_that_the_next_score_pick_scores_with(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at)
+        first_key = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id).artifact_key
+        _result, scored = self._run(
+            insight,
+            self._score_pick(insight, trained),
+            trained_at + timedelta(days=2),
+            [*self.values[-4:], 500.0, 100.0],
+        )
+        self._train(insight, trained_at + timedelta(days=7))
+
+        assert {event["properties"]["$anomaly_run"] for event in trained} == {"train"}
+        assert [
+            (
+                event["properties"]["$anomaly_run"],
+                event["properties"]["$anomaly_bucket_start"],
+                event["properties"]["$anomaly_flag"],
+            )
+            for event in scored
+        ] == [("score", "2026-10-20T00:00:00+00:00", 0), ("score", "2026-10-21T00:00:00+00:00", 1)]
+        model_ids = {event["properties"]["$anomaly_model_id"] for event in [*trained, *scored]}
+        assert model_ids == {first_key.rsplit("/", 1)[-1]}
+        state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
+        assert state.trained_at == trained_at + timedelta(days=7)
+        # A retrain replaces the blob and deletes the previous one.
+        assert list(self.blobs) == [state.artifact_key] != [first_key]
+
+    @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
+    def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        trained = self._train(insight, trained_at)
+        state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
+        key = state.artifact_key
+        clear_artifact_cache()
+        if case == "missing":
+            del self.blobs[key]
+        elif case == "corrupt":
+            self.blobs[key] = b"{}"
+        else:
+            stored = json.loads(self.blobs[key])
+            for artifact in stored["series"].values():
+                artifact["schema_version"] = ARTIFACT_SCHEMA_VERSION - 1
+            self.blobs[key] = json.dumps(stored).encode()
+            state.artifact_sha256 = hashlib.sha256(self.blobs[key]).hexdigest()
+            state.save()
+        scored_at = trained_at + timedelta(days=2)
+
+        result, events = self._run(insight, self._score_pick(insight, trained), scored_at, self.values[-6:])
+
+        assert (result.status, events) == ("artifact_unavailable", [])
+        plan = plan_run(insight, self.team, load_state(self.team, insight), parse_config(_SPLIT_PAYLOAD), scored_at)
+        assert plan.run == ScoringRun.TRAIN
+
+
+_SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train_score_split": True}
 
 
 class TestEligibleTeams(BaseTest):

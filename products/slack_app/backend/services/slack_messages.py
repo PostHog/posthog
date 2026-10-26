@@ -710,6 +710,9 @@ class RunFooter:
     project: str | None = None
     # Whose plan pays for the run, for example "Your ChatGPT plan". Absent on PostHog credits.
     plan: str | None = None
+    # Whether the run shares charts as insight links instead of images, so reply analytics can
+    # compare the two delivery modes. Not rendered.
+    chart_links: bool = False
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -833,6 +836,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 created_by_id=run.created_by_id,
             ),
             plan=_plan_label(run.state, task_id=run.task_id, integration_id=integration_id),
+            chart_links=bool((run.state or {}).get("slack_chart_links")),
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))

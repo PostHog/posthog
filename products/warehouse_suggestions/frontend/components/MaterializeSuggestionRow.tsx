@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
@@ -12,6 +10,7 @@ import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DataAgeMeta } from './DataAgeMeta'
 import { DismissSuggestionMenu } from './DismissSuggestionMenu'
 import { SuggestionRow } from './SuggestionRow'
+import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view'
@@ -43,15 +42,7 @@ export function MaterializeSuggestionRow({
             suggestionId={suggestion.id}
             leaving={leaving}
             icon={iconForType('data_modeling')}
-            title={
-                <Link
-                    to={urls.sqlEditor({ view_id: suggestion.subject_id })}
-                    subtle
-                    className="block min-w-0 truncate text-sm font-semibold"
-                >
-                    {payload.subject_name}
-                </Link>
-            }
+            title={<SuggestionSubjectLink suggestion={suggestion} />}
             meta={[
                 <WhyThisSuggestion
                     key="reads"

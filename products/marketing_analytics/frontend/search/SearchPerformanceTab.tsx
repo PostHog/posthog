@@ -172,8 +172,8 @@ export function SearchPerformanceTab({
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
                                 Reported conversions use the ad platform's attribution. Google Search Console does not
-                                report spend or conversions, and can omit low-volume queries. Organic positions are
-                                weighted by impressions. Hover over a change to see its comparison value.
+                                report spend or conversions, and can omit queries. Organic positions are weighted by
+                                impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}
