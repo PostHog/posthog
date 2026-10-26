@@ -139,14 +139,27 @@ def summary_payload(summary: contracts.ErrorTrackingIssueSummary) -> dict[str, o
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
-    def _report_issue_read(self, request: ValidatedRequest, issue_id: str, endpoint: str, **properties: object) -> None:
+    def _report_issue_read(
+        self,
+        request: ValidatedRequest,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
+        endpoint: str,
+        **properties: object,
+    ) -> None:
         # The frontend issue events see only the web app, so this is the one record of which issues
         # MCP, CLI and API callers read. A capture failure must not fail the read.
+        issue_id = str(issue_basics.id)
         try:
             report_user_action(
                 cast(User, request.user),
                 "error_tracking_issue_read",
-                {"issue_id": issue_id, "endpoint": endpoint, **properties},
+                {
+                    "issue_id": issue_id,
+                    "endpoint": endpoint,
+                    "issue_created_at": issue_basics.created_at.isoformat(),
+                    "issue_severity": issue_basics.severity or None,
+                    **properties,
+                },
                 team=self.team,
                 organization=self.team.organization,
                 request=request,
@@ -334,10 +347,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload["summary_status"] = summary_read.status.value
         self._report_issue_read(
             request,
-            issue_id,
+            issue_basics,
             "issue",
-            issue_created_at=issue_basics.created_at.isoformat(),
-            issue_severity=issue_basics.severity or None,
             include_breakdown=include_breakdown,
             include_sparkline=include_sparkline,
             summary_status=summary_read.status.value,
@@ -497,11 +508,5 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(
-            request,
-            issue_id,
-            "issue_events",
-            issue_created_at=issue_basics.created_at.isoformat(),
-            issue_severity=issue_basics.severity or None,
-        )
+        self._report_issue_read(request, issue_basics, "issue_events")
         return Response(payload)
