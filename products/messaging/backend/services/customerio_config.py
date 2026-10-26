@@ -56,6 +56,7 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
             "imported_at": timezone.now().isoformat(),
             "categories_created": result.get("categories_created", 0),
             "globally_unsubscribed_count": result.get("globally_unsubscribed_count", 0),
+            "suppressions_imported": result.get("suppressions_imported", 0),
         }
     else:
         errors = result.get("errors", [])
