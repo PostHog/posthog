@@ -101,8 +101,8 @@ export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDat
 // The estimates use the table font sizes and avoid DOM measurement, which would read every offscreen cell.
 const CELL_CHARACTER_WIDTH = 7.5
 const HEADER_CHARACTER_WIDTH = 8.5
-const HEADER_ICONS_WIDTH = 40
-const HEADER_LINE_MAX_WIDTH = 128
+const HEADER_ICONS_WIDTH = 44
+const HEADER_LINE_MAX_WIDTH = 160
 const CELL_HORIZONTAL_PADDING = 16
 const EDGE_CELL_EXTRA_PADDING = 16
 export const MIN_COLUMN_WIDTH = 64
