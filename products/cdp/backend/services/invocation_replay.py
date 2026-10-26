@@ -612,12 +612,13 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
         return False
     # Two plans from different filters can share runs. Their rerun jobs would then
     # queue those runs twice, because the rerun worker does not reserve a run before
-    # it queues it. Lifecycle rows show a replayed run as no longer failed well
-    # within the reservation time, so a later plan leaves it out.
+    # it queues it. The reservation lasts until the send ends, and then for
+    # FUNCTION_RESERVATION_SECONDS, which is long enough for lifecycle rows to show
+    # a replayed run as no longer failed, so a later plan leaves it out.
     reserved: list[str] = []
     for function in plan.replayable_functions:
         if not replay_cache.add(
-            _function_reservation_key(function.function_id), plan.fingerprint, timeout=FUNCTION_RESERVATION_SECONDS
+            _function_reservation_key(function.function_id), plan.fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
         ):
             _release_functions(plan.fingerprint, reserved)
             _release_claim(plan.fingerprint)
@@ -813,5 +814,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     else:
         queued_nothing_for = [f.function_id for f in plan.replayable_functions if f.function_id not in possibly_queued]
         _release_functions(fingerprint, queued_nothing_for)
+        for function_id in possibly_queued:
+            replay_cache.touch(_function_reservation_key(function_id), timeout=FUNCTION_RESERVATION_SECONDS)
     logger.info("invocation_replay_finished", actor=actor, fingerprint=fingerprint, failed_requests=failed_requests)
     return results

@@ -346,9 +346,9 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         first = plan_replay(_criteria(window_end=IN_WINDOW + timedelta(minutes=30)))
         overlapping = plan_replay(_criteria())
         assert (first.invocation_count, overlapping.invocation_count) == (1, 2)
-        assert claim_replay(first, actor="first")
-
-        with self.assertRaises(ReplayOverlapError):
+        with time_machine.travel("2026-10-23T08:00:00Z", tick=False):
+            assert claim_replay(first, actor="first")
+        with time_machine.travel("2026-10-23T10:00:00Z", tick=False), self.assertRaises(ReplayOverlapError):
             claim_replay(overlapping, actor="second")
         execute_replay(first, actor="first")
 
