@@ -1433,12 +1433,12 @@ class SocialAuthExceptionMiddleware:
 
         return None
 
-    def _error_code(self, exception: ValidationError) -> str | None:
+    def _error_code(self, exception: ValidationError) -> str:
         # DRF nests detail as dict -> list -> ErrorDetail. Take the first leaf.
         detail: object = exception.detail
         while isinstance(detail, dict | list):
             detail = next(iter(detail.values() if isinstance(detail, dict) else detail), None)
-        return detail.code if isinstance(detail, ErrorDetail) else None
+        return (detail.code or "unknown") if isinstance(detail, ErrorDetail) else "unknown"
 
     def _get_error_detail(self, exception: AuthException) -> str:
         error_detail = str(exception).strip()
