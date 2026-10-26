@@ -13,6 +13,7 @@ import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { EvaluationAttentionPills } from './EvaluationAttentionPills'
 import { EvaluationCreateSlot } from './EvaluationCreateSlot'
+import { EvaluationDirectoryTiles } from './EvaluationDirectoryTiles'
 import { EvaluationResultActions } from './EvaluationResultActions'
 import { EvaluationResultCell } from './EvaluationResultCell'
 import { EvaluationResultDrawer } from './EvaluationResultDrawer'
@@ -88,6 +89,7 @@ export function EvaluationResultsTable(): JSX.Element {
 
     return (
         <div className="@container flex flex-col gap-3">
+            <EvaluationDirectoryTiles />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="search"
@@ -139,7 +141,7 @@ export function EvaluationResultsTable(): JSX.Element {
                           : 'No evaluations in this scope yet.'
                 }
             />
-            <div className="text-xs text-secondary">{`Showing ${tableRows.length} of ${rows.length} evaluations`}</div>
+            <div className="text-xs text-secondary pb-4">{`Showing ${tableRows.length} of ${rows.length} evaluations`}</div>
             <EvaluationResultDrawer />
         </div>
     )
