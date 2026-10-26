@@ -137,19 +137,20 @@ Examples:
 Most topic rules live in guides under `.agents/`, not in this file.
 Before your first edit, plan, or review finding, open every guide whose area the task touches.
 Reviewing a diff counts: the diff touches the areas it changes.
+Each guide's row below holds its full trigger. A section may still link one part of a guide for a rule it states.
 
-| The task touches                                                                                 | Read first                                                                                            |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Python or Django backend: models, views, serializers, Celery, Temporal, outbound calls, settings | [.agents/architecture.md](.agents/architecture.md) and [.agents/code-style.md](.agents/code-style.md) |
-| Frontend: components, kea logic, buttons, forms                                                  | [.agents/code-style.md](.agents/code-style.md) and [frontend/src/AGENTS.md](frontend/src/AGENTS.md)   |
-| A new or changed button, menu item, form, or scene                                               | [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md)                                |
-| GitHub workflows, `.nvmrc`, publish jobs                                                         | [.agents/ci.md](.agents/ci.md)                                                                        |
-| Claude Code hooks, lint-staged, pre-commit, `.claude/settings.json`                              | [.agents/agent-automation.md](.agents/agent-automation.md)                                            |
-| Auth, secrets, raw SQL, HogQL string building                                                    | [.agents/security.md](.agents/security.md)                                                            |
+| Guide                                                                  | Read it before you write or review                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [.agents/architecture.md](.agents/architecture.md)                     | Application or dev-stack code in any language, such as a model, view, serializer, task, or React component: entrypoints, `team_id` scoping, personhog, transactions, API schemas, Celery and Temporal, outbound calls, storage, Django settings, Django admin, and the `services/llm-gateway` freeze |
+| [.agents/code-style.md](.agents/code-style.md)                         | Python; frontend code such as a component, kea logic, a button, or a form; comments; tests; Markdown; or a choice between quill and LemonUI                                                                                                                                                          |
+| [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md) | A feature a user interacts with, such as a new action, menu item, or scene, a change to what a user can do there, or the removal of a feature for low usage                                                                                                                                          |
+| [.agents/ci.md](.agents/ci.md)                                         | A workflow, `.nvmrc`, a publish job, event ingestion, tests that read event properties, or a flaky CI run                                                                                                                                                                                            |
+| [.agents/agent-automation.md](.agents/agent-automation.md)             | The automation of a convention, a Claude Code hook, `.claude/settings.json`, a lint-staged task, or a pre-commit check                                                                                                                                                                               |
+| [.agents/security.md](.agents/security.md)                             | Auth, secrets, service-to-service calls, raw SQL, HogQL string building, a new external origin, an inline script under the Content Security Policy, or a PR for a security fix                                                                                                                       |
 
 ## CI / GitHub Actions
 
-Read [.agents/ci.md](.agents/ci.md) before you change a workflow, `.nvmrc`, a publish job, event ingestion, or tests that read event properties, and when you debug flaky CI.
+The rules for CI and GitHub Actions live in [.agents/ci.md](.agents/ci.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Security
 
@@ -162,7 +163,7 @@ The private mirror carries this file, and its `origin` points at the private rep
 Before the first push of a branch, run `git remote get-url origin`.
 If it names `posthog-private` and the change is not an embargoed fix, open the PR from a `PostHog/posthog` checkout.
 Do not add new `INTERNAL_API_SECRET` callers.
-Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
+[.agents/security.md](.agents/security.md) covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
 
 **Treat the Content Security Policy in `CSPMiddleware` as enforced.**
@@ -174,11 +175,11 @@ Read [.agents/security.md](.agents/security.md#content-security-policy) for the 
 
 ## Architecture guidelines
 
-Read [.agents/architecture.md](.agents/architecture.md) before you add or change application or dev-stack code: entrypoints, `team_id` scoping, personhog, transactions, API schemas, Celery and Temporal, outbound calls, storage, settings, Django admin, and the `services/llm-gateway` freeze.
+The rules for architecture live in [.agents/architecture.md](.agents/architecture.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Code Style
 
-Read [.agents/code-style.md](.agents/code-style.md) before you write Python, frontend code, comments, tests, or Markdown, or choose between quill and LemonUI.
+The rules for code style live in [.agents/code-style.md](.agents/code-style.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## User-facing copy
 
@@ -186,11 +187,11 @@ Invoke `/writing-user-facing-copy` before you write or edit text a person reads.
 
 ## Feature usage tracking
 
-Read [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md) before you add or change a feature a user interacts with, or remove one for low usage.
+The rules for feature usage tracking live in [.agents/feature-usage-tracking.md](.agents/feature-usage-tracking.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Agent automation
 
-Read [.agents/agent-automation.md](.agents/agent-automation.md) before you automate a convention, or change a Claude Code hook, `.claude/settings.json`, a lint-staged task, or a pre-commit check.
+The rules for agent automation live in [.agents/agent-automation.md](.agents/agent-automation.md). Its row in [Read the guide for your area first](#read-the-guide-for-your-area-first) says when to read it.
 
 ## Mandatory skill invocation
 

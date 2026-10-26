@@ -93,7 +93,7 @@ All three get the same smells check. The budget differs.
 
 **Root `AGENTS.md`** — loads every session, in every tool, for every task. Strict. A rule earns its place only if it applies across the repo, or if getting it wrong is expensive and nothing catches it (the public-repo rules are the model). Keep the enforcement tags current.
 
-**Topic guides** (`.agents/<topic>.md`: architecture, code style, CI, feature usage tracking, agent automation) — load when the root file's one-line pointer sends an agent there. A repo-wide rule that applies only to one kind of work, such as application code or CI workflows, belongs in a guide. Each guide keeps its heading and pointer line in the root file, and the pointer says when to read it.
+**Topic guides** (`.agents/<topic>.md`: architecture, code style, CI, feature usage tracking, agent automation, security) load when the routing table in the root file's "Read the guide for your area first" section sends an agent there. A repo-wide rule that applies only to one kind of work, such as application code or CI workflows, belongs in a guide. Each guide keeps its heading in the root file, and its table row is the only place that says when to read it. Put a new trigger in the row, never in the section under the heading, because two triggers drift apart.
 
 **Nested `AGENTS.md`** (about 27 of them: `posthog/temporal/`, `rust/`, `frontend/src/`, most of `products/`) — loads when an agent works in that subtree, so a local convention is cheap here and expensive in the root. Move a directory-specific rule down rather than up. No tag convention required, though it does no harm.
 
