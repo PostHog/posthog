@@ -3441,7 +3441,6 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         if context.get("is_shared"):
             raise exceptions.PermissionDenied("Shared dashboards cannot use query sharing.")
-        self.user_permissions.set_preloaded_dashboard_tiles(tiles)
         self.user_access_control.preload_object_access_controls([tile.insight for tile in tiles])
         context["insight_variables"] = list(context["insight_variables"])
         access_method = dashboard_access_method(request)
