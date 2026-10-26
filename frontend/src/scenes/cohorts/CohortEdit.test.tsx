@@ -958,6 +958,13 @@ describe('cohortEditLogic', () => {
                 label: 'does not end with',
             },
             {
+                key: '$app_version',
+                propertyType: PropertyType.String,
+                operator: PropertyOperator.SemverGte,
+                value: '1.2.3',
+                label: 'greater than or equal (semver)',
+            },
+            {
                 key: 'birth_date',
                 propertyType: PropertyType.DateTime,
                 operator: PropertyOperator.IsSet,
