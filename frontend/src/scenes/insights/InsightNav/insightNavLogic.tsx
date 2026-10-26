@@ -726,13 +726,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                // With dashboard widgets on, new metrics charts are metric widgets. The tab then stays only so saved
-                // metrics insights remain editable, including after a switch to another tab and back.
-                const offerMetricsInsights =
-                    featureFlags[FEATURE_FLAGS.METRICS] &&
-                    featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER] &&
-                    !featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
-                if (offerMetricsInsights || activeView === InsightType.METRICS || metricsQueryCache) {
+                // New metrics charts are metric widgets. The tab stays only so saved metrics insights remain
+                // editable, including after a switch to another tab and back.
+                if (activeView === InsightType.METRICS || metricsQueryCache) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,

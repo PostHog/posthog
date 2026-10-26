@@ -53,7 +53,7 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
-        self.enabled_flags = {"dashboard-widgets", "metrics", SNUFFLE_API_FEATURE_FLAG}
+        self.enabled_flags = {"metrics", SNUFFLE_API_FEATURE_FLAG}
         self.users_without_metrics: set[str] = set()
         flags_patcher = patch(
             "posthoganalytics.feature_enabled",

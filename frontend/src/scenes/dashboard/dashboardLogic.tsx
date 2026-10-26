@@ -1666,8 +1666,7 @@ export interface dashboardLogicMeta {
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (
             insightTiles: DashboardTile[],
-            widgetTiles: DashboardTile[],
-            dashboardWidgetsEnabled: boolean
+            widgetTiles: DashboardTile[]
         ) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
@@ -3814,15 +3813,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
         dashboardControlScopes: [
-            (s) => [s.insightTiles, s.widgetTiles, s.dashboardWidgetsEnabled],
+            (s) => [s.insightTiles, s.widgetTiles],
             (
                 insightTiles: DashboardTile[],
-                widgetTiles: DashboardTile[],
-                dashboardWidgetsEnabled: boolean
+                widgetTiles: DashboardTile[]
             ): Record<DashboardControl, DashboardControlScope> =>
                 getDashboardControlScopes(
                     insightTiles,
-                    (dashboardWidgetsEnabled ? widgetTiles : []).flatMap((tile) => {
+                    widgetTiles.flatMap((tile) => {
                         const widget = tile.widget
                         const dashboardControls = widget
                             ? tryGetDashboardWidgetCatalogEntry(widget.widget_type)?.dashboardControls
@@ -5247,7 +5245,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const refreshWidgets = (): void => {
                 if (
                     widgetsRefreshed ||
-                    !values.dashboardWidgetsEnabled ||
                     values.placement === DashboardPlacement.Export ||
                     values.placement === DashboardPlacement.Public
                 ) {
