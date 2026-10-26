@@ -32,6 +32,17 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     }
 }
 
+export type SuppressionCheckOptions = {
+    // A spam complaint means the recipient doesn't want our mail, not that the address can't receive it.
+    // Transactional email (login codes, password resets) still goes out to it. Bounce and manual entries block it.
+    transactional?: boolean
+}
+
+// An active suppression. A COMPLAINT row keeps its source when the address later bounces, so its bounce
+// count decides whether it blocks transactional email: it does once the count reaches the soft-bounce
+// threshold. A hard bounce sets the count to the threshold.
+type SuppressionEntry = { blocksTransactional: boolean }
+
 /**
  * Per-team email suppression list, backed by `posthog_messagesuppression`.
  *
@@ -58,14 +69,15 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
  */
 export class EmailSuppressionService {
     private readonly threshold: number
-    private readonly lazyLoader: LazyLoader<boolean>
+    // A key's active suppression, or false when it has none.
+    private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
     constructor(
         private postgres: PostgresRouter,
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
-        this.lazyLoader = new LazyLoader({
+        this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
         })
@@ -75,14 +87,19 @@ export class EmailSuppressionService {
         this.lazyLoader.clear()
     }
 
-    /** Pre-send check: is this recipient currently on the team's suppression list? */
-    public async isSuppressed(teamId: number, email: string): Promise<boolean> {
+    /** Pre-send check: does the team's suppression list block this recipient for this kind of email? */
+    public async isSuppressed(
+        teamId: number,
+        email: string,
+        { transactional = false }: SuppressionCheckOptions = {}
+    ): Promise<boolean> {
         const identifier = normalizeIdentifier(email)
         if (!identifier) {
             return false
         }
         try {
-            const suppressed = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
             if (suppressed) {
                 cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
             }
@@ -181,9 +198,9 @@ export class EmailSuppressionService {
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
         const reason = 'Auto-suppressed after a hard bounce'
 
-        // Params: teamId, reason, diag, then one identifier per row.
+        // Params: teamId, reason, diag, threshold, then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, reason, diag]
+        const params: (number | string | null)[] = [teamId, reason, diag, this.threshold]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
@@ -208,6 +225,12 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
                     WHEN posthog_messagesuppression.suppressed = false THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- A COMPLAINT row keeps its source, so the count records the bounce. At the threshold the
+                -- row also blocks transactional email, because the address can't receive mail.
+                transient_bounce_count = CASE
+                    WHEN posthog_messagesuppression.source = 'COMPLAINT'
+                        THEN GREATEST(posthog_messagesuppression.transient_bounce_count, $4)
+                    ELSE posthog_messagesuppression.transient_bounce_count END,
                 -- A complaint outranks a bounce as the reason a row exists, so it keeps its reason
                 -- here the way a manual entry does. This upsert never reassigns the source, so
                 -- overwriting the reason on a COMPLAINT row would leave the two contradicting each
@@ -251,9 +274,9 @@ export class EmailSuppressionService {
             ? `Auto-suppressed after a spam complaint (feedback type: ${feedbackType.slice(0, 100)})`
             : 'Auto-suppressed after a spam complaint'
 
-        // Params: teamId, reason, then one identifier per row.
+        // Params: teamId, reason, threshold, then one identifier per row.
         const valueClauses: string[] = []
-        const params: (number | string | null)[] = [teamId, reason]
+        const params: (number | string | null)[] = [teamId, reason, this.threshold]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             valueClauses.push(
@@ -273,6 +296,14 @@ export class EmailSuppressionService {
                 source = CASE
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.source
                     ELSE 'COMPLAINT' END,
+                -- An address that a bounce already suppressed can't receive mail, so the re-keyed row
+                -- keeps a count at the threshold and still blocks transactional email.
+                transient_bounce_count = CASE
+                    WHEN posthog_messagesuppression.source = 'BOUNCE'
+                        AND posthog_messagesuppression.suppressed
+                        AND NOT posthog_messagesuppression.deleted
+                        THEN GREATEST(posthog_messagesuppression.transient_bounce_count, $3)
+                    ELSE posthog_messagesuppression.transient_bounce_count END,
                 suppressed = CASE
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed
                     ELSE true END,
@@ -303,7 +334,8 @@ export class EmailSuppressionService {
 
     /**
      * Record successful deliveries. Resets the consecutive-bounce counter for auto (non-manual)
-     * entries that haven't yet been suppressed, so a transient outage never accumulates.
+     * entries that haven't yet been suppressed, so a transient outage never accumulates. COMPLAINT
+     * entries reset too, because their counter decides whether they block transactional email.
      *
      * `deliveryTimestamp` guards against out-of-order events: SES delivery and bounce notifications
      * for different sends can arrive in any order, and a late delivery for an older send must not
@@ -326,7 +358,9 @@ export class EmailSuppressionService {
             WHERE team_id = $1
               AND identifier = ANY($2)
               AND source <> 'MANUAL'
-              AND suppressed = false
+              -- A COMPLAINT row stays suppressed, but its count decides whether it blocks transactional
+              -- email, and a delivery proves the address works again.
+              AND (suppressed = false OR source = 'COMPLAINT')
               AND transient_bounce_count > 0
               AND (last_bounce_at IS NULL OR ($3::timestamptz IS NOT NULL AND last_bounce_at < $3::timestamptz))
         `
@@ -337,12 +371,13 @@ export class EmailSuppressionService {
                 [teamId, identifiers, deliveryTimestamp ?? null],
                 'resetBounceCounts'
             )
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
         }
     }
 
-    private async loadSuppressed(keys: string[]): Promise<Record<string, boolean>> {
+    private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
         // keys are `${teamId}:${identifier}`. Identifiers may contain ':' only in exotic cases; the
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
@@ -365,25 +400,25 @@ export class EmailSuppressionService {
             byTeam.set(p.teamId, list)
         }
 
-        const suppressedKeys = new Set<string>()
+        const entries = new Map<string, SuppressionEntry>()
         for (const [teamId, identifiers] of byTeam) {
-            const result = await this.postgres.query<{ identifier: string }>(
+            const result = await this.postgres.query<{ identifier: string; blocks_transactional: boolean }>(
                 PostgresUse.COMMON_READ,
-                `SELECT identifier
+                `SELECT identifier, (source <> 'COMPLAINT' OR transient_bounce_count >= $3) AS blocks_transactional
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
                    AND suppressed = true
                    AND deleted = false`,
-                [teamId, identifiers],
+                [teamId, identifiers, this.threshold],
                 'loadSuppressed'
             )
             for (const row of result.rows) {
-                suppressedKeys.add(toKey(teamId, row.identifier))
+                entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
             }
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
-        return Object.fromEntries(parsed.map((p) => [p.key, suppressedKeys.has(p.key)]))
+        return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
     }
 }

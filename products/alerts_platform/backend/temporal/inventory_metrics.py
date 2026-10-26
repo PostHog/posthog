@@ -22,8 +22,8 @@ def push_inventory(inventories: Sequence[SourceInventory]) -> None:
     with pushed_metrics_registry("alerts_platform_inventory", timeout=PUSH_TIMEOUT_SECONDS) as registry:
         configurations = Gauge(
             "alerts_platform_configurations",
-            "Platform alert configurations, by source and whether they are enabled",
-            ["source", "enabled"],
+            "Platform alert configurations, by source, whether they are enabled, and which stack owns them",
+            ["source", "enabled", "owner"],
             registry=registry,
         )
         alerts = Gauge(
@@ -34,7 +34,9 @@ def push_inventory(inventories: Sequence[SourceInventory]) -> None:
         )
         for inventory in inventories:
             source = inventory.source.value
-            configurations.labels(source=source, enabled="true").set(inventory.enabled_configurations)
-            configurations.labels(source=source, enabled="false").set(inventory.disabled_configurations)
+            for configuration in inventory.configurations:
+                configurations.labels(
+                    source=source, enabled=str(configuration.enabled).lower(), owner=configuration.owner.value
+                ).set(configuration.count)
             for alert in inventory.alerts:
                 alerts.labels(source=source, state=alert.state.value, muted=str(alert.muted).lower()).set(alert.count)

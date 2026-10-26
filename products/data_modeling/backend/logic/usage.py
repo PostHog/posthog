@@ -22,20 +22,40 @@ class EngineUsage(TypedDict):
     query_count: int | None
 
 
+class ModelStatusModel(TypedDict):
+    saved_query_id: UUID
+    name: str
+    deleted: bool
+
+
+class ModelStatusBreakdown(TypedDict):
+    engine: DataModelingJobEngine
+    status: DataModelingJobStatus
+    count: int
+    models: list[ModelStatusModel]
+
+
 class ModelUsage:
     USAGE_FIELDS = ("runs", "measured_runs", "read_bytes", "read_rows", "cpu_microseconds", "query_count")
     COUNT_USAGE_FIELDS = ("runs", "measured_runs")
 
     @staticmethod
-    def jobs(
+    def all_jobs(
         team_id: int, start: datetime, end: datetime, engines: tuple[DataModelingJobEngine, ...]
     ) -> QuerySet[DataModelingJob]:
         return DataModelingJob.objects.filter(
             team_id=team_id,
             engine__in=engines,
-            status__in=[DataModelingJobStatus.COMPLETED, DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED],
             last_run_at__gte=start,
             last_run_at__lt=end,
+        )
+
+    @classmethod
+    def jobs(
+        cls, team_id: int, start: datetime, end: datetime, engines: tuple[DataModelingJobEngine, ...]
+    ) -> QuerySet[DataModelingJob]:
+        return cls.all_jobs(team_id, start, end, engines).filter(
+            status__in=[DataModelingJobStatus.COMPLETED, DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED]
         )
 
     @staticmethod
@@ -78,6 +98,36 @@ class ModelUsage:
     def empty_usage(cls, prefix: str = "") -> dict[str, int | None]:
         return {f"{prefix}{field}": 0 if field in cls.COUNT_USAGE_FIELDS else None for field in cls.USAGE_FIELDS}
 
+    @staticmethod
+    def status_breakdown(jobs: QuerySet[DataModelingJob]) -> list[ModelStatusBreakdown]:
+        latest_jobs = (
+            jobs.filter(saved_query_id__isnull=False)
+            .select_related("saved_query")
+            .only("saved_query_id", "engine", "status", "saved_query__name", "saved_query__deleted")
+            .order_by("saved_query_id", "engine", "-last_run_at", "-created_at")
+            .distinct("saved_query_id", "engine")
+        )
+        groups: dict[tuple[DataModelingJobEngine, DataModelingJobStatus], list[ModelStatusModel]] = {}
+        for job in latest_jobs:
+            if job.saved_query is None or job.saved_query_id is None:
+                continue
+            key = (DataModelingJobEngine(job.engine), DataModelingJobStatus(job.status))
+            groups.setdefault(key, []).append(
+                ModelStatusModel(
+                    saved_query_id=job.saved_query_id,
+                    name=job.saved_query.name or "Untitled model",
+                    deleted=job.saved_query.deleted is not False,
+                )
+            )
+
+        for models in groups.values():
+            models.sort(key=lambda model: (model["name"].lower(), str(model["saved_query_id"])))
+
+        return [
+            ModelStatusBreakdown(engine=engine, status=status, count=len(models), models=models)
+            for (engine, status), models in sorted(groups.items())
+        ]
+
     @classmethod
     def get(
         cls,
@@ -93,6 +143,7 @@ class ModelUsage:
         end = datetime.combine(end_date, time.min, tzinfo=UTC)
         range_days = (end_date - start_date).days
         jobs = cls.jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
+        status_jobs = cls.all_jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
         overview = jobs.aggregate(**cls.aggregates())
         usage_updated_at = jobs.aggregate(latest=Max("usage_updated_at"))["latest"]
         daily = {
@@ -147,6 +198,7 @@ class ModelUsage:
                 for row in rows
             ],
             "count": count,
+            "status_breakdown": cls.status_breakdown(status_jobs),
             "usage_updated_at": usage_updated_at,
         }
 

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 72 enabled ops
+ * PostHog API - MCP 79 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,6 +43,111 @@ export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.objec
         .min(1)
         .optional()
         .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the scored anomaly history of an insight
+ */
+export const SignalsAnomaliesInsightRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesInsightRetrieveQueryDateFromDefault = `-30d`
+
+export const signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault = true
+export const signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault = false
+
+export const SignalsAnomaliesInsightRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesInsightRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    include_buckets: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault)
+        .describe('Return the buckets of each series. Set false for the per-series summary only.'),
+    include_warmup: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault)
+        .describe(
+            'Include warm-up buckets: scored rows with a null score and flag, written while the detector still lacks history. When false, a warm-up bucket shows as `scored: false`.'
+        ),
+    insight_id: zod.number().describe('The insight, by numeric id.'),
+    series_key: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Only this series, by the `series_key` of an anomaly search row.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Search anomalous insight series
+ */
+export const SignalsAnomaliesSearchRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesSearchRetrieveQueryDateFromDefault = `-7d`
+
+export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
+export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
+export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
+
+export const signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault = true
+
+export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
+    dashboard_id: zod.number().optional().describe('Only the series of the insights on this dashboard, by numeric id.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesSearchRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    group_by: zod
+        .enum(['series', 'insight'])
+        .default(signalsAnomaliesSearchRetrieveQueryGroupByDefault)
+        .describe(
+            '`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.\n\n\* `series` - Series\n\* `insight` - Insight'
+        ),
+    insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
+    interval: zod
+        .enum(['hour', 'day', 'week', 'month'])
+        .optional()
+        .describe(
+            'Only series with this interval.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
+        .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
+        .describe('The most rows to return.'),
+    only_flagged: zod
+        .boolean()
+        .default(signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault)
+        .describe(
+            'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
+        ),
 })
 
 /**
@@ -264,7 +369,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fix, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400."
         ),
     priority: zod
         .string()
@@ -1245,6 +1350,119 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
  * @summary List the ranking model's public outcomes
  */
 export const SignalsReportsRankingOutcomesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const SignalsReviewerExclusionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsCreateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsCreateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsCreateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsCreateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyInstructionMax)
+        .describe('Why you stay off this area, for the people who read it later.'),
+    report_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional report to take you off first. The report removal and the instruction save are separate steps.'
+        ),
+})
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsPartialUpdateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsPartialUpdateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsPartialUpdateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyInstructionMax)
+        .optional()
+        .describe('New text for the instruction.'),
+})
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRevokeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
     project_id: zod
         .string()
         .describe(

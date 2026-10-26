@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     Badge,
     Button,
@@ -42,6 +43,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobsListStatus } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { MATERIALIZATION_ENGINE_LABELS, MATERIALIZATION_JOBS_PAGE_SIZE, modelsUsageLogic } from './modelsUsageLogic'
+import { UsageNotAvailable } from './UsageNotAvailable'
 
 const STATUS_VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'default'> = {
     Completed: 'success',
@@ -49,6 +51,22 @@ const STATUS_VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'd
     Running: 'warning',
     Cancelled: 'default',
     Skipped: 'default',
+}
+
+function JobStatus({ status, error }: { status: string; error: string | null }): JSX.Element {
+    const badge = (
+        <Badge variant={STATUS_VARIANTS[status] ?? 'default'}>{status === 'Cancelled' ? 'Canceled' : status}</Badge>
+    )
+
+    return error ? (
+        <Tooltip title={<span className="whitespace-pre-wrap">{error}</span>} interactive>
+            <span tabIndex={0} aria-label={`${status}. ${error}`}>
+                {badge}
+            </span>
+        </Tooltip>
+    ) : (
+        badge
+    )
 }
 
 export function MaterializationJobsTable({
@@ -156,9 +174,7 @@ export function MaterializationJobsTable({
                                                 )}
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant={STATUS_VARIANTS[job.status] ?? 'default'}>
-                                                    {job.status === 'Cancelled' ? 'Canceled' : job.status}
-                                                </Badge>
+                                                <JobStatus status={job.status} error={job.error} />
                                             </TableCell>
                                             {managedWarehouseEnabled ? (
                                                 <TableCell className="whitespace-nowrap">
@@ -181,9 +197,11 @@ export function MaterializationJobsTable({
                                                 align="right"
                                                 className="hidden whitespace-nowrap tabular-nums @min-[48rem]/main-content:table-cell"
                                             >
-                                                {job.read_bytes === null
-                                                    ? 'Not measured'
-                                                    : humanizeBytes(job.read_bytes)}
+                                                {job.read_bytes === null ? (
+                                                    <UsageNotAvailable context="job" />
+                                                ) : (
+                                                    humanizeBytes(job.read_bytes)
+                                                )}
                                             </TableCell>
                                         </TableRow>
                                     )

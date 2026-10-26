@@ -8,7 +8,7 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { captureInboxWelcomeCommandCopied } from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { SELF_DRIVING_WIZARD_COMMAND } from './InboxWelcome'
+import { SELF_DRIVING_WIZARD_COMMAND } from '../../utils/selfDrivingWizardCommand'
 
 export function InboxOnboardingBanner(): JSX.Element {
     const { isTreatment } = useValues(inboxSetupLogic)
