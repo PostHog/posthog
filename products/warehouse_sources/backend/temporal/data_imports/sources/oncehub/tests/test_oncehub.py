@@ -159,6 +159,9 @@ class TestSchedulingAvailabilityFanout:
         child_requests = [r for r in result.requests if r.path.endswith("/scheduling-availability")]
         assert child_requests[0].path == f"/v2/users/{first_users[0]['id']}/scheduling-availability"
         assert all(not r.query for r in child_requests)
+        assert result.response is not None
+        assert result.response.primary_keys == ["user_id"]
+        assert result.response.partition_mode is None
 
 
 class TestOncehubSourceResponse:

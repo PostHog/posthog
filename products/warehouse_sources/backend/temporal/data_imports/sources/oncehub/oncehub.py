@@ -35,7 +35,7 @@ def _probe_headers(api_key: str) -> dict[str, str]:
     return {"API-Key": api_key, "Accept": "application/json"}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OncehubResumeConfig:
     # Cursor for the next page: OnceHub paginates by passing the last item's object ID as `after`.
     # A crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes
