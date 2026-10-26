@@ -149,22 +149,31 @@ class CustomerTaskAPI(APIBaseTest):
                 assigned_to=self.user,
                 due_at=datetime(2026, 9, 9, tzinfo=UTC),
             )
-            for i in range(3)
+            for i in range(101 if name == "deadline" else 3)
         ]
+        selected_tasks = tasks[:-1]
         before = tasks[0].updated_at
         with CaptureQueriesContext(connection) as queries:
             response = self.client.post(
                 f"{self.url}bulk_update/",
-                {"task_ids": [str(t.id) for t in tasks[:2]], "updates": updates},
+                {"task_ids": [str(t.id) for t in selected_tasks], "updates": updates},
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"updated_count": 2}
+        assert response.json() == {"updated_count": len(selected_tasks)}
         task_updates = [
             q for q in queries.captured_queries if q["sql"].startswith(f'UPDATE "{CustomerTask._meta.db_table}"')
         ]
         assert len(task_updates) == 1
-        for task in tasks[:2]:
+        if name == "deadline":
+            for model, max_reads in ((Account, 2), (OrganizationMembership, 10)):
+                reads = [
+                    q
+                    for q in queries.captured_queries
+                    if q["sql"].startswith("SELECT") and f'FROM "{model._meta.db_table}"' in q["sql"]
+                ]
+                assert len(reads) <= max_reads, reads
+        for task in selected_tasks:
             task.refresh_from_db()
             assert task.updated_at > before
             for field, expected in updates.items():
@@ -193,9 +202,9 @@ class CustomerTaskAPI(APIBaseTest):
             assert activity.activity_type == "updated"
             assert activity.actor_id == self.user.id
             assert activity.changes
-        tasks[2].refresh_from_db()
-        assert tasks[2].status == ("completed" if name == "reopen" else "open")
-        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == 2
+        tasks[-1].refresh_from_db()
+        assert tasks[-1].status == ("completed" if name == "reopen" else "open")
+        assert CustomerTaskActivity.objects.for_team(self.team.id).count() == len(selected_tasks)
 
     @parameterized.expand([(True,), (False,)])
     def test_bulk_archive_and_restore_skip_unchanged_tasks(self, archived: bool) -> None:

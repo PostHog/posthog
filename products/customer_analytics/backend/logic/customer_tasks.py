@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
+from functools import cached_property
 from typing import cast
 from uuid import UUID
 
@@ -95,6 +96,13 @@ def _account_for_write(team_id: int, account_id: UUID | None, user_access_contro
     return account
 
 
+def _validate_assignee_access(*, team: Team, account: Account | None, access: UserAccessControl) -> None:
+    if not access.check_access_level_for_object(team, required_level="member"):
+        raise CustomerTaskAssigneeInvalid()
+    if account is not None and not access.check_access_level_for_object(account, required_level="viewer"):
+        raise CustomerTaskAssigneeCannotViewAccount()
+
+
 def _validate_assignee(
     *,
     team: Team,
@@ -111,12 +119,63 @@ def _validate_assignee(
     assignee = User.objects.filter(id=assignee_id).first()
     if assignee is None:
         raise CustomerTaskAssigneeInvalid()
-    assignee_access = UserAccessControl(user=assignee, team=team)
-    if not assignee_access.check_access_level_for_object(team, required_level="member"):
-        raise CustomerTaskAssigneeInvalid()
-    if account is not None and not assignee_access.check_access_level_for_object(account, required_level="viewer"):
-        raise CustomerTaskAssigneeCannotViewAccount()
+    _validate_assignee_access(team=team, account=account, access=UserAccessControl(user=assignee, team=team))
     return assignee
+
+
+class _CustomerTaskBulkValidation:
+    def __init__(
+        self,
+        *,
+        team: Team,
+        visible_tasks: list[CustomerTask],
+        input: contracts.UpdateCustomerTaskInput,
+        user_access_control: UserAccessControl,
+    ) -> None:
+        self.team = team
+        self.user_access_control = user_access_control
+        self.accounts = {task.account.id: task.account for task in visible_tasks if task.account is not None}
+        self.assignee_ids = {task.assigned_to_id for task in visible_tasks if task.assigned_to_id is not None}
+        if input.assigned_to_id_provided and input.assigned_to_id is not None:
+            self.assignee_ids.add(input.assigned_to_id)
+        self.assignee_access = {user_access_control.user.id: user_access_control}
+        self.validated_pairs: set[tuple[UUID | None, int]] = set()
+
+    @cached_property
+    def assignees(self) -> dict[int, User]:
+        return {
+            membership.user_id: membership.user
+            for membership in OrganizationMembership.objects.filter(
+                organization_id=self.team.organization_id, user_id__in=self.assignee_ids
+            ).select_related("user")
+        }
+
+    def can_edit(self, task: CustomerTask) -> bool:
+        return self.user_access_control.check_access_level_for_object(task, required_level="editor")
+
+    def get_account(self, account_id: UUID | None) -> Account | None:
+        if account_id is None:
+            return None
+        if account_id not in self.accounts:
+            account = _account_for_write(self.team.id, account_id, self.user_access_control)
+            if account is None:
+                raise CustomerTaskAccountNotFound()
+            self.accounts[account_id] = account
+        return self.accounts[account_id]
+
+    def get_assignee(self, account: Account | None, assignee_id: int | None) -> User | None:
+        if assignee_id is None:
+            return None
+        assignee = self.assignees.get(assignee_id)
+        if assignee is None:
+            raise CustomerTaskAssigneeInvalid()
+        pair = (account.id if account is not None else None, assignee_id)
+        if pair not in self.validated_pairs:
+            if assignee_id not in self.assignee_access:
+                self.assignee_access[assignee_id] = UserAccessControl(user=assignee, team=self.team)
+            _validate_assignee_access(team=self.team, account=account, access=self.assignee_access[assignee_id])
+            self.validated_pairs.add(pair)
+        return assignee
 
 
 def _set_customer_task_assignee_access(
@@ -409,8 +468,14 @@ def _prepare_customer_task_update(
     input: contracts.UpdateCustomerTaskInput,
     actor: User | None,
     user_access_control: UserAccessControl,
+    validation: _CustomerTaskBulkValidation | None = None,
 ) -> _CustomerTaskWrite | None:
-    if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+    can_edit = (
+        validation.can_edit(task)
+        if validation is not None
+        else can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True)
+    )
+    if not can_edit:
         raise CustomerTaskAccessDenied()
     if task.archived_at is not None:
         raise CustomerTaskArchived()
@@ -432,11 +497,14 @@ def _prepare_customer_task_update(
     if not semantic_change:
         return None
 
-    account = _account_for_write(
-        team.id, input.account_id if input.account_id_provided else task.account_id, user_access_control
-    )
+    account_id = input.account_id if input.account_id_provided else task.account_id
     assignee_id = input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id
-    assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
+    if validation is not None:
+        account = validation.get_account(account_id)
+        assignee = validation.get_assignee(account, assignee_id)
+    else:
+        account = _account_for_write(team.id, account_id, user_access_control)
+        assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
     requested_status = input.status if input.status_provided else task.status
     if requested_status is None:
         raise CustomerTaskInvalidTransition(task.status, "")
@@ -544,19 +612,25 @@ def bulk_update_customer_tasks(
             )
             if len(tasks) != len(task_ids):
                 return None
+            validation = _CustomerTaskBulkValidation(
+                team=team, visible_tasks=tasks, input=input, user_access_control=user_access_control
+            )
             writes: list[_CustomerTaskWrite] = []
             now = timezone.now()
             for task in tasks:
                 if archived is None:
                     write = _prepare_customer_task_update(
-                        team=team, task=task, input=input, actor=actor, user_access_control=user_access_control
+                        team=team,
+                        task=task,
+                        input=input,
+                        actor=actor,
+                        user_access_control=user_access_control,
+                        validation=validation,
                     )
                     if write is None:
                         continue
                 else:
-                    if not can_access_customer_task_object(
-                        task=task, user_access_control=user_access_control, write=True
-                    ):
+                    if not validation.can_edit(task):
                         raise CustomerTaskAccessDenied()
                     if (task.archived_at is not None) == archived:
                         continue
