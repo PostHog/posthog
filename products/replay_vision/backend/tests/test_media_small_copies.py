@@ -90,6 +90,7 @@ class TestBackfillSmallCopies(BaseTest):
         servable = self._media(0)
         self._media(1, rendered=False)
         self._media(2, expired=True)
+        ExportedAsset.objects.filter(pk=self._media(3).asset_id).update(export_format=ExportedAsset.ExportFormat.MP4)
 
         with (
             patch("products.replay_vision.backend.media_small_copies.object_storage.read_bytes") as read,

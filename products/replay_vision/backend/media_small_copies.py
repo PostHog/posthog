@@ -67,17 +67,22 @@ class SmallCopyBackfillResult:
 def teams_missing_small_copies() -> list[int]:
     return sorted(
         ReplayObservationMedia.objects.unscoped()
-        .filter(small_asset__isnull=True)
+        .filter(small_asset__isnull=True, asset__export_format=ExportedAsset.ExportFormat.PNG)
         .values_list("team_id", flat=True)
         .distinct()
     )
 
 
 def media_missing_small_copies(team_id: int, limit: int | None = None) -> QuerySet[ReplayObservationMedia]:
-    # A frame that is not rendered or has expired would never be served, so it gets no copy either.
+    # A frame that is not rendered or has expired would never be served, so it gets no copy either. Only PNG
+    # frames get one, which leaves out media of other formats, such as video clips.
     queryset = (
         ReplayObservationMedia.objects.for_team(team_id, canonical=True)
-        .filter(small_asset__isnull=True, asset__content_location__isnull=False)
+        .filter(
+            small_asset__isnull=True,
+            asset__content_location__isnull=False,
+            asset__export_format=ExportedAsset.ExportFormat.PNG,
+        )
         .filter(Q(asset__expires_after__isnull=True) | Q(asset__expires_after__gt=now()))
         .select_related("asset")
         .order_by("id")
