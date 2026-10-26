@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class OpenFDAEndpointConfig:
     name: str
     # Path under https://api.fda.gov, e.g. "/drug/enforcement.json".
