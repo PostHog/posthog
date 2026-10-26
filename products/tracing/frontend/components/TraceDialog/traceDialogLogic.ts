@@ -189,7 +189,11 @@ export interface traceDialogLogicActions {
     selectSpan: (spanId: string | null) => {
         spanId: string | null
     } // traceViewLogic
-    setInspectorTab: (tab: SpanInspectorTab) => {
+    setInspectorTab: (
+        tab: SpanInspectorTab,
+        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+    ) => {
+        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
         tab: SpanInspectorTab
     } // traceViewLogic
     setSpans: (spans: Span[]) => {

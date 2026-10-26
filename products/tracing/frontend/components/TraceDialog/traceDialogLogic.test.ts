@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { compareRowKey } from 'products/tracing/frontend/compareUtils'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
@@ -496,6 +497,37 @@ describe('traceDialogLogic', () => {
                     collapse_toggles: 1,
                     tabs_viewed: ['attributes'],
                 })
+            )
+        })
+
+        // Fails when the highlight opens what hides its first span with the toggle actions, which the dialog
+        // counts as the person's own collapse toggles.
+        it('does not count the spans a highlight opens as collapse toggles', async () => {
+            // a > b > c > d > e, so b to d fold into a chain that hides c.
+            const chain = ['a', 'b', 'c', 'd', 'e'].map((spanId, i, ids) => ({
+                ...span(spanId),
+                parent_span_id: i === 0 ? '' : ids[i - 1],
+            }))
+            getTraceSpy.mockResolvedValue({ results: chain, hasMore: false, nextOffset: null })
+            logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+            expect(view.values.openChainIds).toEqual(new Set())
+
+            view.actions.highlightOperation(
+                compareRowKey({ service_name: 'agent-worker', name: 'c' }),
+                'trace_dialog',
+                'span'
+            )
+            expect(view.values.openChainIds).toEqual(new Set(['b']))
+            logic.actions.closeTraceDialog()
+
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace operation highlighted', {
+                surface: 'trace_dialog',
+                scope: 'span',
+            })
+            expect(captureSpy).toHaveBeenCalledWith(
+                'tracing trace dialog closed',
+                expect.objectContaining({ collapse_toggles: 0 })
             )
         })
     })
