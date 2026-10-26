@@ -14,9 +14,11 @@ export function EvaluationResultTrendCell({
     }
     return (
         <div className="w-32 @3xl:w-44 flex flex-col gap-1">
-            <div className="text-xs">
-                <EvaluationResultChange row={row} />
-            </div>
+            {row.change && (
+                <div className="text-xs">
+                    <EvaluationResultChange row={row} />
+                </div>
+            )}
             <EvaluationResultMiniChart row={row} buckets={buckets} />
         </div>
     )
