@@ -125,6 +125,11 @@ type StoredKey = { fingerprint: string; invocationId: string; queued: boolean }
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
+// Keyed by run, not by Redis key. Several runs of one key can wait at once, for example a webhook
+// retry that queued without a reservation during the outage. Only the store knows which run owns
+// the key, so every run keeps its entry until its own write succeeds, loses ownership, or expires.
+const pendingCompletionKey = ({ redisKey, value }: PendingCompletion): string => `${redisKey}/${value.invocationId}`
+
 /**
  * Caller-supplied idempotency keys, scoped to a team. A key reserves a run before it is queued, and
  * holds the run's id for 24 hours once it is. A queue failure releases the key, so the caller's
@@ -228,7 +233,7 @@ export class IdempotencyKeys {
             this.count('mark_queued', 'dropped')
             return
         }
-        this.pendingCompletions.set(completion.redisKey, completion)
+        this.pendingCompletions.set(pendingCompletionKey(completion), completion)
         if (!this.draining) {
             void this.drainPendingCompletions()
         }
@@ -260,16 +265,9 @@ export class IdempotencyKeys {
                     return false
                 }
             }
-            this.forgetPendingCompletion(completion)
+            this.pendingCompletions.delete(pendingCompletionKey(completion))
         }
         return true
-    }
-
-    private forgetPendingCompletion(completion: PendingCompletion): void {
-        // A retry of the request can replace the entry while its earlier completion writes.
-        if (this.pendingCompletions.get(completion.redisKey) === completion) {
-            this.pendingCompletions.delete(completion.redisKey)
-        }
     }
 
     private async writeQueued({ redisKey, value, expiresAt }: PendingCompletion): Promise<void> {

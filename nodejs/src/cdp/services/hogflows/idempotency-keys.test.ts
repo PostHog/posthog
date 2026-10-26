@@ -158,6 +158,29 @@ describe('IdempotencyKeys', () => {
         }
     })
 
+    it('records the reserved run when a retry that queued without a reservation also fails to complete', async () => {
+        expect(await keys.reserve(1, key, 'request-a', 'run-1')).toEqual({ status: 'reserved' })
+        const useClient = valkey.useClient
+        const outage = jest.spyOn(valkey, 'useClient').mockRejectedValue(new Error('connection lost'))
+        try {
+            await keys.markQueued(1, key, 'request-a', 'run-1')
+            // The webhook route queues a retry without a reservation when the store is unavailable.
+            expect(await keys.reserve(1, key, 'request-a', 'run-2')).toEqual({ status: 'unavailable' })
+            await keys.markQueued(1, key, 'request-a', 'run-2')
+            // The store recovers before the pending hold of run-1 expires.
+            outage.mockImplementation(useClient)
+
+            await waitForExpect(async () =>
+                expect(await keys.reserve(1, key, 'request-a', 'run-3')).toEqual({
+                    status: 'replayed',
+                    invocationId: 'run-1',
+                })
+            )
+        } finally {
+            outage.mockRestore()
+        }
+    })
+
     it('sends one store call at a time while failed completions wait for the store', async () => {
         let inFlight = 0
         let maxInFlight = 0
