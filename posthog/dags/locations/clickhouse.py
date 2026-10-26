@@ -39,7 +39,7 @@ defs = dagster.Definitions(
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
-        deletes.monthly_old_events_cleanup_job,
+        deletes.monthly_retention_events_cleanup_job,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,
         fix_person_id_overrides.fix_person_id_overrides_job,
@@ -67,7 +67,7 @@ defs = dagster.Definitions(
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
         warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
-        deletes.monthly_old_events_cleanup_schedule,
+        deletes.monthly_retention_events_cleanup_schedule,
     ],
     sensors=[
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
