@@ -245,9 +245,7 @@ export const VerifyingWithSuggestions: Story = {
             backend.publishRecords(DOMAIN, halfPublished)
             backend.suggestWorkflows(SUGGESTED_WORKFLOWS)
         },
-    },
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_DATA_SUGGESTIONS],
+        aiApproved: true,
     },
 }
 
