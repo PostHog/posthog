@@ -10,6 +10,7 @@ import {
     NodeKind,
     WebAnalyticsConversionGoal,
     WebAnalyticsPropertyFilters,
+    WebPageDirectoryMetric,
     WebPageDirectoryQuery,
     WebPageDirectoryValue,
 } from '~/queries/schema/schema-general'
@@ -44,6 +45,21 @@ export const buildPageDirectoryBaseQuery = ({
     properties: webAnalyticsFilters,
     excludeStaticAssets: true,
     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+})
+
+export const SITE_SUMMARY_METRICS: WebPageDirectoryMetric[] = [
+    WebPageDirectoryMetric.Visitors,
+    WebPageDirectoryMetric.GoogleSearch,
+    WebPageDirectoryMetric.AiReferrals,
+    WebPageDirectoryMetric.AiCrawls,
+]
+
+export const buildSiteTotalsQuery = (baseQuery: WebPageDirectoryQuery): WebPageDirectoryQuery => ({
+    ...baseQuery,
+    conversionGoal: null,
+    pageKeys: [],
+    metrics: SITE_SUMMARY_METRICS,
+    includeSiteTotals: true,
 })
 
 export const valueChange = (value: WebPageDirectoryValue | null | undefined): number | null =>
