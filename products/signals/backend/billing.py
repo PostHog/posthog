@@ -43,7 +43,7 @@ would otherwise be repeatable free work.
 
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -274,7 +274,7 @@ def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> Query
     return queryset.annotate(first_billable_pr_run_at=Subquery(earliest))
 
 
-def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) -> dict[str, datetime]:
+def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID], *, team_id: int) -> dict[str, datetime]:
     """`annotate_first_billable_pr_run_at` for a known set of reports, in one grouped query.
 
     The annotation is a correlated subquery, so it costs one bridge-and-run walk per row the
@@ -282,7 +282,7 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) ->
     Reports with no billable PR run are absent from the map, matching the annotation's NULL.
     """
     rows = (
-        _legacy_pr_bridges(SignalReport.objects.filter(id__in=report_ids))
+        _legacy_pr_bridges(SignalReport.objects.filter(id__in=report_ids, team_id=team_id))
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )
@@ -361,6 +361,7 @@ def _report_billing_credits_by_team(
     begin: datetime,
     end: datetime,
     organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
     *,
     cutoffs: dict[uuid.UUID, datetime],
 ) -> list[tuple[int, int]]:
@@ -371,7 +372,8 @@ def _report_billing_credits_by_team(
     such run exists before `begin`. Each billable report is charged a flat
     `SIGNALS_CREDITS_PER_REPORT_WITH_PR`. Returns `[(team_id, credits), ...]` for teams with
     non-zero usage only. `organization_id` narrows the scan to one org (the widget's live-count
-    path); usage reporting passes nothing and stays fleet-wide.
+    path), and `organization_ids` to a set of orgs (the quota run's recount). Usage reporting passes
+    neither and stays fleet-wide.
 
     The entry scan is bounded by PRs shipped in the period (via the `created_at` +
     `output__pr_url` indexes), not by the total number of reports, task runs, or teams.
@@ -385,6 +387,8 @@ def _report_billing_credits_by_team(
     ).exclude(report_id__in=usage_billed_reports(cutoffs).values("id"))
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
+    if organization_ids is not None:
+        bridges = bridges.filter(team__organization_id__in=organization_ids)
     report_team: dict[uuid.UUID, int] = {}
     for report_id, team_id in bridges.values_list("report_id", "team_id"):
         report_team.setdefault(report_id, team_id)
@@ -432,12 +436,19 @@ def _report_billing_credits_by_team(
 
 
 def get_signals_billing_credits_by_team(
-    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+    begin: datetime,
+    end: datetime,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
 ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
     """Shared by daily reporting and the 15-minute quota refresh, including today's settled spend."""
     if end <= begin:
         return []
-    if organization_id is not None:
+    if organization_ids is not None:
+        organizations = {uuid.UUID(str(org_id)) for org_id in organization_ids}
+        if organization_id is not None:
+            organizations &= {uuid.UUID(str(organization_id))}
+    elif organization_id is not None:
         organizations = {uuid.UUID(str(organization_id))}
     else:
         # Only evaluate flags for orgs with usage in this window, once per org for both meters.
@@ -453,7 +464,7 @@ def get_signals_billing_credits_by_team(
             .distinct()
         )
     cutoffs = {org_id: cutoff for org_id in organizations if (cutoff := usage_billing_cutoff(org_id)) is not None}
-    totals = dict(_report_billing_credits_by_team(begin, end, organization_id, cutoffs=cutoffs))
+    totals = dict(_report_billing_credits_by_team(begin, end, organization_id, organization_ids, cutoffs=cutoffs))
     for team_id, credits in spend_billing_credits_by_team(begin, end, cutoffs=cutoffs).items():
         totals[team_id] = totals.get(team_id, 0) + credits
     return list(totals.items())

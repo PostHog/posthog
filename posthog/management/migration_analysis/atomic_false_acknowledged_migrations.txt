@@ -57,5 +57,5 @@ ee.0065_migrate_dashboard_collaborators
 conversations.0076_tag_legacy_conversation_attachments
 posthog.1398_remove_userproductlist_state
 # Copies absolute contributions in batches; source IDs and observation timestamps make retries idempotent.
-signals.0200_backfill_owner_spend
+signals.0205_backfill_owner_spend
 data_modeling.0047_remove_datawarehousemodelpath_state

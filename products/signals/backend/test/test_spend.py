@@ -820,7 +820,7 @@ class TestSignalSpend(BaseTest):
             )
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         owner.refresh_from_db()
-        migration = import_module("products.signals.backend.migrations.0200_backfill_owner_spend")
+        migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
         migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
         owner.refresh_from_db()
         assert owner.spend == Decimal("0.03")
@@ -891,9 +891,9 @@ class TestSignalSpend(BaseTest):
             is_task=True,
             token_cost_microusd=200,
         )
-        migration = import_module("products.signals.backend.migrations.0200_backfill_owner_spend")
+        migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
         with override_settings(MIGRATION_MODULES={}):
-            historical_apps = MigrationLoader(connection).project_state([("signals", "0199_owner_spend")]).apps
+            historical_apps = MigrationLoader(connection).project_state([("signals", "0204_owner_spend")]).apps
         for _ in range(2):
             migration.backfill_owner_spend(historical_apps, SimpleNamespace(connection=connection))
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
@@ -971,7 +971,7 @@ class TestSignalSpend(BaseTest):
             token_cost_microusd=12_345,
         )
         if not after_migration:
-            migration = import_module("products.signals.backend.migrations.0200_backfill_owner_spend")
+            migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
             for _ in range(2):
                 migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
         for _ in range(2):

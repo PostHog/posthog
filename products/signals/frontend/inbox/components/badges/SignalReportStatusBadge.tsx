@@ -30,6 +30,7 @@ export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.CANDIDATE]: 'Queued for research. An agent will pick this up shortly.',
     [SignalReportStatus.POTENTIAL]: 'Gathering signals. The report will be queued once enough evidence accumulates.',
     [SignalReportStatus.RESOLVED]: 'This report has been resolved.',
+    [SignalReportStatus.MONITORING]: 'Implementation is complete. Outcome verification is pending.',
     [SignalReportStatus.FAILED]: 'Research failed. The report may be retried automatically.',
     [SignalReportStatus.SUPPRESSED]: 'This report was dismissed and is out of your inbox.',
     [SignalReportStatus.DELETED]: 'This report has been deleted.',
@@ -42,6 +43,7 @@ export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.CANDIDATE]: 'Queued',
     [SignalReportStatus.POTENTIAL]: 'Gathering',
     [SignalReportStatus.RESOLVED]: 'Resolved',
+    [SignalReportStatus.MONITORING]: 'Monitoring',
     [SignalReportStatus.FAILED]: 'Failed',
     [SignalReportStatus.SUPPRESSED]: 'Dismissed',
     [SignalReportStatus.DELETED]: 'Deleted',
@@ -55,6 +57,7 @@ function inboxStatusBadgeType(status: SignalReportStatus): LemonTagType {
         case SignalReportStatus.RESOLVED:
             return 'completion'
         case SignalReportStatus.PENDING_INPUT:
+        case SignalReportStatus.MONITORING:
             return 'caution'
         case SignalReportStatus.IN_PROGRESS:
             return 'warning'

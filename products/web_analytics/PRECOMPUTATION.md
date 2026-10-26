@@ -32,14 +32,19 @@ Two ClickHouse tables carry the same fixed dimension set as v2 (`host`, `device_
 Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHash64(job_id)` on the AUX cluster, partitioned by `toYYYYMMDD(expires_at)`.
 
 - **Owned by**: web analytics team, on the analytics_platform framework.
-- **Population**: the hourly `web_dimensional_precompute` Dagster job (`products/web_analytics/dags/web_dimensional_precompute.py`).
-  For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 90-day window, chunked to one UTC day per INSERT.
+- **Population**: the `web_dimensional_precompute_job` Dagster job, every 20 minutes (`products/web_analytics/dags/web_dimensional_precompute.py`).
+  For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 92-day window, chunked to one UTC day per INSERT.
+  92 UTC days hold the start of a `-90d` read in every team timezone.
   Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
+  The TTL bands start at UTC midnight, like the windows, so the current UTC day keeps its 1h TTL in every team timezone.
   The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
   The inserts carry the legacy job's memory and time ceilings, because one UTC day of a very large team outgrew the interactive defaults (#117339).
   They also narrow HogQL's 3-day session lookback to 25 hours, after the wider read ran the shared sessions node out of memory (#117872).
   The job has no stale grace or forced refresh of its own: today's window rebuilds only when a run finds its job expired.
-  So the today TTL must be clearly shorter than the cron period, or a run skips a still-fresh window that then expires before the next run. Today the two are equal.
+  So today's data can lag by up to the TTL plus one cron period (20 minutes).
+- **Monitoring**: after the writers, a second op reads the READY jobs back for each team and table, merges their intervals, and fails the run when a UTC day in the writers' window has no fresh job or the newest job for the writers' current day is older than the TTL plus two runs. The check takes the window and the current day from the writers, so a run that crosses UTC midnight does not report the new day as missing.
+  A failed run alerts `#alerts-web-analytics` through `notify_slack_on_failure`, which routes on the job's `owner` tag.
+  The op also pushes `web_dimensional_precompute_coverage_missing_days` and `web_dimensional_precompute_today_lag_seconds` gauges, labeled by `team_id` and `table`, to the Prometheus push gateway.
 - **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
   Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
   Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.

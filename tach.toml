@@ -304,6 +304,8 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    # Facade-only: the metrics_table widget runs its query through the metrics facade.
+    "products.metrics",
     "products.notifications",
     "products.product_analytics",
     "products.conversations",
@@ -979,6 +981,9 @@ depends_on = [
     "products.exports",
     # Mention workflows check billing quota limits before they start a task.
     "ee",
+    # Feature tips skip MCP tools and Slack subscriptions that the reader already uses.
+    "products.mcp_store",
+    "products.subscriptions",
 ]
 layer = "modules"
 
@@ -1674,6 +1679,7 @@ depends_on = [
     "products.dashboards",
     "products.data_catalog",
     "products.error_tracking",
+    "products.feature_flags",
     "products.product_analytics",
     "products.signals",
     "products.tasks",

@@ -80,14 +80,18 @@ export function dashboardToSaveableTemplate(
         tiles: dashboard.tiles
             .filter((tile) => !tile.error)
             .map((tile) => {
+                const display = {
+                    layouts: tile.layouts,
+                    color: tile.color,
+                    transparent_background: tile.transparent_background,
+                    group_key: tile.group_key,
+                }
                 if (tile.text) {
                     return {
                         type: 'TEXT' as const,
                         body: tile.text.body,
                         agent_context: tile.text.agent_context,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.insight) {
@@ -96,9 +100,7 @@ export function dashboardToSaveableTemplate(
                         name: tile.insight.name,
                         description: tile.insight.description || '',
                         query: tile.insight.query,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.button_tile) {
@@ -110,9 +112,7 @@ export function dashboardToSaveableTemplate(
                             placement: tile.button_tile.placement,
                             style: tile.button_tile.style,
                         },
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 if (tile.widget) {
@@ -120,13 +120,12 @@ export function dashboardToSaveableTemplate(
                         type: 'WIDGET' as const,
                         widget_type: tile.widget.widget_type,
                         config: tile.widget.config,
-                        layouts: tile.layouts,
-                        color: tile.color,
-                        transparent_background: tile.transparent_background,
+                        ...display,
                     }
                 }
                 throw new Error('Unknown tile type')
             }),
+        customization: dashboard.customization,
         variables: [],
     }
 }
@@ -294,6 +293,49 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     }
 
     return results
+}
+
+/**
+ * Runs tasks in first-in, first-out order with at most `limit` tasks at the same time.
+ * A task whose signal aborts while it waits does not start, and its promise rejects with an AbortError.
+ */
+export class TaskQueue {
+    private running = 0
+    private readonly waiting: { start: () => void; drop: () => void }[] = []
+
+    constructor(private readonly limit: number) {}
+
+    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'))
+                return
+            }
+            const entry = {
+                start: (): void => {
+                    signal?.removeEventListener('abort', entry.drop)
+                    this.running++
+                    new Promise<T>((resolveTask) => resolveTask(task())).then(resolve, reject).finally(() => {
+                        this.running--
+                        this.startNext()
+                    })
+                },
+                drop: (): void => {
+                    this.waiting.splice(this.waiting.indexOf(entry), 1)
+                    reject(new DOMException('Aborted', 'AbortError'))
+                },
+            }
+            signal?.addEventListener('abort', entry.drop, { once: true })
+            this.waiting.push(entry)
+            this.startNext()
+        })
+    }
+
+    private startNext(): void {
+        while (this.running < this.limit && this.waiting.length > 0) {
+            this.waiting.shift()!.start()
+        }
+    }
 }
 
 export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {

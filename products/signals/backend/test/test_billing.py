@@ -151,6 +151,32 @@ class TestSignalsBilling(BaseTest):
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
 
+    @parameterized.expand([(as_list, usage_billing) for as_list in (False, True) for usage_billing in (False, True)])
+    def test_organization_filter_excludes_other_organizations(self, as_list: bool, usage_billing: bool) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        with time_machine.travel(_at(10), tick=False):
+            for team in (self.team, other_team):
+                self._pr_run(self._report(team=team), created_at=_at(10), team=team)
+                SignalSpend.objects.for_team(team.id).create(
+                    team=team,
+                    kind=SignalSpend.Kind.AD_HOC,
+                    signal_id=uuid4(),
+                    spend=20,
+                    finalized_at=_at(10),
+                )
+        org_filter = (
+            {"organization_ids": [self.organization.id]} if as_list else {"organization_id": self.organization.id}
+        )
+        with (
+            patch("posthoganalytics.get_feature_flag", return_value="2026-06-01" if usage_billing else None),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+        ):
+            self.assertEqual(
+                dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, **org_filter)),
+                {self.team.id: 20 if usage_billing else 1500},
+            )
+            self.assertEqual(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END, organization_ids=[]), [])
+
     @parameterized.expand([(None, 1500), ("posthog_ai", 0)])
     def test_report_with_pr_billed_only_when_not_billed_as_phai(self, product: str | None, credits: int) -> None:
         report = self._report()
@@ -714,7 +740,10 @@ class TestSpendBasedBilling(BaseTest):
         )
         reports = SignalReport.objects.filter(id__in=[report.id, legacy_report.id])
         expected_refundable = {str(legacy_report.id)} if existing_work == "report" else set()
-        assert set(first_billable_pr_run_at_by_report([report.id, legacy_report.id])) == expected_refundable
+        assert (
+            set(first_billable_pr_run_at_by_report([report.id, legacy_report.id], team_id=self.team.id))
+            == expected_refundable
+        )
         assert {
             str(row.id)
             for row in annotate_first_billable_pr_run_at(reports)

@@ -52,12 +52,14 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
+import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -297,6 +299,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
                                 <ErrorTrackingIssueScenePanel issue={issue} />
                                 {hasIssueSplitting && <ManageFingerprintsModal issueId={issueId} />}
+                                <SuppressSimilarIssuesDialog />
 
                                 <div className="ErrorTrackingIssue flex flex-grow min-h-0 overflow-hidden">
                                     <div className="relative flex flex-1 h-full w-full min-h-0">
@@ -350,6 +353,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
