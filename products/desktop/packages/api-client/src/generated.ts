@@ -346,6 +346,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
