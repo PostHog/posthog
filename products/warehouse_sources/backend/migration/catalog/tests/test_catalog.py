@@ -2,6 +2,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.migration.catalog import match_destination, match_source
 from products.warehouse_sources.backend.migration.catalog.fivetran_sources import FIVETRAN_SOURCE_TYPES
+from products.warehouse_sources.backend.migration.catalog.scripts.generate_fivetran_sources import (
+    _EXTRA_MATCHES,
+    _REJECTED,
+)
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -16,6 +20,10 @@ class TestCatalog:
             if source_type not in registered
         }
         assert unregistered == {}
+
+    def test_generated_map_matches_the_generator_overrides(self) -> None:
+        assert {service: FIVETRAN_SOURCE_TYPES.get(service) for service in _EXTRA_MATCHES} == _EXTRA_MATCHES
+        assert _REJECTED & set(FIVETRAN_SOURCE_TYPES) == set()
 
     @parameterized.expand(
         [
@@ -37,6 +45,7 @@ class TestCatalog:
             ("bigquery_variant", "fivetran", "managed_big_query", ExternalDataDestination.Type.BIGQUERY),
             ("postgres_variant", "fivetran", "postgres_rds_warehouse", ExternalDataDestination.Type.POSTGRES),
             ("no_posthog_destination", "fivetran", "clickhouse", None),
+            ("lake_with_unknown_storage", "fivetran", "managed_data_lake", None),
             ("unknown_provider", "airbyte", "snowflake", None),
         ]
     )
