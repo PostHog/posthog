@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { serializeError, TranscriptBoundaries } from "@posthog/agent-contracts";
+import {
+  readParentToolCallId,
+  serializeError,
+  TranscriptBoundaries,
+} from "@posthog/agent-contracts";
 import { type PostHogAPIClient, PostHogAPIError } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
-import { redactSecrets } from "./utils/redact-secrets";
+import { redactSecrets, SecretEventRedactor } from "./utils/redact-secrets";
 
 /**
  * Session context for a registered session.
@@ -75,6 +79,7 @@ interface SessionState {
   currentTurnMessages: string[];
   toolUpdateCache: Map<string, BufferedToolUpdate>;
   pendingRawInputSnapshots: Map<string, StoredNotification>;
+  subagentRedactors: Map<string, SecretEventRedactor>;
 }
 
 export class SessionLogWriter {
@@ -125,6 +130,7 @@ export class SessionLogWriter {
     // During normal operation, chunks are coalesced when the next non-chunk
     // event arrives, but on shutdown there may be no subsequent event
     for (const [sessionId, session] of this.sessions) {
+      this.flushSubagentMessages(sessionId, session);
       this.emitCoalescedMessage(sessionId, session);
       this.flushToolUpdateCache(sessionId, session);
       this.drainRawInputSnapshots(sessionId, session);
@@ -178,6 +184,7 @@ export class SessionLogWriter {
       currentTurnMessages: [],
       toolUpdateCache: new Map(),
       pendingRawInputSnapshots: new Map(),
+      subagentRedactors: new Map(),
     });
 
     this.lastFlushAttemptTime.set(sessionId, Date.now());
@@ -253,6 +260,39 @@ export class SessionLogWriter {
         isNeutral &&
         (this.isAgentMessageChunk(message) ||
           this.isDirectAgentMessage(message));
+
+      const parentToolCallId =
+        message.method === "session/update"
+          ? readParentToolCallId(this.getUpdate(message)?._meta)
+          : undefined;
+      if (parentToolCallId) {
+        if (
+          this.isAgentMessageChunk(message) ||
+          this.getSessionUpdateType(message) === "agent_thought_chunk"
+        ) {
+          let redactor = session.subagentRedactors.get(parentToolCallId);
+          if (!redactor) {
+            redactor = new SecretEventRedactor();
+            session.subagentRedactors.set(parentToolCallId, redactor);
+          }
+          this.persistSubagentChunks(
+            sessionId,
+            session,
+            redactor.redact({
+              type: "notification",
+              timestamp,
+              ...(eventId ? { event_id: eventId } : {}),
+              notification: message,
+            }),
+          );
+          return;
+        }
+        this.flushSubagentMessages(sessionId, session, parentToolCallId);
+      }
+      const toolUpdate = this.toolCallUpdateInfo(message);
+      if (toolUpdate?.terminal) {
+        this.flushSubagentMessages(sessionId, session, toolUpdate.toolCallId);
+      }
 
       // Check if this is an agent_message_chunk event
       if (this.isAgentMessageChunk(message) && !isSubagentMessage) {
@@ -389,6 +429,7 @@ export class SessionLogWriter {
     if (coalesce) {
       const session = this.sessions.get(sessionId);
       if (session) {
+        this.flushSubagentMessages(sessionId, session);
         this.emitCoalescedMessage(sessionId, session);
         this.drainRawInputSnapshots(sessionId, session);
       }
@@ -502,6 +543,37 @@ export class SessionLogWriter {
           );
         }
       }
+    }
+  }
+
+  private persistSubagentChunks(
+    sessionId: string,
+    session: SessionState,
+    events: Record<string, unknown>[],
+  ): void {
+    for (const event of events) {
+      const entry = event as unknown as StoredNotification;
+      if (this.isEmptyThoughtChunk(entry.notification)) continue;
+      this.emitToSinks(sessionId, entry);
+      this.flushToolUpdateCache(sessionId, session);
+      this.writeToLocalCache(sessionId, entry);
+      if (this.posthogAPI) this.pushPendingEntry(sessionId, entry);
+    }
+  }
+
+  private flushSubagentMessages(
+    sessionId: string,
+    session: SessionState,
+    parentToolCallId?: string,
+  ): void {
+    const ids = parentToolCallId
+      ? [parentToolCallId]
+      : [...session.subagentRedactors.keys()];
+    for (const id of ids) {
+      const redactor = session.subagentRedactors.get(id);
+      if (!redactor) continue;
+      session.subagentRedactors.delete(id);
+      this.persistSubagentChunks(sessionId, session, redactor.flush());
     }
   }
 

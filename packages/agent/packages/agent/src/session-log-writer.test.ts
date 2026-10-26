@@ -1320,6 +1320,152 @@ describe("SessionLogWriter — local-cache tool_call_update coalescing", () => {
     // biome-ignore lint/suspicious/noExplicitAny: test introspection
     (e.notification as any).params.update;
 
+  it.each([
+    ["claudeCode", "agent_message_chunk"],
+    ["posthog", "agent_message_chunk"],
+    ["claudeCode", "agent_thought_chunk"],
+    ["posthog", "agent_thought_chunk"],
+  ])(
+    "redacts interleaved child streams before local and API persistence (%s, %s)",
+    async (channel, kind) => {
+      const appendTaskRunLog = vi.fn().mockResolvedValue(undefined);
+      writer = new SessionLogWriter({
+        localCachePath: tmp,
+        posthogAPI: { appendTaskRunLog } as unknown as PostHogAPIClient,
+      });
+      writer.register(RUN, { taskId: "t", runId: RUN });
+      const childChunk = (
+        parentToolCallId: string,
+        text: string,
+        eventId: string,
+      ) =>
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate(kind, {
+            content: { type: "text", text },
+            _meta: { [channel]: { parentToolCallId } },
+          }),
+          eventId,
+        );
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "The answer is " },
+        }),
+      );
+      childChunk("child-1", "Token: sk-ant-", "child-1-a");
+      childChunk("child-2", "Other child.", "child-2-a");
+      await writer.flush(RUN);
+      expect(JSON.stringify(await readLog())).not.toContain("sk-ant-");
+      expect(JSON.stringify(appendTaskRunLog.mock.calls)).not.toContain(
+        "sk-ant-",
+      );
+
+      childChunk("child-1", "oat01-fake-", "child-1-b");
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "42." },
+        }),
+      );
+      childChunk("child-1", "test-token", "child-1-c");
+      childChunk("child-1", ". Done.", "child-1-d");
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("tool_call", {
+          toolCallId: "child-tool",
+          _meta: { [channel]: { parentToolCallId: "child-1" } },
+        }),
+      );
+      await writer.flush(RUN, { coalesce: true });
+
+      const local = await readLog();
+      const api = appendTaskRunLog.mock.calls.flatMap((call) => call[2]);
+      for (const entries of [local, api]) {
+        const childMessages = entries.filter(
+          (entry: Record<string, unknown>) => {
+            const update = sessionUpdateOf(entry);
+            return (
+              update?.sessionUpdate === kind &&
+              update._meta?.[channel]?.parentToolCallId === "child-1"
+            );
+          },
+        );
+        expect(
+          childMessages
+            .map(
+              (entry: Record<string, unknown>) =>
+                sessionUpdateOf(entry).content.text,
+            )
+            .join(""),
+        ).toBe("Token: [REDACTED]. Done.");
+        expect(
+          childMessages.map((entry: Record<string, unknown>) => entry.event_id),
+        ).toEqual([
+          "child-1-b",
+          ...(kind === "agent_message_chunk" ? ["child-1-c"] : []),
+          "child-1-d",
+        ]);
+        expect(JSON.stringify(entries)).not.toContain("fake-");
+        expect(JSON.stringify(entries)).not.toContain("test-token");
+      }
+      expect(writer.getAgentResponseParts(RUN)).toEqual(["The answer is 42."]);
+    },
+  );
+
+  it.each(["child-event", "child-complete", "turn-flush", "shutdown"])(
+    "persists a child stream's held ordinary text on %s",
+    async (finish) => {
+      writer.appendRawLine(
+        RUN,
+        makeSessionUpdate("agent_message_chunk", {
+          content: { type: "text", text: "Checks" },
+          _meta: { posthog: { parentToolCallId: "child-1" } },
+        }),
+        "child-1-a",
+      );
+      if (finish === "child-event") {
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate("tool_call", {
+            toolCallId: "child-tool",
+            _meta: { posthog: { parentToolCallId: "child-1" } },
+          }),
+        );
+      } else if (finish === "child-complete") {
+        writer.appendRawLine(
+          RUN,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "child-1",
+            status: "completed",
+          }),
+        );
+      } else if (finish === "turn-flush") {
+        await writer.flush(RUN, { coalesce: true });
+      } else {
+        await writer.flushAll();
+      }
+      const messages = (await readLog()).filter(
+        (entry) =>
+          sessionUpdateOf(entry).sessionUpdate === "agent_message_chunk",
+      );
+      expect(messages).toMatchObject([
+        {
+          event_id: "child-1-a",
+          notification: {
+            params: {
+              update: {
+                content: { text: "Checks" },
+                _meta: { posthog: { parentToolCallId: "child-1" } },
+              },
+            },
+          },
+        },
+      ]);
+      expect(writer.getAgentResponseParts(RUN)).toBeUndefined();
+    },
+  );
+
   it("writes one merged update per call, flushed by a non-tool event", async () => {
     writer.appendRawLine(RUN, update({ content: "a1" }));
     writer.appendRawLine(RUN, update({ content: "a2" }));
