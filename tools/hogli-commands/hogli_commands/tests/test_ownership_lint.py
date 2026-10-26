@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from click.testing import CliRunner
 from hogli_commands import ownership_lint
+from hogli_commands.preflight_checks import Scope
 
 OWNERS_YAML = """\
 version: 1
@@ -23,26 +24,57 @@ rules:
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "owners.yaml").write_text(OWNERS_YAML)
-    for path in ("team/test_a.py", "person/test_b.py", "nobody/test_c.py", "by_design/test_d.py", "nobody/helper.py"):
+    for path in ("team/test_a.py", "person/test_b.py", "nobody/test_c.py", "by_design/test_d.py", "helpers/util.py"):
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / path).write_text("def test_x():\n    pass\n")
+    (tmp_path / ownership_lint.BASELINE).parent.mkdir(parents=True)
+    (tmp_path / ownership_lint.BASELINE).write_text("nobody\nperson\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
     monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
     return tmp_path
 
 
-class TestOwnershipLint:
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True)
+
+
+def _check(*files: str) -> tuple[str, str]:
+    return ownership_lint.check_test_owners(
+        Scope(files=list(files), changed=list(files), merge_base="HEAD", committed_only=False)
+    )
+
+
+class TestCheckTestOwners:
     @pytest.mark.parametrize(
-        ("path", "warned"),
+        ("baseline", "status", "named"),
         [
-            pytest.param("team/test_a.py", False, id="team_owner_is_quiet"),
-            pytest.param("person/test_b.py", True, id="person_only_warns"),
-            pytest.param("nobody/test_c.py", True, id="no_owner_warns"),
-            pytest.param("by_design/test_d.py", False, id="unowned_by_design_is_quiet"),
-            pytest.param("nobody/helper.py", False, id="non_test_file_is_skipped"),
+            pytest.param("nobody\nperson\n", "pass", None, id="baseline_matches"),
+            pytest.param("nobody\n", "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
+            pytest.param("nobody\nperson\nteam\n", "fail", "team has no unowned tests left", id="stale_entry"),
         ],
     )
-    def test_warns_only_for_tests_without_a_team(self, repo: Path, path: str, warned: bool) -> None:
-        result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, [path])
+    def test_compares_unowned_test_directories_with_the_baseline(
+        self, repo: Path, baseline: str, status: str, named: str | None
+    ) -> None:
+        (repo / ownership_lint.BASELINE).write_text(baseline)
 
-        assert result.exit_code == 0
-        assert (f"{path}:1:1: warning:" in result.stdout) is warned
+        result_status, detail = _check(str(ownership_lint.BASELINE))
+
+        assert result_status == status
+        assert named is None or named in detail
+
+    @pytest.mark.parametrize(
+        ("path", "status"),
+        [
+            pytest.param("nobody/test_c.py", "pass", id="edit_to_existing_test_skips_the_scan"),
+            pytest.param("elsewhere/test_new.py", "fail", id="added_test_runs_the_scan"),
+        ],
+    )
+    def test_scans_only_when_a_test_file_is_added_or_removed(self, repo: Path, path: str, status: str) -> None:
+        (repo / path).parent.mkdir(exist_ok=True)
+        (repo / path).write_text("def test_y():\n    pass\n")
+        _git(repo, "add", path)
+
+        assert _check(path)[0] == status

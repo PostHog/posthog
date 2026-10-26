@@ -1,47 +1,71 @@
-"""Warn when a changed test file has no team owner in owners.yaml, so its failures and flakes reach no one.
+"""Compare the directories that hold unowned tests with the baseline that repo-checks enforces.
 
-hogli lint:test-owners                     # changed files vs origin/master
-hogli lint:test-owners path/to/test_x.py   # explicit files
+posthog/test/repo_invariants/test_unowned_test_directories.py gates CI on it, and the
+`test-owners` preflight check runs the same comparison before a push.
 """
 
 from __future__ import annotations
 
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
-import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import UNOWNED_TEAM, OwnersResolver, owning_team, runner_for_path
+from owners_yaml import OwnersResolver, runner_for_path, unowned_test_directories
 
-from hogli_commands.change_detection import changed_files
 from hogli_commands.preflight_checks import Outcome, Scope
 
+BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
+PRUNE = "PYTHONPATH=. python posthog/test/repo_invariants/test_unowned_test_directories.py"
 
-def unowned_test_warnings(paths: list[str]) -> list[str]:
-    tests = [path for path in paths if runner_for_path(path) and (REPO_ROOT / path).is_file()]
-    resolver = OwnersResolver(REPO_ROOT)
-    warnings = []
-    for resolution in map(resolver.resolve, tests):
-        if owning_team(resolution) != UNOWNED_TEAM:
-            continue
-        held_by = f"only by people ({', '.join(resolution.owners)})" if resolution.owners else "by no team"
-        where = resolution.source or f"an owners.yaml at or above {Path(resolution.path).parent}/"
-        warnings.append(
-            f"{resolution.path}:1:1: warning: owned {held_by}. Name the team responsible for the behavior "
-            f"it checks in {where}, so its failures and flakes reach that team."
-        )
-    return warnings
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BaselineDrift:
+    added: list[str]  # directories of unowned tests that the baseline does not list
+    removed: list[str]  # listed directories that hold no unowned tests
+
+
+def read_baseline() -> set[str]:
+    text = (REPO_ROOT / BASELINE).read_text(encoding="utf-8")
+    return {line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")}
+
+
+def baseline_drift() -> BaselineDrift:
+    current = unowned_test_directories(OwnersResolver(REPO_ROOT))
+    baseline = read_baseline()
+    return BaselineDrift(added=sorted(current - baseline), removed=sorted(baseline - current))
+
+
+def prune_baseline() -> None:
+    """Drop the directories that hold no unowned tests. It never adds one, so a new gap stays a failure."""
+    remaining = sorted(read_baseline() - set(baseline_drift().removed))
+    (REPO_ROOT / BASELINE).write_text("".join(f"{directory}\n" for directory in remaining), encoding="utf-8")
+
+
+def _can_change_baseline(scope: Scope) -> bool:
+    """An edit inside an existing test file cannot change which directories hold unowned tests.
+    Adding, deleting or moving a test can, and so can any change to an ownership file or the baseline."""
+    if any(runner_for_path(path) is None for path in scope.files):
+        return True
+    added_or_removed = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", "--diff-filter=ADR", scope.merge_base, "--", *scope.files],
+        capture_output=True,
+        text=True,
+    )
+    return added_or_removed.returncode != 0 or bool(added_or_removed.stdout.strip())
 
 
 def check_test_owners(scope: Scope) -> Outcome:
-    warnings = unowned_test_warnings(scope.files)
-    if not warnings:
-        return "pass", "every changed test file has a team owner"
-    return "warning", f"{len(warnings)} changed test file(s) have no team owner · " + " · ".join(warnings[:3])
-
-
-@click.command(name="lint:test-owners", help="Report changed test files that no team owns (warn-only).")
-@click.argument("files", nargs=-1)
-@click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
-def cmd_lint_test_owners(files: tuple[str, ...], against: str | None) -> None:
-    for warning in unowned_test_warnings(list(files) if files else changed_files(against)):
-        click.echo(warning)
+    if not _can_change_baseline(scope):
+        return "pass", "no test file was added, deleted or moved"
+    drift = baseline_drift()
+    problems = [
+        *(
+            f"{directory} holds tests that no team owns: name the team in its nearest owners.yaml"
+            for directory in drift.added
+        ),
+        *(f"{directory} has no unowned tests left: run `{PRUNE}`" for directory in drift.removed),
+    ]
+    if not problems:
+        return "pass", "no new directory of unowned tests"
+    return "fail", " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
