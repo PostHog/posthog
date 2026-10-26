@@ -279,13 +279,8 @@ _SLOT_POLL_SECONDS = 5.0
 
 _SLOT_LOST_ERROR_TYPE = "EvaluationSlotLost"
 
-CREATOR_LEFT_DISABLE_REASON = (
-    "The owner of this alert is no longer in the organization. Create a new alert to keep monitoring this insight."
-)
-CREATOR_LOST_ACCESS_DISABLE_REASON = (
-    "The owner of this alert no longer has access to some of the data in this insight. "
-    "Ask a project admin for access, or create a new alert."
-)
+CREATOR_LEFT_DISABLE_REASON = "The alert owner is no longer in the organization."
+CREATOR_LOST_ACCESS_DISABLE_REASON = "The alert owner no longer has access to some of the data it reads."
 
 
 class _EvaluationStopped(Exception):
@@ -684,8 +679,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         alert_evaluation_result = None
 
         try:
-            # The query runs as the owner, and a query that reads no restricted table would still succeed.
-            # An alert with no recorded owner is left alone, and the platform delivers platform-owned alerts.
+            # Disable the alert before the query runs when its owner left the organization.
+            # Do not wait for the query to fail: a query that reads no restricted table still succeeds.
+            # Alerts with no owner stay enabled. The platform delivers platform-owned alerts, so this check skips them.
             if (
                 alert.created_by is not None
                 and not alert.platform_owned
