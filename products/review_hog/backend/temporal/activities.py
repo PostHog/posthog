@@ -2442,6 +2442,7 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
     gate: PushGate | None = None
     snapshot: PRSnapshotArtefact | None = None
     change: ChangedSinceReview | None = None
+    unseen_lockfile = False
     if current is None:
         decision = PushGateDecision(skip=False, would_skip=False, reason="snapshot_unavailable")
     else:
@@ -2480,14 +2481,23 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             head_sha=input.head_sha,
             review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
-        change = (
-            _changed_since_head(input.team_id, input.report_id, input.previous_head_sha, snapshot.pr_files)
-            if snapshot is not None
-            else None
+        earlier = load_pr_snapshot(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.previous_head_sha,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
         )
+        if snapshot is not None and earlier is not None:
+            change = ChangedSinceReview.between(earlier.pr_files, snapshot.pr_files)
+            # The snapshots leave lockfiles out, so a lockfile in the PR at either head can change unseen.
+            unseen_lockfile = any(
+                is_dependency_file(path) for path in [*earlier.skipped_paths, *snapshot.skipped_paths]
+            )
         decision = apply_zero_change_rule(
             decision,
-            pr_changed_lines=sum(change.changed_line_counts.values()) if change is not None else None,
+            pr_changed_lines=sum(change.changed_line_counts.values())
+            if change is not None and not unseen_lockfile
+            else None,
             enabled=input.zero_change_skip,
         )
         if not draft:
@@ -2510,7 +2520,10 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
             changed_reviewable_lines=change.reviewable_line_count() if change is not None else None,
             reviewable_lines=plan_lens_chunks(snapshot.pr_files).reviewable_lines if snapshot is not None else None,
             dependency_changed=change is not None
-            and any(count and is_dependency_file(name) for name, count in change.changed_line_counts.items()),
+            and (
+                unseen_lockfile
+                or any(count and is_dependency_file(name) for name, count in change.changed_line_counts.items())
+            ),
             comparable=change is not None
             and not any(change.changed_line_counts.get(name) for name in change.files_without_patch),
             enabled=input.delta_band,

@@ -480,24 +480,31 @@ class TestTrackReviewCompleted(BaseTest):
         [
             ("unchanged_in_the_treatment_arm", "limit = 10", [], True, (True, "zero_change", 0, False)),
             ("unchanged_in_the_control_arm", "limit = 10", [], False, (False, "zero_change", 0, False)),
-            # A lockfile is left out of review, but it changes what the code runs with.
+            # The snapshot leaves a lockfile out, so its change is unseen, and it changes what the code runs with.
             (
-                "lockfile_only",
+                "lockfile_in_the_pr",
                 "limit = 10",
-                [PRFile(filename="pnpm-lock.yaml", status="modified", additions=5, deletions=0)],
+                ["pnpm-lock.yaml"],
                 True,
-                (False, "system_one_above_threshold", 5, False),
+                (False, "system_one_above_threshold", None, False),
             ),
             ("small_code_change", "limit = 20", [], True, (False, "system_one_above_threshold", 2, True)),
+            (
+                "small_code_change_with_a_lockfile_in_the_pr",
+                "limit = 20",
+                ["pnpm-lock.yaml"],
+                True,
+                (False, "system_one_above_threshold", None, False),
+            ),
         ]
     )
     def test_the_gate_compares_the_stored_pr_diff_of_both_heads(
         self,
         _name: str,
         changed_code: str,
-        extra_files: list[PRFile],
+        skipped_paths: list[str],
         treatment: bool,
-        expected: tuple[bool, str, int, bool],
+        expected: tuple[bool, str, int | None, bool],
     ) -> None:
         report_id = self._review_report()
 
@@ -518,15 +525,16 @@ class TestTrackReviewCompleted(BaseTest):
                 ],
             )
 
-        for head_sha, files in (("sha0", [code_file("limit = 10")]), ("sha1", [code_file(changed_code), *extra_files])):
+        for head_sha, code in (("sha0", "limit = 10"), ("sha1", changed_code)):
             persist_pr_snapshot(
                 team_id=self.team.id,
                 report_id=report_id,
                 head_sha=head_sha,
                 pr_metadata=_pr_metadata(),
                 pr_comments=[],
-                pr_files=files,
+                pr_files=[code_file(code)],
                 review_design=REVIEW_DESIGN_SINGLE_AGENT,
+                skipped_paths=skipped_paths,
             )
         decision = PushGateDecision(
             skip=False, would_skip=False, reason="system_one_above_threshold", own_code_lines=100

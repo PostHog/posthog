@@ -45,17 +45,18 @@ The rules, in order. The first rule that matches gives the reason:
    the next turn that runs reviews everything since the last reviewed head. This caps bursts of
    pushes, and it never schedules a review on its own.
 
-13. `zero_change`: the PR's own diff is the same as at the last automatically reviewed head, in every file,
-   lockfiles and dependency manifests included. It compares the stored PR snapshots of both heads, so a base merge or a
-   rebase that only moves the PR's code matches, and a push after skipped pushes compares against the same baseline.
-   It runs after rule 10 and before rule 11, and only a PR in the treatment arm of `reviewhog-zero-change-skip` skips.
-   An unknown comparison (no snapshot at either head) never matches.
+13. `zero_change`: the reviewed files of the PR are the same as at the last automatically reviewed head. It compares
+   the stored PR snapshots of both heads. Rule 3 already skips a push whose whole PR diff is unchanged, so this rule
+   catches pushes that change only files the review leaves out, such as generated files and snapshots. The snapshots
+   leave lockfiles out too, so a PR with a lockfile at either head never matches. A push after skipped pushes compares
+   against the same baseline. It runs after rule 10 and before rule 11, and only a PR in the treatment arm of
+   `reviewhog-zero-change-skip` skips. An unknown comparison (no snapshot at either head) never matches.
 
 A turn that passes every rule can review only what changed (`plan_delta_review`): a follow-up from run
 `DELTA_BAND_FIRST_RUN_INDEX` on, whose changed reviewable lines are at most `DELTA_BAND_MAX_CHANGE_SHARE` of the PR's
-reviewable lines, with no dependency file changed and every changed file comparable. The first follow-up always reviews
-the whole PR. Only a PR in the treatment arm of `reviewhog-delta-band` runs the delta review; the other arm records that
-the turn was eligible.
+reviewable lines, with no dependency file changed (a lockfile in the PR counts as changed) and every changed file
+comparable. The first follow-up always reviews the whole PR. Only a PR in the treatment arm of `reviewhog-delta-band`
+runs the delta review; the other arm records that the turn was eligible.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
