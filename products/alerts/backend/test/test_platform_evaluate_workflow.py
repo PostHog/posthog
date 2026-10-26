@@ -301,14 +301,16 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
 
 
 @pytest.mark.parametrize(
-    "render_fails, expected_detail",
+    "failed_attempts, expected_detail",
     [
-        (False, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
-        (True, {"alert_id": "legacy-alert"}),
+        (0, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        # The render pool was full at first, so the render waited for a slot.
+        (1, {"alert_id": "legacy-alert", CHART_ASSET_ID_KEY: 7, CHART_RENDER_USER_ID_KEY: 3}),
+        (None, {"alert_id": "legacy-alert"}),
     ],
 )
 async def test_a_firing_records_the_chart_rendered_after_its_check(
-    environment: WorkflowEnvironment, render_fails: bool, expected_detail: dict[str, object]
+    environment: WorkflowEnvironment, failed_attempts: int | None, expected_detail: dict[str, object]
 ) -> None:
     events: list[str] = []
     recorded: list[SourceOutcomeInputs] = []
@@ -338,9 +340,9 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
 
     @activity.defn(name="render_platform_insight_chart_activity")
     async def render(inputs: InsightChartInputs) -> RenderedChart | None:
+        if failed_attempts is None or activity.info().attempt <= failed_attempts:
+            raise ApplicationError("render pool full")
         events.append(f"render:{inputs.alert_id}")
-        if render_fails:
-            raise ApplicationError("render timed out")
         return RenderedChart(asset_id=7, render_user_id=3)
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
@@ -367,7 +369,7 @@ async def test_a_firing_records_the_chart_rendered_after_its_check(
             task_queue=QUEUE,
         )
 
-    assert events == ["check", "render:legacy-alert", "record"]
+    assert events == (["check", "record"] if failed_attempts is None else ["check", "render:legacy-alert", "record"])
     assert [group.source_detail for batch in recorded for o in batch.outcomes for group in o.groups] == [
         expected_detail
     ]

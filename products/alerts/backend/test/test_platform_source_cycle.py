@@ -19,8 +19,8 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimi
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
-from posthog.tasks.alerts.utils import AlertEvaluationResult, next_check_time
-from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
+from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
+from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -32,14 +32,17 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
-from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY
+from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
+    CHART_RENDER_INFLIGHT_KEY,
     INFLIGHT_KEY,
     MAX_BREACH_CHARS,
+    ChartRenderPoolFull,
     evaluate_insight_check,
     plan_insight_batch,
     readmit_retried_check,
+    render_firing_chart,
 )
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
@@ -69,8 +72,8 @@ CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        get_client().delete(INFLIGHT_KEY)
-        self.addCleanup(get_client().delete, INFLIGHT_KEY)
+        get_client().delete(INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        self.addCleanup(get_client().delete, INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
@@ -218,6 +221,25 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome.groups[0].source_detail == expected
         # A render takes up to a minute and a half, so it never runs while the check holds its pool slot.
         render.assert_not_called()
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS=1)
+    def test_a_chart_render_holds_a_render_slot_only_while_it_runs(self) -> None:
+        alert = self._alert()
+        held_until = time.time() + 60
+
+        with patch(
+            f"{_MODULE}.render_alert_insight_chart", return_value=RenderedInsightChart(asset_id=7, render_user_id=3)
+        ) as render:
+            # Back to back on a pool of one, so the second render needs the slot the first gave back.
+            for _ in range(2):
+                assert render_firing_chart(self.team.id, str(alert.id), held_until=held_until) == RenderedChart(
+                    asset_id=7, render_user_id=3
+                )
+            admit_evaluation_slots(["another-render"], limit=1, expires_at=held_until, key=CHART_RENDER_INFLIGHT_KEY)
+            with pytest.raises(ChartRenderPoolFull):
+                render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
+
+        assert render.call_count == 2
 
     @parameterized.expand(
         [

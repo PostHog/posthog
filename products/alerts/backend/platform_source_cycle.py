@@ -101,6 +101,12 @@ from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+
+
+class ChartRenderPoolFull(Exception):
+    """Every chart render slot is taken. The activity retries later, holding no worker slot meanwhile."""
+
 
 # How many threads of the shared AI pool the parallel run may hold, so a stalled platform check
 # never takes more than this from production. A thread counts until it ends, not until Temporal
@@ -711,16 +717,29 @@ def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> b
     return check.owned_by_platform and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
-def render_firing_chart(team_id: int, alert_id: str) -> RenderedChart | None:
+def render_firing_chart(team_id: int, alert_id: str, *, held_until: float) -> RenderedChart | None:
     """Render the chart a firing of this alert sends, or None when none applies or the render fails.
 
     The evaluation workflow calls this after the check, so the render never holds the check's slot.
+    Raises `ChartRenderPoolFull` when the render pool has no room.
     """
-    alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
-    if alert is None:
-        return None
-    chart = render_alert_insight_chart(alert)
-    return RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
+    if not admit_evaluation_slots(
+        [alert_id],
+        limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS,
+        expires_at=held_until,
+        key=CHART_RENDER_INFLIGHT_KEY,
+    ):
+        raise ChartRenderPoolFull()
+    try:
+        alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team").first()
+        if alert is None:
+            return None
+        chart = render_alert_insight_chart(alert)
+        return (
+            RenderedChart(asset_id=chart.asset_id, render_user_id=chart.render_user_id) if chart is not None else None
+        )
+    finally:
+        release_evaluation_slot(alert_id, held_until=held_until, key=CHART_RENDER_INFLIGHT_KEY)
 
 
 def _context(alert: AlertConfiguration) -> dict[str, Any]:

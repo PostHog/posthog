@@ -8,6 +8,7 @@ minute, and daily alerts in one timezone share their minute, so evaluating a key
 another would put the last check minutes behind the first.
 """
 
+import time
 import asyncio
 import datetime as dt
 from collections.abc import Callable
@@ -61,7 +62,13 @@ LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
 CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
-CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE + dt.timedelta(minutes=1)
+# Room to wait for a render slot. A render that gets none in time sends its firing without a chart.
+CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE + dt.timedelta(minutes=2)
+CHART_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=30),
+)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
@@ -260,10 +267,22 @@ def _release_platform_llm_check(thread: "asyncio.Future[SourceBatchEvaluation | 
 @activity.defn
 @close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
-    """Sync, because the render blocks for its whole duration."""
-    from products.alerts.backend.platform_source_cycle import render_firing_chart  # noqa: PLC0415
+    """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
+    retry. Any other failure sends the firing without a chart, as production does."""
+    from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
 
-    return render_firing_chart(inputs.team_id, inputs.alert_id)
+    try:
+        # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
+        return render_firing_chart(
+            inputs.team_id, inputs.alert_id, held_until=time.time() + CHART_START_TO_CLOSE.total_seconds()
+        )
+    except ChartRenderPoolFull:
+        raise
+    except Exception:
+        activity.logger.exception(
+            "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}
+        )
+        return None
 
 
 @workflow.defn(name="insight-alert-platform-evaluate")
@@ -343,7 +362,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
                     start_to_close_timeout=CHART_START_TO_CLOSE,
                     schedule_to_close_timeout=CHART_SCHEDULE_TO_CLOSE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    retry_policy=CHART_RETRY_POLICY,
                 )
                 for alert_id in pending
                 if alert_id is not None
