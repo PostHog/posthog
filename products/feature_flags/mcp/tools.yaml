@@ -444,10 +444,10 @@ tools:
             and send it with the new `version`. Do not retry with the same `version`.
 
 
-            Returns 400 with the failing field paths when the document is invalid; fix those fields and send it again.
-            Returns 400 when this project does not accept rule changes for this flag format. Report that to the user; do
-            not work around it with `update-feature-flag`. This tool changes only `filters`. Use `feature-flag-enable`
-            and `feature-flag-disable` to turn the flag on or off.
+            Returns 400 naming the first invalid field when the document is invalid. Fix it and send the document again;
+            the next attempt can name another field. Returns 400 when this project does not accept rule changes for this
+            flag format. Report that to the user; do not work around it with `update-feature-flag`. This tool changes
+            only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.
         feature_flag: feature-flag-rules-v2-mcp
         response:
             include:
