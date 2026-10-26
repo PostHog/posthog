@@ -310,7 +310,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 
     return [
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
-        exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
+        exposureCheck(
+            'srm',
+            ['exposures', 'flag'],
+            'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
             'multiple_variants_share',

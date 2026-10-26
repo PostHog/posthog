@@ -7,6 +7,7 @@ tick off. Each insight activity scores one insight and writes its new buckets as
 import time
 import asyncio
 import datetime
+import dataclasses
 from collections import Counter
 
 from django.conf import settings
@@ -34,6 +35,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
+from products.signals.backend.anomaly_scores.artifacts import ArtifactUnavailableError, load_artifacts, write_artifacts
 from products.signals.backend.anomaly_scores.config import (
     ANOMALY_SCORING_FLAG_DISTINCT_ID,
     DEFAULT_LIMITS,
@@ -59,7 +61,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     score_insight,
 )
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
-from products.signals.backend.anomaly_scores.state import load_state, save_state
+from products.signals.backend.anomaly_scores.state import invalidate_state, load_state, save_state
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +80,8 @@ STATUS_ACCESS_DENIED = "access_denied"
 STATUS_BROKEN_QUERY = "broken_query"
 # ClickHouse rejected the query because it is full. The tick starts no more picks.
 STATUS_AT_CAPACITY = "at_capacity"
+# The stored artifact blob is missing or does not match its hash. The next visit trains.
+STATUS_ARTIFACT_UNAVAILABLE = "artifact_unavailable"
 # Any other failure. The activity raises it, and the workflow counts it as `errored`.
 STATUS_ERRORED = "errored"
 
@@ -122,7 +126,7 @@ class ScoreInsightResult:
     series: int = 0
     # What the visit ran. A score pick with no matching state trains. None when the split is off.
     run: ScoringRun | None = None
-    # Series of a score step with no stored window, and stored series missing from its result.
+    # Series of a score step with no stored artifact, and stored series missing from its result.
     unmatched_series: int = 0
     missing_series: int = 0
 
@@ -249,12 +253,23 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
+    profile = resolve_profile(team, insight).name
     split = None
     if pick.run is not None:
-        split = SplitRun(
-            refresh_buckets=pick.refresh_buckets,
-            state=load_state(team, insight) if pick.run == ScoringRun.SCORE else None,
-        )
+        split = SplitRun()
+        state = load_state(team, insight) if pick.run == ScoringRun.SCORE else None
+        if state is not None:
+            try:
+                split = SplitRun(state=state, artifacts=load_artifacts(state.artifact_key, state.artifact_sha256))
+            except ArtifactUnavailableError as error:
+                logger.warning(
+                    "anomaly_scoring_artifact_unavailable",
+                    team_id=team.id,
+                    insight_id=insight.id,
+                    error=str(error)[:200],
+                )
+                invalidate_state(team, insight.id, profile)
+                return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
         insight,
         team,
@@ -264,6 +279,14 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         limits=input.limits,
         split=split,
     )
+    if scores.artifacts and scores.state is not None:
+        # The blob goes first, so every event of this visit names a model that exists.
+        stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)
+        scores = dataclasses.replace(
+            scores,
+            model_id=stored.model_id,
+            state=dataclasses.replace(scores.state, artifact_key=stored.key, artifact_sha256=stored.sha256),
+        )
     events = score_events(
         team_id=team.id, insight_id=insight.id, scores=scores, scored_through=pick.scored_through, scored_at=now
     )
@@ -271,7 +294,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # After the emit: a lost state write only scores buckets again, and their events collapse by uuid.
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
-        save_state(team, insight.id, resolve_profile(team, insight).name, scores.state)
+        save_state(team, insight.id, profile, scores.state)
     return ScoreInsightResult(
         status=STATUS_SCORED if events else STATUS_UP_TO_DATE,
         events=len(events),
