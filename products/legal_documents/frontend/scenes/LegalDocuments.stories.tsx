@@ -6,6 +6,8 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
+import { StartupProgramLabel } from '~/types'
 
 const SUBMITTER = {
     first_name: 'Ada',
@@ -34,6 +36,18 @@ const LEGAL_DOCUMENT_LIST = [
         created_at: '2026-04-20T15:30:00Z',
     },
 ]
+
+/** Billing payload for an org whose Boost add-on is paid with startup program credits. */
+const startupProgramBilling = (label: StartupProgramLabel): Record<string, unknown> => ({
+    products: [
+        {
+            type: 'platform_and_support',
+            addons: [{ type: 'boost', subscribed: true }],
+        },
+    ],
+    has_active_subscription: true,
+    startup_program_label: label,
+})
 
 /**
  * Mounts the legal documents scene(s) against a mocked API. A single shared
@@ -159,6 +173,41 @@ export const NewBAAEnterpriseTrial: Story = {
                     },
                     has_active_subscription: false,
                 },
+            },
+        }),
+    ],
+}
+
+/**
+ * Landing screen at `/legal` for an organization on the Startup program with no
+ * BAA yet. The Boost add-on is active (paid with credits), but the BAA menu item
+ * is disabled and the note explains that credits don't cover a BAA.
+ */
+export const ListStartupProgram: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
+                '/api/billing/': startupProgramBilling(StartupProgramLabel.Startup),
+            },
+        }),
+    ],
+}
+
+/**
+ * New-document page for a BAA when the org is on the Startup program and has no
+ * BAA yet. The banner replaces the paywall copy and the submit button is
+ * disabled by the startup block rather than by an existing document.
+ */
+export const NewBAAStartupProgram: Story = {
+    parameters: {
+        pageUrl: urls.legalDocumentNew('BAA'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:org_id/legal_documents': EMPTY_PAGINATED_RESPONSE,
+                '/api/billing/': startupProgramBilling(StartupProgramLabel.Startup),
             },
         }),
     ],

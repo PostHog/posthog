@@ -8,7 +8,7 @@ use futures::StreamExt;
 use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
-use object_store::{ClientOptions, ObjectStore};
+use object_store::{BackoffConfig, ClientOptions, ObjectStore};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info};
@@ -18,21 +18,31 @@ use super::config::DurabilityConfig;
 /// Short timeout for bucket validation so misconfiguration fails fast.
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Build an S3 client wrapped in a `LimitStore` for bounded concurrency.
+/// Build an S3 client wrapped in a `LimitStore` for bounded concurrency, and check that it can list
+/// `lineage_dir`.
 ///
 /// Credential priority: explicit config (local dev) → IRSA (`AWS_WEB_IDENTITY_TOKEN_FILE` +
 /// `AWS_ROLE_ARN`) → default AWS credential chain.
 pub async fn create_s3_client(
     config: &DurabilityConfig,
     max_concurrent_requests: usize,
+    lineage_dir: &str,
 ) -> Result<Arc<LimitStore<AmazonS3>>> {
     let mut builder = AmazonS3Builder::from_env()
         .with_bucket_name(&config.s3_bucket)
         .with_client_options(ClientOptions::new().with_timeout(config.s3_attempt_timeout))
         .with_retry(object_store::RetryConfig {
+            // From 1 s instead of object_store's 100 ms, so ten fast failures spread over tens of
+            // seconds and outlast a broken connection. Each wait is a random draw between 1 s and
+            // twice the last wait, capped at 15 s, so the total stays below about 105 s. Slow
+            // attempts reach `retry_timeout` first.
+            backoff: BackoffConfig {
+                init_backoff: Duration::from_secs(1),
+                max_backoff: Duration::from_secs(15),
+                base: 2.0,
+            },
             max_retries: config.s3_max_retries,
             retry_timeout: config.s3_operation_timeout,
-            ..Default::default()
         });
 
     if let Some(ref region) = config.aws_region {
@@ -76,19 +86,22 @@ pub async fn create_s3_client(
 
     let store = Arc::new(LimitStore::new(base_store, max_concurrent_requests));
 
-    validate_bucket_access(&store, &config.s3_bucket, &config.aws_region).await?;
+    validate_bucket_access(&store, &config.s3_bucket, &config.aws_region, lineage_dir).await?;
 
     Ok(store)
 }
 
+/// Lists the lineage's own prefix rather than the bucket root, so the role needs `ListBucket` only
+/// on what the pod reads.
 async fn validate_bucket_access(
     store: &LimitStore<AmazonS3>,
     bucket: &str,
     region: &Option<String>,
+    lineage_dir: &str,
 ) -> Result<()> {
-    info!(bucket = %bucket, "Validating S3 bucket access...");
+    info!(bucket = %bucket, prefix = %lineage_dir, "Validating S3 bucket access...");
 
-    let prefix = ObjectPath::from("");
+    let prefix = ObjectPath::from(lineage_dir);
     let mut stream = store.list(Some(&prefix));
 
     match tokio::time::timeout(VALIDATION_TIMEOUT, stream.next()).await {

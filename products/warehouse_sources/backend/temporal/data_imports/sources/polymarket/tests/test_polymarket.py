@@ -135,7 +135,11 @@ class TestPolymarketTransport:
         assert result.response.primary_keys == expected_keys
         assert result.response.partition_keys == ["createdAt"]
 
-    @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials() is expected

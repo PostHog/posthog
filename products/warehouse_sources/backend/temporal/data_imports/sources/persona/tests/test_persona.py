@@ -8,8 +8,10 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
+    PERSONA_API_VERSION_2026_09_29,
     PERSONA_BASE_URL,
     PersonaRedirectError,
     PersonaResumeConfig,
@@ -112,6 +114,7 @@ class TestRedirectsRefused:
                 list(
                     get_rows(
                         api_key="persona_test",
+                        api_version=UNVERSIONED_API_VERSION,
                         endpoint="inquiries",
                         logger=MagicMock(),
                         resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
@@ -126,8 +129,52 @@ class TestRedirectsRefused:
             m.get(self.API_URL, status_code=302, headers={"Location": self.TARGET_URL})
             m.get(self.TARGET_URL, status_code=403)
 
-            assert persona.validate_credentials("persona_test") == 302
+            assert persona.validate_credentials("persona_test", UNVERSIONED_API_VERSION) == 302
             assert [r.hostname for r in m.request_history] == ["api.withpersona.com"]
+
+
+class TestPersonaVersionHeader:
+    API_URL = f"{PERSONA_BASE_URL}/inquiries"
+
+    @parameterized.expand(
+        [
+            # The legacy label sends no header, so the API key's dashboard version applies as before.
+            ("legacy", UNVERSIONED_API_VERSION, None),
+            ("2026_09_29", PERSONA_API_VERSION_2026_09_29, "2026-09-29"),
+        ]
+    )
+    def test_sync_and_validation_send_the_pinned_version(
+        self, _name: str, api_version: str, expected_header: str | None
+    ) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, json={"data": [], "links": {"next": None}})
+
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="inquiries",
+                    api_version=api_version,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+            assert persona.validate_credentials("persona_test", api_version) == 200
+
+            assert len(m.request_history) == 2
+            for request in m.request_history:
+                assert request.headers.get("Persona-Version") == expected_header
+
+    def test_unknown_version_is_rejected_instead_of_sending_no_header(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported Persona API version"):
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="inquiries",
+                    api_version="2025-12-08",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
 
 
 def _collect(
@@ -150,6 +197,7 @@ def _collect(
     rows: list[dict] = []
     for table in get_rows(
         api_key="persona_test",
+        api_version=UNVERSIONED_API_VERSION,
         endpoint=endpoint,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
@@ -220,6 +268,7 @@ class TestResume:
         with pytest.raises(PersonaRetryableError):
             for _ in get_rows(
                 api_key="persona_test",
+                api_version=UNVERSIONED_API_VERSION,
                 endpoint="inquiries",
                 logger=MagicMock(),
                 resumable_source_manager=manager,  # type: ignore[arg-type]
@@ -318,6 +367,7 @@ class TestVerificationsFanout:
         rows: list[dict] = []
         for table in get_rows(
             api_key="persona_test",
+            api_version=UNVERSIONED_API_VERSION,
             endpoint="verifications",
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
@@ -351,6 +401,7 @@ class TestVerificationsFanout:
             list(
                 get_rows(
                     api_key="persona_test",
+                    api_version=UNVERSIONED_API_VERSION,
                     endpoint="verifications",
                     logger=MagicMock(),
                     resumable_source_manager=manager,  # type: ignore[arg-type]
@@ -411,6 +462,7 @@ class TestInquiryTemplateVersionsFanout:
         with patch.object(persona, "_fetch_page", fake_fetch):
             rows_iter = get_rows(
                 api_key="persona_test",
+                api_version=UNVERSIONED_API_VERSION,
                 endpoint="inquiry_template_versions",
                 logger=MagicMock(),
                 resumable_source_manager=manager,  # type: ignore[arg-type]
@@ -431,6 +483,7 @@ class TestPersonaSourceResponse:
     def test_incremental_endpoint_partitions_on_created_at_desc(self, endpoint: str, partition_key: str) -> None:
         response = persona_source(
             api_key="persona_test",
+            api_version=UNVERSIONED_API_VERSION,
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
@@ -447,6 +500,7 @@ class TestPersonaSourceResponse:
     def test_full_refresh_endpoint_has_no_partitioning(self, endpoint: str) -> None:
         response = persona_source(
             api_key="persona_test",
+            api_version=UNVERSIONED_API_VERSION,
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),

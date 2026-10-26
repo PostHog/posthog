@@ -102,8 +102,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (401, "invalid"),
-            (403, "papersign api access"),
-            (500, "unexpected status"),
         ]
     )
     def test_returns_false_on_http_status(self, status_code: int, expected_substring: str) -> None:

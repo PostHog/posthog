@@ -1,5 +1,7 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
@@ -7,106 +9,200 @@ import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
-import { aiObservabilityAIDataLogic } from '../../../aiObservabilityAIDataLogic'
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { makeEvent, makeTrace, makeTraceResource } from './testFixtures'
+import type { TraceApi } from '../../../generated/api.schemas'
+import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
-jest.mock('../../../utils', () => ({
-    ...jest.requireActual('../../../utils'),
-    queryEvaluationRuns: jest.fn().mockResolvedValue([]),
-}))
 
-const offloadedGeneration = makeEvent({
-    id: 'gen-1',
-    event: '$ai_generation',
-    createdAt: '2026-09-01T10:15:02Z',
-    properties: { $ai_trace_id: 'trace-1', $ai_parent_id: 'trace-1' },
-})
+const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
+const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 
-// The latest generation, so `pickUserVisibleTurn` picks this one for the thread. Carries
-// inline input/output so `toThread` produces messages tagged with this event's id.
-const answeredGeneration = makeEvent({
+const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
-    event: '$ai_generation',
-    createdAt: '2026-09-01T10:15:03Z',
     properties: {
-        $ai_trace_id: 'trace-1',
-        $ai_parent_id: 'trace-1',
         $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
         $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
     },
-})
-
-const offloadedLatestGeneration = makeEvent({
-    id: 'gen-3',
-    event: '$ai_generation',
-    createdAt: '2026-09-01T10:15:04Z',
-    properties: { $ai_trace_id: 'trace-1', $ai_parent_id: 'trace-1' },
-})
-
-const unrelatedSpan = makeEvent({
-    id: 'span-1',
-    event: '$ai_span',
-    createdAt: '2026-09-01T10:15:01Z',
-    properties: { $ai_trace_id: 'trace-1', $ai_parent_id: 'trace-1' },
+    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
 
 describe('traceViewAdapterLogic', () => {
     let logic: ReturnType<typeof traceViewAdapterLogic.build>
+    let traceResource: TraceApi
+    let traceGate: Promise<void>
+    let nodeRequests: string[]
+    let failingNodeId: string | null
 
-    function remount(): void {
-        logic.unmount()
-        const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query, timestampHint: null })
+    function mountAt(params: Record<string, string> = {}): void {
+        router.actions.push(urls.aiObservabilityTrace('trace-1', params))
+        logic = traceViewAdapterLogic({ traceId: 'trace-1', timestampHint: null })
         logic.mount()
     }
 
-    beforeEach(async () => {
-        useMocks({ get: { '/api/projects/:team_id/ai_observability/traces/:id/': () => [200, makeTraceResource()] } })
+    beforeEach(() => {
+        traceResource = makeTraceResource({ nodeIdsByAlias: { 'sdk-gen-1': 'gen-1' } })
+        traceGate = Promise.resolve()
+        nodeRequests = []
+        failingNodeId = null
+        useMocks({
+            get: {
+                [TRACE_URL]: async () => {
+                    await traceGate
+                    return [200, traceResource]
+                },
+                [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [NODE_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    nodeRequests.push(nodeId)
+                    if (nodeId === failingNodeId) {
+                        failingNodeId = null
+                        return [500, { detail: 'Server error.' }]
+                    }
+                    if (nodeId === 'gen-2') {
+                        return [200, answeredGeneration]
+                    }
+                    const known = ['trace-1', 'span-1', 'gen-1'].includes(nodeId)
+                    return known ? [200, makeNodeDetail({ id: nodeId })] : [404, { detail: 'Node not found.' }]
+                },
+            },
+        })
         initKeaTests()
-        jest.mocked(performQuery).mockResolvedValue({
-            results: [makeTrace({ events: [offloadedGeneration, answeredGeneration, unrelatedSpan] })],
-        } as any)
+        jest.mocked(performQuery).mockReset()
+        jest.mocked(performQuery).mockResolvedValue({ results: [] })
         aiObservabilityTraceLogic.mount()
-        router.actions.push(urls.aiObservabilityTrace('trace-1'))
-        const { query } = aiObservabilityTraceLogic.values
-        logic = traceViewAdapterLogic({ traceId: 'trace-1', query, timestampHint: null })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('reads a deep-linked node alongside the trace, then the thread node, and never runs the legacy trace query', async () => {
+        let releaseTrace = (): void => {}
+        traceGate = new Promise<void>((resolve) => {
+            releaseTrace = resolve
+        })
+        mountAt({ event: 'span-1' })
+
+        await waitFor(() => expect(nodeRequests).toEqual(['span-1']))
+        expect(logic.values.status).toBe('loading')
+
+        releaseTrace()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', selectedNodeId: 'span-1' })
+
+        expect(nodeRequests).toEqual(['span-1', 'gen-2'])
+        expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
+    })
 
     it.each([
-        ['a generation when it is selected', null, () => logic.actions.selectNode('gen-1'), 'gen-1'],
-        [
-            'the offloaded latest generation, which the thread shows, on mount',
-            [answeredGeneration, offloadedLatestGeneration],
-            null,
-            'gen-3',
-        ],
-    ])('asks the heavy-data loader for %s', async (_name, events, act, expectedEventId) => {
-        if (events) {
-            jest.mocked(performQuery).mockResolvedValue({ results: [makeTrace({ events })] } as any)
-        }
-        await expectLogic(logic, () => (act ? act() : remount())).toDispatchActions([
-            (action) =>
-                action.type === aiObservabilityAIDataLogic.actionTypes.ensureAIDataLoaded &&
-                action.payload.lookups.some((lookup: { eventId: string }) => lookup.eventId === expectedEventId),
+        ['a node in the tree', { event: 'span-1' }, 'span-1'],
+        ['an SDK id through its alias', { event: 'sdk-gen-1' }, 'gen-1'],
+        ['a stale id as the root', { event: 'missing' }, 'trace-1'],
+        ['no id as the default node', {}, 'gen-1'],
+        ['a trace-level link as the root', { tab: 'summary' }, 'trace-1'],
+    ])('selects %s', async (_name, params: Record<string, string>, expected) => {
+        traceResource = makeTraceResource({ defaultNodeId: 'gen-1', nodeIdsByAlias: { 'sdk-gen-1': 'gen-1' } })
+        mountAt(params)
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ selectedNodeId: expected })
+        expect(logic.values.detailData?.content.kind).not.toBe('error')
+    })
+
+    it('asks for the neighbours once the trace arrives', async () => {
+        mountAt()
+
+        await expectLogic(logic).toDispatchActions([
+            aiObservabilityTraceLogic.actionCreators.loadNeighbors('trace-1', '2026-09-01T10:15:00Z'),
         ])
     })
 
-    it('falls back to the root node when the event id is unknown', async () => {
-        await expectLogic(logic, () => logic.actions.selectNode('does-not-exist')).toMatchValues({
-            selectedNodeId: 'trace-1',
-            canViewInThread: true,
+    it('reports the reads that open the view as navigation and a click on an unread step as a selection', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        traceResource = makeTraceResource({ defaultNodeId: 'gen-1' })
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(nodeRequests).toContain('gen-1')
+        expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
+            load_ms: expect.any(Number),
+            trigger: 'navigation',
+            waited_ms: null,
+        })
+        expect(capture).not.toHaveBeenCalledWith(
+            'llma trace node loaded',
+            expect.objectContaining({ trigger: 'selection' })
+        )
+        capture.mockClear()
+
+        logic.actions.selectNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
+            load_ms: expect.any(Number),
+            trigger: 'selection',
+            waited_ms: expect.any(Number),
         })
     })
 
+    it('prefetches only the row the pointer rests on, without rebuilding the shown step or the thread', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        nodeRequests = []
+        const { detailData, thread } = logic.values
+
+        logic.actions.prefetchNode('span-1')
+        logic.actions.prefetchNode('gen-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(nodeRequests).toEqual(['gen-1'])
+        expect(logic.values.detailData).toBe(detailData)
+        expect(logic.values.thread).toBe(thread)
+    })
+
+    it('builds the thread from the thread node', async () => {
+        mountAt()
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                thread: expect.objectContaining({
+                    status: 'ready',
+                    turns: [
+                        expect.objectContaining({
+                            messages: [
+                                expect.objectContaining({ role: 'user' }),
+                                expect.objectContaining({ role: 'assistant' }),
+                            ],
+                        }),
+                    ],
+                }),
+            })
+    })
+
+    it.each(['selectNode', 'selectAndShowSpans'] as const)(
+        'reads a failed node again when %s picks it again',
+        async (select) => {
+            failingNodeId = 'span-1'
+            mountAt({ event: 'span-1' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.detailData?.content.kind).toBe('error')
+
+            logic.actions[select]('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(nodeRequests.filter((nodeId) => nodeId === 'span-1')).toHaveLength(2)
+            expect(logic.values.detailData?.content.kind).toBe('io')
+        }
+    )
+
     it('selecting from the thread or timeline switches to spans', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setMode('timeline')
+
         await expectLogic(logic, () => logic.actions.selectAndShowSpans('gen-1')).toMatchValues({
             mode: 'spans',
             selectedNodeId: 'gen-1',
@@ -114,30 +210,13 @@ describe('traceViewAdapterLogic', () => {
     })
 
     it.each([
-        ['gen-2', 'a generation whose messages the thread carries', true],
-        ['span-1', 'a span the thread never mentions', false],
+        ['gen-2', 'the thread node', true],
+        ['trace-1', 'the root', true],
+        ['span-1', 'a span outside the thread', false],
     ])('canViewInThread for %s (%s) is %s', async (nodeId, _description, expected) => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
-    })
-
-    it('clears a search query left over from a shared legacy URL, so it does not silently filter the tree, and keeps the other params', async () => {
-        router.actions.push(
-            urls.aiObservabilityTrace('trace-1', {
-                search: 'does-not-match-anything',
-                event: 'gen-2',
-                line: '4',
-                back_to: 'generations',
-                date_from: '-7d',
-            })
-        )
-        remount()
-
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
-        expect(router.values.searchParams).toEqual({
-            event: 'gen-2',
-            line: 4,
-            back_to: 'generations',
-            date_from: '-7d',
-        })
     })
 })

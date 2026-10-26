@@ -60,7 +60,9 @@ def test_full_refresh_selects_rows_and_stops_after_one_request(
     assert request.headers["x-api-key"] == "example-secret"
     assert request.headers["Accept"] == "application/json"
     assert "example-secret" not in request.url
-    assert send.call_args.kwargs["timeout"] == (10, 60)
+    first_try = send.call_args.kwargs["timeout"].clone()
+    first_try.start_connect()
+    assert (first_try.connect_timeout, first_try.read_timeout) == (10, 60)
 
 
 @pytest.mark.parametrize(

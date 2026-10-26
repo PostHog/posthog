@@ -124,6 +124,7 @@ export function HogFlowEventFilters({
                 type: 'secondary',
             }}
             buttonCopy={buttonCopy ?? 'Add filter'}
+            includeHiddenEvents
             allowNonCapturedEvents
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}

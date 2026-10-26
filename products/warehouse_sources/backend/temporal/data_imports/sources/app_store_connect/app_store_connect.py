@@ -4,6 +4,7 @@ import csv
 import gzip
 import math
 import time
+import bisect
 import hashlib
 import tempfile
 import dataclasses
@@ -50,6 +51,9 @@ CREDENTIALS_TIMEOUT_SECONDS = 15
 
 # `/v1/salesReports` returns a gzipped TSV, not JSON, and only for this Accept type.
 REPORT_ACCEPT = "application/a-gzip"
+
+# `/v1/apps/{id}/performanceOverviews` serves Xcode's overview document, not JSON:API, under this Accept type.
+PERFORMANCE_OVERVIEW_ACCEPT = "application/vnd.apple.xcode-overview+json"
 
 # Hard cap on pages walked for one collection (or one app's collection) so a pagination bug can't scan
 # forever. At 200 rows a page that is 400k rows.
@@ -791,6 +795,95 @@ def _get_app_fanout(
                 manager.save_state(AppStoreConnectResumeConfig(app_id=app_id, next_url=page.next_url))
             elif position + 1 < len(app_ids):
                 manager.save_state(AppStoreConnectResumeConfig(app_id=app_ids[position + 1]))
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_dicts(value: Any) -> list[dict[str, Any]]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _performance_overview_rows(app_id: str, body: Any) -> list[dict[str, Any]]:
+    """Flatten an Xcode performance overview into one row per metric point.
+
+    The document nests category, then metric section, then dataset (a percentile and device
+    population), then one point per app version. The insights and signatures blocks summarize
+    these same points, so they are not kept.
+    """
+    overview = _as_dict(body)
+    metadata = _as_dict(overview.get("appMetadata"))
+    rows: list[dict[str, Any]] = []
+    for category in _as_dicts(overview.get("categories")):
+        for section in _as_dicts(category.get("sections")):
+            unit = _as_dict(section.get("unit"))
+            for dataset in _as_dicts(section.get("datasets")):
+                criteria = _as_dict(dataset.get("filterCriteria"))
+                goal = _as_dict(dataset.get("recommendedMetricGoal"))
+                for point in _as_dicts(dataset.get("points")):
+                    breakdown = _as_dict(point.get("percentageBreakdown"))
+                    rows.append(
+                        {
+                            "app_id": app_id,
+                            "bundle_id": metadata.get("bundleId"),
+                            "platform": metadata.get("platform"),
+                            "latest_version": metadata.get("latestVersion"),
+                            "category": category.get("identifier"),
+                            "category_name": category.get("displayName"),
+                            "metric": section.get("identifier"),
+                            "metric_name": section.get("displayName"),
+                            "unit": unit.get("identifier"),
+                            "unit_name": unit.get("displayName"),
+                            "percentile": criteria.get("percentile"),
+                            "device": criteria.get("device"),
+                            "device_marketing_name": criteria.get("deviceMarketingName"),
+                            "version": point.get("version"),
+                            "value": point.get("value"),
+                            "error_margin": point.get("errorMargin"),
+                            "breakdown_value": breakdown.get("value"),
+                            "breakdown_subsystem": breakdown.get("subSystemLabel"),
+                            "recommended_goal_value": goal.get("value"),
+                            "recommended_goal_detail": goal.get("detail"),
+                        }
+                    )
+    return rows
+
+
+def _get_app_overview(
+    session: requests.Session,
+    config: AppStoreConnectEndpointConfig,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    selected_app_ids: frozenset[str],
+) -> Iterator[list[dict[str, Any]]]:
+    # Sorted, so a bookmarked app that disappears between attempts still marks a position: a resumed
+    # full refresh appends, and restarting from the first app would duplicate committed rows.
+    app_ids = sorted(_list_app_ids(session, token_provider, logger, selected_app_ids))
+    resume = _load_resume(manager)
+    start = bisect.bisect_left(app_ids, resume.app_id) if resume is not None and resume.app_id else 0
+
+    for position in range(start, len(app_ids)):
+        app_id = app_ids[position]
+        # The app was just listed, so a 404 means Apple has no overview for it yet (an unreleased
+        # app, or too few users to report metrics). That must not fail the other apps.
+        response = _get(
+            session,
+            f"{BASE_URL}{config.path.format(app_id=app_id)}",
+            token_provider=token_provider,
+            logger=logger,
+            accept=PERFORMANCE_OVERVIEW_ACCEPT,
+            tolerate=(404,),
+        )
+        rows = [] if response.status_code == 404 else _performance_overview_rows(app_id, response.json())
+
+        if position + 1 < len(app_ids):
+            manager.save_state(AppStoreConnectResumeConfig(app_id=app_ids[position + 1]))
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
 
 
 def _to_date(value: Any) -> date | None:
@@ -1878,6 +1971,10 @@ def get_rows(
         elif config.kind == "app_fanout":
             yield from _get_app_fanout(
                 session, config, token_provider, logger, resumable_source_manager, failures, selected_app_ids
+            )
+        elif config.kind == "app_overview":
+            yield from _get_app_overview(
+                session, config, token_provider, logger, resumable_source_manager, selected_app_ids
             )
         elif config.kind == "analytics_report":
             yield from _get_analytics_report(

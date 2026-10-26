@@ -1,0 +1,261 @@
+{
+    "id": "718d609b-4802-4ee4-8784-7a62af5057e8",
+    "name": "Onboarding friction alerts",
+    "description": "After someone signs up, Replay Vision scores how smoothly they got started. Low scores go to Slack, so your team can reach out while it matters.",
+    "version": 1,
+    "created_at": "2026-10-16T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-16T00:00:00Z",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/f_webp,h_270,w_480,c_fill,g_auto,q_auto/growth_think_905cd0fa65?_a=AXAH4nI0",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "name": "user signed up",
+                    "type": "events",
+                    "uuid": "1c11a280-b175-4066-a467-21a9df23c047",
+                    "order": 0
+                }
+            ],
+            "source": "events",
+            "actions": [],
+            "properties": [
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
+                }
+            ],
+            "filter_test_accounts": true
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_function_17427d8c-fceb-4bc1-9e17-ccc26cb6e57f",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_17427d8c-fceb-4bc1-9e17-ccc26cb6e57f",
+            "to": "action_conditional_branch_fdda13ee-acd4-4be4-a8d7-e6e9ed8e6e9f",
+            "type": "continue"
+        },
+        {
+            "from": "action_conditional_branch_fdda13ee-acd4-4be4-a8d7-e6e9ed8e6e9f",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "action_conditional_branch_fdda13ee-acd4-4be4-a8d7-e6e9ed8e6e9f",
+            "to": "action_function_edb5e71c-cd74-4a00-a0d0-70af4fc7d4f0",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_function_edb5e71c-cd74-4a00-a0d0-70af4fc7d4f0",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "User signed up",
+            "description": "Runs when someone signs up. Change the event to the one your product sends.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "user signed up",
+                            "name": "user signed up",
+                            "type": "events",
+                            "uuid": "1c11a280-b175-4066-a467-21a9df23c047",
+                            "order": 0
+                        }
+                    ],
+                    "source": "events",
+                    "actions": [],
+                    "properties": [
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        }
+                    ],
+                    "filter_test_accounts": true
+                }
+            }
+        },
+        {
+            "id": "action_function_17427d8c-fceb-4bc1-9e17-ccc26cb6e57f",
+            "name": "Score onboarding",
+            "description": "Replay Vision watches the signup session and scores how smoothly the person got started, from 1 to 5.",
+            "on_error": "continue",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": [
+                {
+                    "key": "vision_score",
+                    "result_path": "output.score"
+                },
+                {
+                    "key": "vision_reasoning",
+                    "result_path": "output.reasoning"
+                }
+            ],
+            "config": {
+                "template_id": "template-posthog-replay-vision",
+                "inputs": {
+                    "analysis": {
+                        "value": {
+                            "type": "scorer",
+                            "prompt": "This person just signed up. Score how smoothly they got started in this session, so the team can reach out to people who struggled.\n\nLook at what happened after signup: whether they reached the product's main setup steps, how long that took, and what got in the way. Signs of friction are errors, failed requests, empty or broken pages, rage clicks, repeated attempts, long pauses on one screen, going back and forth, or leaving partway through setup.\n\nUse this scale:\n5: Got set up without trouble.\n4: Got set up, with a small hiccup.\n3: Got set up, but slowly or with clear confusion.\n2: Hit real problems and only partly got set up.\n1: Got stuck, hit blocking errors, or gave up.\n\nIn your reasoning, name the moment that most affected the score.",
+                            "scale": {
+                                "min": 1,
+                                "max": 5
+                            }
+                        }
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "action_conditional_branch_fdda13ee-acd4-4be4-a8d7-e6e9ed8e6e9f",
+            "name": "Low score?",
+            "description": "Matches a score of 2 or lower. Change the number to alert on more or fewer signups.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Score of 2 or lower",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "vision_score",
+                                    "type": "workflow_variable",
+                                    "operator": "lte",
+                                    "value": 2
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_edb5e71c-cd74-4a00-a0d0-70af4fc7d4f0",
+            "name": "Alert in Slack",
+            "description": "Posts the score and Replay Vision's reasoning to a Slack channel.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "*{person.name}* had a rough start after signing up\n\n*Onboarding score:* {variables.vision_score} out of 5\n\n*Why:*\n{substring(variables.vision_reasoning, 1, 2500)}"
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View person in PostHog"
+                                        },
+                                        "url": "{person.url}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "*{person.name}* had a rough start after signing up",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [
+        {
+            "key": "vision_score",
+            "type": "number",
+            "default": ""
+        },
+        {
+            "key": "vision_reasoning",
+            "type": "string",
+            "default": ""
+        }
+    ],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "replay vision", "onboarding", "slack"],
+    "scope": "global"
+}

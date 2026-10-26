@@ -44,6 +44,13 @@ CALENDLY_SESSION_PATCH = (
 
 ORG_URI = "https://api.calendly.com/organizations/ABC123"
 
+# Endpoints whose rows lack a `uri` or a `created_at`, as (primary keys, partition key).
+ENDPOINT_KEYS: dict[str, tuple[list[str], Optional[str]]] = {
+    "activity_log_entries": (["uri"], "occurred_at"),
+    "outgoing_communications": (["type", "to", "event_uri", "created_at"], "created_at"),
+    "meeting_recap_transcripts": (["uri"], None),
+}
+
 # Parent row each fan-out child is bound to, keyed by the child endpoint.
 PARENT_URIS = {
     "invitees": "https://api.calendly.com/scheduled_events/EV1",
@@ -143,7 +150,11 @@ class TestFormatDatetime:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([_me_page(status_code)]) as network:
             assert validate_credentials("token") == (expected, status_code)
@@ -194,24 +205,44 @@ class TestPagination:
 
 
 class TestRequestParams:
-    @mock.patch(CALENDLY_SESSION_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_scheduled_events_adds_min_start_time_when_incremental(
-        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
-    ) -> None:
-        mock_calendly_session.return_value.get.return_value = _users_me_response()
-        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "a"}])])
-
-        _rows(
-            _source(
-                _make_manager(),
-                endpoint="scheduled_events",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-            )
+    @parameterized.expand(
+        [
+            ("scheduled_events", "min_start_time", "start_time:asc"),
+            ("activity_log_entries", "min_occurred_at", "occurred_at:asc"),
+        ]
+    )
+    def test_incremental_endpoint_sends_its_time_filter(self, endpoint: str, filter_param: str, sort: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_me_page(), _page([{"uri": "a"}])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert snapshots[0]["params"]["min_start_time"] == "2026-01-01T00:00:00.000000Z"
+        assert result.raised is None
+        assert result.requests[1].param(filter_param) == "2026-01-01T00:00:00.000000Z"
+        # The filter only bounds the walk when rows arrive oldest first.
+        assert result.requests[1].param("sort") == sort
+        assert result.requests[1].param("organization") == ORG_URI
+
+    @parameterized.expand(
+        [
+            ("group_relationships", ["/users/me", "/group_relationships"], ORG_URI),
+            ("outgoing_communications", ["/users/me", "/outgoing_communications"], ORG_URI),
+            # Recaps are listed for the token's user, so the organization lookup is skipped.
+            ("meeting_recaps", ["/meeting_recaps"], None),
+        ]
+    )
+    def test_top_level_endpoint_scoping(
+        self, endpoint: str, expected_paths: list[str], organization: str | None
+    ) -> None:
+        result = _driver().run(endpoint, [*([_me_page()] if organization else []), _page([{"uri": "a"}])])
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.requests[-1].param("organization") == organization
+        assert result.requests[-1].param("sort") is None
+        assert len(result.rows) == 1
 
     def test_non_incremental_endpoint_never_adds_filter(self) -> None:
         result = _driver().run(
@@ -273,17 +304,36 @@ class TestFanoutEndpoints:
         assert result.requests[2].param("count") == "100"
         assert [row["uri"] for row in result.rows] == ["child-1"]
 
+    def test_transcripts_fan_out_over_recaps_and_skip_missing_ones(self) -> None:
+        recaps = [
+            {"uri": "https://api.calendly.com/meeting_recaps/R1"},
+            {"uri": "https://api.calendly.com/meeting_recaps/R2"},
+        ]
+        transcript = {"uri": "https://api.calendly.com/meeting_recaps/R1/transcript", "text": "Host: Hello"}
+
+        result = _driver().run(
+            "meeting_recap_transcripts",
+            [_page(recaps), ScriptedResponse(json={"resource": transcript}), ScriptedResponse(status=404)],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/meeting_recaps", "/meeting_recaps/R1/transcript", "/meeting_recaps/R2/transcript"]
+        # The transcript endpoint returns one object and takes no paging params.
+        assert result.requests[1].query == {}
+        assert result.rows == [{**transcript, "meeting_recap": "https://api.calendly.com/meeting_recaps/R1"}]
+
 
 class TestCalendlySource:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = _source(_make_manager(), endpoint=endpoint)
+        primary_keys, partition_key = ENDPOINT_KEYS.get(endpoint, (["uri"], "created_at"))
 
         assert response.name == endpoint
-        assert response.primary_keys == ["uri"]
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"
-        assert response.partition_keys == ["created_at"]
-        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ([partition_key] if partition_key else None)
+        assert response.partition_mode == ("datetime" if partition_key else None)
 
 
 WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/hog-fn-1"

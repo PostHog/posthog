@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -13,6 +14,15 @@ import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
 export const WikiPageReadLimitSchema = z.number().int().min(1).max(12000).default(12000)
+export const SignalReportFeedbackSentimentSchema = z
+    .enum(['positive', 'negative'])
+    .describe("The report rating: 'positive' (thumbs up) or 'negative' (thumbs down).")
+export const SignalReportFeedbackNoteSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe("The person's context for why the report was or was not useful, up to 4000 characters.")
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.
@@ -36,11 +46,26 @@ export const ChannelInstructionsBaseVersionSchema = z
     .max(9007199254740991)
     .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
+function normalizeDashboardTileIds(value: unknown): unknown {
+    if (typeof value === 'string' && /^\s*\d+(?:\s*,\s*\d+)*\s*$/.test(value)) {
+        return value.split(',').map(Number)
+    }
+    return value
+}
+
+export const DashboardInsightTileIdsSchema = z
+    .preprocess(normalizeDashboardTileIds, z.array(z.number().int().positive()).min(1))
+    .optional()
+    .describe(
+        'IDs from tiles[].id in dashboard-get. Omit to run all insight tiles. Text and widget tiles produce no insight result.'
+    )
+    .transform((ids): string | undefined => ids?.join(','))
+
 const DashboardTileLayoutSchema = z.object({
-    x: z.number().int().min(0).optional(),
-    y: z.number().int().min(0).optional(),
-    w: z.number().int().min(1).optional(),
-    h: z.number().int().min(1).optional(),
+    x: z.number().int().min(0).optional().describe('Column position in the dashboard grid (0-indexed).'),
+    y: z.number().int().min(0).optional().describe('Row position in the dashboard grid (0-indexed).'),
+    w: z.number().int().min(1).optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+    h: z.number().int().min(1).optional().describe('Height in grid rows.'),
 })
 
 export const DashboardTileCreateSchema = z.object({
@@ -65,8 +90,12 @@ export const DashboardTileCreateSchema = z.object({
         ),
     layouts: z
         .object({
-            sm: DashboardTileLayoutSchema.optional(),
-            xs: DashboardTileLayoutSchema.optional(),
+            sm: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+            ),
+            xs: DashboardTileLayoutSchema.optional().describe(
+                'Layout for the small (mobile) breakpoint. The grid is 1 column wide.'
+            ),
         })
         .optional()
         .describe('Optional dashboard-grid layout for desktop (sm) and mobile (xs).'),
@@ -477,6 +506,20 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
+export const ExperimentVariantNotesSchema = z
+    .record(z.string(), z.string())
+    .describe(
+        'Free-text notes per variant, keyed by variant key, shown under each variant in the experiment view. Use them to document what each variant changes. On update, only the variants you pass change and the notes of other variants stay. Pass an empty string to clear the note of a variant.'
+    )
+    .optional()
+
+export const ExperimentVariantScreenshotMediaIdsSchema = z
+    .record(z.string(), z.array(z.string()))
+    .describe(
+        'Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose "experiment", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant.'
+    )
+    .optional()
+
 // Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
 // alias set the generated experiment tools accept via their tools.yaml overrides.
 export const ExperimentResultsGetSchema = z.preprocess(
@@ -525,7 +568,7 @@ export const InsightQueryInputSchema = z.preprocess(
             .union([z.string(), z.record(z.string(), z.unknown())])
             .optional()
             .describe(
-                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+                "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
 )
@@ -744,9 +787,12 @@ export const PathCleaningRulesUpdateSchema = z.object({
         ),
 })
 
-export const ProjectSetActiveSchema = z.object({
-    projectId: z.number().int().positive(),
-})
+export const ProjectSetActiveSchema = z.preprocess(
+    normalizeParamAliases({ projectId: ['project_id', 'new_project_id'] }),
+    z.object({
+        projectId: z.number().int().positive(),
+    })
+)
 
 const taskAgentRunOptions = {
     // Use a pattern because JSON Schema's date-time format requires a timezone offset.
@@ -1280,3 +1326,27 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition or one copied from a ' +
+                            'different flag. The update is refused when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. The tool description covers condition_id and group targeting.'
+)

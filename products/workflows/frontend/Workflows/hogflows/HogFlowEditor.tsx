@@ -20,6 +20,7 @@ import { IconInfo } from '@posthog/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
+import { TileCanvas } from './editor/tile-canvas/TileCanvas'
 import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
@@ -146,7 +147,13 @@ function HogFlowTreeEditorContent(): JSX.Element {
     )
 }
 
-export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Element {
+export function HogFlowEditor({
+    isTreeView,
+    isTileCanvas = false,
+}: {
+    isTreeView: boolean
+    isTileCanvas?: boolean
+}): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
@@ -155,6 +162,10 @@ export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Elem
                     {isTreeView ? (
                         <ReactFlowProvider>
                             <HogFlowTreeEditorContent />
+                        </ReactFlowProvider>
+                    ) : isTileCanvas ? (
+                        <ReactFlowProvider>
+                            <TileCanvas />
                         </ReactFlowProvider>
                     ) : (
                         <ReactFlowProvider>

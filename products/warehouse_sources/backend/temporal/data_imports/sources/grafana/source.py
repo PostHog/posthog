@@ -56,10 +56,10 @@ class GrafanaSource(ResumableSource[GrafanaSourceConfig, GrafanaResumeConfig]):
             name=ExternalDataSourceType.GRAFANA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Grafana",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Grafana instance URL and credentials to pull your Grafana metadata (dashboards, folders, alert rules, annotations, and more) into the PostHog Data warehouse.
 
-Create a service account token under **Administration > Users and access > Service accounts** in your Grafana instance. A Viewer role covers most tables; users, teams, team members, data sources, service accounts, and alert rules need extra read permissions (`users:read`, `teams:read`, `teams.permissions:read`, `datasources:read`, `serviceaccounts:read`, `alert.provisioning:read`). Grafana only shows dashboard versions to accounts that can edit the dashboard (`dashboards:write`), such as the Editor role.
+Create a service account token under **Administration > Users and access > Service accounts** in your Grafana instance. A Viewer role covers most tables; users, teams, team members, data sources, service accounts, alert rules, dashboard permissions, and folder permissions need extra read permissions (`users:read`, `teams:read`, `teams.permissions:read`, `datasources:read`, `serviceaccounts:read`, `alert.provisioning:read`, `dashboards.permissions:read`, `folders.permissions:read`). Grafana only shows dashboard versions to accounts that can edit the dashboard (`dashboards:write`), such as the Editor role. The roles table needs `roles:read` and is only available on Grafana Enterprise and Grafana Cloud.
 
 Self-hosted Grafana OSS can alternatively authenticate with a username and password. Grafana Cloud only supports service account tokens. The organizations table lists every organization on the instance, so it needs a Grafana server admin username and password.""",
             iconPath="/static/services/grafana.png",
@@ -186,6 +186,14 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
                 return "Dashboard metadata from the search API; does not include panel definitions"
             if endpoint == "dashboard_versions":
                 return "Saved versions of every dashboard. Needs permission to edit dashboards"
+            if endpoint in ("dashboard_permissions", "folder_permissions"):
+                return (
+                    "Users, teams, and basic roles granted access, one row per grant. `subject` identifies who holds it"
+                )
+            if endpoint == "roles":
+                return (
+                    "Access control roles and their permissions. Only available on Grafana Enterprise and Grafana Cloud"
+                )
             if endpoint == "orgs":
                 return "Every organization on the instance. Needs a Grafana server admin username and password"
             return None

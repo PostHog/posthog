@@ -65,8 +65,10 @@ export interface BoxPlotConfig extends ChartConfig {
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */
     whiskerCapRatio?: number
-    /** Box outline / whisker stroke width. Defaults to 1.5. */
+    /** Box outline / whisker stroke width. The median is three times as thick. Defaults to 1. */
     boxStrokeWidth?: number
+    /** Box corner radius in CSS pixels. Defaults to 3; 0 draws square corners. */
+    boxCornerRadius?: number
 }
 
 export interface BoxPlotClickData<Meta = unknown> {
@@ -129,7 +131,8 @@ function BoxPlotInner<Meta = unknown>({
         showAxisLines = false,
         meanRadius = 3,
         whiskerCapRatio = 0.6,
-        boxStrokeWidth = 1.5,
+        boxStrokeWidth = 1,
+        boxCornerRadius,
         axisOrientation = 'vertical',
     } = config ?? {}
     const horizontal = axisOrientation === 'horizontal'
@@ -171,11 +174,18 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                if (Number.isFinite(datum.min)) {
-                    mins.push(datum.min)
+                const whiskerMin = datum.whiskerMin ?? datum.min
+                const whiskerMax = datum.whiskerMax ?? datum.max
+                if (Number.isFinite(whiskerMin)) {
+                    mins.push(whiskerMin)
                 }
-                if (Number.isFinite(datum.max)) {
-                    maxs.push(datum.max)
+                if (Number.isFinite(whiskerMax)) {
+                    maxs.push(whiskerMax)
+                }
+                // A skewed bucket can put the mean outside its whiskers.
+                if (Number.isFinite(datum.mean)) {
+                    mins.push(datum.mean)
+                    maxs.push(datum.mean)
                 }
             }
             if (mins.length > 0) {
@@ -281,12 +291,14 @@ function BoxPlotInner<Meta = unknown>({
                 })
                 drawBoxes(ctx, boxes, {
                     color: s.color,
-                    fillColor: dimColor(s.color, 0.25),
-                    meanFillColor: dimColor(s.color, 0.5),
+                    fillColor: dimColor(s.color, 0.2),
+                    whiskerColor: theme.axisColor ?? s.color,
+                    meanFillColor: theme.backgroundColor ?? dimColor(s.color, 0.5),
                     meanRadius,
                     whiskerCapRatio,
                     lineWidth: boxStrokeWidth,
                     horizontal,
+                    cornerRadius: boxCornerRadius,
                 })
             }
 
@@ -298,7 +310,7 @@ function BoxPlotInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, axisOrientation, horizontal]
+        [showGrid, axisLines, meanRadius, whiskerCapRatio, boxStrokeWidth, boxCornerRadius, axisOrientation, horizontal]
     )
 
     const drawHover = useCallback(
@@ -352,19 +364,24 @@ function BoxPlotInner<Meta = unknown>({
                 if (!box) {
                     continue
                 }
-                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal)
+                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25), horizontal, boxCornerRadius)
                 drewAny = true
             }
             return drewAny
         },
-        [series, horizontal]
+        [series, horizontal, boxCornerRadius]
     )
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => (
-            <BoxPlotTooltip<Meta> ctx={ctx} userTooltip={tooltip} grouped={grouped} />
+            <BoxPlotTooltip<Meta>
+                ctx={ctx}
+                userTooltip={tooltip}
+                grouped={grouped}
+                valueFormatter={config?.tooltip?.valueFormatter}
+            />
         ),
-        [tooltip, grouped]
+        [tooltip, grouped, config?.tooltip?.valueFormatter]
     )
 
     const onPointClick = useCallback(

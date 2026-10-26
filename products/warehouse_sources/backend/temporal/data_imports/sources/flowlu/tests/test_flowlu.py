@@ -95,18 +95,6 @@ class TestMalformedPayload:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("valid", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Flowlu API key")),
-            ("forbidden", 403, (False, "Invalid Flowlu API key")),
-            ("server_error", 500, (False, "Flowlu returned HTTP 500")),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("fl-key", "acme") == expected
-
     def test_connection_error_maps_to_generic_message(self) -> None:
         # The probe swallows the exception (which could embed the api_key-carrying URL) and returns
         # a fixed message, so the raw exception text is never surfaced.

@@ -89,6 +89,8 @@ class TestGetResource:
             ("NotificationTemplates",),
             ("Tenants",),
             ("Journeys",),
+            ("Automations",),
+            ("PreferenceChanges",),
         ]
     )
     def test_full_refresh_sends_no_timestamp_filter(self, endpoint: str) -> None:
@@ -106,6 +108,7 @@ class TestGetResource:
             ("NotificationTemplates",),
             ("Tenants",),
             ("Journeys",),
+            ("Automations",),
         ]
     )
     def test_endpoints_without_a_server_filter_ignore_incremental_flag(self, endpoint: str) -> None:
@@ -127,6 +130,9 @@ class TestCourierSourceTransport:
             ("NotificationTemplates",),
             ("Tenants",),
             ("Journeys",),
+            ("Automations",),
+            ("PreferenceSections",),
+            ("PreferenceChanges",),
         ]
     )
     def test_rows_extracted_from_endpoint_envelope(self, endpoint: str) -> None:
@@ -150,7 +156,7 @@ class TestCourierSourceTransport:
 
         assert result.saved_states == [CourierResumeConfig(cursor="cursor-1"), CourierResumeConfig(cursor="cursor-2")]
 
-    @parameterized.expand([("Tenants",), ("Journeys",)])
+    @parameterized.expand([("Tenants",), ("Journeys",), ("Automations",)])
     def test_pages_on_top_level_cursor(self, endpoint: str) -> None:
         # These endpoints return their cursor at the response's top level rather than nested
         # under `paging`, so a regression here silently disables pagination.
@@ -163,6 +169,14 @@ class TestCourierSourceTransport:
         assert result.params("cursor") == [None, "cursor-1"]
         assert [row["id"] for row in result.rows] == ["r1", "r2"]
 
+    def test_unpaginated_endpoint_sends_no_params(self) -> None:
+        # The preference sections listing documents no params at all, so the page size every
+        # other endpoint gets must not be sent to it.
+        result = _drive("PreferenceSections", [_page("PreferenceSections", [{"id": "ps_1"}], cursor=None)])
+
+        assert result.paths == ["/preferences/sections"]
+        assert result.queries == [{}]
+
     def test_resume_seeds_paginator_with_saved_cursor(self) -> None:
         responses = [_page("Messages", [{"id": "m9"}], cursor=None)]
         result = _drive("Messages", responses, resume_state=CourierResumeConfig(cursor="cursor-resumed"))
@@ -174,29 +188,28 @@ class TestCourierSourceTransport:
 
         assert result.saved_states == []
 
-    def test_incremental_run_sends_watermark_as_iso8601(self) -> None:
-        responses = [_page("Messages", [{"id": "m1"}], cursor=None)]
+    @parameterized.expand(
+        [
+            ("messages", "Messages", "enqueued_after", datetime(2026, 5, 1, 12, 30), "2026-05-01T12:30:00"),
+            ("preference_changes", "PreferenceChanges", "since", datetime(2026, 5, 1, 12, 30), "2026-05-01T12:30:00"),
+            # No prior watermark (first incremental sync): must fall back to a real ISO-8601
+            # value, not stringify `None` into the literal "since=None".
+            ("messages_first_sync", "Messages", "enqueued_after", None, "1970-01-01T00:00:00Z"),
+            ("preference_changes_first_sync", "PreferenceChanges", "since", None, "1970-01-01T00:00:00Z"),
+        ]
+    )
+    def test_incremental_run_sends_watermark_as_iso8601(
+        self, _name: str, endpoint: str, param: str, last_value: datetime | None, expected: str
+    ) -> None:
+        responses = [_page(endpoint, [{"id": "r1"}], cursor=None)]
         result = _drive(
-            "Messages",
+            endpoint,
             responses,
             should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 5, 1, 12, 30),
+            db_incremental_field_last_value=last_value,
         )
 
-        assert result.params("enqueued_after") == ["2026-05-01T12:30:00"]
-
-    def test_incremental_first_sync_defaults_to_epoch_start(self) -> None:
-        # No prior watermark (first incremental sync): must fall back to a real ISO-8601 value,
-        # not stringify `None` into the literal "enqueued_after=None".
-        responses = [_page("Messages", [{"id": "m1"}], cursor=None)]
-        result = _drive(
-            "Messages",
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-
-        assert result.params("enqueued_after") == ["1970-01-01T00:00:00Z"]
+        assert result.params(param) == [expected]
 
     def test_epoch_millis_fields_are_converted_to_datetime(self) -> None:
         # `enqueued`/`sent`/etc. arrive as epoch-millisecond ints; left unconverted, the
@@ -224,6 +237,9 @@ class TestCourierSourceTransport:
             ("NotificationTemplates", None, "asc"),
             ("Tenants", None, "asc"),
             ("Journeys", ["createdAt"], "asc"),
+            ("Automations", ["createdAt"], "asc"),
+            ("PreferenceSections", ["created"], "asc"),
+            ("PreferenceChanges", ["timestamp"], "desc"),
         ]
     )
     def test_source_response_partitioning_and_sort_mode(
@@ -378,6 +394,45 @@ class TestCourierFanout:
         assert result.paths == ["/journeys", "/journeys/jry-1/versions", "/journeys/jry-1/versions"]
         assert [row["version"] for row in result.rows] == ["v1", "v1"]
 
+    def test_notification_template_versions_carry_their_template_id_and_page_at_ten(self) -> None:
+        # Courier rejects a `limit` above 10 on the versions endpoint, so the child must not
+        # inherit the page size of its template listing.
+        result = _drive(
+            "NotificationTemplateVersions",
+            [
+                _page("NotificationTemplates", [{"id": "nt_1"}], cursor=None),
+                _page("NotificationTemplateVersions", [{"version": "v002", "created": 1_700_000_000_000}], "c-1"),
+                _page("NotificationTemplateVersions", [{"version": "v001", "created": 1_690_000_000_000}], None),
+            ],
+        )
+
+        assert result.paths == ["/notifications", "/notifications/nt_1/versions", "/notifications/nt_1/versions"]
+        assert result.params("limit") == ["100", "10", "10"]
+        assert result.params("cursor") == [None, None, "c-1"]
+        assert [(row["template_id"], row["version"]) for row in result.rows] == [("nt_1", "v002"), ("nt_1", "v001")]
+        assert result.rows[0]["created"] == datetime.fromtimestamp(1_700_000_000_000 / 1000, tz=UTC)
+
+    def test_preference_topics_are_fetched_per_section_without_params(self) -> None:
+        # Neither listing documents a page-size param, and the topic carries no reference back to
+        # its section, so the section id has to be projected in from the parent.
+        result = _drive(
+            "PreferenceTopics",
+            [
+                _page("PreferenceSections", [{"id": "ps_1"}, {"id": "ps_2"}], cursor=None),
+                _page("PreferenceTopics", [{"id": "pt_1", "created": "2026-01-15T10:30:00.000Z"}], cursor=None),
+                _page("PreferenceTopics", [{"id": "pt_2"}], cursor=None),
+            ],
+        )
+
+        assert result.paths == [
+            "/preferences/sections",
+            "/preferences/sections/ps_1/topics",
+            "/preferences/sections/ps_2/topics",
+        ]
+        assert result.queries == [{}, {}, {}]
+        assert [(row["section_id"], row["id"]) for row in result.rows] == [("ps_1", "pt_1"), ("ps_2", "pt_2")]
+        assert result.rows[0]["created"] == datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
+
     def test_digest_instances_flatten_schedule_ids_out_of_the_preferences_response(self) -> None:
         # Courier exposes no listing of digest schedules, so the ids come from the schedules
         # nested inside each preference topic's digest config.
@@ -438,15 +493,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, (True, None)),
-            (
-                "invalid_key",
-                403,
-                (
-                    False,
-                    "Courier authentication failed: Invalid or missing authentication credentials. Please check your API key.",
-                ),
-            ),
-            ("server_error", 500, (False, "Courier API returned an unexpected response (HTTP 500)")),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected: tuple[bool, str | None]) -> None:

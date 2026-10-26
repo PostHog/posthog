@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -29,10 +29,17 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
+import {
+    confirmCreateAsBroadcast,
+    loadBroadcastConversionCandidates,
+    moveWorkflowsToBroadcasts,
+    movedToBroadcastsMessage,
+} from '../Broadcasts/broadcastLifecycle'
+import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
@@ -224,7 +231,7 @@ const WORKFLOW_CONTENT_FIELDS = [
 
 // The fields the editor writes through the form. Edits that land while a save is in flight are
 // re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
-const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description', 'tags'] as const
 
 function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = {}
@@ -238,6 +245,21 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+    // Existing workflows to move to broadcasts once this save creates a broadcast.
+    moveToBroadcastIds: string[]
+    // How many of them moved. The save sets it before it finishes.
+    movedToBroadcasts?: number
+    // A status change made while the form had unsaved edits. The edits stay in the form, unsaved.
+    keepsFormEdits: boolean
+}
+
+/** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
+interface ScheduleEdits {
+    scheduleState: ScheduleState
+    scheduleStartsAt: string | null
+    scheduleTimezone: string
+    isScheduleRepeating: boolean
+    scheduleConfigSources: { picker: boolean; natural_language: boolean }
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -307,6 +329,7 @@ export interface workflowLogicValues {
     schedules: HogFlowSchedule[]
     showDraftActions: boolean
     showWorkflowErrors: boolean
+    statusToggleDisabledReason: string | undefined
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
@@ -594,6 +617,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -663,6 +687,9 @@ export interface workflowLogicActions {
                                           utm_medium?: string | undefined
                                           utm_source?: string | undefined
                                       }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                                     | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
@@ -834,6 +861,9 @@ export interface workflowLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -863,6 +893,11 @@ export interface workflowLogicActions {
                                           source: 'internal-events'
                                       }
                                       type: 'internal-event'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -1110,6 +1145,9 @@ export interface workflowLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -1139,6 +1177,11 @@ export interface workflowLogicActions {
                                 source: 'internal-events'
                             }
                             type: 'internal-event'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -1250,6 +1293,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -1459,6 +1503,7 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -1528,6 +1573,9 @@ export interface workflowLogicActions {
                                           utm_medium?: string | undefined
                                           utm_source?: string | undefined
                                       }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                                     | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
@@ -1699,6 +1747,9 @@ export interface workflowLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -1728,6 +1779,11 @@ export interface workflowLogicActions {
                                           source: 'internal-events'
                                       }
                                       type: 'internal-event'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -1975,6 +2031,9 @@ export interface workflowLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -2004,6 +2063,11 @@ export interface workflowLogicActions {
                                 source: 'internal-events'
                             }
                             type: 'internal-event'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -2115,6 +2179,7 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -2161,6 +2226,9 @@ export interface workflowLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'
@@ -2236,6 +2304,11 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2301,6 +2374,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -2443,6 +2517,7 @@ export interface workflowLogicActions {
                             utm_source?: string | undefined
                         }
                       | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                   utm_tags_enabled?: boolean | undefined
               }
         >
@@ -2455,6 +2530,9 @@ export interface workflowLogicActions {
     }
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
+    }
+    restoreScheduleEdits: (edits: ScheduleEdits) => {
+        edits: ScheduleEdits
     }
     resumeEmailSending: () => {
         value: true
@@ -2554,6 +2632,9 @@ export interface workflowLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -2627,6 +2708,11 @@ export interface workflowLogicActions {
                   max_delay_duration?: string | undefined
               }
             | {
+                  cohort_id: number | null
+                  transition: 'entered' | 'left'
+                  type: 'cohort'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2692,6 +2778,7 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'replay_vision_scan'
                                           | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
@@ -2834,6 +2921,7 @@ export interface workflowLogicActions {
                             utm_source?: string | undefined
                         }
                       | undefined
+                  utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                   utm_tags_enabled?: boolean | undefined
               }
     }
@@ -2966,6 +3054,9 @@ export interface workflowLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -2995,6 +3086,11 @@ export interface workflowLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -3110,6 +3206,7 @@ export interface workflowLogicMeta {
             hasUnsavedChanges: boolean,
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
+        statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
     }
 }
 
@@ -3183,6 +3280,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
+        restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
@@ -3281,7 +3379,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The pending schedule rides along because an earlier save's reset clears it,
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
-                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
+                    const keepsFormEdits = cache.nextSaveKeepsFormEdits === true
+                    const saveContext: SaveContext = {
+                        initiatedByAutoSave,
+                        // A status change keeps schedule edits unsaved, like the other edits in the form.
+                        pendingSchedule: keepsFormEdits ? false : values.pendingSchedule,
+                        moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
+                        keepsFormEdits,
+                    }
+                    saveContexts.push(saveContext)
+                    cache.nextSaveMovesWorkflowIds = []
+                    cache.nextSaveKeepsFormEdits = false
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
                     // status against the stored one cannot tell the difference: that control does
@@ -3289,12 +3397,20 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    const createsBroadcast = cache.nextSaveCreatesBroadcast === true
+                    cache.nextSaveCreatesBroadcast = false
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
                         if (!props.id || props.id === 'new') {
-                            const result = await api.hogFlows.createHogFlow(updates)
+                            // The editor's HogFlow schema and the generated HogFlowApi describe the same payload.
+                            // The selected environment, as the legacy client used, not its parent project.
+                            const teamId = String(ApiConfig.getCurrentTeamId())
+                            const result = (await hogFlowsCreate(teamId, {
+                                ...updates,
+                                ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                            } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
 
                             if (props.templateId) {
                                 posthog.capture('hog_flow_created_from_template', {
@@ -3305,11 +3421,32 @@ export const workflowLogic = kea<workflowLogicType>([
                             if (props.entrySource) {
                                 saveEntrySource(result.id, props.entrySource)
                             }
-                            // pinned: analytics event name
-                            posthog.capture('workflow draft created', {
-                                workflow_id: result.id,
-                                entry_source: props.entrySource ?? null,
-                            })
+                            if (createsBroadcast) {
+                                // pinned: analytics event name
+                                posthog.capture('broadcast draft created', {
+                                    broadcast_id: result.id,
+                                    entry_source: props.entrySource ?? null,
+                                    created_from: 'workflow_editor',
+                                })
+                                // Moved inside the save so the form stays submitting, and Save stays
+                                // disabled, until the moves finish and the editor leaves the new page.
+                                if (saveContext.moveToBroadcastIds.length > 0) {
+                                    saveContext.movedToBroadcasts = await moveWorkflowsToBroadcasts(
+                                        teamId,
+                                        saveContext.moveToBroadcastIds
+                                    )
+                                    posthog.capture('workflows moved to broadcasts', {
+                                        requested: saveContext.moveToBroadcastIds.length,
+                                        moved: saveContext.movedToBroadcasts,
+                                    })
+                                }
+                            } else {
+                                // pinned: analytics event name
+                                posthog.capture('workflow draft created', {
+                                    workflow_id: result.id,
+                                    entry_source: props.entrySource ?? null,
+                                })
+                            }
                             return result
                         }
 
@@ -3439,7 +3576,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    forms(({ actions, values, cache }) => ({
+    forms(({ actions, values, cache, props }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
             errors: ({ name, actions, status }) => {
@@ -3454,12 +3591,36 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 return errors
             },
-            submit: async (values) => {
-                if (!values) {
+            submit: async (workflow) => {
+                if (!workflow) {
                     return
                 }
 
-                actions.saveWorkflow(values)
+                // A new workflow that only sends one email to a batch is a broadcast. Offer to create it
+                // as one, so it opens in the broadcast editor and lists under broadcasts.
+                if (
+                    (!props.id || props.id === 'new') &&
+                    !props.editTemplateId &&
+                    // The broadcast editor always saves this exit condition, so any other one would be lost.
+                    workflow.exit_condition === 'exit_only_at_end' &&
+                    isBroadcastShaped(workflow.actions) &&
+                    canEditInWizard(workflow.actions, workflow.edges)
+                ) {
+                    const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
+                    const choice = await confirmCreateAsBroadcast(others)
+                    posthog.capture('workflow broadcast suggestion answered', {
+                        choice: choice ?? 'dismissed',
+                        other_workflows: others.length,
+                    })
+                    if (!choice) {
+                        return
+                    }
+                    cache.nextSaveCreatesBroadcast = choice !== 'workflow'
+                    cache.nextSaveMovesWorkflowIds =
+                        choice === 'broadcast_and_move' ? others.map((other) => other.id) : []
+                }
+
+                actions.saveWorkflow(workflow)
                 // Hold the form in its submitting state until the save lands, so the save button
                 // keeps a loading state and cannot fire a second save. The loader created the queue
                 // while it handled the action above.
@@ -3484,6 +3645,7 @@ export const workflowLogic = kea<workflowLogicType>([
             { ...DEFAULT_STATE } as ScheduleState,
             {
                 setScheduleState: (_, { scheduleState }) => scheduleState,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleState,
                 setSchedules: (_, { schedules }) => {
                     const schedule = schedules[0]
                     if (schedule && !isOneTimeSchedule(schedule.rrule)) {
@@ -3497,6 +3659,7 @@ export const workflowLogic = kea<workflowLogicType>([
             null as string | null,
             {
                 setScheduleStartsAt: (_, { startsAt }) => startsAt,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleStartsAt,
                 setSchedules: (_, { schedules }) => schedules[0]?.starts_at ?? null,
             },
         ],
@@ -3504,6 +3667,7 @@ export const workflowLogic = kea<workflowLogicType>([
             dayjs.tz.guess() as string,
             {
                 setScheduleTimezone: (_, { timezone }) => timezone,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleTimezone,
                 setSchedules: (_, { schedules }) => schedules[0]?.timezone ?? dayjs.tz.guess(),
             },
         ],
@@ -3511,6 +3675,7 @@ export const workflowLogic = kea<workflowLogicType>([
             false as boolean,
             {
                 setScheduleRepeating: (_, { repeating }) => repeating,
+                restoreScheduleEdits: (_, { edits }) => edits.isScheduleRepeating,
                 setSchedules: (_, { schedules }) => {
                     const schedule = schedules[0]
                     return !!schedule && !isOneTimeSchedule(schedule.rrule)
@@ -3523,6 +3688,7 @@ export const workflowLogic = kea<workflowLogicType>([
             { picker: false, natural_language: false } as { picker: boolean; natural_language: boolean },
             {
                 setScheduleState: (state, { source }) => ({ ...state, [source]: true }),
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleConfigSources,
                 setSchedules: () => ({ picker: false, natural_language: false }),
             },
         ],
@@ -3682,8 +3848,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     return newSchedule
                 }
 
-                const savedRRule = currentSchedule.rrule
                 const savedStartsAt = currentSchedule.starts_at
+                // An rrule saved through the API or MCP is stored as written. Compare it in the form
+                // the picker regenerates, or an untouched schedule reads as an unsaved change.
+                const savedRRule = isOneTimeSchedule(currentSchedule.rrule)
+                    ? ONE_TIME_RRULE
+                    : stateToRRule(parseRRuleToState(currentSchedule.rrule), savedStartsAt)
                 const savedTimezone = currentSchedule.timezone ?? dayjs.tz.guess()
 
                 if (rrule === savedRRule && scheduleStartsAt === savedStartsAt && scheduleTimezone === savedTimezone) {
@@ -4033,6 +4203,18 @@ export const workflowLogic = kea<workflowLogicType>([
                 return hasStagedDraft ? undefined : 'No changes staged to discard'
             },
         ],
+
+        statusToggleDisabledReason: [
+            (s) => [s.workflow, s.hasUnsavedChanges],
+            (workflow: HogFlow, hasUnsavedChanges: boolean): string | undefined => {
+                // Disabling is always allowed: it changes only the status and keeps the edits in the
+                // form. Enabling would run the saved version, not the edits on screen.
+                if (workflow?.status !== 'active' && hasUnsavedChanges) {
+                    return 'Save changes first'
+                }
+                return undefined
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -4211,7 +4393,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
-            const merged = { ...values.workflow, ...workflow }
+            // A status change on a dirty form sends the stored copy with the new status, so the edits
+            // on screen are not saved by accident. The success listener puts them back in the form.
+            const stored = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            const keepsFormEdits = 'status' in workflow && values.hasUnsavedChanges && !!stored
+            const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
                 return
@@ -4220,6 +4406,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
             cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -4328,6 +4515,19 @@ export const workflowLogic = kea<workflowLogicType>([
                             action: () => actions.publishDraft(),
                         },
                     })
+                } else if (originalWorkflow.origin_product === 'broadcasts') {
+                    const moveIds = saveContext?.moveToBroadcastIds ?? []
+                    if (moveIds.length > 0) {
+                        const moved = saveContext?.movedToBroadcasts ?? 0
+                        const message = movedToBroadcastsMessage(moveIds.length, moved)
+                        if (moved === moveIds.length) {
+                            lemonToast.success(message)
+                        } else {
+                            lemonToast.warning(message)
+                        }
+                    } else {
+                        lemonToast.success('Broadcast saved')
+                    }
                 } else {
                     lemonToast.success('Workflow saved')
                 }
@@ -4338,10 +4538,12 @@ export const workflowLogic = kea<workflowLogicType>([
 
                 if (props.id === 'new' && originalWorkflow.id) {
                     router.actions.replace(
-                        urls.workflow(
-                            originalWorkflow.id,
-                            workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
-                        )
+                        originalWorkflow.origin_product === 'broadcasts'
+                            ? urls.broadcast(originalWorkflow.id)
+                            : urls.workflow(
+                                  originalWorkflow.id,
+                                  workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
+                              )
                     )
                 }
             }
@@ -4384,9 +4586,22 @@ export const workflowLogic = kea<workflowLogicType>([
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
-                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+                !!saveContext?.keepsFormEdits ||
+                (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
+            const scheduleEdits: ScheduleEdits | null = saveContext?.keepsFormEdits
+                ? {
+                      scheduleState: values.scheduleState,
+                      scheduleStartsAt: values.scheduleStartsAt,
+                      scheduleTimezone: values.scheduleTimezone,
+                      isScheduleRepeating: values.isScheduleRepeating,
+                      scheduleConfigSources: values.scheduleConfigSources,
+                  }
+                : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            if (scheduleEdits) {
+                actions.restoreScheduleEdits(scheduleEdits)
+            }
             actions.markAutoSave(false)
             if (editsDuringSave) {
                 // The response only reflects the payload that was sent. Anything typed while it was

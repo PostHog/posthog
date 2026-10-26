@@ -12,7 +12,6 @@ from products.data_catalog.scripts.semantic_layer_canary_score import (
     CanaryApiClient,
     UnknownRouting,
     _parse_args,
-    evaluation_event,
     expectations_for,
     reconstruct_batch,
     resolve_project_id,
@@ -468,41 +467,6 @@ class TestCliArguments:
     def test_a_reversed_batch_window_is_rejected(self) -> None:
         with pytest.raises(SystemExit):
             _parse_args(["--batch", "2026-09-10T17:17:23Z", "2026-09-10T16:54:23Z", "--revision", "42"])
-
-
-class TestEvaluationEvent:
-    @pytest.mark.parametrize(
-        "row,applicable,score,reasoning",
-        [
-            (
-                {"verdict": "pass", "failed_checks": [], "advisory_checks": []},
-                True,
-                1,
-                '{"failed": [], "advisory": []}',
-            ),
-            (
-                {"verdict": "unscored", "reason": "case status is missing, not completed"},
-                False,
-                None,
-                "case status is missing, not completed",
-            ),
-        ],
-        ids=["scored", "unscored"],
-    )
-    def test_marks_applicability_and_carries_the_task_link(
-        self, row: dict, applicable: bool, score: int | None, reasoning: str
-    ) -> None:
-        base = _case(status="missing" if row["verdict"] == "unscored" else "completed")
-
-        event = evaluation_event(run_id="tasks:a:b", dataset_revision=REVISION, row=base | row)
-
-        properties = event["properties"]
-        assert properties["$ai_evaluation_applicable"] is applicable
-        assert properties.get("$ai_score") == score
-        assert properties["$ai_reasoning"] == reasoning
-        assert properties["batch_id"] == "tasks:a:b"
-        assert properties["task_url"] == base["task_url"]
-        assert "api_key" not in event
 
 
 class TestCanaryApiClient:

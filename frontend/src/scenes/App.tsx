@@ -1,7 +1,7 @@
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { Suspense, useEffect } from 'react'
+import React, { Suspense, useEffect, useLayoutEffect, useState } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
@@ -14,6 +14,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { createSceneRenderedMark, markBootPhase } from 'lib/utils/bootTiming'
 import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
@@ -27,6 +28,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 import { mountSupportRouter } from './mountSupportRouter'
+import { SceneRenderedMarkContext } from './SceneContentFallback'
 
 const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
@@ -53,6 +55,14 @@ window.process = MOCK_NODE_PROCESS
  */
 function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    const [sceneRendered] = useState(createSceneRenderedMark)
+    // For a logged-in user this sits inside the AuthenticatedShell Suspense boundary, so it runs when the scene
+    // commits, not when the shell fallback does. A scene behind ProductEmptyStateGate can still commit the
+    // gate's fallback first. A scene whose own Suspense shows a SceneContentFallback marks when its content commits.
+    useLayoutEffect(() => {
+        sceneRendered.sceneCommitted()
+        return () => sceneRendered.sceneUncommitted()
+    }, [sceneRendered])
     return (
         // `className="contents"` is load-bearing: the wrapper must take a DOM
         // node so the ref has something to attach to (we need an element to
@@ -60,7 +70,7 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
         // transparent to layout. `display: contents` removes it from the box
         // tree so children render as if there's no wrapper.
         <div ref={ref} className="contents">
-            {children}
+            <SceneRenderedMarkContext.Provider value={sceneRendered}>{children}</SceneRenderedMarkContext.Provider>
         </div>
     )
 }
@@ -90,6 +100,8 @@ export function App(): JSX.Element | null {
     useEffect(() => mountSupportRouter().unmount, [])
 
     useThemedHtml()
+
+    useLayoutEffect(() => markBootPhase('app_first_render'), [])
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
@@ -129,6 +141,9 @@ function AppScene(): JSX.Element | null {
         useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    // App mounts this component on the first commit where appLogic's `showApp` is true.
+    useLayoutEffect(() => markBootPhase('app_ready', { logged_in: !!user }), [user])
 
     // Once we know the user is authenticated, kick off an idle prefetch of the
     // AuthenticatedShell chunk so the Suspense fallback rarely actually fires

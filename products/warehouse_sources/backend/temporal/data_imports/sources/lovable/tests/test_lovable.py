@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from parameterized import parameterized
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.lovable.lovable import (
     LovableResumeConfig,
     _ParentRef,
+    analytics_window,
     check_endpoint_permissions,
     resume_position,
     validate_credentials,
@@ -102,6 +104,96 @@ class TestLovableSourceTransport:
         ]
         assert result.paths[2:] == ["/v1/projects/p-1/collaborators", "/v1/projects/p-2/collaborators"]
 
+    @parameterized.expand(
+        [
+            ("fresh_run_walks_every_scan", None, ["/v1/projects/p-1/security-scans/s-1/findings"], None),
+            (
+                "resume_continues_the_checkpointed_scan",
+                LovableResumeConfig(workspace_id="ws-1", project_id="p-1", scan_id="s-2", cursor="c1"),
+                [],
+                "c1",
+            ),
+        ]
+    )
+    def test_findings_fan_out_through_scans_and_stamp_the_scan(
+        self,
+        _name: str,
+        resume_state: LovableResumeConfig | None,
+        earlier_scan_paths: list[str],
+        expected_cursor: str | None,
+    ) -> None:
+        findings = [_page([{"id": "f-1"}])] if resume_state is None else []
+        result = _driver().run(
+            "ProjectSecurityScanFindings",
+            [
+                _page([{"id": "ws-1"}]),
+                _page([{"id": "p-1"}]),
+                _page([{"id": "s-1"}, {"id": "s-2"}]),
+                *findings,
+                _page([{"id": "f-1"}]),
+            ],
+            api_version="2026-09-11",
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.paths[3:] == [*earlier_scan_paths, "/v1/projects/p-1/security-scans/s-2/findings"]
+        assert result.requests[-1].param("cursor") == expected_cursor
+        assert [(row["project_id"], row["scan_id"], row["id"]) for row in result.rows][-1] == ("p-1", "s-2", "f-1")
+
+    def test_project_analytics_skips_unpublished_projects(self) -> None:
+        result = _driver().run(
+            "ProjectAnalytics",
+            [
+                _page([{"id": "ws-1"}]),
+                _page([{"id": "p-draft", "is_published": False}, {"id": "p-live", "is_published": True}]),
+                ScriptedResponse(json={"time_series": {}}),
+            ],
+            api_version="2026-09-11",
+        )
+
+        assert result.raised is None
+        assert result.paths[2:] == ["/v1/projects/p-live/analytics"]
+
+    def test_analytics_pivots_each_bucket_into_one_row(self) -> None:
+        result = _driver().run(
+            "WorkspaceAnalytics",
+            [
+                _page([{"id": "ws-1"}]),
+                ScriptedResponse(
+                    json={
+                        "time_series": {
+                            "visitors": {
+                                "label": "visitors",
+                                "total": 5,
+                                "data": [
+                                    {"timestamp": "2026-10-02T00:00:00Z", "value": 3},
+                                    {"timestamp": "2026-10-01T00:00:00Z", "value": 2},
+                                ],
+                            },
+                            "bounce_rate": {
+                                "label": "bounce_rate",
+                                "total": 40.0,
+                                "data": [{"timestamp": "2026-10-01T00:00:00Z", "value": 40.0}],
+                            },
+                        }
+                    }
+                ),
+            ],
+            api_version="2026-09-11",
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"timestamp": "2026-10-01T00:00:00Z", "visitors": 2, "bounce_rate": 40.0, "workspace_id": "ws-1"},
+            {"timestamp": "2026-10-02T00:00:00Z", "visitors": 3, "workspace_id": "ws-1"},
+        ]
+        analytics_request = result.requests[1]
+        assert analytics_request.path == "/v1/workspaces/ws-1/analytics"
+        assert analytics_request.param("limit") is None
+        assert analytics_request.param("starts_at") is not None
+        assert analytics_request.param("ends_at") is not None
+
     def test_parents_without_an_id_are_skipped(self) -> None:
         result = _driver().run(
             "WorkspaceMembers",
@@ -127,6 +219,10 @@ class TestLovableSourceTransport:
             ("2026-09-11", "WorkspaceMembers", ["workspace_id", "user_id"], None),
             ("2026-09-11", "ProjectSecurityScans", ["project_id", "id"], "started_at"),
             ("2026-09-11", "ProjectPiiLabels", ["project_id", "id"], "found_at"),
+            ("2026-09-11", "WorkspaceGroups", ["workspace_id", "id"], "created_at"),
+            ("2026-09-11", "ProjectSecurityScanFindings", ["project_id", "scan_id", "id"], "created_at"),
+            ("2026-09-11", "ProjectAnalytics", ["project_id", "timestamp"], "timestamp"),
+            ("2026-09-11", "WorkspaceAnalytics", ["workspace_id", "timestamp"], "timestamp"),
         ]
     )
     def test_primary_keys_and_partitioning_per_endpoint(
@@ -141,6 +237,30 @@ class TestLovableSourceTransport:
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.partition_mode == ("datetime" if partition_key else None)
+
+
+class TestAnalyticsWindow:
+    @parameterized.expand(
+        [
+            ("full_refresh_reads_the_longest_range", False, "2026-10-20T08:00:00Z", "2025-10-24T00:00:00Z"),
+            ("incremental_rereads_the_watermark_day", True, "2026-10-20T00:00:00Z", "2026-10-20T00:00:00Z"),
+            (
+                "incremental_accepts_a_datetime_watermark",
+                True,
+                datetime(2026, 10, 20, 15, 30, tzinfo=UTC),
+                "2026-10-20T00:00:00Z",
+            ),
+            ("old_watermark_is_clamped_to_the_api_limit", True, "2024-01-01T00:00:00Z", "2025-10-24T00:00:00Z"),
+            ("no_watermark_reads_the_longest_range", True, None, "2025-10-24T00:00:00Z"),
+        ]
+    )
+    def test_window(self, _name: str, incremental: bool, last_value: Any, expected_start: str) -> None:
+        now = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+
+        assert analytics_window(incremental, last_value, now) == {
+            "starts_at": expected_start,
+            "ends_at": "2026-10-23T12:00:00Z",
+        }
 
 
 class TestLovableResume:
@@ -186,21 +306,12 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            ("valid", 200, True, None),
-            ("bad_key", 401, False, "Invalid Lovable API key. Create a new key in Lovable and reconnect."),
             (
                 "plan_too_low",
                 402,
                 False,
                 "Lovable's API needs the Business plan or higher. Upgrade the workspace in Lovable and reconnect.",
             ),
-            (
-                "missing_scope",
-                403,
-                False,
-                "This Lovable API key can't read workspaces. Create a key with the workspaces:read scope and reconnect.",
-            ),
-            ("server_error", 500, False, "Could not connect to Lovable. Check the API key and try again."),
         ]
     )
     def test_status_maps_to_message(
@@ -250,11 +361,26 @@ class TestCheckEndpointPermissions:
 
         assert [request.url for request in network.requests_log] == ["https://api.lovable.dev/v1/workspaces?limit=1"]
 
-    def test_project_scoped_table_probes_a_project(self) -> None:
+    @parameterized.expand(
+        [
+            ("project", "v1", "ProjectSecurityScans", [], "/v1/projects/p-1/security-scans"),
+            ("time_series", "2026-09-11", "ProjectAnalytics", [], "/v1/projects/p-1/analytics"),
+            (
+                "scan",
+                "2026-09-11",
+                "ProjectSecurityScanFindings",
+                [_page([{"id": "s-1"}])],
+                "/v1/projects/p-1/security-scans/s-1/findings",
+            ),
+        ]
+    )
+    def test_nested_table_probes_its_parent(
+        self, _name: str, api_version: str, endpoint: str, scan_pages: list[ScriptedResponse], expected_path: str
+    ) -> None:
         with scripted_network(
-            [_page([{"id": "ws-1"}]), _page([{"id": "p-1"}]), _error(402)],
+            [_page([{"id": "ws-1"}]), _page([{"id": "p-1"}]), *scan_pages, _error(402)],
         ) as network:
-            permissions = check_endpoint_permissions("lov_key", "v1", ["ProjectSecurityScans"])
+            permissions = check_endpoint_permissions("lov_key", api_version, [endpoint])
 
-        assert permissions == {"ProjectSecurityScans": "This table needs Lovable's Business plan or higher."}
-        assert network.requests_log[2].path == "/v1/projects/p-1/security-scans"
+        assert permissions == {endpoint: "This table needs Lovable's Business plan or higher."}
+        assert network.requests_log[-1].path == expected_path

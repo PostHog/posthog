@@ -4,8 +4,11 @@ from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
+
+import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import PullRequestLink
@@ -15,11 +18,48 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 if TYPE_CHECKING:
     from products.signals.backend.report_assignments import PullRequestDetails
 
+logger = structlog.get_logger(__name__)
+
+PARTICIPANT_REFRESH_DEDUPE_SECONDS = 60
+
 
 class PullRequestStateSource(StrEnum):
     GITHUB = "github"
     TASK_OUTPUT = "task_output"
     LEGACY_ASSIGNMENT = "legacy_assignment"
+
+
+def schedule_participant_refresh(pr: SignalReportPullRequest) -> None:
+    from products.signals.backend.tasks import refresh_pull_request_participants
+
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.participants_synced_at is None:
+
+        def enqueue() -> None:
+            key = f"signals:participant-refresh:{pr.id}"
+            claimed = False
+            try:
+                claimed = cache.add(key, True, timeout=PARTICIPANT_REFRESH_DEDUPE_SECONDS)
+                if not claimed:
+                    return
+            except Exception:
+                logger.exception("signals_participant_refresh_dedupe_failed", team_id=pr.team_id, pr_id=str(pr.id))
+            try:
+                refresh_pull_request_participants.delay(
+                    team_id=pr.team_id, repository=pr.repository, pr_number=pr.number
+                )
+            except Exception:
+                if claimed:
+                    try:
+                        cache.delete(key)
+                    except Exception:
+                        logger.exception(
+                            "signals_participant_refresh_dedupe_cleanup_failed",
+                            team_id=pr.team_id,
+                            pr_id=str(pr.id),
+                        )
+                logger.exception("signals_participant_refresh_enqueue_failed", team_id=pr.team_id, pr_id=str(pr.id))
+
+        transaction.on_commit(enqueue)
 
 
 def reconcile_reports_for_pull_request(*, team_id: int, pr_id: str) -> None:
@@ -70,12 +110,17 @@ def link_pull_request(
     if pr.state != SignalReportPullRequest.State.MERGED and details.state != SignalReportPullRequest.State.UNKNOWN:
         # Imported/task snapshots must not overwrite a state already verified with GitHub.
         if state_source == PullRequestStateSource.GITHUB or pr.checked_at is None:
+            previous_state = pr.state
             pr.state = details.state
             if state_source == PullRequestStateSource.GITHUB:
                 pr.checked_at = timezone.now()
             pr.save(update_fields=["state", "checked_at", "updated_at"])
             # Wait for the complete PR batch and release its locks before locking shared reports.
             transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=report.team_id, pr_id=str(pr.id)))
+            if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+                from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+
+                schedule_pull_request_ready_push(pr, previous_state=previous_state)
     links = SignalReportArtefact.objects.filter(
         team_id=report.team_id,
         report_id=report.id,
@@ -108,18 +153,25 @@ def link_pull_request(
             .exists()
         ):
             from products.signals.backend.pull_request_label import schedule_pull_request_label
-            from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
             from products.signals.backend.reviewer_pr_ready import schedule_open_pull_request_ready
 
-            schedule_reviewer_pr_assignment(
-                team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
-            )
             schedule_open_pull_request_ready(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
             schedule_pull_request_label(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
             )
+    if notify_reviewers and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+        # Every verified PR refresh can change paths, ownership, membership, or linked identities.
+        # The assignment worker is bounded and replaces only the owners named by its own latest
+        # provenance record, so repeated webhook deliveries are safe reassessment triggers.
+        from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+
+        schedule_reviewer_pr_assignment(
+            team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
+        )
+    if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+        schedule_participant_refresh(pr)
     return pr
 
 
@@ -240,6 +292,7 @@ def update_pull_request_state(
         )
         if pr is None:
             return 0
+        previous_state = pr.state
         if pr.state != SignalReportPullRequest.State.MERGED:
             pr.state = state
         update_fields = ["state", "checked_at", "updated_at"]
@@ -248,6 +301,10 @@ def update_pull_request_state(
             update_fields.append("merged_at")
         pr.checked_at = timezone.now()
         pr.save(update_fields=update_fields)
+        schedule_participant_refresh(pr)
+        from products.signals.backend.inbox_push_notifications import schedule_pull_request_ready_push
+
+        schedule_pull_request_ready_push(pr, previous_state=previous_state)
         for report in reports:
             apply_report_completion(report)
         return len(reports)

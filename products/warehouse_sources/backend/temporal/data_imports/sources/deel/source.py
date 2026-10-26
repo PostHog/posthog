@@ -65,7 +65,7 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
 Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (`people:read`, `contracts:read`, `accounting:read`, `timesheets:read`, `time-off:read`, `legal-entity:read`, `organizations:read`, `groups:read`, `global-payroll:read`, `payslips:read`, `it-seats:read`, `it-service-requests:read`, `equities:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
             iconPath="/static/services/deel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

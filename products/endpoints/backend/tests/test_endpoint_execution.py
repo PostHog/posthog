@@ -3,11 +3,14 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import psycopg
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -17,8 +20,9 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags
-from posthog.errors import CHQueryErrorNoCommonType
+from posthog.errors import CHQueryErrorNoCommonType, wrap_clickhouse_query_error
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -228,6 +232,77 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         mock_counter.labels.assert_not_called()
         mock_signal.assert_not_called()
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("concurrency", ConcurrencyLimitExceeded("too many"), "concurrency"),
+            ("read_budget", APIQueriesBudgetExceeded(wait=120), "read_budget"),
+        ]
+    )
+    def test_query_refusal_records_reason_and_sends_one_event_per_window(self, _name, error, expected_reason):
+        cache.clear()
+        endpoint = create_endpoint_with_version(
+            name=f"refused_{expected_reason}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"scope": expected_reason, "reason": expected_reason}
+        before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels) or 0
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/"
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.rate_limit_signal.posthoganalytics.capture") as mock_capture,
+        ):
+            for _ in range(2):
+                response = self.client.post(url, {}, format="json")
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", labels), before + 2)
+        events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "endpoint rate limited"]
+        self.assertEqual(len(events), 1)
+        properties = events[0].kwargs["properties"]
+        self.assertEqual(
+            {k: properties[k] for k in ("team_id", "endpoint_name", "endpoint_version", "reason")},
+            {
+                "team_id": self.team.id,
+                "endpoint_name": endpoint.name,
+                "endpoint_version": 1,
+                "reason": expected_reason,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("cannot_parse_datetime", 41, False),
+            ("cannot_parse_number", 72, False),
+            ("no_common_type", 386, True),
+        ]
+    )
+    def test_customer_input_errors_skip_error_tracking(self, _name: str, code: int, expect_capture: bool):
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_capture",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = wrap_clickhouse_query_error(ServerException("DB::Exception: bad value", code=code))
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_capture.called, expect_capture)
+        self.assertEqual(mock_signal.called, expect_capture)
 
     def test_capacity_error_preserves_retry_after(self):
         endpoint = create_endpoint_with_version(
@@ -575,43 +650,85 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     # MATERIALIZED HOGQL ENDPOINTS
     # =========================================================================
 
-    def test_materialized_hogql_endpoint_filters_by_variable(self):
+    @parameterized.expand(
+        [
+            ("number", 424242),
+            ("string", "424242"),
+        ]
+    )
+    def test_materialized_hogql_endpoint_filters_by_variable_type(self, _name: str, capture_id: object):
+        stored_capture_id = "424242"
+        _create_event(
+            event="capture",
+            distinct_id="user1",
+            team=self.team,
+            timestamp="2026-01-05 12:00:00",
+            properties={"capture_id": stored_capture_id},
+        )
+        flush_persons_and_events()
+        capture_id_var = InsightVariable.objects.create(
+            team=self.team,
+            name="Capture ID",
+            code_name="capture_id",
+            type=InsightVariable.Type.STRING,
+            default_value=stored_capture_id,
+        )
+
         endpoint = create_endpoint_with_version(
-            name="mat_hogql_var",
+            name=f"mat-hogql-var-{_name}",
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "query": "SELECT count() FROM events WHERE properties.capture_id = {variables.capture_id}",
                 "variables": {
-                    str(self.event_name_var.id): {
-                        "variableId": str(self.event_name_var.id),
-                        "code_name": "event_name",
-                        "value": "$pageview",
+                    str(capture_id_var.id): {
+                        "variableId": str(capture_id_var.id),
+                        "code_name": "capture_id",
+                        "value": stored_capture_id,
                     }
                 },
             },
             created_by=self.user,
             is_active=True,
         )
-        self._materialize_endpoint(endpoint)
+        inline_response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"capture_id": stored_capture_id}},
+            format="json",
+        )
+        self.assertEqual(inline_response.status_code, status.HTTP_200_OK, inline_response.json())
 
-        # Execute with variable filter - should filter materialized table by event_name
-        with mock.patch.object(
-            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
-        ) as mock_exec:
+        saved_query = self._materialize_endpoint(endpoint)
+        saved_query.columns = {
+            "count()": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64", "valid": True},
+            "capture_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+        }
+        saved_query.save(update_fields=["columns"])
+
+        def run_query(_team, query, **_kwargs):
+            if (
+                query.modifiers
+                and query.modifiers.useMaterializedViews
+                and stored_capture_id in query.query
+                and f"'{stored_capture_id}'" not in query.query
+            ):
+                raise CHQueryErrorNoCommonType(
+                    "There is no supertype for types String, UInt64",
+                    code=386,
+                    code_name="no_common_type",
+                )
+            return {"results": inline_response.json()["results"], "columns": ["count()"]}
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=run_query):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-                {"variables": {"event_name": "$pageleave"}},
+                {"variables": {"capture_id": capture_id}},
                 format="json",
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            mock_exec.assert_called()
-            # Verify the query has WHERE clause filtering by event_name
-            query_request_data = mock_exec.call_args[0][0]
-            query_sql = query_request_data["query"]["query"].lower()
-            self.assertIn("event_name", query_sql)
-            self.assertIn("$pageleave", query_sql)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIs(response.json()["endpoint_materialized"], True)
+        self.assertEqual(response.json()["results"], inline_response.json()["results"])
 
     def test_materialized_hogql_endpoint_selects_only_original_columns(self):
         endpoint = create_endpoint_with_version(

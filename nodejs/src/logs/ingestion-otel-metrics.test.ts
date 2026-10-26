@@ -8,6 +8,7 @@ import {
 } from '@opentelemetry/sdk-metrics'
 
 import {
+    recordInternalLogs,
     recordJsonEnrichmentSkipped,
     recordLogMessageDlq,
     recordLogMessageDropped,
@@ -88,6 +89,20 @@ describe('ingestion-otel-metrics', () => {
             () => recordLogsDropped(42, 2048, 10),
             { team_id: '42' },
             10,
+        ],
+        [
+            'recordInternalLogs bytes',
+            'logs_ingestion_internal_bytes_total',
+            () => recordInternalLogs(2, 4096, 20),
+            { team_id: '2' },
+            4096,
+        ],
+        [
+            'recordInternalLogs records',
+            'logs_ingestion_internal_records_total',
+            () => recordInternalLogs(2, 4096, 20),
+            { team_id: '2' },
+            20,
         ],
         [
             'recordLogMessageDropped',

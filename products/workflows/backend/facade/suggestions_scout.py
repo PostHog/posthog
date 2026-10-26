@@ -2,9 +2,16 @@
 
 from products.workflows.backend.services.suggestions_scout import (
     PROPOSAL_WRITE_SCOPE,
+    suggestions_sample,
     suggestions_scout_refusal,
     suggestions_scout_status,
     sync_suggestions_scout,
 )
 
-__all__ = ["PROPOSAL_WRITE_SCOPE", "suggestions_scout_refusal", "suggestions_scout_status", "sync_suggestions_scout"]
+__all__ = [
+    "PROPOSAL_WRITE_SCOPE",
+    "suggestions_sample",
+    "suggestions_scout_refusal",
+    "suggestions_scout_status",
+    "sync_suggestions_scout",
+]

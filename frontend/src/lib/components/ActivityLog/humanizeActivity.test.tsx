@@ -6,6 +6,7 @@ import {
     ActivityLogUserName,
     Describer,
     Description,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -159,6 +160,24 @@ describe('humanizeActivity', () => {
 
             expect(render(<>{describer(logItem).summary?.action}</>).container.textContent).toBe(expected)
         }
+    })
+
+    it.each([
+        ['minted', 'A user created Developer mode token for a@posthog.com'],
+        ['revoked', 'A user revoked Developer mode token for a@posthog.com'],
+    ])('describes a %s DevGatewayToken row with the default describer', (activity, expected) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.DEV_GATEWAY_TOKEN,
+            activity,
+            detail: { merge: null, trigger: null, changes: null, name: 'Developer mode token for a@posthog.com' },
+        })
+        const { description } = defaultDescriber(logItem)
+
+        expect(
+            render(<>{description}</>)
+                .container.textContent?.replace(/\s+/g, ' ')
+                .trim()
+        ).toBe(expected)
     })
 
     describe('userNameForLogItem', () => {

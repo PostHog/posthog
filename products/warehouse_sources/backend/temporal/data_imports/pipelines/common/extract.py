@@ -351,15 +351,20 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
+async def reset_rows_synced_if_needed(
+    job: "ExternalDataJob", should_resume: bool, kept_rows_synced: int | None = None
+) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
     # The incremental cursor is staged and only promoted on completion, so a retried attempt
     # re-extracts the whole window from batch 0, and keeping the previous attempt's count
     # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
     # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    #
+    # `kept_rows_synced` is the count through the loaded prefix that moved the watermark this
+    # attempt reads from. This attempt does not read those rows again, so they stay counted.
     if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
-        job.rows_synced = 0
+        job.rows_synced = min(job.rows_synced, kept_rows_synced or 0)
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
 
@@ -481,8 +486,9 @@ def validate_incremental_sync(
     # The Delta merge needs a key to match rows on, so a keyless incremental table fails once a
     # table already exists. Raise before extraction rather than letting the writer hit it mid-load:
     # on pipeline v3 the write happens in the load consumer, which can only fail the job, so the
-    # schema is never paused and the same doomed run repeats on every schedule.
-    if is_incremental and not is_first_sync and not resource.primary_keys:
+    # schema is never paused and the same doomed run repeats on every schedule. A run with a replace
+    # scope appends instead of merging, so it needs no key.
+    if is_incremental and not is_first_sync and not resource.primary_keys and resource.replace_scope is None:
         raise MissingPrimaryKeysException()
 
 
@@ -502,7 +508,7 @@ async def setup_row_tracking_with_billing_check(
     await increment_rows(team_id, schema.id, resource.rows_to_sync)
     if await will_hit_billing_limit(team_id=team_id, source=source, logger=logger):
         raise BillingLimitsWillBeReachedException(
-            f"Your account will hit your Data Warehouse billing limits syncing {resource.name} "
+            f"Your account will hit your Sources billing limits syncing {resource.name} "
             f"with {resource.rows_to_sync} rows"
         )
 
@@ -833,7 +839,9 @@ async def update_incremental_field_values(
         if last_advanced:
             last_incremental_field_value = last_value
 
-        if resource.sort_mode == "asc":
+        # The loader promotes the staged value only when the run completes, so the largest value
+        # read is the watermark with or without an order. A descending read stages it at the end.
+        if resource.sort_mode != "desc":
             await logger.adebug(
                 f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
             )
@@ -900,9 +908,8 @@ def should_check_shutdown(
     reset_pipeline: bool,
     source_is_resumable: bool,
 ) -> bool:
-    # Only raise if we're not running in descending order, otherwise we'll often not
-    # complete the job before the incremental value can be updated. Or if the source is
-    # resumable
+    # A descending run does not raise, because each stop restarts it from the old watermark. An ascending
+    # incremental run keeps its progress after a stop only through the handoff checkpoint.
     # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
     # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows

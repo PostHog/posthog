@@ -106,10 +106,12 @@ const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostH
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
                     basic: params.basic,
+                    created_by_id: params.created_by_id,
                     hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,
                     offset: params.offset,
                     search: params.search,
+                    type: params.type,
                 },
             })
             const filtered = {

@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import ssl
 import json
+import time
 import shutil
+import socket
 import logging
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +19,18 @@ SETUP_GUIDE = "docs/internal/sandboxes-setup-guide.md"
 
 FUNNEL_PUBLIC_PORTS: tuple[int, ...] = (443, 8443, 10000)
 """The only public ports Tailscale Funnel will serve — the daemon rejects any
-other. Three is exactly enough for the harness's Django, LLM gateway, and MCP
+other. Three is exactly enough for the harness's Django, AI gateway, and MCP
 callbacks; each requested service is assigned one in the order the caller lists
 them."""
+
+
+PUBLIC_DNS_URL = "https://cloudflare-dns.com/dns-query"
+FUNNEL_READY_TIMEOUT_SECONDS = 300
+FUNNEL_READY_ROUNDS = 3
+"""Consecutive rounds in which every relay must answer every service. A relay switches cleanly
+from failing to working, so a few clean rounds in a row mean the relay is up, not lucky."""
+FUNNEL_PROBE_INTERVAL_SECONDS = 2
+FUNNEL_PROBE_TIMEOUT_SECONDS = 5
 
 
 class TailscaleFunnelError(RuntimeError):
@@ -62,7 +77,7 @@ def funnel_preflight_error() -> str | None:
     if shutil.which("tailscale") is None:
         return (
             "`tailscale` not found on PATH. Modal sandboxes run outside this host, so the "
-            "Django API, LLM gateway, and MCP server must be publicly reachable via Tailscale Funnel. "
+            "Django API, AI gateway, and MCP server must be publicly reachable via Tailscale Funnel. "
             f"See {SETUP_GUIDE}."
         )
     status = tailscale_status()
@@ -116,9 +131,43 @@ def _configured_public_ports() -> set[int]:
     return ports
 
 
+def _public_ips(host: str) -> list[str]:
+    """IPv4 addresses that public DNS gives for ``host``.
+
+    The local resolver returns this node's tailnet address, which skips the Funnel relays that
+    a Modal sandbox connects to, so the readiness probe has to ask a public resolver.
+    """
+    response = requests.get(
+        PUBLIC_DNS_URL,
+        params={"name": host, "type": "A"},
+        headers={"accept": "application/dns-json"},
+        timeout=FUNNEL_PROBE_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return sorted({answer["data"] for answer in payload.get("Answer", []) if answer.get("type") == 1})
+
+
+def _relay_answers(ip: str, host: str, public_port: int) -> bool:
+    """Whether one Funnel relay completes TLS for ``host`` and returns an HTTP response.
+
+    Any HTTP status counts, because the probe tests the public path, not the service behind it.
+    """
+    context = ssl.create_default_context()
+    try:
+        with (
+            socket.create_connection((ip, public_port), timeout=FUNNEL_PROBE_TIMEOUT_SECONDS) as raw,
+            context.wrap_socket(raw, server_hostname=host) as connection,
+        ):
+            connection.sendall(f"HEAD / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+            return connection.recv(16).startswith(b"HTTP/")
+    except (OSError, ssl.SSLError):
+        return False
+
+
 class TailscaleFunnel:
     """Modal-only Tailscale Funnel lifecycle: publicly exposes the host services a
-    remote Modal sandbox must reach (Django API, LLM gateway, MCP server).
+    remote Modal sandbox must reach (Django API, AI gateway, MCP server).
 
     Each service is served over HTTPS on one of Tailscale's three permitted public
     ports and is reachable by anyone on the internet who learns the URL, so the
@@ -128,7 +177,15 @@ class TailscaleFunnel:
     registers ``stop`` on its cleanup stack.
     """
 
-    def __init__(self, ports: dict[str, int]) -> None:
+    def __init__(
+        self,
+        ports: dict[str, int],
+        *,
+        resolve_public_ips: Callable[[str], list[str]] = _public_ips,
+        relay_answers: Callable[[str, str, int], bool] = _relay_answers,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         if len(ports) > len(FUNNEL_PUBLIC_PORTS):
             raise TailscaleFunnelError(
                 f"Tailscale Funnel exposes at most {len(FUNNEL_PUBLIC_PORTS)} public ports "
@@ -140,6 +197,10 @@ class TailscaleFunnel:
         }
         self._public_urls: dict[str, str] = {}
         self._enabled_ports: list[int] = []
+        self._resolve_public_ips = resolve_public_ips
+        self._relay_answers = relay_answers
+        self._clock = clock
+        self._sleep = sleep
 
     def start(self) -> None:
         host = self._resolve_public_host()
@@ -159,6 +220,13 @@ class TailscaleFunnel:
             self._enable_funnel(assignment.public_port, assignment.local_port)
             self._enabled_ports.append(assignment.public_port)
             self._public_urls[name] = _public_url(host, assignment.public_port)
+        try:
+            self._wait_until_public(host)
+        except BaseException:
+            # The caller registers stop() only after start() returns, so a failed or interrupted
+            # wait must turn the ports off here or they stay public.
+            self.stop()
+            raise
         logger.info("Tailscale Funnel ready: %s", self._public_urls)
 
     def url_for(self, name: str) -> str:
@@ -192,6 +260,44 @@ class TailscaleFunnel:
         if not still_public:
             self._public_urls = {}
 
+    def _wait_until_public(self, host: str) -> None:
+        """Block until every public Funnel relay serves every service.
+
+        `tailscale funnel --bg` returns before the public relays accept the new config, and each
+        relay starts serving at its own time, which can take minutes. Public DNS rotates between
+        the relays, so a sandbox that starts too early fails TLS on some connections, and a failed
+        startup request ends the whole case.
+        """
+        try:
+            ips = self._resolve_public_ips(host)
+        except Exception:
+            logger.warning(
+                "Could not resolve the Funnel relays through public DNS; not waiting for them", exc_info=True
+            )
+            return
+        if not ips:
+            logger.warning("Public DNS returned no Funnel relays for %s; not waiting for them", host)
+            return
+
+        ports = [assignment.public_port for assignment in self._assignments.values()]
+        logger.info("Waiting for Tailscale Funnel relays %s to serve ports %s", ips, ports)
+        deadline = self._clock() + FUNNEL_READY_TIMEOUT_SECONDS
+        clean_rounds = 0
+        failing: list[str] = []
+        while True:
+            failing = [f"{ip}:{port}" for ip in ips for port in ports if not self._relay_answers(ip, host, port)]
+            clean_rounds = 0 if failing else clean_rounds + 1
+            if clean_rounds >= FUNNEL_READY_ROUNDS:
+                return
+            if self._clock() >= deadline:
+                raise TailscaleFunnelError(
+                    self._failure_message(
+                        f"Tailscale Funnel relays did not serve within {FUNNEL_READY_TIMEOUT_SECONDS}s: "
+                        f"{', '.join(failing) or 'unstable responses'}. Remote sandboxes cannot reach this host reliably."
+                    )
+                )
+            self._sleep(FUNNEL_PROBE_INTERVAL_SECONDS)
+
     def _resolve_public_host(self) -> str:
         status = tailscale_status()
         if status is None:
@@ -220,7 +326,7 @@ class TailscaleFunnel:
     def _failure_message(self, detail: str) -> str:
         return (
             f"{detail}\n"
-            "Tailscale Funnel could not serve the Django, LLM gateway, and MCP services. "
+            "Tailscale Funnel could not serve the Django, AI gateway, and MCP services. "
             "Make sure tailscaled is running and this node is logged in (`tailscale up`), that Funnel "
             "is enabled for the tailnet and this node in the admin console's ACLs, and that HTTPS "
             f"certificates are enabled for the tailnet. See {SETUP_GUIDE}."
