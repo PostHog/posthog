@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     RESULTS_PAGE_SIZE,
     AwsService,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import resolve_aws_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import NO_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
@@ -181,7 +182,8 @@ def send_once(
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
-    SigV4Auth(credentials, model.signing_name, region).add_auth(aws_request)
+    # Role credentials refresh, so sign each request with one consistent snapshot of them.
+    SigV4Auth(credentials.get_frozen_credentials(), model.signing_name, region).add_auth(aws_request)
 
     response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
@@ -218,16 +220,11 @@ def send_operation(
 
 
 class AthenaClient:
-    def __init__(
-        self,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        aws_session_token: Optional[str],
-        aws_region: str,
-    ) -> None:
-        redact = tuple(value for value in (aws_secret_access_key, aws_session_token) if value)
+    def __init__(self, credentials: Credentials, aws_region: str) -> None:
+        frozen_credentials = credentials.get_frozen_credentials()
+        redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
         self._session = make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
-        self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+        self._credentials = credentials
         self._region = aws_region.strip()
 
     def call(self, service: AwsService, operation: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -248,10 +245,8 @@ class AthenaClient:
         )
 
 
-def make_client(config: AwsAthenaSourceConfig) -> AthenaClient:
-    return AthenaClient(
-        config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token, config.aws_region
-    )
+def make_client(config: AwsAthenaSourceConfig, credentials: Credentials) -> AthenaClient:
+    return AthenaClient(credentials, config.aws_region)
 
 
 # Glue stores Hive type names. Athena's query engine is Trino, so they are mapped onto Trino's
@@ -526,7 +521,10 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
     @contextmanager
     def connect(self, config: AwsAthenaSourceConfig, *, team_id: int | None = None) -> Iterator[AthenaClient]:
         # Every request goes to an AWS endpoint picked from the region, so there is no host to check.
-        client = make_client(config)
+        # The team is still needed: an IAM role connection belongs to it.
+        if team_id is None:
+            raise ValueError("Athena needs the source's team to resolve its AWS credentials")
+        client = make_client(config, resolve_aws_credentials(config.aws_auth, team_id))
         try:
             yield client
         finally:
@@ -562,7 +560,7 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
             output_location=(config.output_location or "").strip() or None,
         )
 
-        client = make_client(config)
+        client = make_client(config, resolve_aws_credentials(config.aws_auth, inputs.team_id))
         full_table = get_glue_table(client, database, table_name)
         primary_keys = resolve_merge_keys(inputs.primary_keys, None, [column.name for column in full_table.columns])
 
@@ -652,10 +650,8 @@ GENERIC_VALIDATION_ERROR = (
 )
 
 
-def validate_credentials(config: AwsAthenaSourceConfig) -> tuple[bool, Optional[str]]:
+def validate_credentials(config: AwsAthenaSourceConfig, credentials: Credentials) -> tuple[bool, Optional[str]]:
     """Check the inputs, then the database and the workgroup: the two things every sync needs."""
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
     if not config.aws_region or aws_dns_suffix(config.aws_region.strip()) is None:
         return False, "Enter an AWS region code, for example us-east-1."
     if not (config.database or "").strip():
@@ -664,7 +660,7 @@ def validate_credentials(config: AwsAthenaSourceConfig) -> tuple[bool, Optional[
     if output_location and not output_location.startswith("s3://"):
         return False, "Enter the S3 output location as s3://bucket/path/."
 
-    client = make_client(config)
+    client = make_client(config, credentials)
     workgroup_name = (config.workgroup or "").strip() or DEFAULT_WORKGROUP
     try:
         client.call(GLUE_SERVICE, "GetDatabase", {"Name": config.database.strip()})

@@ -300,8 +300,9 @@ def _operation(service: AwsService, operation: str) -> OperationModel:
     return _service_model(service).operation_model(operation)
 
 
-def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
-    redact = tuple(value for value in (secret_access_key, session_token) if value)
+def make_session(credentials: Credentials) -> requests.Session:
+    frozen_credentials = credentials.get_frozen_credentials()
+    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
     return make_tracked_session(retry=NO_RETRY, redact_values=redact, allow_redirects=False)
 
 
@@ -366,7 +367,8 @@ def send_operation(
     url = f"https://{model.endpoint_prefix}.{region}.{suffix}{serialized['url_path']}"
 
     aws_request = AWSRequest(method="POST", url=url, data=body, headers=dict(serialized["headers"]))
-    SigV4Auth(credentials, model.signing_name, region).add_auth(aws_request)
+    # Role credentials refresh, so sign each request with one consistent snapshot of them.
+    SigV4Auth(credentials.get_frozen_credentials(), model.signing_name, region).add_auth(aws_request)
 
     response = session.post(url, data=body, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT)
 
@@ -410,9 +412,7 @@ GENERIC_VALIDATION_ERROR = (
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     metric_queries: Optional[str],
     start_date: Optional[str] = None,
@@ -421,8 +421,6 @@ def validate_credentials(
 
     STS answers any valid key without an IAM permission, so a key scoped to metrics or alarms only
     still connects. A missing permission for a table surfaces when that table syncs."""
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
     if not aws_region or not is_valid_region(aws_region):
         return False, "Enter an AWS region code, for example us-east-1."
     try:
@@ -433,8 +431,8 @@ def validate_credentials(
 
     try:
         send_operation(
-            make_session(aws_secret_access_key, aws_session_token),
-            Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None),
+            make_session(credentials),
+            credentials,
             aws_region.strip(),
             STS_SERVICE,
             "GetCallerIdentity",
@@ -532,15 +530,9 @@ def build_windows(window: TimeWindow, window_days: Optional[int]) -> list[TimeWi
 
 
 class CloudWatchClient:
-    def __init__(
-        self,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        aws_session_token: Optional[str],
-        aws_region: str,
-    ) -> None:
-        self._session = make_session(aws_secret_access_key, aws_session_token)
-        self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+    def __init__(self, credentials: Credentials, aws_region: str) -> None:
+        self._session = make_session(credentials)
+        self._credentials = credentials
         self._region = aws_region.strip()
 
     def call(self, service: AwsService, operation: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -745,9 +737,7 @@ def _next_token(endpoint_config: CloudWatchEndpointConfig, body: dict[str, Any])
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     log_group_names: Optional[str],
     metric_queries: Optional[str],
@@ -759,7 +749,7 @@ def get_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AMAZON_CLOUDWATCH_ENDPOINTS[endpoint]
-    client = CloudWatchClient(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region)
+    client = CloudWatchClient(credentials, aws_region)
 
     queries = parse_metric_queries(metric_queries) if endpoint_config.operation == "GetMetricData" else []
     if endpoint_config.operation == "GetMetricData" and not queries:
@@ -832,9 +822,7 @@ def get_rows(
 
 
 def amazon_cloudwatch_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     log_group_names: Optional[str],
     metric_queries: Optional[str],
@@ -850,9 +838,7 @@ def amazon_cloudwatch_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             aws_region=aws_region,
             log_group_names=log_group_names,
             metric_queries=metric_queries,

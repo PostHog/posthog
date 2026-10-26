@@ -8,6 +8,12 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -65,7 +71,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
         return ["aws_region"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return dict(NON_RETRYABLE_ERROR_MESSAGES)
+        return {**AWS_AUTH_NON_RETRYABLE_ERRORS, **NON_RETRYABLE_ERROR_MESSAGES}
 
     def get_retryable_errors(self) -> set[str]:
         return set(RETRYABLE_ERROR_CODES)
@@ -78,7 +84,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
             label="DynamoDB",
             caption="""Enter an AWS access key with read access to DynamoDB to import your tables into the PostHog Data warehouse.
 
-Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:DescribeTable` and `dynamodb:Scan`, then paste its access key below. Tables are read with a full table scan, so every sync uses read capacity on the table.""",
+Create an IAM role or user whose policy allows `dynamodb:ListTables`, `dynamodb:DescribeTable` and `dynamodb:Scan`. Connect with the role, or paste the user's access key below. Tables are read with a full table scan, so every sync uses read capacity on the table.""",
             iconPath="/static/services/dynamodb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dynamodb",
             releaseStatus=ReleaseStatus.GA,
@@ -86,22 +92,7 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",
@@ -110,25 +101,14 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
                         placeholder="us-east-1",
                         secret=False,
                     ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs will fail once the token expires. Use a permanent access key (starts with AKIA) for recurring imports.",
-                        secret=True,
-                    ),
                 ],
             ),
         )
 
-    def _client(self, config: DynamoDBSourceConfig, api_version: str | None = None) -> DynamoDBClient:
+    def _client(self, config: DynamoDBSourceConfig, team_id: int, api_version: str | None = None) -> DynamoDBClient:
         return DynamoDBClient(
-            access_key_id=config.aws_access_key_id,
-            secret_access_key=config.aws_secret_access_key,
+            credentials=resolve_aws_credentials(config.aws_auth, team_id),
             region=config.aws_region,
-            session_token=config.aws_session_token or None,
             api_version=self.resolve_api_version(api_version),
         )
 
@@ -141,7 +121,7 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return get_table_schemas(self._client(config, api_version), with_counts=with_counts, names=names)
+        return get_table_schemas(self._client(config, team_id, api_version), with_counts=with_counts, names=names)
 
     def validate_credentials(
         self,
@@ -150,11 +130,13 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_dynamodb_credentials(
-            access_key_id=config.aws_access_key_id,
-            secret_access_key=config.aws_secret_access_key,
+            credentials=credentials,
             region=config.aws_region,
-            session_token=config.aws_session_token or None,
             api_version=self.resolve_api_version(api_version),
         )
 
@@ -168,10 +150,8 @@ Create an IAM user whose policy allows `dynamodb:ListTables`, `dynamodb:Describe
         inputs: SourceInputs,
     ) -> SourceResponse:
         return dynamodb_source(
-            access_key_id=config.aws_access_key_id,
-            secret_access_key=config.aws_secret_access_key,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             region=config.aws_region,
-            session_token=config.aws_session_token or None,
             table_name=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,

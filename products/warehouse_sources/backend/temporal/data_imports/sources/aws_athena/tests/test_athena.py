@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     WORKGROUP_DISABLED_MESSAGE,
     WORKGROUP_NOT_FOUND_MESSAGE,
     athena_literal,
-    validate_credentials,
     value_parser,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena.source import AwsAthenaSource
@@ -60,7 +59,7 @@ def config(**overrides: Any) -> AwsAthenaSourceConfig:
         "output_location": None,
     }
     values.update(overrides)
-    return AwsAthenaSourceConfig(**values)
+    return AwsAthenaSourceConfig.from_dict(values)
 
 
 def by_target(queues: Mapping[str, list[ScriptedResponse]]) -> Callable[[RecordedRequest], ScriptedResponse]:
@@ -374,7 +373,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("overrides", "expected"),
         [
-            ({"aws_secret_access_key": ""}, "AWS access key ID and secret access key are required"),
+            ({"aws_secret_access_key": ""}, "Enter both an AWS access key ID and a secret access key."),
             ({"aws_region": "frankfurt"}, "Enter an AWS region code, for example us-east-1."),
             ({"database": "  "}, "Enter the Glue database to sync tables from."),
             ({"output_location": "my-bucket/results"}, "Enter the S3 output location as s3://bucket/path/."),
@@ -382,7 +381,7 @@ class TestValidateCredentials:
     )
     def test_local_checks_fail_before_any_request(self, overrides: dict[str, Any], expected: str) -> None:
         with scripted_network([]) as network:
-            assert validate_credentials(config(**overrides)) == (False, expected)
+            assert AwsAthenaSource().validate_credentials(config(**overrides), team_id=1) == (False, expected)
 
         assert network.requests == 0
 
@@ -415,7 +414,7 @@ class TestValidateCredentials:
                 }
             )
         ):
-            assert validate_credentials(config(**overrides)) == expected
+            assert AwsAthenaSource().validate_credentials(config(**overrides), team_id=1) == expected
 
     @pytest.mark.parametrize(
         ("answers", "expected"),
@@ -446,4 +445,4 @@ class TestValidateCredentials:
     )
     def test_aws_errors_become_fixed_messages(self, answers: dict[str, list[ScriptedResponse]], expected: str) -> None:
         with scripted_network(by_target(answers)):
-            assert validate_credentials(config()) == (False, expected)
+            assert AwsAthenaSource().validate_credentials(config(), team_id=1) == (False, expected)

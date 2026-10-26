@@ -7,6 +7,7 @@ from unittest import mock
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import aws_ses
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import (
@@ -19,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aw
     validate_credentials,
     validate_region,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
+
+CREDENTIALS = Credentials("key", "secret")
 
 LOGGER = structlog.get_logger()
 
@@ -128,9 +133,7 @@ class TestGetRows:
         with mock.patch.object(aws_ses, "send_request", side_effect=responses) as send:
             batches = list(
                 get_rows(
-                    aws_access_key_id="key",
-                    aws_secret_access_key="secret",
-                    aws_session_token=None,
+                    credentials=CREDENTIALS,
                     aws_region="us-east-1",
                     endpoint=endpoint,
                     resumable_source_manager=manager,
@@ -284,17 +287,20 @@ class TestGetRows:
 
 class TestValidateCredentials:
     def test_missing_credentials_short_circuit_without_a_request(self) -> None:
+        config = AwsSesSourceConfig.from_dict(
+            {"aws_access_key_id": "", "aws_secret_access_key": "secret", "aws_region": "us-east-1"}
+        )
         with mock.patch.object(aws_ses, "send_request") as send:
-            assert validate_credentials("", "secret", None, "us-east-1") == (
+            assert AwsSesSource().validate_credentials(config, team_id=1) == (
                 False,
-                "AWS access key ID and secret access key are required",
+                "Enter both an AWS access key ID and a secret access key.",
             )
 
         send.assert_not_called()
 
     def test_a_malformed_region_short_circuits_without_a_request(self) -> None:
         with mock.patch.object(aws_ses, "send_request") as send:
-            assert validate_credentials("key", "secret", None, "not a region") == (
+            assert validate_credentials(CREDENTIALS, "not a region") == (
                 False,
                 "'not a region' isn't a valid AWS region. Use a region code like us-east-1.",
             )
@@ -303,7 +309,7 @@ class TestValidateCredentials:
 
     def test_a_successful_account_probe_validates(self) -> None:
         with mock.patch.object(aws_ses, "send_request", return_value={"SendingEnabled": True}) as send:
-            assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
+            assert validate_credentials(CREDENTIALS, "us-east-1") == (True, None)
 
         assert send.call_args[0][4] == "/v2/email/account"
 
@@ -312,17 +318,17 @@ class TestValidateCredentials:
         error = AwsSesError("AccessDeniedException", "not authorized", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
-            assert validate_credentials("key", "secret", None, "us-east-1") == (True, None)
+            assert validate_credentials(CREDENTIALS, "us-east-1") == (True, None)
 
     def test_a_rejected_key_is_surfaced_to_the_user(self) -> None:
         error = AwsSesError("UnrecognizedClientException", "invalid token", "account", "/v2/email/account")
 
         with mock.patch.object(aws_ses, "send_request", side_effect=error):
-            assert validate_credentials("key", "secret", None, "us-east-1") == (False, str(error))
+            assert validate_credentials(CREDENTIALS, "us-east-1") == (False, str(error))
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(aws_ses, "send_request", side_effect=requests.ConnectionError("boom")):
-            assert validate_credentials("key", "secret", None, "us-east-1") == (
+            assert validate_credentials(CREDENTIALS, "us-east-1") == (
                 False,
                 "Could not reach the Amazon SES API. Check the AWS region and try again.",
             )
@@ -338,9 +344,7 @@ class TestEndpointPermissions:
             return {}
 
         with mock.patch.object(aws_ses, "send_request", side_effect=respond):
-            reasons = probe_endpoint_permissions(
-                "key", "secret", None, "us-east-1", ["account", "suppressed_destinations"]
-            )
+            reasons = probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["account", "suppressed_destinations"])
 
         assert reasons == {
             "account": "Missing IAM permission ses:GetAccount",
@@ -360,7 +364,7 @@ class TestEndpointPermissions:
         ]
 
         with mock.patch.object(aws_ses, "send_request", side_effect=responses):
-            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["email_identities"])
+            reasons = probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["email_identities"])
 
         assert reasons == {"email_identities": "Missing IAM permission ses:GetEmailIdentity"}
 
@@ -372,7 +376,7 @@ class TestEndpointPermissions:
                 "HTTP 503", "gateway", "suppressed_destinations", "/v2/email/suppression/addresses"
             ),
         ):
-            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["suppressed_destinations"])
+            reasons = probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["suppressed_destinations"])
 
         assert reasons == {"suppressed_destinations": None}
 
@@ -385,7 +389,7 @@ class TestEndpointPermissions:
                 "BadRequestException", "no reason", "multi_region_endpoints", "/v2/email/multi-region-endpoints"
             ),
         ):
-            reasons = probe_endpoint_permissions("key", "secret", None, "us-east-1", ["multi_region_endpoints"])
+            reasons = probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["multi_region_endpoints"])
 
         assert reasons == {"multi_region_endpoints": aws_ses._BAD_REQUEST_EXPLANATION}
 
@@ -413,10 +417,10 @@ class TestEndpointPermissions:
             f"{pool_url}/{pool_name}", status_code=status_code, headers={"x-amzn-ErrorType": code}, json={}
         )
 
-        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+        assert probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["dedicated_ip_pools"]) == {
             "dedicated_ip_pools": expected_reason
         }
-        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+        assert validate_credentials(CREDENTIALS, "us-east-1", schema_name="dedicated_ip_pools") == (
             expected_reason is None,
             expected_reason,
         )
@@ -429,10 +433,10 @@ class TestEndpointPermissions:
             json={},
         )
 
-        assert probe_endpoint_permissions("key", "secret", None, "us-east-1", ["dedicated_ip_pools"]) == {
+        assert probe_endpoint_permissions(CREDENTIALS, "us-east-1", ["dedicated_ip_pools"]) == {
             "dedicated_ip_pools": aws_ses._BAD_REQUEST_EXPLANATION
         }
-        assert validate_credentials("key", "secret", None, "us-east-1", schema_name="dedicated_ip_pools") == (
+        assert validate_credentials(CREDENTIALS, "us-east-1", schema_name="dedicated_ip_pools") == (
             False,
             aws_ses._BAD_REQUEST_EXPLANATION,
         )

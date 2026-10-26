@@ -27,6 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -72,7 +78,11 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
-            f"Amazon CloudWatch request failed: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{
+                f"Amazon CloudWatch request failed: {code}": message
+                for code, message in VALIDATION_ERROR_MESSAGES.items()
+            },
         }
         errors["Amazon CloudWatch request failed: ResourceNotFoundException"] = (
             "A log group was not found in this region. Check the log group names on the source."
@@ -141,10 +151,12 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_amazon_cloudwatch_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             config.aws_region,
             config.metric_queries,
             config.start_date,
@@ -162,9 +174,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
         inputs: SourceInputs,
     ) -> SourceResponse:
         return amazon_cloudwatch_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             aws_region=config.aws_region,
             log_group_names=config.log_group_names,
             metric_queries=config.metric_queries,
@@ -186,7 +196,7 @@ class AmazonCloudWatchSource(ResumableSource[AmazonCloudWatchSourceConfig, Amazo
             label="Amazon CloudWatch",
             caption="""Sync CloudWatch log events, alarms, alarm history and metric datapoints from one AWS region into the PostHog Data warehouse.
 
-Create an IAM user or role with the `logs:DescribeLogGroups`, `logs:FilterLogEvents`, `cloudwatch:DescribeAlarms`, `cloudwatch:DescribeAlarmHistory` and `cloudwatch:GetMetricData` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `logs:DescribeLogGroups`, `logs:FilterLogEvents`, `cloudwatch:DescribeAlarms`, `cloudwatch:DescribeAlarmHistory` and `cloudwatch:GetMetricData` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 Log events sync from the log groups you list, or from every log group in the region (up to 50) when the list is empty. A log group or metric query added later syncs from the next sync on; resync the table to backfill its history. Any log delivered to CloudWatch Logs works, including Bedrock model invocation logs and CloudFront standard logs. Metric datapoints sync for the metric queries you configure as JSON, for example `[{"id": "cpu", "namespace": "AWS/EC2", "metric_name": "CPUUtilization", "dimensions": {"InstanceId": "i-0123456789abcdef0"}, "stat": "Average", "period": 300}]`. S3 Storage Lens metrics live in the `AWS/S3/Storage-Lens` namespace. Older datapoints come back at the resolution CloudWatch keeps for them: 5 minutes after 15 days and 1 hour after 63 days.""",
             iconPath="/static/services/amazon_cloudwatch.png",
@@ -196,30 +206,7 @@ Log events sync from the log groups you list, or from every log group in the reg
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token (only for temporary credentials)",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

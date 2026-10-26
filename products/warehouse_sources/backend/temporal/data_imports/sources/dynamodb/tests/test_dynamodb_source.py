@@ -38,11 +38,8 @@ def _inputs(**overrides: Any) -> SourceInputs:
 class TestDynamoDBSource:
     def setup_method(self) -> None:
         self.source = DynamoDBSource()
-        self.config = DynamoDBSourceConfig(
-            aws_access_key_id="AKIA",
-            aws_secret_access_key="secret",
-            aws_region="us-east-1",
-            aws_session_token=None,
+        self.config = DynamoDBSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIA", "aws_secret_access_key": "secret", "aws_region": "us-east-1"}
         )
 
     def test_region_change_forces_credential_re_entry(self) -> None:
@@ -68,13 +65,8 @@ class TestDynamoDBSource:
             with mock.patch(f"{_SOURCE_MODULE}.get_table_schemas", return_value=schemas) as get_schemas:
                 assert self.source.get_schemas(self.config, team_id=1, with_counts=True, names=["users"]) == schemas
 
-        client_cls.assert_called_once_with(
-            access_key_id="AKIA",
-            secret_access_key="secret",
-            region="us-east-1",
-            session_token=None,
-            api_version="2012-08-10",
-        )
+        client_cls.assert_called_once_with(credentials=mock.ANY, region="us-east-1", api_version="2012-08-10")
+        assert client_cls.call_args.kwargs["credentials"].access_key == "AKIA"
         get_schemas.assert_called_once_with(client_cls.return_value, with_counts=True, names=["users"])
 
     def test_source_for_pipeline_syncs_the_selected_table(self) -> None:
@@ -85,10 +77,8 @@ class TestDynamoDBSource:
             assert self.source.source_for_pipeline(self.config, manager, inputs) == source_fn.return_value
 
         source_fn.assert_called_once_with(
-            access_key_id="AKIA",
-            secret_access_key="secret",
+            credentials=mock.ANY,
             region="us-east-1",
-            session_token=None,
             table_name="orders",
             logger=inputs.logger,
             resumable_source_manager=manager,

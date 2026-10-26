@@ -36,11 +36,8 @@ def make_inputs(
 class TestAwsSesSource:
     def setup_method(self) -> None:
         self.source = AwsSesSource()
-        self.config = AwsSesSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_region="us-east-1",
-            aws_session_token=None,
+        self.config = AwsSesSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret", "aws_region": "us-east-1"}
         )
 
     def test_changing_the_region_requires_reentering_the_secrets(self) -> None:
@@ -73,7 +70,7 @@ class TestAwsSesSource:
                 "account": None
             }
 
-        assert probe.call_args[0] == ("AKIAEXAMPLE", "secret", None, "us-east-1", ["account"])
+        assert probe.call_args[0][1:] == ("us-east-1", ["account"])
 
     def test_source_for_pipeline_forwards_the_watermark_only_on_an_incremental_run(self) -> None:
         watermark = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)

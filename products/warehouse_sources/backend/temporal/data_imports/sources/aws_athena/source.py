@@ -18,6 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_athena
     AthenaImplementation,
     validate_credentials as validate_athena_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
@@ -62,11 +68,16 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_athena_credentials(config)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_athena_credentials(config, credentials)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         errors: dict[str, str | None] = {
             **self.default_non_retryable_errors(),
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
             **{f"{ERROR_PREFIX}: {code}": message for code, message in VALIDATION_ERROR_MESSAGES.items()},
         }
         errors[f"{ERROR_PREFIX}: InvalidRequestException"] = (
@@ -93,7 +104,7 @@ class AwsAthenaSource(SQLSource[AwsAthenaSourceConfig]):
             label="Amazon Athena",
             caption="""Sync tables from an AWS Glue database through Amazon Athena into the PostHog Data warehouse.
 
-Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions`, `glue:GetPartition`, `glue:BatchGetPartition`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults` and `athena:StopQueryExecution`, plus read access to the tables' S3 data and read and write access to the query result location. Paste its access key ID and secret access key.
+Create an IAM user or role with `glue:GetDatabase`, `glue:GetTables`, `glue:GetTable`, `glue:GetPartitions`, `glue:GetPartition`, `glue:BatchGetPartition`, `athena:GetWorkGroup`, `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults` and `athena:StopQueryExecution`, plus read access to the tables' S3 data and read and write access to the query result location. Connect with the IAM role, or paste an access key ID and secret access key.
 
 Each sync runs one Athena query per table, which Athena bills by the data it scans. An incremental sync filters on the chosen column, so a partitioned table keyed on that column scans less.""",
             iconPath="/static/services/aws_athena.png",
@@ -103,30 +114,7 @@ Each sync runs one Athena query per table, which Athena bills by the data it sca
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token (only for temporary credentials)",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",

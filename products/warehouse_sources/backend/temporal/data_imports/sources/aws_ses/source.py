@@ -19,6 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.se
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AwsAuthError,
+    aws_auth_field,
+    resolve_aws_credentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -68,6 +74,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
             "Amazon SES request failed: UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "Amazon SES request failed: InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
             "Amazon SES request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
@@ -80,7 +87,6 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             # before one can reach this map.
             "Amazon SES request failed: BadRequestException": None,
             "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
-            "AWS access key ID and secret access key are required": "Enter both an AWS access key ID and a secret access key.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -108,10 +114,12 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
         return validate_aws_ses_credentials(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             config.aws_region,
             schema_name=schema_name,
         )
@@ -119,10 +127,12 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
     def get_endpoint_permissions(
         self, config: AwsSesSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return {endpoint: str(error) for endpoint in endpoints}
         return probe_endpoint_permissions(
-            config.aws_access_key_id,
-            config.aws_secret_access_key,
-            config.aws_session_token,
+            credentials,
             config.aws_region,
             endpoints,
         )
@@ -137,9 +147,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_ses_source(
-            aws_access_key_id=config.aws_access_key_id,
-            aws_secret_access_key=config.aws_secret_access_key,
-            aws_session_token=config.aws_session_token,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
             aws_region=config.aws_region,
             endpoint=inputs.schema_name,
             resumable_source_manager=resumable_source_manager,
@@ -158,7 +166,7 @@ class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
             label="Amazon SES",
             caption="""Sync your Amazon SES account data into the PostHog Data warehouse.
 
-Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity`, `ses:ListSuppressedDestinations`, `ses:ListEmailTemplates`, `ses:GetEmailTemplate`, `ses:ListContactLists`, `ses:GetContactList`, `ses:ListDedicatedIpPools`, `ses:GetDedicatedIpPool`, `ses:GetDedicatedIps`, `ses:ListCustomVerificationEmailTemplates`, `ses:GetCustomVerificationEmailTemplate` and `ses:ListMultiRegionEndpoints` permissions, then paste its access key ID and secret access key. Add a session token too if you are using temporary credentials.
+Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity`, `ses:ListSuppressedDestinations`, `ses:ListEmailTemplates`, `ses:GetEmailTemplate`, `ses:ListContactLists`, `ses:GetContactList`, `ses:ListDedicatedIpPools`, `ses:GetDedicatedIpPool`, `ses:GetDedicatedIps`, `ses:ListCustomVerificationEmailTemplates`, `ses:GetCustomVerificationEmailTemplate` and `ses:ListMultiRegionEndpoints` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
 SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
             iconPath="/static/services/aws_ses.png",
@@ -168,22 +176,7 @@ SES data is regional, so connect one source per AWS Region you send email from. 
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="aws_region",
                         label="AWS region",
@@ -191,15 +184,6 @@ SES data is regional, so connect one source per AWS Region you send email from. 
                         required=True,
                         placeholder="us-east-1",
                         secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs will fail once the token expires. Use a permanent access key (starts with AKIA) for recurring imports.",
-                        secret=True,
                     ),
                 ],
             ),

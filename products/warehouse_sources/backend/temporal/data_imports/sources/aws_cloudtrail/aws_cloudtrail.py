@@ -81,16 +81,7 @@ def error_for_response(response: requests.Response) -> AwsCloudTrailError:
 
 
 class AwsCloudTrailClient:
-    def __init__(
-        self,
-        access_key_id: str,
-        secret_access_key: str,
-        session_token: str | None,
-        region: str,
-        api_version: str,
-    ) -> None:
-        if not access_key_id or not secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
+    def __init__(self, credentials: Credentials, region: str, api_version: str) -> None:
         if not re.fullmatch(r"(?:af|ap|ca|eu|il|me|mx|sa|us|cn)-(?:gov-)?[a-z]+-\d+", region):
             raise ValueError("Enter a valid AWS region, such as us-east-1.")
         if api_version not in TARGET_PREFIXES:
@@ -99,12 +90,15 @@ class AwsCloudTrailClient:
         self.target_prefix = TARGET_PREFIXES[api_version]
         suffix = "amazonaws.com.cn" if region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://cloudtrail.{region}.{suffix}/"
-        self.signer = SigV4Auth(
-            Credentials(access_key_id, secret_access_key, session_token or None), "cloudtrail", region
-        )
+        self._credentials = credentials
+        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (access_key_id, secret_access_key, session_token) if value),
+            redact_values=tuple(
+                value
+                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
+                if value
+            ),
         )
         self._last_request: dict[str, float] = {}
 
@@ -130,7 +124,8 @@ class AwsCloudTrailClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self.signer.add_auth(request)
+        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        SigV4Auth(self._credentials.get_frozen_credentials(), "cloudtrail", self.region).add_auth(request)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -472,9 +467,7 @@ def get_fan_out_rows(
 
 
 def validate_credentials(
-    access_key_id: str,
-    secret_access_key: str,
-    session_token: str | None,
+    credentials: Credentials,
     region: str,
     api_version: str,
     schema_name: str | None = None,
@@ -486,7 +479,7 @@ def validate_credentials(
     if endpoint.probe is not None:
         endpoint = AWS_CLOUDTRAIL_ENDPOINTS[endpoint.probe]
     try:
-        client = AwsCloudTrailClient(access_key_id, secret_access_key, session_token, region, api_version)
+        client = AwsCloudTrailClient(credentials, region, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -508,9 +501,7 @@ def validate_credentials(
 
 
 def aws_cloudtrail_source(
-    access_key_id: str,
-    secret_access_key: str,
-    session_token: str | None,
+    credentials: Credentials,
     region: str,
     api_version: str,
     endpoint_name: str,
@@ -524,7 +515,7 @@ def aws_cloudtrail_source(
     return SourceResponse(
         name=endpoint_name,
         items=lambda: rows(
-            AwsCloudTrailClient(access_key_id, secret_access_key, session_token, region, api_version),
+            AwsCloudTrailClient(credentials, region, api_version),
             endpoint,
             manager,
             last_value,
