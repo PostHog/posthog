@@ -556,6 +556,7 @@ function ViewsBody(): ReactElement {
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
+        refreshing: !loading && refresh.busy,
         hint: loading ? null : refresh.hint,
         status: editing ? 'Changes save as you go' : status,
         editing: editing ? { title: 'Edit pins', onDone: () => edit.finish('done') } : null,

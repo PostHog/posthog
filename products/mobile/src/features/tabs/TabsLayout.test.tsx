@@ -1,6 +1,6 @@
 import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
-import type { ReactElement } from 'react'
-import { Text, View } from 'react-native'
+import { type ReactElement, useState } from 'react'
+import { Button, Text, View } from 'react-native'
 
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
@@ -8,7 +8,7 @@ import { OverlayPortal } from '@/ui/OverlayPortal'
 
 import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
 import { TabsLayout } from './TabsLayout'
-import { type TabHeaderSlot, useTabHeader } from './tabHeaderStore'
+import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 // The router's testing library mocks Reanimated with this module after the hoisted mocks run, so the patch goes here.
@@ -52,6 +52,17 @@ const LIST_SLOT: TabHeaderSlot = {
     filter: null,
 }
 
+function RefreshingTabStub({ tab }: { tab: TabKey }): ReactElement {
+    const [refreshing, setRefreshing] = useState(false)
+    useTabHeader(tab, { ...LIST_SLOT, refreshing })
+    return (
+        <View testID={`${tab}-screen`}>
+            <Button title="Start refresh" testID="start-refresh" onPress={() => setRefreshing(true)} />
+            <Button title="Finish refresh" testID="finish-refresh" onPress={() => setRefreshing(false)} />
+        </View>
+    )
+}
+
 function PublishingInboxStub(): ReactElement {
     useTabHeader('inbox', { ...LIST_SLOT, filter: { active: true, onPress: () => undefined } })
     return <View testID="inbox-screen" />
@@ -91,6 +102,36 @@ describe('TabsLayout', () => {
         setAnalyticsClient(null)
         setFeatureFlags({})
     })
+
+    test.each(['inbox', 'chats', 'views'] as const)(
+        'uses the %s logo as the refresh indicator only while the focused page refreshes',
+        (tab) => {
+            useTabHeaderStore.setState({
+                slots: { inbox: LIST_SLOT, chats: LIST_SLOT, views: LIST_SLOT, errors: null, replay: null },
+            })
+            renderRouter(
+                {
+                    '(tabs)/_layout': TabsLayout,
+                    '(tabs)/inbox': (): ReactElement => <RefreshingTabStub tab="inbox" />,
+                    '(tabs)/chats': (): ReactElement => <RefreshingTabStub tab="chats" />,
+                    '(tabs)/views': (): ReactElement => <RefreshingTabStub tab="views" />,
+                    ...LIST_TABS,
+                },
+                { initialUrl: `/${tab}` }
+            )
+            const otherTab = tab === 'inbox' ? 'chats' : 'inbox'
+            act(() => useTabHeaderStore.getState().setSlot(otherTab, { ...LIST_SLOT, refreshing: true }))
+            expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
+
+            fireEvent.press(screen.getByTestId('start-refresh'))
+            expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(true)
+            expect(screen.queryByTestId(`${tab}-refresh`)).toBeNull()
+            expect(screen.getByTestId('tabs-more')).toBeTruthy()
+
+            fireEvent.press(screen.getByTestId('finish-refresh'))
+            expect(screen.getByTestId('tabs-logomark').props.accessibilityState.busy).toBe(false)
+        }
+    )
 
     test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', (pin) => {
         setNavPinned(pin, true)

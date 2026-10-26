@@ -135,6 +135,11 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 
 ## Screens and states
 
+- **Splash**: the centered gradient logomark hops in a ripple, with the head first and the three colored spikes following.
+  It uses a gentle 720ms hop every 1.4 seconds, with 45ms between parts and a smooth start and landing.
+  All four parts share one animation clock, and the logo stays still with reduced motion enabled.
+  The native launch screen fades into this animation once the animated splash lays out.
+  The splash stays above the app until the session and first screen are ready, with the existing eight-second inbox timeout.
 - **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
   tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
@@ -142,6 +147,8 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
   refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+  The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
+  It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
   pull to refresh, floating nav pill (Home selected,
   Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button

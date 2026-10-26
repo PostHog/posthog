@@ -3,9 +3,9 @@ import { Text, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
+import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
-import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
@@ -78,7 +78,15 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
             <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
             <View style={styles.titleStack}>
                 <View style={styles.titleGroup}>
-                    <PostHogLogomark height={18} />
+                    <View
+                        accessible
+                        accessibilityRole="image"
+                        accessibilityLabel="PostHog"
+                        accessibilityState={{ busy: slot?.refreshing ?? false }}
+                        testID="tabs-logomark"
+                    >
+                        <AnimatedLogomark height={18} animate={slot?.refreshing ?? false} />
+                    </View>
                     <Text style={styles.title} numberOfLines={1} accessibilityRole="header" testID="tabs-title">
                         {editing ? editing.title : TITLES[tab]}
                     </Text>

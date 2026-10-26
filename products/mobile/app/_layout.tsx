@@ -2,7 +2,8 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { Stack, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
+import { StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -36,6 +37,10 @@ configureNotifications()
 initAnalytics()
 const bootStartedAt = Date.now()
 
+function hideNativeSplash(): void {
+    SplashScreen.hideAsync().catch(() => undefined)
+}
+
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
     const appearanceHydrated = useAppearanceHydrated()
@@ -47,7 +52,7 @@ export default function RootLayout(): ReactElement {
     const { colors, scheme } = useTheme()
     const styles = useStyles()
     const [timedOut, setTimedOut] = useState(false)
-    const splashHidden = useRef(false)
+    const [splashHidden, setSplashHidden] = useState(false)
 
     useEffect(() => {
         void useAuthStore.getState().restore()
@@ -62,18 +67,18 @@ export default function RootLayout(): ReactElement {
     }, [ready])
 
     useEffect(() => {
-        if (splashHidden.current) {
+        if (splashHidden) {
             return
         }
         if (shouldHideSplash({ sessionReady: ready, firstScreenReady, segments, timedOut })) {
-            splashHidden.current = true
-            SplashScreen.hideAsync().catch(() => undefined)
+            setSplashHidden(true)
+            hideNativeSplash()
             track('mobile_splash_hidden', {
                 reason: firstScreenReady ? 'first_screen' : timedOut ? 'timeout' : 'not_held',
                 wait_ms: Date.now() - bootStartedAt,
             })
         }
-    }, [ready, firstScreenReady, segments, timedOut])
+    }, [ready, firstScreenReady, segments, timedOut, splashHidden])
 
     useAuthRedirect()
     useScreenTracking(ready)
@@ -106,8 +111,11 @@ export default function RootLayout(): ReactElement {
                                     }}
                                 />
                             </Stack>
-                        ) : (
-                            <BootSplash />
+                        ) : null}
+                        {!splashHidden && (
+                            <View style={StyleSheet.absoluteFill} onLayout={hideNativeSplash}>
+                                <BootSplash />
+                            </View>
                         )}
                         <AiApprovalDialog />
                     </QueryClientProvider>

@@ -145,6 +145,7 @@ export function InboxScreen(): ReactElement {
         }
     }, [isFilteredEmpty])
     useTabHeader('inbox', {
+        refreshing: query.isRefetching,
         hint: null,
         status: null,
         editing: null,

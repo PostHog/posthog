@@ -13,6 +13,7 @@ import ChatRoute from '../../../app/chat'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 jest.mock('react-native-keyboard-controller', () => ({ KeyboardProvider: require('react-native').View }))
+jest.mock('@/auth/BootSplash', () => ({ BootSplash: require('react-native').View }))
 jest.mock('expo-splash-screen', () => ({
     preventAutoHideAsync: jest.fn(async () => undefined),
     setOptions: jest.fn(),

@@ -4,6 +4,7 @@ import { create } from 'zustand'
 export type TabKey = 'inbox' | 'chats' | 'views' | 'errors' | 'replay'
 
 export interface TabHeaderSlot {
+    refreshing?: boolean
     /** A short line under the status line, such as why a pull to refresh did nothing. */
     hint: string | null
     status: string | null
@@ -51,7 +52,7 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
         []
     )
 
-    const { hint, status, editing, editPins, filter } = slot
+    const { hint, status, editing, editPins, filter, refreshing = false } = slot
     const editingTitle = editing?.title ?? null
     const hasEditPins = editPins !== null
     const editPinsDisabled = editPins?.disabled ?? false
@@ -59,13 +60,14 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
     const filterActive = filter?.active ?? false
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setSlot(tab, {
+            refreshing,
             hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },
             editPins: hasEditPins ? { disabled: editPinsDisabled, onPress: callbacks.editPins } : null,
             filter: hasFilter ? { active: filterActive, onPress: callbacks.filter } : null,
         })
-    }, [tab, callbacks, hint, status, editingTitle, hasEditPins, editPinsDisabled, hasFilter, filterActive])
+    }, [tab, callbacks, hint, status, editingTitle, hasEditPins, editPinsDisabled, hasFilter, filterActive, refreshing])
 
     useLayoutEffect(() => () => useTabHeaderStore.getState().setSlot(tab, null), [tab])
 }
