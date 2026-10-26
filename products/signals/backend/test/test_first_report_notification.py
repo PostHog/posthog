@@ -216,6 +216,17 @@ class TestFirstReportNotification(BaseTest):
         assert initial_send.kwargs["message_data"]["report_id"] == str(first.id)
         assert self.notification().queued_at is not None
 
+    @time_machine.travel("2026-01-15T12:01:00Z", tick=False)
+    def test_suppressed_recipient_cancels_the_notification(self) -> None:
+        self.report()
+        self.send.side_effect = TransactionalEmailRejected("http_422", code="recipient_suppressed")
+
+        deliver_first_report_email(self.team.id)
+        deliver_first_report_email(self.team.id)
+
+        assert self.send.call_count == 1
+        assert self.notification().cancelled_at is not None
+
     def test_project_access_is_required_even_with_task_access(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
