@@ -840,6 +840,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         repo_selection_content = json.loads(artefacts[3].content)
         assert repo_selection_content == {
+            "blocked_reason": None,
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "task_id": None,
