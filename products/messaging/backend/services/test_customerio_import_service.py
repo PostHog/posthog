@@ -28,6 +28,9 @@ class TestCustomerIOImportService(BaseTest):
             ("false", "", False, True),
             ("", "", False, True),
             ("true", "", True, False),
+            ("1", "", True, True),
+            ("1", "", True, False),
+            ("0", "", False, True),
         ]
     )
     def test_csv_import_global_unsubscribe(

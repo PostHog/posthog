@@ -178,7 +178,7 @@ class CustomerIOImportService:
             identifier = f"Customer.io ID: {cio_id}" if cio_id else "unknown"
             return {"status": "error", "email": identifier, "error": "Missing email"}
 
-        globally_unsubscribed = (row.get("unsubscribed") or "").strip().lower() == "true"
+        globally_unsubscribed = (row.get("unsubscribed") or "").strip().lower() in {"true", "1"}
         opted_out_categories = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID] if globally_unsubscribed else []
 
         if not preferences_json:
