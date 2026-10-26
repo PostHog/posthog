@@ -84,7 +84,10 @@ from .constants import (
     TRIAL_QUIET_PERIOD,
 )
 from .libraries import file_new_learned_source
-from .llm_telemetry import RetrievalTrace
+from .llm_telemetry import (  # re-exported for other products
+    RetrievalTrace,
+    stable_trace_id as stable_trace_id,
+)
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     AddedBy,

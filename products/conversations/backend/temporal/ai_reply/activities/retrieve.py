@@ -12,13 +12,13 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
-from products.business_knowledge.backend.llm_telemetry import stable_trace_id
 from products.business_knowledge.backend.logic import (
     RetrievalLimitedError,
     RetrievalTrace,
     get_document_window,
     rerank_chunks,
     search_knowledge_for_team,
+    stable_trace_id,
 )
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (

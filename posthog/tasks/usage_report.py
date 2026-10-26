@@ -64,10 +64,7 @@ from posthog.usage_counters import (
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.business_knowledge.backend.billing import (
-    get_chunks_by_team as get_business_knowledge_chunks_by_team,
-    get_queries_by_team as get_business_knowledge_queries_by_team,
-)
+from products.business_knowledge.backend.facade import api as business_knowledge_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1276,7 +1273,7 @@ def get_teams_with_business_knowledge_chunks_in_period(
     # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
 ) -> list[tuple[int, int]]:
     # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
-    return get_business_knowledge_chunks_by_team(begin, end)
+    return business_knowledge_api.get_chunks_by_team(begin, end)
 
 
 @timed_log()
@@ -1287,7 +1284,7 @@ def get_teams_with_business_knowledge_queries_in_period(
     # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
 ) -> list[tuple[int, int]]:
     # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
-    return get_business_knowledge_queries_by_team(begin, end)
+    return business_knowledge_api.get_queries_by_team(begin, end)
 
 
 @timed_log()
