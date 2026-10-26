@@ -21,7 +21,7 @@ import { workflowDataSuggestionsLogic } from '../../setupGuide/suggestions/workf
 import { dnsRecordsAsText } from './dnsRecordsAsText'
 import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
-import { emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
+import { SHARED_RECORDS_PARAM, SHARED_RECORDS_VALUE, emailDomainManualSetupLogic } from './emailDomainManualSetupLogic'
 import { emailDomainPageUrl } from './emailDomainPageUrl'
 import { emailDomainSenderLogic } from './emailDomainSenderLogic'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
@@ -357,7 +357,11 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             }
             const shared =
                 method === 'link'
-                    ? await copyToClipboard(emailDomainPageUrl(currentTeamId, integrationId), 'link', { silent: true })
+                    ? await copyToClipboard(
+                          `${emailDomainPageUrl(currentTeamId, integrationId)}?${SHARED_RECORDS_PARAM}=${SHARED_RECORDS_VALUE}`,
+                          'link',
+                          { silent: true }
+                      )
                     : await copyToClipboard(dnsRecordsAsText(domain, records), 'settings', { silent: true })
             if (!shared) {
                 return

@@ -302,7 +302,7 @@ describe('EmailDomainScene', () => {
     )
 
     describe('sending the settings to whoever manages DNS', () => {
-        const PAGE_LINK = `http://localhost/project/997${urls.workflowsEmailDomain(SENDER_ID)}`
+        const PAGE_LINK = `http://localhost/project/997${urls.workflowsEmailDomain(SENDER_ID)}?records=shown`
         let clipboard: jest.Mock
 
         beforeEach(() => {
@@ -353,10 +353,15 @@ describe('EmailDomainScene', () => {
             await flush()
             expectStep('Checking your settings…')
             await share('link')
+            const setupWrites = backend.requestsTo('email_update').length
             cleanup()
 
-            await open(new URL(clipboard.mock.calls[0][0]).pathname)
+            const link = new URL(clipboard.mock.calls[0][0])
+            await open(`${link.pathname}${link.search}`)
             expectStep('Add 8 settings at Cloudflare')
+            expect(screen.getByText('Proves you own the domain')).toBeInTheDocument()
+            expect(screen.getAllByText('Not found yet')).toHaveLength(8)
+            expect(backend.requestsTo('email_update')).toHaveLength(setupWrites)
 
             backend.publishRecords(DOMAIN)
             await flush(POLL_MS)
