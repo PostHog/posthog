@@ -284,6 +284,23 @@ class TestEmailSenderVerification(APIBaseTest):
         assert self._verified(sender, sibling) == [False, True]
         assert self._default_sender_id() is None
 
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch(
+        "products.workflows.backend.facade.api.verify_ses_email_domain",
+        return_value={"status": "success", "dnsRecords": []},
+    )
+    def test_a_domain_counts_as_verified_once_across_mail_from_subdomains(
+        self, _verify: MagicMock, _reload: MagicMock
+    ) -> None:
+        self._create_sender("example.com", verified=True)
+        other_subdomain = self._create_sender("example.com", local_part="other", mail_from_subdomain="bounce")
+        on_domain_verified = MagicMock()
+
+        EmailIntegration(other_subdomain).verify(on_domain_verified=on_domain_verified)
+
+        assert self._verified(other_subdomain) == [True]
+        on_domain_verified.assert_not_called()
+
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_overlapping_sweep_returns_without_checking(
