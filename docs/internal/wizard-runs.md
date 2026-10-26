@@ -64,13 +64,9 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
-The app-wide sync widget uses a fixed launch cutoff with this filter for active runs and the five newest runs of any status. It shows runs from anyone in the current project, not only runs created by the viewer.
-It opens one event stream for the displayed active run. Terminal runs do not open a stream.
-It shows the newest active run by default, or the newest recent run when none are active.
-The selector lists up to five active and five recent runs by workspace and status, with the selected run marked and the total active count shown separately.
-The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
-Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent terminal runs remain available after reloading unless dismissed.
-The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
+On the Wizard page, the run details dialog shows live tasks for the newest active run in the project, or the newest recent run when none are active.
+It finds that run with a fixed launch cutoff on this filter, for active runs and the five newest runs of any status, and checks again every 30 seconds.
+It opens one event stream for an active run. Terminal runs do not open a stream.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
@@ -158,7 +154,7 @@ Its `status` values remain `success`, `error`, and `cancelled`.
 The service finish event describes the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
 Do not add the CLI and service completion events together when counting runs.
 
-The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, FAB activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
+The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
 Polling does not create more view events. Clipboard failures do not count as command copies.
 Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
@@ -277,6 +273,8 @@ POST /api/projects/{project_id}/wizard/sessions/
 ```
 
 Wizard sessions remain independent from Wizard runs in V0.
-They continue to synchronize the setup agent's legacy workflow and skill state without a run ID.
+The setup agent can still write them, but the PostHog app no longer reads them.
 
-The existing `/api/wizard/cloud_run` onboarding flow remains Tasks-backed until its TaskRun progress and pull-request UI have a replacement based on Wizard runs and Run Artifacts.
+The existing `/api/wizard/cloud_run` onboarding flow remains Tasks-backed.
+The app no longer starts these runs or shows their progress.
+The insights sample-data placeholder still finds the newest onboarding task through the tasks API, so it can show that setup is running or link the setup pull request.

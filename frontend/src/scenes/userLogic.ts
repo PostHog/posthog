@@ -1045,8 +1045,8 @@ export const userLogic = kea<userLogicType>([
             },
         ],
         // True for accounts created by a partner drop flow (onboarding skipped with reason
-        // 'provisioned'). Drives the provisioned welcome experience — background-install FAB,
-        // welcome dialog, quick-start seeding, and the homepage banner.
+        // 'provisioned'). Drives the provisioned welcome experience: welcome dialog, quick-start
+        // seeding, and the homepage banner.
         isProvisionedUser: [
             (s) => [s.user],
             (user: UserType | null): boolean => user?.onboarding_skipped_reason === 'provisioned',

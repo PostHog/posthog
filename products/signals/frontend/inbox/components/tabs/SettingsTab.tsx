@@ -10,7 +10,6 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
-import { InstallationSetupSection } from '../shell/InstallationSetupSection'
 import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
@@ -21,7 +20,6 @@ export function SettingsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
-            <InstallationSetupSection />
             <SettingsSection
                 title="Autonomy"
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."

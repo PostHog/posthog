@@ -39,7 +39,6 @@ export const scene: SceneExport = {
 
 export function WizardRunsScene(): JSX.Element {
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
-    const runSyncEnabled = useFeatureFlag('WIZARD_RUN_SYNC', 'wizard-run')
     const { user } = useValues(userLogic)
     const {
         environment,
@@ -242,7 +241,7 @@ export function WizardRunsScene(): JSX.Element {
                 onCopyCommand={copyCommand}
             />
 
-            {runSyncEnabled && currentProjectId ? (
+            {currentProjectId ? (
                 <WizardRunSceneSyncDetailsDialog projectId={String(currentProjectId)} onRunAgain={runAgain} />
             ) : (
                 <WizardRunDetailsDialog onRunAgain={runAgain} />

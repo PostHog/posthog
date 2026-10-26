@@ -9,7 +9,6 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
-import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -1173,12 +1172,10 @@ export interface eventUsageLogicActions {
     reportIntegrationConnectClicked: (
         integration: string,
         kind: string,
-        surface: IntegrationConnectSurface,
-        selfDriving?: boolean
+        surface: IntegrationConnectSurface
     ) => {
         integration: string
         kind: string
-        selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
     reportIntegrationConnectRejected: (
@@ -1456,34 +1453,6 @@ export interface eventUsageLogicActions {
             enabled: boolean
         }
     }
-    reportWizardSyncSessionDetected: (props: {
-        runPhase: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }) => {
-        runPhase: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }
-    reportWizardSyncSessionFinished: (props: {
-        completedTaskCount: number
-        elapsedSeconds: number
-        errorKind: InstallationErrorKind | null
-        outcome: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }) => {
-        completedTaskCount: number
-        elapsedSeconds: number
-        errorKind: 'usage_limit' | null
-        outcome: string
-        skillId: string
-        taskCount: number
-        workflowId: string
-    }
 }
 
 export type eventUsageLogicType = MakeLogicType<eventUsageLogicValues, eventUsageLogicActions>
@@ -1502,16 +1471,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
-        reportIntegrationConnectClicked: (
-            integration: string,
-            kind: string,
-            surface: IntegrationConnectSurface,
-            selfDriving?: boolean
-        ) => ({
+        reportIntegrationConnectClicked: (integration: string, kind: string, surface: IntegrationConnectSurface) => ({
             integration,
             kind,
             surface,
-            selfDriving,
         }),
         reportIntegrationLinkExistingOffered: (
             kind: string,
@@ -1761,23 +1724,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             sdkKey,
             surface,
         }),
-        // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
-        // (installationProgressLogic); guards for "once per session" live in that logic.
-        reportWizardSyncSessionDetected: (props: {
-            workflowId: string
-            skillId: string
-            runPhase: string
-            taskCount: number
-        }) => props,
-        reportWizardSyncSessionFinished: (props: {
-            workflowId: string
-            skillId: string
-            outcome: string
-            errorKind: InstallationErrorKind | null
-            taskCount: number
-            completedTaskCount: number
-            elapsedSeconds: number
-        }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
         reportRevenueAnalyticsSettingsViewed: () => ({}),
@@ -1899,15 +1845,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAxisUnitsChanged: (properties) => {
             posthog.capture('axis units changed', properties)
         },
-        reportIntegrationConnectClicked: ({ integration, kind, surface, selfDriving }) => {
+        reportIntegrationConnectClicked: ({ integration, kind, surface }) => {
             posthog.capture('integration_connect_clicked', {
                 integration,
                 integration_kind: kind,
                 surface,
-                // Only set where the surface can actually tell. The OAuth landing page serves both
-                // self-driving runs and everyone else, so it resolves this; surfaces that are
-                // self-driving by construction leave it unset rather than assert a constant.
-                self_driving: selfDriving,
             })
         },
         // The banner offering an existing installation is where an unfamiliar account name is read,
@@ -2418,33 +2360,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('sdk setup instructions sdk selected', {
                 sdk: sdkKey,
                 surface,
-            })
-        },
-        reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {
-            posthog.capture('setup wizard sync session detected', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                run_phase: runPhase,
-                task_count: taskCount,
-            })
-        },
-        reportWizardSyncSessionFinished: ({
-            workflowId,
-            skillId,
-            outcome,
-            errorKind,
-            taskCount,
-            completedTaskCount,
-            elapsedSeconds,
-        }) => {
-            posthog.capture('setup wizard sync session finished', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                outcome,
-                error_kind: errorKind,
-                task_count: taskCount,
-                completed_task_count: completedTaskCount,
-                elapsed_seconds: elapsedSeconds,
             })
         },
         // command bar

@@ -4,7 +4,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
-import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
+import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-command/WizardCommandBlock'
 
 import { SDKSetupInstructions } from './SDKSetupInstructions'
 
