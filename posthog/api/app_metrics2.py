@@ -106,9 +106,11 @@ def fetch_app_metrics_trends(
 
     clickhouse_kwargs: dict[str, Any] = {}
 
+    # The bucket alias must not be `timestamp`. ClickHouse resolves SELECT aliases inside WHERE, so the
+    # range filter would compare the bucket start to `after` and drop the first, partial bucket.
     clickhouse_query = f"""
         SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
+            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as bucket,
             metric_{breakdown_by} as breakdown,
             sum(count) as count
         FROM app_metrics2
@@ -120,8 +122,8 @@ def fetch_app_metrics_trends(
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}
-        GROUP BY timestamp, breakdown
-        ORDER BY timestamp ASC
+        GROUP BY bucket, breakdown
+        ORDER BY bucket ASC
     """
 
     clickhouse_kwargs["team_id"] = team_id
