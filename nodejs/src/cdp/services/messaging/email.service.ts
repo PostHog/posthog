@@ -20,6 +20,7 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -152,6 +153,16 @@ export class SESThrottleError extends Error {
         this.retryAfterMs = retryAfterMs
     }
 }
+
+class UnverifiedEmailDomainError extends Error {
+    constructor() {
+        super('The selected email integration domain is not verified')
+        this.name = 'UnverifiedEmailDomainError'
+    }
+}
+
+const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
+    !isTest && 'hogFlow' in invocation
 
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
@@ -423,6 +434,7 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -576,6 +588,13 @@ export class EmailService {
                     })
                 }
                 this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
+                if (isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
+                        reason: 'missing_recipient',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -775,6 +794,13 @@ export class EmailService {
                 result.error = error.message
                 result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
+                if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                        reason: 'unverified_domain',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
             }
         }
 
@@ -1057,7 +1083,7 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): { email: string; name: string } {
         if (!integration.config.verified) {
-            throw new Error('The selected email integration domain is not verified')
+            throw new UnverifiedEmailDomainError()
         }
 
         if (!integration.config.email || !integration.config.name) {
