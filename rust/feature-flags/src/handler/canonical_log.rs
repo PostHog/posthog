@@ -1,4 +1,5 @@
 use crate::api::errors::FlagError;
+use crate::config::PersonsDbDeadlineBound;
 use crate::flags::flag_matching::EvaluationType;
 use crate::handler::phases::PhaseDurations;
 use crate::metrics::consts::{
@@ -186,7 +187,7 @@ pub struct FlagsCanonicalLogLine {
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
-    /// The response shape served, such as `FlagsV2` or `FlagsV3`.
+    /// The response shape served, such as `FlagsV2` or `FlagsV4`.
     pub response_format: Option<&'static str>,
 
     // Populated during authentication
@@ -252,6 +253,12 @@ pub struct FlagsCanonicalLogLine {
     /// - "empty": query succeeded, no overrides found
     /// - "found": query succeeded, overrides returned
     pub hash_key_override_status: Option<&'static str>,
+    /// The first persons DB call that the persons DB deadline stopped, such as
+    /// "fetch_properties". The flags that needed persons data returned an error.
+    pub persons_db_deadline_exceeded: Option<&'static str>,
+    /// Which limit set the persons DB deadline. With `RequestTimeout`, a
+    /// `persons_db_deadline_exceeded` on the same line can occur on a healthy persons DB.
+    pub persons_db_deadline_bound: Option<PersonsDbDeadlineBound>,
 
     /// Which evaluation strategy was used for this request.
     /// Set to `Parallel` if any dependency level triggered parallel evaluation.
@@ -353,6 +360,8 @@ impl Default for FlagsCanonicalLogLine {
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
+            persons_db_deadline_exceeded: None,
+            persons_db_deadline_bound: None,
             evaluation_type: None,
             rate_limited: false,
             rate_limit_warned: false,
@@ -428,6 +437,8 @@ impl FlagsCanonicalLogLine {
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,
             hash_key_override_status = self.hash_key_override_status,
+            persons_db_deadline_exceeded = self.persons_db_deadline_exceeded,
+            persons_db_deadline_bound = self.persons_db_deadline_bound.map(|b| b.as_str()),
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
             rate_limit_warned = self.rate_limit_warned,
@@ -722,7 +733,7 @@ mod tests {
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
-        log.response_format = Some("FlagsV3");
+        log.response_format = Some("FlagsV4");
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
         log.device_id = Some("device_123".to_string());

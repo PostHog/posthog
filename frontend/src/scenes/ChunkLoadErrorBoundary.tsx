@@ -58,7 +58,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (this.props.reload) {
             this.props.reload()
         } else {
-            reloadAfterChunkLoadError()
+            reloadAfterChunkLoadError(error)
         }
     }
 

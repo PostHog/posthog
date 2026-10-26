@@ -9,8 +9,10 @@ import {
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -78,6 +80,7 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
         updateReusableWidget,
     } = useActions(logic)
     const { currentTeamId } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (reusableWidgetLoading && !reusableWidget) {
         return (
@@ -128,12 +131,21 @@ export function ReusableWidgetScene({ widgetId }: ReusableWidgetLogicProps): JSX
                     path: `${urls.notebooks()}?tab=widgets`,
                 }}
                 actions={
-                    <div className="flex flex-wrap gap-2">
-                        <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
-                            Demo data
-                        </LemonButton>
-                        <LemonButton onClick={openSourceModal}>View source</LemonButton>
-                    </div>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
+                                Demo data
+                            </Button>
+                            <Button onClick={openSourceModal}>View source</Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton onClick={openDemoDataModal} data-attr="reusable-widget-demo-data">
+                                Demo data
+                            </LemonButton>
+                            <LemonButton onClick={openSourceModal}>View source</LemonButton>
+                        </div>
+                    )
                 }
             />
             <div className="grid grid-cols-1 items-start gap-4 @min-[56rem]/reusable-widget:grid-cols-3">

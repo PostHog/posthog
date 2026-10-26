@@ -24,7 +24,7 @@ Previously, pipelines received raw `KafkaProducerWrapper` instances and hardcode
 
 ## Concepts
 
-A **producer** is a Kafka connection configured via the server config object. Each producer has a name (e.g. `'INGESTION_DOWNSTREAM'`) and a mapping from config key names to rdkafka config keys. `KafkaProducerRegistryBuilder` creates all producers at startup, returning a typed `KafkaProducerRegistry<P>` where `P` is the union of registered producer names. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels.
+A **producer** is a Kafka connection configured via the server config object. Each producer has a name (e.g. `'INGESTION_DOWNSTREAM'`) and a mapping from config key names to rdkafka config keys. `KafkaProducerRegistryBuilder` creates all producers at startup, returning a typed `KafkaProducerRegistry<P>` where `P` is the union of registered producer names. The producer name is set on the `KafkaProducerWrapper` instance and used in metrics labels. A producer registered with `registerBlackhole` connects to no broker and discards every message, counted in `kafka_producer_messages_discarded_total`; the ingestion registry exposes one as `INGESTION_BLACKHOLE`, so a chart can route a single output nowhere while the other slots keep producing.
 
 A **target** is a single Kafka destination: a topic, a producer, and the producer's name. An output contains one or more targets.
 
@@ -81,6 +81,15 @@ Other outputs are unaffected — dual writes are per-output.
 Pipeline steps receive `IngestionOutputs<O>` as a dependency and produce messages through it using `outputs.produce(output, message)` or `outputs.queueMessages(output, messages)`. Steps should never access Kafka producers directly.
 
 Each pipeline defines its output and producer config in its own directory (e.g. `analytics/config/`). Shared output constants that appear in multiple pipelines go in `common/outputs.ts`. The server builds the outputs at startup and passes them down.
+
+## Disabling outputs
+
+`INGESTION_OUTPUTS_DISABLED=true` makes the ingestion API server and the general ingestion server discard every output message instead of producing it.
+Use it for a lane that consumes production traffic alongside the main lane to test a change, and must not write to any topic.
+The UPSTREAM and DOWNSTREAM producers become blackhole producers, so every output is affected, including DLQ, overflow and async, and events that would go there are lost too.
+A blackhole producer never connects, so the server needs no output cluster.
+The outputs are built on top of these producers as usual, so the `ingestion_outputs_*` metrics still describe the lane's traffic.
+Each blackhole producer logs a warning at startup, and `kafka_producer_messages_discarded_total{producer_name, topic_name}` counts each discarded message.
 
 ## How to extend
 

@@ -17,7 +17,7 @@ FIGURE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 KIND_THRESHOLD = 0.7
 SOURCE_THRESHOLD = 0.6
 RELATION_THRESHOLD = 0.6
-NAMED_THRESHOLD = 0.75
+UNNAMED_THRESHOLD = 0.75
 _MAX_MARKS = 4
 _MAX_CLAIMS = 12
 _MAX_CANDIDATES = 6
@@ -290,6 +290,7 @@ def match_figures(
     matches = [
         FigureMatch(claim=claim, source=candidate)
         for claim, candidate in same
-        if _sure(named.get(named_item(candidate)), NAMED, NAMED_THRESHOLD)
+        # Jev's named answers sit near 0.5 even for clear sentences, so only a sure "unnamed" drops a mark.
+        if not _sure(named.get(named_item(candidate)), UNNAMED, UNNAMED_THRESHOLD)
     ]
     return _people_first(matches, lambda match: match.claim.figure, _MAX_MARKS)

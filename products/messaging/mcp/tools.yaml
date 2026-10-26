@@ -1,98 +1,78 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product messaging
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product messaging
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Messaging
 feature: messaging
 url_prefix: /workflows
 ui_apps: {}
 tools:
-    messaging-categories-create:
+    message-categories-create:
         operation: messaging_categories_create
-        enabled: false
-    messaging-categories-destroy:
-        operation: messaging_categories_destroy
-        enabled: false
-    messaging-categories-import-from-customerio-create:
-        operation: messaging_categories_import_from_customerio_create
-        enabled: false
-    messaging-categories-import-preferences-csv-create:
-        operation: messaging_categories_import_preferences_csv_create
-        enabled: false
-    messaging-categories-list:
-        operation: messaging_categories_list
-        enabled: false
-    messaging-categories-optout-sync-config-retrieve:
-        operation: messaging_categories_optout_sync_config_retrieve
-        enabled: false
-    messaging-categories-partial-update:
-        operation: messaging_categories_partial_update
-        enabled: false
-    messaging-categories-remove-customerio-app-config-destroy:
-        operation: messaging_categories_remove_customerio_app_config_destroy
-        enabled: false
-    messaging-categories-remove-track-config-destroy:
-        operation: messaging_categories_remove_track_config_destroy
-        enabled: false
-    messaging-categories-remove-webhook-config-destroy:
-        operation: messaging_categories_remove_webhook_config_destroy
-        enabled: false
-    messaging-categories-retrieve:
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a message category
+        description: >
+            Create a message category, the topic a workflow message belongs to, such as a newsletter or product updates.
+            Recipients can opt out of a marketing category, and sends skip the recipients who did. Use a transactional
+            category for messages a recipient must get, such as receipts or password resets: those sends ignore
+            opt-outs. Pass the returned id as message_category_id on a workflow email step, and set the step's
+            message_category_type to the same category_type. The opt-out of messages step takes the id as its
+            category_id input. Call message-categories-list first: the key must be unique in the project and can't
+            change after creation.
+        exclude_params:
+            - deleted
+    message-categories-get:
         operation: messaging_categories_retrieve
-        enabled: false
-    messaging-categories-save-track-config-create:
-        operation: messaging_categories_save_track_config_create
-        enabled: false
-    messaging-categories-save-webhook-config-create:
-        operation: messaging_categories_save_webhook_config_create
-        enabled: false
-    messaging-categories-update:
-        operation: messaging_categories_update
-        enabled: false
-    messaging-preferences-add-opt-out-create:
-        operation: messaging_preferences_add_opt_out_create
-        enabled: false
-    messaging-preferences-export-opt-outs-csv-retrieve:
-        operation: messaging_preferences_export_opt_outs_csv_retrieve
-        enabled: false
-    messaging-preferences-generate-link-create:
-        operation: messaging_preferences_generate_link_create
-        enabled: false
-    messaging-preferences-webhook-url-retrieve:
-        operation: messaging_preferences_webhook_url_retrieve
-        enabled: false
-    messaging-suppressions-add-suppression-create:
-        operation: messaging_suppressions_add_suppression_create
-        enabled: false
-    messaging-suppressions-remove-suppression-create:
-        operation: messaging_suppressions_remove_suppression_create
-        enabled: false
-    messaging-suppressions-suppressions-retrieve:
-        operation: messaging_suppressions_suppressions_retrieve
-        enabled: false
-    messaging-templates-create:
-        operation: messaging_templates_create
-        enabled: false
-    messaging-templates-design-partial-update:
-        operation: messaging_templates_design_partial_update
-        enabled: false
-    messaging-templates-destroy:
-        operation: messaging_templates_destroy
-        enabled: false
-    messaging-templates-list:
-        operation: messaging_templates_list
-        enabled: false
-    messaging-templates-partial-update:
-        operation: messaging_templates_partial_update
-        enabled: false
-    messaging-templates-retrieve:
-        operation: messaging_templates_retrieve
-        enabled: false
-    messaging-templates-update:
-        operation: messaging_templates_update
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a message category
+        description: >
+            Get a message category by ID, with its key, name, descriptions, and category_type (marketing categories can
+            be opted out of, transactional categories ignore opt-outs).
+    message-categories-list:
+        operation: messaging_categories_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List message categories
+        description: >
+            List the project's message categories. Recipients can opt out of a marketing category, and transactional
+            categories ignore opt-outs. Use a category's id as message_category_id on a workflow email step or as the
+            category_id input of the opt-out of messages step, and its key as category_key in the opt-outs tools.
+    message-categories-update:
+        operation: messaging_categories_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a message category
+        description: >
+            Change a message category's name, description, public_description, or category_type. Only the fields you
+            pass change, and the key can't change. Workflow steps keep the message_category_type they were saved with,
+            so after a category_type change, update the message_category_type of the steps that use this category. A
+            transactional send ignores opt-outs, so confirm a change to transactional with the user first.
+        exclude_params:
+            - key
+            - deleted
     opt-outs-add:
         operation: messaging_preferences_bulk_add_opt_outs_create
         enabled: true

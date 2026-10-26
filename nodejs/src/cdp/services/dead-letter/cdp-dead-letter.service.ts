@@ -26,7 +26,7 @@ type PendingFailure = {
 const PARKED_CLASSES: ReadonlySet<HogErrorClass> = new Set<HogErrorClass>(['drift', 'bug', 'platform'])
 
 /** A step that runs no VM produces no class, and those failures are ours by construction. */
-const isOurs = (failure: { errorClass?: HogErrorClass }): boolean =>
+export const isOurFailure = (failure: { errorClass?: HogErrorClass }): boolean =>
     failure.errorClass === undefined || PARKED_CLASSES.has(failure.errorClass)
 
 export type CdpDlqOutput = CdpEventsDlqOutput
@@ -143,10 +143,14 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         if (!this.config.CDP_DLQ_ENABLED || !failures.length) {
             return
         }
-        const ours = failures.filter(isOurs)
+        const ours = failures.filter(isOurFailure)
         for (const failure of failures) {
             counterFailuresByClass
-                .labels({ step: failure.step, class: failure.errorClass ?? 'unknown', parked: String(isOurs(failure)) })
+                .labels({
+                    step: failure.step,
+                    class: failure.errorClass ?? 'unknown',
+                    parked: String(isOurFailure(failure)),
+                })
                 .inc()
         }
         if (!ours.length) {
@@ -180,12 +184,17 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         return true
     }
 
-    /** For a message that never became an event, so there are no globals to attach it to. */
-    public recordMessageFailure(message: Message, failure: Omit<PendingFailure, 'sourceId' | 'sourceKind'>): void {
+    /**
+     * For a message that never became an event, so there are no globals to attach it to.
+     *
+     * False means the message was not retained.
+     */
+    public recordMessageFailure(message: Message, failure: Omit<PendingFailure, 'sourceId' | 'sourceKind'>): boolean {
         if (!this.config.CDP_DLQ_ENABLED) {
-            return
+            return false
         }
         this.messageFailures.push({ message, failure })
+        return true
     }
 
     /**

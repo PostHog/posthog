@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -13,10 +14,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -33,6 +36,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
 import { llmTaggersLogic } from './llmTaggersLogic'
+import { TaggerCreationRetiredModal } from './TaggerCreationRetiredModal'
+import { TaggersDeprecationBanner } from './TaggersDeprecationBanner'
 import { Tagger } from './types'
 
 export const scene: SceneExport = {
@@ -73,9 +78,7 @@ function TaggerMetrics(): JSX.Element {
                     </div>
                 ) : (
                     <div className="flex-[2] bg-bg-light border rounded p-8 flex items-center justify-center">
-                        <div className="text-muted text-center">
-                            No enabled taggers to display. Create and enable taggers to see metrics.
-                        </div>
+                        <div className="text-muted text-center">No enabled taggers to display.</div>
                     </div>
                 )}
 
@@ -115,6 +118,7 @@ function AIObservabilityTagsContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const taggerUrl = (id: string): string => combineUrl(urls.aiObservabilityTag(id), searchParams).url
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
+    const [isEnableRetiredModalOpen, setIsEnableRetiredModalOpen] = useState(false)
 
     const columns: LemonTableColumns<Tagger> = [
         {
@@ -163,7 +167,9 @@ function AIObservabilityTagsContent(): JSX.Element {
                         >
                             <LemonSwitch
                                 checked={tagger.enabled}
-                                onChange={() => toggleTaggerEnabled(tagger.id)}
+                                onChange={() =>
+                                    tagger.enabled ? toggleTaggerEnabled(tagger.id) : setIsEnableRetiredModalOpen(true)
+                                }
                                 size="small"
                                 data-attr="toggle-tagger-enabled"
                             />
@@ -311,13 +317,19 @@ function AIObservabilityTagsContent(): JSX.Element {
                 nouns={['tagger', 'taggers']}
                 emptyState={<div className="text-center p-8 text-muted">No taggers found.</div>}
             />
+            <TaggerCreationRetiredModal
+                action="enable"
+                isOpen={isEnableRetiredModalOpen}
+                onClose={() => setIsEnableRetiredModalOpen(false)}
+            />
         </div>
     )
 }
 
 export function AIObservabilityTagsScene(): JSX.Element {
-    const { searchParams } = useValues(router)
+    const [isCreationRetiredModalOpen, setIsCreationRetiredModalOpen] = useState(false)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!receivedFeatureFlags) {
         return (
@@ -346,18 +358,34 @@ export function AIObservabilityTagsScene(): JSX.Element {
                         resourceType={AccessControlResourceType.Tagger}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            to={combineUrl(urls.aiObservabilityTag('new'), searchParams).url}
-                            data-attr="create-tagger-button"
-                        >
-                            Create tagger
-                        </LemonButton>
+                        {todayRailNav ? (
+                            <Button
+                                variant="primary"
+                                onClick={() => setIsCreationRetiredModalOpen(true)}
+                                data-attr="create-tagger-button"
+                            >
+                                <IconPlus />
+                                Create tagger
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                onClick={() => setIsCreationRetiredModalOpen(true)}
+                                data-attr="create-tagger-button"
+                            >
+                                Create tagger
+                            </LemonButton>
+                        )}
                     </AccessControlAction>
                 }
             />
+            <TaggersDeprecationBanner />
             <AIObservabilityTagsContent />
+            <TaggerCreationRetiredModal
+                isOpen={isCreationRetiredModalOpen}
+                onClose={() => setIsCreationRetiredModalOpen(false)}
+            />
         </SceneContent>
     )
 }

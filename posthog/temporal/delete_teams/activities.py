@@ -38,6 +38,17 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
 
 
 @temporalio.activity.defn
+async def delete_event_properties_activity(inputs: TeamDataActivityInputs) -> None:
+    async with Heartbeater():
+        from posthog.models.team.util import _delete_event_properties_for_teams
+
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_event_properties_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
+
+
+@temporalio.activity.defn
 async def delete_cohort_members_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_cohort_members_for_all_teams
@@ -50,8 +61,13 @@ async def delete_groups_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_group_type_mappings_for_teams, _delete_groups_for_teams
 
-        await database_sync_to_async_pool(_delete_groups_for_teams)(inputs.team_ids)
-        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_groups_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
+        await database_sync_to_async_pool(_delete_group_type_mappings_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
@@ -59,7 +75,10 @@ async def delete_team_persons_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_persons_for_teams
 
-        await database_sync_to_async_pool(_delete_persons_for_teams)(inputs.team_ids)
+        # A cancel does not stop the worker thread, so the purge checks for it between batches.
+        await database_sync_to_async_pool(_delete_persons_for_teams)(
+            inputs.team_ids, should_stop=temporalio.activity.is_cancelled
+        )
 
 
 @temporalio.activity.defn
@@ -82,15 +101,10 @@ async def delete_data_modeling_schedules_activity(inputs: TeamDataActivityInputs
             await database_sync_to_async_pool(delete_team_data_modeling_schedules)(team_id)
 
 
+# Legacy loops are gone. Stays registered so deletions that scheduled it before the skip patch can finish.
 @temporalio.activity.defn
 async def delete_loop_trigger_schedules_activity(inputs: TeamDataActivityInputs) -> None:
-    """Tear down loops' Temporal Schedules for the teams. CASCADE removes the LoopTrigger rows but
-    never talks to Temporal, so without this the Schedules keep firing forever into deleted triggers."""
-    async with Heartbeater():
-        from products.tasks.backend.facade.loops import delete_team_loop_schedules
-
-        for team_id in inputs.team_ids:
-            await database_sync_to_async_pool(delete_team_loop_schedules)(team_id)
+    return None
 
 
 @temporalio.activity.defn

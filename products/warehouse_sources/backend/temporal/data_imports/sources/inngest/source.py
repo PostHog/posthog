@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
+    codebase_detection = detect(
+        env=("^INNGEST_",),
+        npm=("inngest",),
+        pypi=("inngest",),
+        go=("github.com/inngest/inngestgo", "github.com/inngest/inngest"),
+        maven=("com.inngest:inngest", "com.inngest:inngest-spring-boot-adapter"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api-docs.inngest.com"
     supported_versions = INNGEST_SUPPORTED_VERSIONS
@@ -50,7 +59,7 @@ class InngestSource(ResumableSource[InngestSourceConfig, InngestResumeConfig]):
             name=ExternalDataSourceType.INNGEST,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Inngest",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Inngest signing key to pull your Inngest data into the PostHog Data warehouse.
 
 Find the signing key for your environment (it starts with `signkey-`) in your [Inngest dashboard](https://app.inngest.com/) under **Settings** → **Signing key**. A signing key authenticates both the v1 and v2 REST APIs, so no extra scopes are required. To pull a branch environment instead, also enter its name in the **Environment** field.

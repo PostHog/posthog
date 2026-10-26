@@ -1,11 +1,11 @@
-"""The V2/V3 post-import fork in `external-data-job`.
+"""The post-import fork in `external-data-job`.
 
-The load-dependent post-import steps run only in `data-import-post-import`: V3 runs
+The load-dependent post-import steps run only in `data-import-post-import`: runs
 with batches rely on the load consumer to start it after the final batch loads, while
-V2 (and zero-batch V3) start it from `external-data-job` after the COMPLETED status
-write. If the workflow-side trigger is dropped, V2 syncs silently lose every step; if
+zero-batch runs start it from `external-data-job` after the COMPLETED status write.
+If the workflow-side trigger is dropped, zero-batch syncs silently lose every step; if
 it fires before the status write, the resolve activity skips them all; if it
-over-applies, V3-with-batches double-triggers or externally managed schemas gain a
+over-applies, runs with batches double-trigger or externally managed schemas gain a
 fan-out they never had.
 """
 
@@ -61,7 +61,6 @@ _SCHEMA_ID = uuid.UUID("01960000-0000-0000-0000-000000000001")
 def _stub_activities(
     executed: list[str],
     *,
-    is_v3: bool,
     consumer_manages_job_status: bool,
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
@@ -75,7 +74,7 @@ def _stub_activities(
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
         executed.append("check_pipeline_version_activity")
-        return CheckPipelineVersionActivityOutputs(is_v3=is_v3)
+        return CheckPipelineVersionActivityOutputs(is_v3=True)
 
     @activity.defn(name="acquire_v3_pipeline_lock_activity")
     async def acquire_lock(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
@@ -164,7 +163,6 @@ def _stub_activities(
 
 async def _run_workflow(
     *,
-    is_v3: bool,
     consumer_manages_job_status: bool,
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
@@ -199,7 +197,6 @@ async def _run_workflow(
                 workflows=[ExternalDataJobWorkflow],
                 activities=_stub_activities(
                     executed,
-                    is_v3=is_v3,
                     consumer_manages_job_status=consumer_manages_job_status,
                     skip_post_import_activities=skip_post_import_activities,
                     fast_return_eligible=fast_return_eligible,
@@ -240,31 +237,31 @@ LOAD_DEPENDENT_CHILD_PREFIXES = (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "is_v3,consumer_manages_job_status,skip_post_import_activities,expect_post_import_child",
+    "consumer_manages_job_status,skip_post_import_activities,expect_post_import_child",
     [
-        # V2: the workflow starts data-import-post-import after the COMPLETED write.
-        pytest.param(False, False, False, True, id="v2_starts_post_import_workflow"),
-        # V3 with zero batches: the consumer never sees a final batch, so the workflow keeps ownership.
-        pytest.param(True, False, False, True, id="v3_zero_batches_starts_post_import_workflow"),
-        # V3 with batches: the load consumer starts data-import-post-import; starting it here
+        # Zero batches: the consumer never sees a final batch, so the workflow keeps ownership.
+        pytest.param(False, False, True, id="zero_batches_starts_post_import_workflow"),
+        # With batches: the load consumer starts data-import-post-import; starting it here
         # too would race the consumer's load.
-        pytest.param(True, True, False, False, id="v3_with_batches_leaves_trigger_to_consumer"),
+        pytest.param(True, False, False, id="with_batches_leaves_trigger_to_consumer"),
         # Externally managed schemas never ran the post-import steps; the finally-block
         # trigger must not give them a fan-out.
-        pytest.param(False, False, True, False, id="externally_managed_schema_gets_no_post_import"),
+        pytest.param(False, True, False, id="externally_managed_schema_gets_no_post_import"),
     ],
 )
 async def test_post_import_fork(
-    is_v3: bool,
     consumer_manages_job_status: bool,
     skip_post_import_activities: bool,
     expect_post_import_child: bool,
 ):
     executed, child_ids = await _run_workflow(
-        is_v3=is_v3,
         consumer_manages_job_status=consumer_manages_job_status,
         skip_post_import_activities=skip_post_import_activities,
     )
+
+    # New executions skip the version check and always take the V3 lock first.
+    assert "check_pipeline_version_activity" not in executed
+    assert executed[0] == "acquire_v3_pipeline_lock_activity"
 
     # The load-dependent steps never run inline in new executions — data-import-post-import
     # is their only home (the inline path survives solely for pre-patch replay).
@@ -301,7 +298,6 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
     fast_return_eligible: bool, source_has_new_data: bool, expect_fast_return: bool
 ):
     executed, child_ids = await _run_workflow(
-        is_v3=False,
         consumer_manages_job_status=False,
         fast_return_eligible=fast_return_eligible,
         source_has_new_data=source_has_new_data,
@@ -319,9 +315,7 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheduled_full_refresh", [True, False])
 async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_full_refresh: bool):
-    executed, _ = await _run_workflow(
-        is_v3=False, consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
-    )
+    executed, _ = await _run_workflow(consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh)
 
     assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
     assert ("maybe_repartition_table_activity" in executed) is not scheduled_full_refresh
@@ -332,9 +326,7 @@ async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_ful
 async def test_repartition_activity_is_scheduled_only_when_job_creation_finds_work(repartition_needed: bool):
     # The activity round trip is most of what a healthy sync paid for repartitioning; the
     # job-creation activity already knows whether anything is queued or due for measurement.
-    executed, _ = await _run_workflow(
-        is_v3=False, consumer_manages_job_status=False, repartition_needed=repartition_needed
-    )
+    executed, _ = await _run_workflow(consumer_manages_job_status=False, repartition_needed=repartition_needed)
 
     assert ("maybe_repartition_table_activity" in executed) is repartition_needed
     assert "import_data_activity_sync" in executed
@@ -353,7 +345,6 @@ async def test_billing_limit_answered_by_job_creation_skips_the_check_activity(
     billing_limit_checked: bool, hit_billing_limit: bool, expect_check_activity: bool, expect_import: bool
 ) -> None:
     executed, _ = await _run_workflow(
-        is_v3=False,
         consumer_manages_job_status=False,
         billing_limit_checked=billing_limit_checked,
         hit_billing_limit=hit_billing_limit,
@@ -371,7 +362,7 @@ async def test_billing_limit_answered_by_job_creation_skips_the_check_activity(
 @pytest.mark.parametrize("source_templates_needed", [True, False])
 async def test_source_templates_activity_runs_only_when_job_creation_finds_work(source_templates_needed: bool) -> None:
     executed, _ = await _run_workflow(
-        is_v3=False, consumer_manages_job_status=False, source_templates_needed=source_templates_needed
+        consumer_manages_job_status=False, source_templates_needed=source_templates_needed
     )
 
     assert ("create_source_templates" in executed) is source_templates_needed
@@ -380,17 +371,16 @@ async def test_source_templates_activity_runs_only_when_job_creation_finds_work(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "is_v3,consumer_manages_job_status,expect_finalizer_releases",
+    "consumer_manages_job_status,expect_finalizer_releases",
     [
-        pytest.param(True, False, True, id="v3_zero_batches_finalizer_releases"),
-        pytest.param(True, True, False, id="v3_with_batches_leaves_lock_to_the_loader"),
-        pytest.param(False, False, False, id="v2_has_no_lock"),
+        pytest.param(False, True, id="zero_batches_finalizer_releases"),
+        pytest.param(True, False, id="with_batches_leaves_lock_to_the_loader"),
     ],
 )
 async def test_v3_lock_release_rides_the_finalizer(
-    is_v3: bool, consumer_manages_job_status: bool, expect_finalizer_releases: bool
+    consumer_manages_job_status: bool, expect_finalizer_releases: bool
 ) -> None:
-    executed, _ = await _run_workflow(is_v3=is_v3, consumer_manages_job_status=consumer_manages_job_status)
+    executed, _ = await _run_workflow(consumer_manages_job_status=consumer_manages_job_status)
 
     assert "release_v3_pipeline_lock_activity" not in executed
     assert ("update_external_data_job_model:release_lock_token=token" in executed) is expect_finalizer_releases
@@ -595,15 +585,19 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "rows_synced,expect_steps",
+    "rows_synced,table_size_written,expect_steps",
     [
-        pytest.param(5, True, id="rows_written"),
-        pytest.param(0, False, id="zero_rows"),
-        pytest.param(None, True, id="row_count_unknown"),
+        pytest.param(5, False, True, id="rows_written"),
+        pytest.param(0, False, False, id="zero_rows"),
+        pytest.param(None, False, True, id="row_count_unknown"),
+        # The load consumer recorded the size from the Delta log, so the activity that opens the
+        # table again must not run.
+        pytest.param(5, True, False, id="size_written_by_the_loader"),
+        pytest.param(None, True, False, id="size_written_by_the_loader_row_count_unknown"),
     ],
 )
-def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
-    team, rows_synced, expect_steps, _no_close_old_connections
+def test_table_size_runs_only_as_the_fallback_while_ducklake_copy_always_runs(
+    team, rows_synced, table_size_written, expect_steps, _no_close_old_connections
 ):
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
@@ -623,7 +617,11 @@ def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
 
     ctx = resolve_post_import_context_activity(
         PostImportWorkflowInputs(
-            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+            team_id=team.pk,
+            job_id=str(job.id),
+            schema_id=str(schema.id),
+            source_id=str(source.id),
+            table_size_written=table_size_written,
         )
     )
 
@@ -659,3 +657,108 @@ def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team,
     )
 
     assert ctx == PostImportContext(steps=[])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_type, superseded, job_status, expect_step",
+    [
+        pytest.param("FileUpload", True, "Completed", True, id="replaced_upload_waits"),
+        pytest.param("FileUpload", False, "Completed", False, id="nothing_replaced"),
+        # The old file must outlive a failed sync of the new one.
+        pytest.param("FileUpload", True, "Failed", False, id="failed_sync_keeps_the_old_file"),
+        pytest.param("Stripe", True, "Completed", False, id="other_sources_never_clean_up"),
+    ],
+)
+def test_source_cleanup_runs_only_when_the_source_has_work(
+    team, source_type, superseded, job_status, expect_step, _no_close_old_connections
+):
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        SOURCE_CLEANUP_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    source, schema, job = _create_job(team, status=job_status, schema_snapshot={}, schema_last_synced_at=None)
+    source.source_type = source_type
+    source.connection_metadata = {
+        "file_upload": {
+            "superseded": [
+                {
+                    "upload_id": "11111111-2222-4333-8444-555555555555",
+                    "filename": "orders.csv",
+                    "superseded_at": "2026-01-01T00:00:00+00:00",
+                }
+            ]
+            if superseded
+            else []
+        }
+    }
+    source.save()
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert (SOURCE_CLEANUP_STEP in (ctx.steps or [])) is expect_step
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source_deleted", [False, True])
+def test_the_cleanup_activity_deletes_an_upload_replaced_before_the_sync(
+    team, source_deleted, _no_close_old_connections
+):
+    from django.test import override_settings
+
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportWorkflowInputs,
+        cleanup_source_after_sync_activity,
+    )
+
+    source, schema, job = _create_job(
+        team, status=ExternalDataJob.Status.COMPLETED, schema_snapshot={}, schema_last_synced_at=None
+    )
+    source.source_type = "FileUpload"
+    source.deleted = source_deleted
+    source.job_inputs = {
+        "upload_id": "22222222-2222-4333-8444-555555555555",
+        "filename": "orders_v2.csv",
+        "file_format": "csv",
+        "schema_name": "Customer",
+    }
+    source.connection_metadata = {
+        "file_upload": {
+            "superseded": [
+                {
+                    "upload_id": "11111111-2222-4333-8444-555555555555",
+                    "filename": "orders.csv",
+                    "superseded_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+        }
+    }
+    source.save()
+    s3 = mock.MagicMock()
+
+    with (
+        override_settings(DATAWAREHOUSE_BUCKET="ph-warehouse", DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.example.com"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage.get_s3_client",
+            return_value=s3,
+        ),
+    ):
+        cleanup_source_after_sync_activity(
+            PostImportWorkflowInputs(
+                team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+            )
+        )
+
+    if source_deleted:
+        s3.rm.assert_not_called()
+    else:
+        s3.rm.assert_called_once_with(
+            f"ph-warehouse/file_uploads/team_{team.pk}/11111111-2222-4333-8444-555555555555/orders.csv"
+        )

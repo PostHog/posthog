@@ -16,6 +16,7 @@ from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
@@ -1647,6 +1648,65 @@ class TestCDCBoundedReadLoop:
         # The run still delivers what it read.
         capture.buffer.write_batch.assert_called_once()
         assert reader.confirmed_positions == ["0/100"]
+
+    @parameterized.expand(
+        [
+            ("retry_left_continues_on_another_worker", 1, CDC_MAX_CHANGES_PER_READ, True),
+            (
+                "last_attempt_leaves_the_backlog_to_the_next_run",
+                CDC_MAX_EXTRACTION_ATTEMPTS,
+                CDC_MAX_CHANGES_PER_READ,
+                False,
+            ),
+            ("backlog_already_drained", 1, 5, False),
+        ]
+    )
+    def test_worker_shutdown_stops_at_a_page_boundary_and_the_next_run_continues(
+        self, _name, attempt, first_page_rows, hands_off
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        first_page = ([_make_event(op="I", table="users", position="0/100")], first_page_rows, "0/100")
+        second_page = ([_make_event(op="I", table="users", position="0/200")], 5, "0/200")
+        stopped_reader = _ScriptedReader([first_page, second_page])
+        written: list[list[int]] = []
+
+        with _capture_harness(source, [schema]) as capture, patch(f"{_ACTIVITIES}.ShutdownMonitor") as monitor:
+            monitor.return_value.__enter__.return_value.is_worker_shutdown.return_value = True
+            capture.activity.info.return_value.attempt = attempt
+            capture.adapter.create_reader.return_value = stopped_reader
+            handoff = WorkerShuttingDownError("activity", "cdc_extract_activity", "queue", attempt, "wf-1", "cdc")
+            with patch.object(WorkerShuttingDownError, "from_activity_context", return_value=handoff):
+                if hands_off:
+                    with pytest.raises(WorkerShuttingDownError):
+                        capture.extract()
+                else:
+                    capture.extract()
+            written += [
+                c.kwargs["table"].column(CDC_SEQ_COLUMN).to_pylist() for c in capture.buffer.write_batch.call_args_list
+            ]
+
+        # The second page is not read, and the slot and the stored position are at the end of the
+        # first page before the run ends, so the next run starts at the first unread change.
+        assert len(stopped_reader.upto_nchanges_calls) == 1
+        assert stopped_reader.confirmed_positions == ["0/100"]
+        assert schema.sync_type_config["cdc_last_log_position"] == "0/100"
+        assert written == [[0x100]]
+        if first_page_rows < CDC_MAX_CHANGES_PER_READ:
+            return
+
+        next_reader = _ScriptedReader([second_page])
+        with _capture_harness(source, [schema]) as capture:
+            capture.adapter.create_reader.return_value = next_reader
+            capture.extract()
+            written += [
+                c.kwargs["table"].column(CDC_SEQ_COLUMN).to_pylist() for c in capture.buffer.write_batch.call_args_list
+            ]
+
+        assert next_reader.confirmed_positions == ["0/200"]
+        assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
+        assert written == [[0x100], [0x200]]
 
     def test_full_page_with_no_committed_progress_doubles_the_limit(self):
         # Defensive backstop: a full page that commits nothing (so the slot can't advance) grows

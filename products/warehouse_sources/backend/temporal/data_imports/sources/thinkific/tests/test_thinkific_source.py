@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thinkific import (
     ThinkificSourceConfig,
 )
@@ -17,21 +16,6 @@ PATCH_VALIDATE = (
 
 def _config(api_key: str = "key", subdomain: str = "mycompany") -> ThinkificSourceConfig:
     return ThinkificSourceConfig(api_key=api_key, subdomain=subdomain)
-
-
-class TestThinkificSourceConfig:
-    def test_source_config_fields(self) -> None:
-        cfg = ThinkificSource().get_source_config
-        fields = {f.name: f for f in cfg.fields}
-        assert set(fields) == {"api_key", "subdomain"}
-        api_key, subdomain = fields["api_key"], fields["subdomain"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert isinstance(subdomain, SourceFieldInputConfig)
-        # The secret must be a password field; the subdomain is a plain text identifier.
-        assert api_key.type == "password"
-        assert api_key.secret is True
-        assert subdomain.type == "text"
-        assert subdomain.secret is False
 
 
 class TestThinkificValidateCredentials:

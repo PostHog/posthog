@@ -38,6 +38,7 @@ from products.wizard.backend.presentation.runs.serializers import (
     WizardRunTaskListSerializer,
 )
 from products.wizard.backend.presentation.runs.stream import wizard_run_event_stream
+from products.wizard.backend.presentation.security import refuse_blocked_gateway_identity
 from products.wizard.backend.presentation.sessions.views import EventStreamRenderer, _wizard_sync_killswitch_enabled
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
 
@@ -115,6 +116,7 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if params.environment == WizardRunEnvironment.CLOUD:
             self._validate_cloud_creation(request)
+            refuse_blocked_gateway_identity(request, self.team.organization_id, call_site="wizard_run")
 
         try:
             result = wizard_facade.create_run_with_result(params)

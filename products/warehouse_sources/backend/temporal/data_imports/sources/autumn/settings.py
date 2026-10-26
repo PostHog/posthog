@@ -4,13 +4,19 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 AUTUMN_BASE_URL = "https://api.useautumn.com"
 
+AUTUMN_API_VERSION_2_3_0 = "2.3.0"
+AUTUMN_API_VERSION_2_4_0 = "2.4.0"
+
+# From 2.4.0 Autumn rejects list requests whose limit exceeds 200.
+AUTUMN_V2_4_MAX_PAGE_SIZE = 200
+
 # Autumn timestamps are epoch milliseconds, so "datetime" partition mode (which expects epoch
 # seconds for integer values) can't be used. Numerical bucketing on the raw value with a
 # one-week bucket size yields the same stable weekly partitions.
 PARTITION_BUCKET_MILLISECONDS = 7 * 24 * 60 * 60 * 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class AutumnEndpointConfig:
     name: str
     path: str
@@ -24,6 +30,9 @@ class AutumnEndpointConfig:
     # Field the server-side custom_range filter applies to (epoch milliseconds). Only
     # events.list supports a time-range filter; every other list endpoint is full refresh.
     incremental_range_field: str | None = None
+    # Customer-scoped endpoints take a single customer_id, so the table walks customers.list and
+    # issues one request per customer, stamping customer_id onto each row.
+    customer_fan_out: bool = False
 
 
 AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
@@ -84,6 +93,14 @@ AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
         primary_keys=["id"],
         data_selector="feature_grants",
         paginated=False,
+    ),
+    "Licenses": AutumnEndpointConfig(
+        name="Licenses",
+        path="/v1/licenses.list",
+        # A pool has no id of its own; a license plan can be offered by several parent plans.
+        primary_keys=["customer_id", "parent_plan_id", "license_plan_id"],
+        paginated=False,
+        customer_fan_out=True,
     ),
 }
 

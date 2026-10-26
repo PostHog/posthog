@@ -82,8 +82,9 @@ class TitleGeneratorNode(AssistantNode):
 
     def _build_model(self, *, max_completion_tokens: int, topic_classification: bool) -> MaxChatOpenAI:
         return MaxChatOpenAI(
-            model="gpt-4.1-nano",
-            temperature=0.7,
+            model="gpt-5.6-luna",
+            reasoning_effort="low",
+            # Reasoning tokens count against this cap, so it must leave room above the short title.
             max_completion_tokens=max_completion_tokens,
             user=self._user,
             team=self._team,
@@ -96,10 +97,10 @@ class TitleGeneratorNode(AssistantNode):
 
     @property
     def _model(self):
-        return self._build_model(max_completion_tokens=100, topic_classification=False)
+        return self._build_model(max_completion_tokens=1024, topic_classification=False)
 
     @property
     def _topic_model(self):
-        return self._build_model(max_completion_tokens=200, topic_classification=True).with_structured_output(
+        return self._build_model(max_completion_tokens=2048, topic_classification=True).with_structured_output(
             TitleAndTopic, method="json_schema", include_raw=False
         )

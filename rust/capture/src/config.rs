@@ -5,20 +5,17 @@ use envconfig::Envconfig;
 use tracing::Level;
 
 use crate::producers::ProducerName;
-use crate::v0_request::AiLanePredicate;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
     Recordings,
     Ai,
-    /// Analytics ingestion dedicated to historical backfills (the
-    /// batch-import-worker). Like `Events` for the batch/event paths, but with
-    /// three differences: it never applies the global rate limiter, it drops any
-    /// batch not flagged `historical_migration: true`, and it does not register
-    /// the AI or OTEL routes (those handlers hardcode `historical_migration:
-    /// false` and would bypass both gates). See `applies_global_rate_limit`,
-    /// `requires_historical_migration`, and the router's per-mode arm.
+    /// Analytics ingestion for historical backfills (the batch-import-worker).
+    /// Unlike `Events`, it skips the global rate limiter, drops batches not
+    /// flagged `historical_migration: true`, serves no AI or OTEL routes (their
+    /// handlers hardcode `historical_migration: false`), and has no AI overflow
+    /// lane.
     Import,
 }
 
@@ -48,6 +45,11 @@ impl CaptureMode {
     /// true`. Only `Import` does — it exclusively ingests historical data.
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
+    }
+
+    /// Import has no AI overflow lane: imports must never overflow.
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
     }
 }
 
@@ -231,6 +233,17 @@ pub struct Config {
     /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
     pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
 
+    /// Redis clusters the per-(token, distinct_id) limiter shards its keys across: `1` uses
+    /// `global_rate_limit_redis_url` only, `2` adds the shard 1 URLs. The AI byte limiter always uses the first.
+    #[envconfig(default = "1")]
+    pub global_rate_limit_redis_shards: usize,
+
+    /// Writer URL of the second limiter cluster. Capture connects to it only when `global_rate_limit_redis_shards` is 2.
+    pub global_rate_limit_redis_shard_1_url: Option<String>,
+
+    /// Replica URL of the second limiter cluster, used like `global_rate_limit_redis_reader_url`.
+    pub global_rate_limit_redis_shard_1_reader_url: Option<String>,
+
     /// Redis key holding the dynamic custom per-key rate-limit thresholds
     /// (JSON object of `{key: threshold}`), written by Django. When set, the
     /// per-(token, distinct_id) limiter refreshes its custom thresholds from
@@ -260,6 +273,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
+
+    /// Builds the AI lane's overflow limiter when `overflow_enabled` is also
+    /// set. Restriction overflow does not need it.
+    #[envconfig(default = "false")]
+    pub ai_events_overflow_enabled: bool,
 
     #[envconfig(default = "false")]
     pub overflow_preserve_partition_locality: bool,
@@ -300,7 +318,7 @@ pub struct Config {
     #[envconfig(default = "capture")]
     pub otel_service_name: String,
 
-    // Used for integration tests
+    /// Install the Prometheus recorder and the limiters' metric tasks.
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
     pub redis_key_prefix: Option<String>,
@@ -370,12 +388,6 @@ pub struct Config {
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
-    /// AI lane membership: `allowlist` (exact `AI_EVENT_NAMES`) or `prefix` (any `$ai_*`).
-    /// Set `prefix` only once the environment's AI ingestion pipeline admits by prefix,
-    /// or it DLQs every unlisted `$ai_*` name capture diverts.
-    #[envconfig(from = "CAPTURE_AI_LANE_PREDICATE", default = "allowlist")]
-    pub ai_lane_predicate: AiLanePredicate,
-
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
@@ -401,12 +413,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 
-    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
-    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
-    /// Empty string means the v1 sink layer is disabled.
-    #[envconfig(default = "")]
-    pub capture_v1_sinks: String,
-
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
     #[envconfig(default = "10485760")]
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -420,14 +426,10 @@ pub struct Config {
     pub capture_v1_scatter_gather_min_batch: usize,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
-    // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic, by default on the main event
-    // cluster: absent the warnings-cluster overrides below, the producer
-    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
-    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
-    // acks/retries and a small queue, so a saturated or slow warnings topic
-    // can never behave like — or contend with — the main event producer.
-    // Defaults off (fail open).
+    // Warnings go out as `$$client_ingestion_warning` events through a
+    // dedicated `common_kafka::config::KafkaConfig` with fire-and-forget
+    // acks/retries and a small queue, so a slow warnings topic cannot contend
+    // with the main event producer. Defaults off (fail open).
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
 
@@ -578,9 +580,9 @@ pub struct OutputsConfig {
     pub dlq_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
     pub dlq_producer: ProducerName,
-    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiMain`) pipelines
     /// divert AI events here instead of the main topic on every deployment,
-    /// capture-ai included. Setup also injects it into every v1 sink config.
+    /// capture-ai included.
     #[envconfig(
         from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
         default = "events_plugin_ingestion_ai"
@@ -588,12 +590,11 @@ pub struct OutputsConfig {
     pub ai_main_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
     pub ai_main_producer: ProducerName,
-    /// Unset means AI events never overflow. When set, the AI lane uses the
-    /// analytics main lane's overflow limiter and restriction-driven
-    /// force_overflow, and reroutes here. Import mode refuses it at boot
-    /// because imports must never overflow.
-    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC")]
-    pub ai_overflow_topic: Option<String>,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_ai_overflow"
+    )]
+    pub ai_overflow_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
     pub ai_overflow_producer: ProducerName,
     /// Carries event-restriction redirects to an admin-supplied topic.
@@ -670,7 +671,6 @@ pub struct KafkaConfig {
 mod tests {
     use super::{CaptureMode, Config};
     use crate::producers::ProducerName;
-    use crate::v0_request::AiLanePredicate;
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -686,7 +686,11 @@ mod tests {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
         assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
-        assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.ai_overflow_topic,
+            "events_plugin_ingestion_ai_overflow"
+        );
+        assert!(!config.ai_events_overflow_enabled);
         assert_eq!(
             config.outputs.session_replay_main_topic,
             "session_recording_snapshot_item_events"
@@ -708,7 +712,7 @@ mod tests {
     #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
     #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
     #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
-    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone().unwrap_or_default())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone())]
     fn topic_env_var_binds_to_its_field(
         #[case] env_var: &str,
         #[case] field: fn(&Config) -> String,
@@ -746,7 +750,7 @@ mod tests {
             outputs.error_tracking_topic.as_str(),
             outputs.dlq_topic.as_str(),
             outputs.ai_main_topic.as_str(),
-            outputs.ai_overflow_topic.as_deref().unwrap_or_default(),
+            outputs.ai_overflow_topic.as_str(),
         ];
         assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
     }
@@ -784,26 +788,6 @@ mod tests {
             super::EnvelopeCompression::Lz4
         );
         assert!(config.outputs_completeness_check_enabled);
-    }
-
-    #[test]
-    fn ai_lane_predicate_binds_to_its_env_var_and_defaults_to_allowlist() {
-        // Unset must mean `allowlist` so the toggle is a no-op until an env opts in.
-        let config: Config =
-            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Allowlist);
-
-        let mut env = required_config_env();
-        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "prefix".into());
-        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(config.ai_lane_predicate, AiLanePredicate::Prefix);
-
-        env.insert("CAPTURE_AI_LANE_PREDICATE".into(), "everything".into());
-        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
-        assert!(
-            bad.is_err(),
-            "an unknown predicate must fail startup, not silently fall back"
-        );
     }
 
     #[test]

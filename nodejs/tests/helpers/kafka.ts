@@ -31,6 +31,7 @@ import {
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
+    KAFKA_REALTIME_ONLY_EVENTS_JSON,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '~/common/config/kafka-topics'
 
@@ -103,6 +104,7 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
+    KAFKA_REALTIME_ONLY_EVENTS_JSON,
 ]
 
 // Builds a unique topic name for a test so each test can produce to and consume from an
@@ -124,4 +126,32 @@ export async function ensureKafkaTopics(
     const client = AdminClient.create(kafkaConfig)
     await createTopicsWithClient(client, topics)
     client.disconnect()
+}
+
+/**
+ * Delete topics a test created for itself, per-test or per-run names only:
+ * a shared topic deleted here pulls the output out from under whatever else
+ * is mid-test. A local broker has a partition budget, so topics left behind
+ * eventually stop every suite from creating more.
+ */
+export async function deleteKafkaTopics(
+    topics: string[],
+    extraServerConfig?: Partial<PluginsServerConfig>
+): Promise<void> {
+    const client = AdminClient.create(buildKafkaConfig(extraServerConfig))
+    try {
+        for (const topic of topics) {
+            await new Promise<void>((resolve, reject) => {
+                client.deleteTopic(topic, 10_000, (error: LibrdKafkaError) => {
+                    if (error && error.code !== CODES.ERRORS.ERR_UNKNOWN_TOPIC_OR_PART) {
+                        reject(error)
+                    } else {
+                        resolve()
+                    }
+                })
+            })
+        }
+    } finally {
+        client.disconnect()
+    }
 }

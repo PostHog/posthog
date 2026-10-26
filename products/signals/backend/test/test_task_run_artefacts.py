@@ -3,12 +3,15 @@ from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
+from django.db import transaction
+
 from parameterized import parameterized
 
 from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import (
+    ArtefactAttribution,
     SignalActorKind,
     SignalReport,
     SignalReportArtefact,
@@ -16,7 +19,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
-from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments
+from products.signals.backend.report_assignments import create_claim, sync_task_pull_request_to_assignments
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -29,8 +32,11 @@ from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    ReportTaskCapExceeded,
     aappend_task_run_artefact,
     append_task_run_artefact,
+    enforce_report_implementation_rerun_cap,
+    enforce_report_task_cap,
     record_implementation_task,
     release_quota_cancelled_implementation,
     signals_task_ids,
@@ -179,6 +185,55 @@ class TestTaskRunArtefacts(BaseTest):
         # Idempotent on the gate row for the same task — re-recording doesn't duplicate the link.
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+
+    def test_claimer_starts_implementation_under_their_own_claim(self):
+        report = self._report()
+        claimer = self._create_user("claimer@example.com")
+        create_claim(report, ArtefactAttribution.from_user(claimer.id))
+
+        with transaction.atomic():
+            enforce_report_task_cap(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+                created_by_id=claimer.id,
+            )
+            task = Task.objects.create(
+                team=self.team,
+                title="task",
+                description="desc",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                created_by=claimer,
+            )
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+            enforce_report_implementation_rerun_cap(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(task.id)
+            )
+
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == SignalActorKind.USER
+        assert assignment.actor_user_id == claimer.id
+        task_run = SignalReportArtefact.objects.get(report=report, type="task_run", task_id=task.id)
+        assert task_run.claim_id == assignment.claim_id
+
+    def test_person_claim_blocks_implementation_started_by_someone_else(self):
+        report = self._report()
+        claimer = self._create_user("claimer@example.com")
+        other = self._create_user("other@example.com")
+        create_claim(report, ArtefactAttribution.from_user(claimer.id))
+
+        with transaction.atomic(), self.assertRaises(ReportTaskCapExceeded):
+            enforce_report_task_cap(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+                created_by_id=other.id,
+            )
+
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_user_id == claimer.id
 
     @parameterized.expand([(False,), (True,)])
     def test_task_run_pr_is_linked_to_the_claim(self, attach_after_merge):
