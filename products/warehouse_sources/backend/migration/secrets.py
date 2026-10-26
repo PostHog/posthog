@@ -14,8 +14,10 @@ _SECRET_KEY_PARTS = (
     "dsn",
     "credential",
 )
-# Any key that ends in "key" is a secret (`sasl_plain_key`, `account_key`), except these.
-_NON_SECRET_KEYS = frozenset({"publickey", "primarykey", "partitionkey", "sortkey"})
+# Any key that ends in "key" or "keys" is a secret (`sasl_plain_key`, `api_keys`), except these.
+_NON_SECRET_KEYS = frozenset(
+    {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
+)
 # A URL with a password in it: `scheme://user:password@host`.
 _URL_WITH_PASSWORD = re.compile(r"://[^/@\s]+:[^/@\s]+@")
 
@@ -24,7 +26,7 @@ def is_secret_key(key: str) -> bool:
     normalized = re.sub(r"[_\-]", "", key.lower())
     if normalized.startswith("auth"):
         return True
-    if normalized.endswith("key") and normalized not in _NON_SECRET_KEYS:
+    if normalized.endswith(("key", "keys")) and normalized not in _NON_SECRET_KEYS:
         return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
