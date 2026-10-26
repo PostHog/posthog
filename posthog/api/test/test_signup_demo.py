@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib import auth
 from django.test import override_settings
@@ -85,7 +85,7 @@ class TestDemoSignupAPI(APIBaseTest):
         self.tearDown()
 
     @patch("products.demo.backend.facade.api.MatrixManager.run_on_team")
-    def test_social_signup_give_staff_privileges(self, *args):
+    def test_social_signup_give_staff_privileges(self, mock_run_on_team: MagicMock):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
 
@@ -119,6 +119,7 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
         assert user.is_staff is True
+        mock_run_on_team.assert_called_once_with(user.team, user)
 
     def test_social_login_give_staff_privileges(self, *args):
         assert not User.objects.exists()

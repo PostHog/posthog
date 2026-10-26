@@ -841,7 +841,7 @@ class TestBillingAPI(APILicensedTest):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
 
-        demo_team = Team.objects.filter(is_demo=True).first()
+        demo_team = Team.objects.get(organization=self.organization, is_demo=True)
 
         # We create some events for the demo project
         with self.settings(USE_TZ=False):
