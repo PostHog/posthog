@@ -17,6 +17,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
@@ -73,6 +74,7 @@ export function MetricsTab(): JSX.Element {
         approveMetric,
         refreshMetricFromInsight,
         deleteMetric,
+        setMetricOwner,
         bulkApproveMetrics,
         bulkDeleteMetrics,
     } = useActions(metricsLogic)
@@ -177,7 +179,14 @@ export function MetricsTab(): JSX.Element {
         {
             title: 'Owner',
             key: 'owner',
-            render: (_, metric) => metric.owner || <span className="text-secondary">Unassigned</span>,
+            render: (_, metric) => (
+                <MetricOwnerSelect
+                    owner={metric.owner}
+                    loading={!!actionsInFlight[metric.name]}
+                    disabledReason={bulkBusyReason}
+                    onChange={(owner) => setMetricOwner(metric.name, owner)}
+                />
+            ),
             sorter: (a, b) => compareText(a.owner, b.owner),
         },
         createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number],

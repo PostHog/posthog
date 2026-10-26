@@ -422,7 +422,10 @@ def update_metric(
         team=team,
         user=user,
         request=request,
-        extra={"renamed_from": renamed_from} if renamed_from else None,
+        extra={
+            "updated_fields": sorted(fields),
+            **({"renamed_from": renamed_from} if renamed_from else {}),
+        },
     )
     return metric
 

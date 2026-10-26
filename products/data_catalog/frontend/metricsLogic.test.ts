@@ -14,6 +14,7 @@ import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsDestroy,
     dataCatalogMetricsList,
+    dataCatalogMetricsPartialUpdate,
 } from './generated/api'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 import { metricsLogic } from './metricsLogic'
@@ -60,6 +61,7 @@ jest.mock('./generated/api', () => ({
     dataCatalogMetricsDestroy: jest.fn(),
     dataCatalogMetricsBulkApproveCreate: jest.fn(),
     dataCatalogMetricsBulkDeleteCreate: jest.fn(),
+    dataCatalogMetricsPartialUpdate: jest.fn(),
 }))
 
 function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
@@ -101,6 +103,20 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.allMetrics[0].status).toEqual('approved')
+    })
+
+    it('saves the new owner and replaces the row with the response', async () => {
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
+            buildMetric({ owner: 'rose.dawson@posthog.com' })
+        )
+
+        logic.actions.setMetricOwner('weekly_active_users', 'rose.dawson@posthog.com')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsPartialUpdate).toHaveBeenCalledWith('1', 'weekly_active_users', {
+            owner: 'rose.dawson@posthog.com',
+        })
+        expect(logic.values.allMetrics[0].owner).toEqual('rose.dawson@posthog.com')
     })
 
     it('leaves the row untouched and surfaces refresh when approve returns 409', async () => {
