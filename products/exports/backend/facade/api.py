@@ -344,6 +344,8 @@ def query_with_reference_lines(query: dict[str, Any], reference_lines: list[dict
         "FunnelsQuery": "funnelsFilter",
         "RetentionQuery": "retentionFilter",
         "DataVisualizationNode": "chartSettings",
+        "BIVisualizationNode": "chartSettings",
+        "MetricsQuery": "display",
     }.get(target.get("kind", ""))
     if settings_key is None:
         return query

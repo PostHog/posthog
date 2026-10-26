@@ -98,6 +98,16 @@ class TestValidateAdhocExportContext(SimpleTestCase):
                 "retentionFilter",
             ),
             (
+                "bi",
+                {"kind": "BIVisualizationNode", "chartSettings": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "chartSettings",
+            ),
+            (
+                "metrics",
+                {"kind": "MetricsQuery", "display": {"goalLines": [{"label": "Target", "value": 100}]}},
+                "display",
+            ),
+            (
                 "sql",
                 {"kind": "DataVisualizationNode", "chartSettings": {"goalLines": [{"label": "Target", "value": 100}]}},
                 "chartSettings",

@@ -164,3 +164,26 @@ EditSceneViewports.parameters = {
     },
 }
 EditSceneViewports.play = waitForFunnelToStabilize
+
+export const AlertThresholds: Story = {
+    render: () => (
+        <StoryRender
+            insightFixture={{
+                ...funnelTopToBottomFixture,
+                query: {
+                    ...funnelTopToBottomFixture.query,
+                    source: {
+                        ...funnelTopToBottomFixture.query.source,
+                        funnelsFilter: {
+                            ...funnelTopToBottomFixture.query.source.funnelsFilter,
+                            goalLines: [
+                                { label: 'Upper threshold', value: 80, borderColor: '#d14343' },
+                                { label: 'Lower threshold', value: 20, borderColor: '#d14343' },
+                            ],
+                        },
+                    },
+                },
+            }}
+        />
+    ),
+}
