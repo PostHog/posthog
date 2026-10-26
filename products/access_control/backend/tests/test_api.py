@@ -11,6 +11,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from products.access_control.backend.facade import contracts
 from products.access_control.backend.facade.api import (
     InvalidObjectAccessControlError,
+    bulk_set_object_access_controls,
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
     role_belongs_to_organization,
@@ -110,6 +111,71 @@ class TestSetObjectAccessControl(BaseTest):
             self._grant("viewer", organization_member_id=None)
         with pytest.raises(ValueError):
             self._grant("viewer", role_id=role.id)
+
+    @parameterized.expand([("member",), ("role",)])
+    def test_bulk_rules_preserve_access_and_audit(self, subject: str) -> None:
+        role = Role.objects.create(name="Support", organization=self.organization)
+        RoleMembership.objects.create(user=self.other_user, role=role)
+        for level in ("viewer", "editor", "editor", None, None):
+            bulk_set_object_access_controls(
+                team_id=self.team.id,
+                inputs=[
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level=level,
+                        created_by_id=self.user.id,
+                        organization_member_id=self.other_membership.id if subject == "member" else None,
+                        role_id=role.id if subject == "role" else None,
+                    )
+                ],
+            )
+            assert self._other_user_level() == (level or "none")
+        logs = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+            ).order_by("created_at")
+        )
+        assert [log.activity for log in logs] == ["created", "updated", "deleted"]
+        assert len({log.item_id for log in logs}) == 1
+        detail = logs[1].detail
+        assert detail is not None
+        assert detail["changes"] == [
+            {
+                "type": "AccessControl",
+                "field": "access_level",
+                "action": "changed",
+                "before": "viewer",
+                "after": "editor",
+            }
+        ]
+
+    @parameterized.expand([("member",), ("role",)])
+    def test_bulk_rules_reject_foreign_subject_before_writing(self, subject: str) -> None:
+        other_org = Organization.objects.create(name="Other organization")
+        outsider = User.objects.create_and_join(other_org, "outside@example.com", "testtest")
+        member = OrganizationMembership.objects.get(user=outsider, organization=other_org)
+        role = Role.objects.create(name="Other role", organization=other_org)
+        with pytest.raises(InvalidObjectAccessControlError):
+            bulk_set_object_access_controls(
+                team_id=self.team.id,
+                inputs=[
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level="editor",
+                        organization_member_id=self.other_membership.id,
+                    ),
+                    contracts.SetObjectAccessControlInput(
+                        resource="dashboard",
+                        resource_id=str(self.dashboard.id),
+                        access_level="editor",
+                        organization_member_id=member.id if subject == "member" else None,
+                        role_id=role.id if subject == "role" else None,
+                    ),
+                ],
+            )
+        assert not AccessControl.objects.filter(team=self.team, resource_id=str(self.dashboard.id)).exists()
 
 
 class TestEveryMemberHasResourceAccess(BaseTest):
