@@ -106,7 +106,9 @@ Then run the flow from `products/mobile`, because Argent looks for `.argent/flow
 argent flow run demo-smoke --platform ios
 ```
 
-A pass takes about 30 seconds, prints one line per step, and exits with code 0.
+A pass prints one line per step and exits with code 0. Locally, `demo-smoke` took about 49 seconds and
+`views-smoke` about 80 seconds on Xcode 27.1 / iOS 27.0. A fresh native compile took about 8 minutes,
+with simulator setup adding more time. CI uses Xcode 26.6 / iOS 26.5; hosted-runner timing has not been measured.
 If more than one simulator is booted, add `--device <udid>` (see `xcrun simctl list devices booted`).
 
 Two `idle` steps can warn that a small part of the screen was still changing, such as the text caret.
