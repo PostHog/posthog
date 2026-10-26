@@ -237,7 +237,9 @@ def hydrate_for_serialization(
         .prefetch_related(
             models.Prefetch(
                 "media",
-                queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
+                queryset=ReplayObservationMedia.objects.unscoped()
+                .select_related("asset", "small_asset")
+                .order_by("kind", "position"),
             )
         )
         .annotate(
