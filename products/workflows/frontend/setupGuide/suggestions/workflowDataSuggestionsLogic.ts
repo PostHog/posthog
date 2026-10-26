@@ -43,6 +43,8 @@ const BUILD_FAILED_MESSAGE = "We couldn't build this workflow. Try again, or sta
 
 // pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
 export type WorkflowDataSuggestionsSurface = 'empty_state' | 'onboarding_wizard' | 'email_domain_wizard'
+// pinned: analytics property values. Where the cards show, on a surface that shows them in more than one step.
+export type WorkflowDataSuggestionsPlacement = 'verifying' | 'ready'
 
 export interface WorkflowDataSuggestionsLogicProps {
     surface: WorkflowDataSuggestionsSurface
@@ -94,14 +96,22 @@ export interface workflowDataSuggestionsLogicActions {
         aiResult: DataSuggestionsResponseApi | null
         payload?: any
     }
-    reportCardsShown: (shownSuggestionIds?: string[]) => {
+    reportCardsShown: (
+        shownSuggestionIds?: string[],
+        placement?: WorkflowDataSuggestionsPlacement
+    ) => {
         shownSuggestionIds: string[] | undefined
+        placement: WorkflowDataSuggestionsPlacement | undefined
     }
     setBuildingKey: (key: string | null) => {
         key: string | null
     }
-    startSuggestion: (card: SuggestionCard) => {
+    startSuggestion: (
+        card: SuggestionCard,
+        placement?: WorkflowDataSuggestionsPlacement
+    ) => {
         card: SuggestionCard
+        placement: WorkflowDataSuggestionsPlacement | undefined
     }
 }
 
@@ -143,8 +153,11 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     actions({
         giveUpPolling: true,
         // Without ids every loaded suggestion counts as shown.
-        reportCardsShown: (shownSuggestionIds?: string[]) => ({ shownSuggestionIds }),
-        startSuggestion: (card: SuggestionCard) => ({ card }),
+        reportCardsShown: (shownSuggestionIds?: string[], placement?: WorkflowDataSuggestionsPlacement) => ({
+            shownSuggestionIds,
+            placement,
+        }),
+        startSuggestion: (card: SuggestionCard, placement?: WorkflowDataSuggestionsPlacement) => ({ card, placement }),
         setBuildingKey: (key: string | null) => ({ key }),
     }),
     reducers({
@@ -225,7 +238,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
         }
         return {
             // The logic can load before its cards are on screen, so the component that renders them reports the view.
-            reportCardsShown: ({ shownSuggestionIds }) => {
+            reportCardsShown: ({ shownSuggestionIds, placement }) => {
                 const aiResult = values.aiResult
                 const shown =
                     aiResult?.status === 'ready'
@@ -237,6 +250,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestions shown', {
                         surface: props.surface,
+                        ...(placement ? { placement } : {}),
                         source: shown.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
                         trigger_events: shown.map((suggestion) => suggestion.trigger_event),
                         stages: shown.map((suggestion) => suggestion.stage),
@@ -248,13 +262,14 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 handleResult(aiResult)
             },
             pollAiResultSuccess: ({ aiResult }) => handleResult(aiResult),
-            startSuggestion: async ({ card }, breakpoint) => {
+            startSuggestion: async ({ card, placement }, breakpoint) => {
                 if (values.buildingKey) {
                     return
                 }
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestion clicked', {
                     surface: props.surface,
+                    ...(placement ? { placement } : {}),
                     source: card.premade ? 'premade' : 'ai',
                     trigger_event: card.triggerEvent,
                     weekly_count: card.weeklyCount,
