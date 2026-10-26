@@ -169,8 +169,8 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. With `version`, a change made after that read
-            returns 409: read the flag again and decide against its current state.
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
 
 
             A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
@@ -228,8 +228,8 @@ tools:
 
 
             Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
-            first and send its current `version`; never guess it. With `version`, a change made after that read
-            returns 409: read the flag again and decide against its current state.
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
 
 
             Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
