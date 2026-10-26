@@ -131,6 +131,39 @@ describe('AddWidgetModal', () => {
         expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
     })
 
+    it('offers metric presets only with the metrics and insight builder flags, and adds the picked preset as a metrics widget', async () => {
+        const onAdd = jest.fn().mockResolvedValue(undefined)
+        renderAddWidgetModal({ onAdd })
+        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+        renderAddWidgetModal({ onAdd })
+        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.METRICS]: true,
+            [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+        })
+        renderAddWidgetModal({ onAdd })
+        expect(['Time series', 'Single stat', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))).toEqual([
+            true,
+            true,
+            true,
+        ])
+
+        await userEvent.click(screen.getByLabelText('Single stat'))
+        await userEvent.click(screen.getByTestId('add-widget-submit'))
+
+        expect(onAdd).toHaveBeenCalledWith([
+            {
+                widgetType: 'metrics',
+                config: { query: expect.objectContaining({ kind: 'MetricsQuery', display: { type: 'stat' } }) },
+            },
+        ])
+    })
+
     it('submits all selected widget types', async () => {
         const onAdd = jest.fn().mockResolvedValue(undefined)
         const onClose = jest.fn()

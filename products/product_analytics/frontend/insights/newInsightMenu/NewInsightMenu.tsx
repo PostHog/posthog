@@ -5,7 +5,6 @@ import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,11 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import {
-    INSIGHT_TYPES_METADATA,
-    QUERY_TYPES_METADATA,
-    isInsightTypeCreatable,
-} from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA, isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -160,20 +155,8 @@ const AI_CARD: NewInsightCardSpec = {
     dataAttr: 'new-insight-menu-ai',
 }
 
-const METRICS_CARD: NewInsightCardSpec = {
-    key: 'metrics',
-    name: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name,
-    description: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].description ?? '',
-    icon: QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon,
-    sketch: GenericInsightSketch,
-    to: urls.insightNew({ type: InsightType.METRICS }),
-    dataAttr: 'new-insight-menu-metrics',
-    onClick: () => eventUsageLogic.actions.reportSavedInsightNewInsightClicked(InsightType.METRICS),
-}
-
 function useNewInsightCards(): {
     ai: NewInsightCardSpec
-    metrics?: NewInsightCardSpec
     byType: Partial<Record<InsightType, NewInsightCardSpec>>
 } {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -195,9 +178,7 @@ function useNewInsightCards(): {
         }
         byType[insightType as InsightType] = spec
     }
-    const metricsEnabled =
-        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
-    return { ai: AI_CARD, metrics: metricsEnabled ? METRICS_CARD : undefined, byType }
+    return { ai: AI_CARD, byType }
 }
 
 function NewInsightCard({
@@ -251,7 +232,6 @@ const SHORT_CARD_DESCRIPTIONS: Record<string, string> = {
     [InsightType.JOURNEYS]: 'The steps users take and where they stop.',
     [InsightType.SQL]: 'Query your data with SQL.',
     [InsightType.HOG]: 'Query your data with Hog.',
-    metrics: 'Chart service metrics over time.',
     ai: 'Describe an insight and let AI build it.',
 }
 
@@ -262,7 +242,7 @@ interface QuestionSection {
 }
 
 function useQuestionSections(): QuestionSection[] {
-    const { ai, metrics, byType } = useNewInsightCards()
+    const { ai, byType } = useNewInsightCards()
     const sections: { title: string; description: string; cards: (NewInsightCardSpec | undefined)[] }[] = [
         {
             title: 'How does it change over time?',
@@ -292,7 +272,7 @@ function useQuestionSections(): QuestionSection[] {
         {
             title: 'Build your own',
             description: 'Write SQL against your data, or let AI build it.',
-            cards: [byType[InsightType.SQL], byType[InsightType.HOG], metrics, ai],
+            cards: [byType[InsightType.SQL], byType[InsightType.HOG], ai],
         },
     ]
     return sections.map((section) => ({

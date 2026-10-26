@@ -1,4 +1,4 @@
-import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
+import { getDashboardWidgetPickerItem } from '../widget_types/catalog'
 
 export type AddWidgetPayload = {
     widgetType: string
@@ -22,15 +22,16 @@ export function getAddWidgetDisabledReason(loading: boolean | undefined, selecte
     return undefined
 }
 
-export function buildAddWidgetPayloads(selectedTypes: Iterable<string>): AddWidgetPayload[] {
+/** Builds one tile per selected picker key: a widget type, or `<widget type>:<preset id>` for a preset card. */
+export function buildAddWidgetPayloads(selectedKeys: Iterable<string>): AddWidgetPayload[] {
     const payloads: AddWidgetPayload[] = []
 
-    for (const widgetType of selectedTypes) {
-        const catalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
-        if (!catalogEntry || ('hideFromPicker' in catalogEntry && catalogEntry.hideFromPicker)) {
+    for (const key of selectedKeys) {
+        const item = getDashboardWidgetPickerItem(key)
+        if (!item) {
             continue
         }
-        payloads.push({ widgetType, config: catalogEntry.defaultConfig })
+        payloads.push({ widgetType: item.widgetType, config: item.defaultConfig })
     }
 
     return payloads

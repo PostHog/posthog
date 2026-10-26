@@ -6433,6 +6433,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -6446,6 +6447,7 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics"
         | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
@@ -6628,6 +6630,105 @@ export namespace Schemas {
         orderDirection: "ASC" | "DESC";
         limit: number;
     }>;
+    export type MetricsAggregation =
+        | "sum"
+        | "avg"
+        | "count"
+        | "min"
+        | "max"
+        | "quantile"
+        | "rate"
+        | "increase"
+        | "histogram_quantile";
+    export type MetricsQueryGroupBy = {
+        key: string;
+        scope?: (MetricsAttributeScope | null) | undefined;
+    };
+    export type MetricsOtelType =
+        | "gauge"
+        | "sum"
+        | "histogram"
+        | "exponential_histogram"
+        | "summary";
+    export type MetricsRangeFunction = "rate" | "increase";
+    export type MetricsQueryClause = {
+        aggregation?: (MetricsAggregation | null) | undefined;
+        filters?: (Array<MetricsQueryFilter> | null) | undefined;
+        groupBy?: (Array<MetricsQueryGroupBy> | null) | undefined;
+        metricName: string;
+        metricType?: (MetricsOtelType | null) | undefined;
+        /**
+         * Alias a formula refers to (e.g. "a"); must be unique within the query
+         */
+        name: string;
+        quantile?: (number | null) | undefined;
+        rangeFunction?: (MetricsRangeFunction | null) | undefined;
+    };
+    export type MetricsReducer =
+        | "last"
+        | "mean"
+        | "min"
+        | "max"
+        | "sum"
+        | "delta";
+    export type MetricsNullMode = "gap" | "zero" | "connect";
+    export type MetricsStatSummary = "latest" | "average" | "total";
+    export type MetricsThreshold = {
+        /**
+         * A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work.
+         */
+        color: string;
+        /**
+         * Lower bound of this band. The lowest step is the base color below every other step.
+         */
+        value: number;
+    };
+    export type MetricsDisplayType =
+        | "line"
+        | "area"
+        | "bar"
+        | "stat"
+        | "gauge"
+        | "bargauge"
+        | "table"
+        | "heatmap";
+    export type MetricsAxisScale = "linear" | "log";
+    export type MetricsYAxisSettings = Partial<{
+        max: number | null;
+        min: number | null;
+        scale: MetricsAxisScale | null;
+        startAtZero: boolean | null;
+    }>;
+    export type MetricsDisplaySettings = Partial<{
+        goalLines: Array<GoalLine> | null;
+        legendCalcs: Array<MetricsReducer> | null;
+        nullMode: MetricsNullMode | null;
+        reduce: MetricsReducer | null;
+        statSummary: MetricsStatSummary | null;
+        thresholds: Array<MetricsThreshold> | null;
+        type: MetricsDisplayType | null;
+        unit: string | null;
+        yAxis: MetricsYAxisSettings | null;
+    }>;
+    export type MetricsQueryLanguage = "builder" | "promql" | "sql";
+    /**
+     * A `MetricsQuery` as a metrics widget stores it.
+     *
+     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
+     */
+    export type MetricsWidgetQuery = Partial<{
+        clauses: Array<MetricsQueryClause>;
+        dateRange: DateRange | null;
+        display: MetricsDisplaySettings | null;
+        formula: string | null;
+        interval: string | null;
+        kind: string;
+        language: MetricsQueryLanguage | null;
+        promql: string | null;
+        sql: string | null;
+        version: number | null;
+    }>;
+    export type MetricsWidgetConfig = Partial<{ query: MetricsWidgetQuery }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6639,7 +6740,8 @@ export namespace Schemas {
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
         | CanvasAppWidgetConfig
-        | MetricsTableWidgetConfig;
+        | MetricsTableWidgetConfig
+        | MetricsWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
         widget_type: DashboardWidgetTypeEnum;

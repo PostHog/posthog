@@ -24,7 +24,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
+from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, DashboardWidgetType
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -1103,14 +1103,25 @@ class TestDashboardWidgets(APIBaseTest):
         assert properties["current_count"] == 19
         assert properties["crossing_threshold"] is True
 
+    @parameterized.expand(
+        [
+            ("conversations_recent_tickets", {"limit": 10, "search": "sensitive ticket text"}, "search"),
+            (
+                "metrics",
+                {"query": {"kind": "MetricsQuery", "clauses": [], "language": "sql", "sql": "SELECT 1"}},
+                "query",
+            ),
+        ]
+    )
     @override_settings(IN_UNIT_TESTING=True)
-    def test_shared_dashboard_tile_serializer_omits_widget_payload(self) -> None:
+    def test_shared_dashboard_tile_serializer_omits_widget_payload(
+        self, widget_type: DashboardWidgetType, config: dict, private_key: str
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id,
-            widget_type="conversations_recent_tickets",
-            config={"limit": 10, "search": "sensitive ticket text"},
-        )
+        with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True):
+            _, dashboard_json = self.dashboard_api.create_widget_tile(
+                dashboard_id, widget_type=widget_type, config=config
+            )
         tile = DashboardTile.objects.get(id=dashboard_json["tiles"][0]["id"])
 
         class ViewShim:
@@ -1125,9 +1136,9 @@ class TestDashboardWidgets(APIBaseTest):
         shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
         assert shared_widget is not None
         assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
-        assert shared_widget["widget_type"] == "conversations_recent_tickets"
-        assert shared_widget["config"]["limit"] == 10
-        assert "search" not in shared_widget["config"]
+        assert shared_widget["widget_type"] == widget_type
+        assert private_key in full_widget["config"]
+        assert private_key not in shared_widget["config"]
 
 
 class TestDashboardWidgetsBatchUpdate(APIBaseTest):

@@ -116,6 +116,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         canEditDashboard,
         widgetResultsByTileId,
         widgetRefreshStatus,
+        widgetEditorTileId,
         scrollToBottomSignal,
         sizeKey,
         tileGroupSectionsEnabled,
@@ -141,6 +142,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         toggleTileGroup,
         updateTileGroupSectionLayout,
         moveTileToSection,
+        setWidgetEditorTileId,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -721,6 +723,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
                     loading={!!refreshState?.loading}
                     lastFetchedAt={refreshState?.fetchedAt}
+                    openEditorOnMount={widgetEditorTileId === tile.id}
+                    onEditorClose={widgetEditorTileId === tile.id ? () => setWidgetEditorTileId(null) : undefined}
                     onRefresh={tileActions.refreshWidget}
                     onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                     onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}

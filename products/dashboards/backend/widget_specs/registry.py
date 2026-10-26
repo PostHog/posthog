@@ -7,6 +7,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import DashboardFilter
+
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
@@ -17,6 +19,7 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
     METRICS_TABLE_WIDGET_TYPE,
+    METRICS_WIDGET_TYPE,
     NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
@@ -28,6 +31,7 @@ from products.dashboards.backend.widget_specs.configs import (
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
     MetricsTableWidgetConfig,
+    MetricsWidgetConfig,
     NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
@@ -46,6 +50,7 @@ DashboardWidgetType = Literal[
     "conversations_recent_tickets",
     "canvas_app",
     "metrics_table",
+    "metrics",
 ]
 
 __all__ = [
@@ -91,8 +96,24 @@ class WidgetSpec:
     # Grid size of a new tile, in columns (of 12) and rows. The frontend catalog `defaultLayout` must match.
     default_width: int = 6
     default_height: int = 5
+    # The DashboardFilter keys this widget follows, like an insight tile follows the dashboard filters. When set,
+    # run_widgets passes `dashboard_id`, `dashboard_filters` (only these keys, saved filters merged with the viewer's
+    # override) and `force_refresh` (a manual refresh) to `query_fn`. The frontend reads the keys from the manifest
+    # and refetches the tile only when one of them changes.
+    dashboard_filter_keys: tuple[str, ...] = ()
+    # "shared": every run counts against the shared per-team widget query throttle. "per_viewer": a browser
+    # session counts against a per-viewer chart throttle instead, so dashboards full of chart tiles don't use up
+    # the team's quota for every other widget. API key and OAuth requests always use the shared throttle.
+    session_throttle: Literal["shared", "per_viewer"] = "shared"
+    # Config keys left out of the config that shared and public dashboards receive.
+    public_config_exclude: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        unknown_filter_keys = set(self.dashboard_filter_keys) - set(DashboardFilter.model_fields)
+        if unknown_filter_keys:
+            raise ValueError(
+                f"{self.widget_type}: dashboard_filter_keys not on DashboardFilter: {sorted(unknown_filter_keys)}"
+            )
         if self.is_live:
             forbidden = [field for field in _LIVE_FORBIDDEN_CONFIG_FIELDS if field in self.config_model.model_fields]
             if forbidden:
@@ -134,6 +155,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.metrics import run_metrics_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.metrics_table import run_metrics_table_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
@@ -278,6 +300,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+            public_config_exclude=("search",),
         ),
         CANVAS_APP_WIDGET_TYPE: WidgetSpec(
             widget_type=CANVAS_APP_WIDGET_TYPE,
@@ -313,6 +336,29 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             default_width=DASHBOARD_GRID_COLUMN_COUNT,
             default_height=6,
             creation_flag=METRICS_FEATURE_FLAG,
+        ),
+        METRICS_WIDGET_TYPE: WidgetSpec(
+            widget_type=METRICS_WIDGET_TYPE,
+            config_model=MetricsWidgetConfig,
+            query_fn=run_metrics_widget,
+            required_scopes=("metrics:read",),
+            group_id="metrics",
+            group_label="Metrics",
+            label="Metric",
+            description=(
+                "A service metric as a time series, single stat, gauge, bar gauge, table or heatmap. "
+                "Write the query with the builder, PromQL or SQL."
+            ),
+            required_product_access="metrics",
+            product_access_denied_message="You do not have access to metrics.",
+            availability_requirements=(),
+            form_fields=("query",),
+            filter_fields=(),
+            creation_flag=METRICS_FEATURE_FLAG,
+            dashboard_filter_keys=("date_from", "date_to"),
+            session_throttle="per_viewer",
+            # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
+            public_config_exclude=("query",),
         ),
     }
 
