@@ -9,7 +9,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,6 +17,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardType, SidePanel
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardAiPromptComposer } from './DashboardAiPromptComposer'
+import { dashboardEventsLogic } from './dashboardEventsLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
@@ -47,7 +47,8 @@ function DashboardEmptyActions({
     onAddWidget: () => void
     onOpenAiWithPrompt: (prompt: string) => void
 }): JSX.Element {
-    const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } = useActions(eventUsageLogic)
+    const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } =
+        useActions(dashboardEventsLogic)
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
     const handleAddInsight = (): void => {
         reportDashboardEmptyAddChartClicked(dashboard?.id)

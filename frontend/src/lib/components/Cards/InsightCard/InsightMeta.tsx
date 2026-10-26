@@ -31,6 +31,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { dashboardEventsLogic } from 'scenes/dashboard/dashboardEventsLogic'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
@@ -216,7 +217,8 @@ export function InsightMeta({
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
+    const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
+    const { reportDashboardInsightMetaUpdated } = useActions(dashboardEventsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =

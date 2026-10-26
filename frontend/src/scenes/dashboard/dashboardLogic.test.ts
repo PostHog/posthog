@@ -22,6 +22,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
+import { dashboardEventsLogic } from 'scenes/dashboard/dashboardEventsLogic'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -1605,7 +1606,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
             const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
+                dashboardEventsLogic.actions,
                 'reportDashboardTileDensityConfigured'
             )
             jest.useFakeTimers()
@@ -1636,7 +1637,7 @@ describe('dashboardLogic', () => {
         it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
+                dashboardEventsLogic.actions,
                 'reportDashboardTileDensityConfigured'
             )
             jest.useFakeTimers()
@@ -2992,12 +2993,12 @@ describe('dashboardLogic', () => {
             })
 
             it('reports filter changes separately from layout edit mode entry', async () => {
-                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
+                const reportFiltersChanged = jest.spyOn(dashboardEventsLogic.actions, 'reportDashboardFiltersChanged')
                 const reportLayoutEditEntered = jest.spyOn(
-                    eventUsageLogic.actions,
+                    dashboardEventsLogic.actions,
                     'reportDashboardLayoutEditModeEntered'
                 )
-                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+                const reportModeToggled = jest.spyOn(dashboardEventsLogic.actions, 'reportDashboardModeToggled')
 
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -4476,7 +4477,13 @@ describe('dashboardLogic', () => {
 
         describe('on load', () => {
             it('mounts other logics', async () => {
-                await expectLogic(logic).toMount([dashboardsModel, insightsModel, eventUsageLogic, teamLogic])
+                await expectLogic(logic).toMount([
+                    dashboardsModel,
+                    insightsModel,
+                    eventUsageLogic,
+                    dashboardEventsLogic,
+                    teamLogic,
+                ])
             })
 
             it('fetches dashboard items on mount', async () => {
@@ -5937,7 +5944,7 @@ describe('dashboardLogic', () => {
         it('offers to delete a removed insight and explains its other dashboard usage', async () => {
             const { fireEvent, render } = await import('@testing-library/react')
             const reportDeleteClicked = jest.spyOn(
-                eventUsageLogic.actions,
+                dashboardEventsLogic.actions,
                 'reportDashboardInsightDeleteAfterRemovalClicked'
             )
             const insightTile = logic.values.insightTiles[0]

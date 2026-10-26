@@ -13,13 +13,13 @@ import {
 } from '@posthog/quill'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import { dashboardEventsLogic } from './dashboardEventsLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 // pinned: autocapture data-attrs for the header's Add menu items
@@ -41,7 +41,7 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
+    const { reportDashboardAddMenuOpened } = useActions(dashboardEventsLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null

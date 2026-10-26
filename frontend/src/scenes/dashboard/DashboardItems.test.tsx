@@ -5,7 +5,7 @@ import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { PositionStrategy } from 'react-grid-layout/core'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardEventsLogic } from 'scenes/dashboard/dashboardEventsLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -38,8 +38,11 @@ jest.mock('~/models/insightsModel', () => ({
     insightsModel: { __mock: 'insightsModel' },
 }))
 
+jest.mock('scenes/dashboard/dashboardEventsLogic', () => ({
+    dashboardEventsLogic: { __mock: 'dashboardEventsLogic' },
+}))
+
 jest.mock('lib/utils/eventUsageLogic', () => ({
-    eventUsageLogic: { __mock: 'eventUsageLogic' },
     DashboardEventSource: {
         CardEdgeHover: 'CardEdgeHover',
         CardDragHandle: 'CardDragHandle',
@@ -303,7 +306,7 @@ describe('DashboardItems', () => {
                 }
             }
 
-            if (logic === eventUsageLogic) {
+            if (logic === dashboardEventsLogic) {
                 return {
                     reportDashboardTileRepositioned: jest.fn(),
                 }

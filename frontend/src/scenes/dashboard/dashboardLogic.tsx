@@ -46,20 +46,18 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import {
-    DashboardEventSource,
-    DashboardFilterChangeType,
-    dashboardViewedProperties,
-    eventUsageLogic,
-    sanitizeDashboard,
-    filtersForAnalytics,
-    sanitizeQuery,
-    tileGroupProperties,
-} from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import {
+    DashboardFilterChangeType,
+    dashboardEventsLogic,
+    dashboardViewedProperties,
+    sanitizeDashboard,
+    tileGroupProperties,
+} from 'scenes/dashboard/dashboardEventsLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -1937,7 +1935,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dashboardTileGroupChoicesLogic,
             ['tileGroupChoices'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic, addInsightToDashboardLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, dashboardEventsLogic, addInsightToDashboardLogic],
     })),
 
     props({ id: NaN } as DashboardLogicProps),
@@ -4985,7 +4983,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     data-attr="delete-removed-insight"
                                     className="!m-0"
                                     onClick={() => {
-                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
+                                        dashboardEventsLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
                                             otherDashboardIds.size
                                         )
                                         deleteInsight()
@@ -5126,7 +5124,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, {
                     layoutsPersisted: true,
                 })
-                eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                dashboardEventsLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
@@ -5923,7 +5921,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
-            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            dashboardEventsLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
                 title: 'Discard unsaved changes?',
                 description:
@@ -5932,7 +5930,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     children: 'Discard changes',
                     status: 'danger',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        dashboardEventsLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
                         discard()
                     },
                     'data-attr': 'dashboard-edit-mode-discard-confirm',
@@ -5940,7 +5938,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 secondaryButton: {
                     children: 'Keep editing',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                        dashboardEventsLogic.actions.reportDashboardEditModeDiscardPrompt(
+                            values.dashboard,
+                            'kept_editing'
+                        )
                     },
                 },
             })
@@ -6017,7 +6018,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (editing?.layout) {
-                eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                dashboardEventsLogic.actions.reportDashboardLayoutEditModeEntered(
                     values.dashboard,
                     source,
                     values.layoutEditMode ? values.layoutZoom : null
@@ -6026,7 +6027,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(
+                dashboardEventsLogic.actions.reportDashboardModeToggled(
                     values.dashboard,
                     mode,
                     source,
@@ -6183,7 +6184,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 remainingInsightIds: new Set(values.insightTiles.map((tile) => tile.insight!.short_id)),
             }
             cache.pendingFilterChange = filterChange
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
+            dashboardEventsLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
                 ...properties,
                 filter_change_id: filterChange.id,
                 supersedes_filter_change_id: previousChange?.id,
