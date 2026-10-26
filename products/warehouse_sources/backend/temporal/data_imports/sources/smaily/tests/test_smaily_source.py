@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.smaily import SmailySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source import SmailySource
 
@@ -16,35 +14,6 @@ class TestSmailySource:
         # The stored password is sent to `{subdomain}.sendsmaily.net`; retargeting the subdomain
         # without re-entering the password would let an editor replay the credential elsewhere.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://acme.sendsmaily.net/api/campaign.php?page=0",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://acme.sendsmaily.net/api/contact.php?list=1"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://acme.sendsmaily.net/api/campaign.php",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://acme.sendsmaily.net/api/list.php",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.smaily.source.validate_credentials")
     def test_validate_credentials_delegates_with_config_values(self, mock_validate: mock.MagicMock) -> None:

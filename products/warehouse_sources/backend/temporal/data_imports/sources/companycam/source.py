@@ -117,7 +117,7 @@ class CompanycamSource(ResumableSource[CompanycamSourceConfig, CompanycamResumeC
             caption="Sync projects, photos, videos, and team data from your CompanyCam account. "
             "Generate an API key from your [CompanyCam account settings](https://docs.companycam.com/reference/authentication).",
             docsUrl="https://posthog.com/docs/cdp/sources/companycam",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             iconPath="/static/services/companycam.png",
             fields=cast(
                 list[FieldType],

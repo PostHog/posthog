@@ -69,7 +69,7 @@ class CircleciInsightsSource(ResumableSource[CircleciInsightsSourceConfig, Circl
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). Note that CircleCI retains Insights data for roughly 90 days.""",
             iconPath="/static/services/circleci_insights.png",
             docsUrl="https://posthog.com/docs/cdp/sources/circleci-insights",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["ci", "flaky tests"],
             fields=cast(
                 list[FieldType],

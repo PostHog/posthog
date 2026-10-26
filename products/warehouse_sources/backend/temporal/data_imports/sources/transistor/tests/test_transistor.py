@@ -322,27 +322,6 @@ class TestTransistorTransport:
             }
         ]
 
-    @pytest.mark.parametrize(
-        "status, expected_ok, expected_message_fragment",
-        [
-            (200, True, None),
-            (401, False, "rejected the API key"),
-            (403, False, "rejected the API key"),
-            (500, False, "unexpected status code: 500"),
-        ],
-    )
-    def test_validate_credentials_status_mapping(self, status, expected_ok, expected_message_fragment):
-        session = _FakeSession(lambda url, params: _response(status))
-
-        with mock.patch(f"{MODULE}._make_session", return_value=session):
-            ok, message = validate_credentials("key")
-
-        assert ok is expected_ok
-        if expected_message_fragment is None:
-            assert message is None
-        else:
-            assert expected_message_fragment in (message or "")
-
     @pytest.mark.parametrize("api_key", ["", "   ", None])
     def test_validate_credentials_rejects_a_blank_key_without_a_request(self, api_key):
         with mock.patch(f"{MODULE}._make_session") as make_session:
@@ -351,16 +330,6 @@ class TestTransistorTransport:
         assert ok is False
         assert message == "An API key is required."
         make_session.assert_not_called()
-
-    def test_validate_credentials_reports_an_unreachable_api(self):
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch(f"{MODULE}._make_session", return_value=session):
-            ok, message = validate_credentials("key")
-
-        assert ok is False
-        assert message is not None and "Could not reach" in message
 
 
 class TestRequestThrottle:

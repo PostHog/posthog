@@ -57,7 +57,7 @@ class SmartsheetEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     pagination: Pagination = "page_number"
     data_selector: str = "data"
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = None
 
 
 # The parent-report id injected into each report child row (via include_from_parent), used as the

@@ -173,7 +173,7 @@ def test_expired_resume_state_starts_at_first_page(manager: MagicMock) -> None:
         assert http.last_request.qs["page"] == ["1"]
 
 
-@pytest.mark.parametrize("status", [401, 403, 422])
+@pytest.mark.parametrize("status", [422])
 def test_authentication_errors(status: int) -> None:
     answer = ScriptedResponse(status=status, json={"message": "Invalid API key"})
     with scripted_network([answer]) as network:

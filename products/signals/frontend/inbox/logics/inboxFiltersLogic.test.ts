@@ -58,7 +58,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
         })
 
         // The server ignores the `sort` preset whenever `ordering` is present.
@@ -154,6 +154,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
+            ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,
@@ -213,10 +220,7 @@ describe('inboxFiltersLogic', () => {
 
         // The flat Reports list has no `?view=` sub-view, so a query change on it must attribute to
         // the `reports` tab and agree with the `tab` that `Inbox viewed` sends for the same visit.
-        it('attributes a redesigned Reports query change to the reports tab', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-                [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            })
+        it('attributes a Reports query change to the reports tab', async () => {
             router.actions.push(urls.inbox('reports'))
             logic.actions.toggleState('needs-decision')
             await expectLogic(logic).toFinishAllListeners()

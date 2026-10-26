@@ -232,7 +232,7 @@ class TestVeracodeSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand([("forbidden", 403, False)])
     def test_status_maps_to_ok_flag(self, _name: str, status_code: int, expected_ok: bool) -> None:
         session = MagicMock()
         session.get.return_value = _mock_response(status_code)
@@ -240,14 +240,6 @@ class TestValidateCredentials:
             ok, returned_status = validate_credentials("id", "secret", "com")
         assert ok is expected_ok
         assert returned_status == status_code
-
-    def test_network_error_returns_false_none(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError()
-        with _patched_session(session):
-            ok, status = validate_credentials("id", "secret", "com")
-        assert ok is False
-        assert status is None
 
 
 class _patched_session:

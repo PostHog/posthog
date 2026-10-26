@@ -111,7 +111,7 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Vimeo",
             iconPath="/static/services/vimeo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Open your app at [Vimeo Developers](https://developer.vimeo.com/apps). "
                 "Under **Generate an access token**, select **Authenticated (you)**. "

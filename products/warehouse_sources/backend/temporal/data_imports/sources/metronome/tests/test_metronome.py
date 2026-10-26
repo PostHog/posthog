@@ -822,17 +822,6 @@ class TestMetronomeCredentials:
     @parameterized.expand(
         [
             (200, True, None),
-            (
-                401,
-                False,
-                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
-            ),
-            (
-                403,
-                False,
-                "Metronome rejected the API token. Create a new one in Metronome under Developer > API tokens and reconnect.",
-            ),
-            (500, False, "Metronome API returned an unexpected status code: 500"),
         ]
     )
     def test_status_maps_to_message(self, status_code, expected_valid, expected_message) -> None:

@@ -13,9 +13,13 @@ import type {
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricApproveRequestApi,
     DataCatalogMetricBulkApproveApi,
+    DataCatalogMetricBulkChangeOwnerApi,
+    DataCatalogMetricBulkChangeOwnerRequestApi,
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
+    DataCatalogMetricCreateApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
@@ -209,18 +213,18 @@ export const getDataCatalogMetricsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a metric, or refine the one already holding this name for the team.
+ * Create a metric. When a live metric already holds the name, returns 409 unless overwrite is true, in which case the existing metric is refined with the fields sent.
  */
 export const dataCatalogMetricsCreate = async (
     projectId: string,
-    dataCatalogMetricApi: NonReadonly<DataCatalogMetricApi>,
+    dataCatalogMetricCreateApi: NonReadonly<DataCatalogMetricCreateApi>,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogMetricApi),
+        body: JSON.stringify(dataCatalogMetricCreateApi),
     })
 }
 
@@ -312,11 +316,14 @@ export const getDataCatalogMetricsApproveCreateUrl = (projectId: string, name: s
 export const dataCatalogMetricsApproveCreate = async (
     projectId: string,
     name: string,
+    dataCatalogMetricApproveRequestApi?: DataCatalogMetricApproveRequestApi,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsApproveCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricApproveRequestApi),
     })
 }
 
@@ -373,6 +380,26 @@ export const dataCatalogMetricsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricRunRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
+}
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkChangeOwnerRequestApi: DataCatalogMetricBulkChangeOwnerRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkChangeOwnerApi> => {
+    return apiMutator<DataCatalogMetricBulkChangeOwnerApi>(getDataCatalogMetricsBulkChangeOwnerCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkChangeOwnerRequestApi),
     })
 }
 

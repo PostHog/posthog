@@ -67,7 +67,7 @@ class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeC
             name=ExternalDataSourceType.SERVICENOW,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="ServiceNow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your ServiceNow ITSM data (incidents, problems, change requests, users, configuration items, and more) into the PostHog Data warehouse.
 
 Enter your ServiceNow instance URL (e.g. `https://your-instance.service-now.com`) and authenticate with either an API key or a username and password.

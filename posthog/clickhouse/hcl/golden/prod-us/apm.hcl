@@ -1,4 +1,72 @@
 database "posthog" {
+  table "kafka_logs_avro" {
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "body" {
+      type = "String"
+    }
+    column "severity_text" {
+      type = "String"
+    }
+    column "severity_number" {
+      type = "Int32"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "event_name" {
+      type = "String"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
+    column "pattern" {
+      type = "Nullable(String)"
+    }
+    column "pattern_version" {
+      type = "Nullable(Int32)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 4
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
   table "kafka_metrics_avro4" {
     settings = {
       input_format_avro_allow_missing_fields = "1"
@@ -167,6 +235,126 @@ database "posthog" {
       type = "UInt64"
     }
     engine "null" {
+    }
+  }
+
+  table "writable_logs34" {
+    settings = {
+      background_insert_batch = "1"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfDay(timestamp)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
+    }
+    column "body" {
+      type = "String"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_number" {
+      type = "Int32"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "event_name" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "level" {
+      type  = "String"
+      alias = "severity_text"
+    }
+    column "mat_body_ipv4_matches" {
+      type  = "Array(String)"
+      alias = "extractAll(body, '(\\\\d\\\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\\\.)(2, 2)([0-9]))')"
+    }
+    column "time_minute" {
+      type  = "DateTime"
+      alias = "toStartOfMinute(timestamp)"
+    }
+    column "attributes" {
+      type  = "Map(LowCardinality(String), String)"
+      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
+    }
+    column "attributes_map_float" {
+      type         = "Map(LowCardinality(String), Float64)"
+      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str))"
+    }
+    column "attributes_map_datetime" {
+      type         = "Map(LowCardinality(String), DateTime64(6))"
+      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str))"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_bytes_uncompressed" {
+      type = "UInt64"
+    }
+    column "_bytes_compressed" {
+      type = "UInt64"
+    }
+    column "_record_count" {
+      type = "UInt64"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "logs34"
     }
   }
 
@@ -364,107 +552,6 @@ database "posthog" {
       cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "metrics4_series"
-    }
-  }
-
-  table "writable_query_log_archive" {
-    column "hostname" {
-      type = "LowCardinality(String)"
-    }
-    column "user" {
-      type = "LowCardinality(String)"
-    }
-    column "query_id" {
-      type = "String"
-    }
-    column "initial_query_id" {
-      type = "String"
-    }
-    column "is_initial_query" {
-      type = "UInt8"
-    }
-    column "type" {
-      type = "Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)"
-    }
-    column "event_date" {
-      type = "Date"
-    }
-    column "event_time" {
-      type = "DateTime"
-    }
-    column "event_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_start_time" {
-      type = "DateTime"
-    }
-    column "query_start_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_duration_ms" {
-      type = "UInt64"
-    }
-    column "read_rows" {
-      type = "UInt64"
-    }
-    column "read_bytes" {
-      type = "UInt64"
-    }
-    column "written_rows" {
-      type = "UInt64"
-    }
-    column "written_bytes" {
-      type = "UInt64"
-    }
-    column "result_rows" {
-      type = "UInt64"
-    }
-    column "result_bytes" {
-      type = "UInt64"
-    }
-    column "memory_usage" {
-      type = "UInt64"
-    }
-    column "peak_threads_usage" {
-      type = "UInt64"
-    }
-    column "current_database" {
-      type = "LowCardinality(String)"
-    }
-    column "query" {
-      type = "String"
-    }
-    column "formatted_query" {
-      type = "String"
-    }
-    column "normalized_query_hash" {
-      type = "UInt64"
-    }
-    column "query_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "exception_code" {
-      type = "Int32"
-    }
-    column "exception" {
-      type = "String"
-    }
-    column "stack_trace" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "log_comment" {
-      type = "JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email)"
-    }
-    column "ProfileEvents" {
-      type = "Map(String, UInt64)"
-    }
-    engine "distributed" {
-      cluster_name    = "ops"
-      remote_database = "posthog"
-      remote_table    = "query_log_archive_buffer"
     }
   }
 
@@ -821,6 +908,118 @@ database "posthog" {
       cluster_name    = "ops"
       remote_database = "posthog"
       remote_table    = "query_log_archive_v3_buffer"
+    }
+  }
+
+  materialized_view "kafka_logs34_avro_mv" {
+    to_table = "posthog.writable_logs34"
+    query    = <<SQL
+SELECT
+  uuid,
+  trace_id,
+  span_id,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
+  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  timestamp
+  + toIntervalDay(
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
+  ) AS original_expiry_timestamp,
+  _partition,
+  _topic,
+  _offset,
+  toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+FROM posthog.kafka_logs_avro
+SQL
+
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "body" {
+      type = "String"
+    }
+    column "severity_text" {
+      type = "String"
+    }
+    column "severity_number" {
+      type = "Int32"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "event_name" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(String, String)"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "_topic" {
+      type = "LowCardinality(String)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_record_count" {
+      type = "Int64"
+    }
+    column "_bytes_uncompressed" {
+      type = "Nullable(Int64)"
+    }
+    column "_bytes_compressed" {
+      type = "Nullable(Int64)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
   }
 
@@ -1290,140 +1489,6 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
-    }
-  }
-
-  materialized_view "ops_query_log_archive_mv" {
-    to_table = "posthog.writable_query_log_archive"
-    query    = <<SQL
-SELECT
-  hostname,
-  user,
-  query_id,
-  initial_query_id,
-  is_initial_query,
-  type,
-  event_date,
-  event_time,
-  event_time_microseconds,
-  query_start_time,
-  query_start_time_microseconds,
-  query_duration_ms,
-  read_rows,
-  read_bytes,
-  written_rows,
-  written_bytes,
-  result_rows,
-  result_bytes,
-  memory_usage,
-  peak_threads_usage,
-  current_database,
-  query,
-  formatted_query,
-  normalized_query_hash,
-  query_kind,
-  exception_code,
-  exception,
-  stack_trace,
-  JSONExtractInt(log_comment, 'team_id') AS team_id,
-  if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
-  ProfileEvents
-FROM system.query_log
-WHERE type != 'QueryStart'
-SQL
-
-    column "hostname" {
-      type = "LowCardinality(String)"
-    }
-    column "user" {
-      type = "LowCardinality(String)"
-    }
-    column "query_id" {
-      type = "String"
-    }
-    column "initial_query_id" {
-      type = "String"
-    }
-    column "is_initial_query" {
-      type = "UInt8"
-    }
-    column "type" {
-      type = "Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)"
-    }
-    column "event_date" {
-      type = "Date"
-    }
-    column "event_time" {
-      type = "DateTime"
-    }
-    column "event_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_start_time" {
-      type = "DateTime"
-    }
-    column "query_start_time_microseconds" {
-      type = "DateTime64(6)"
-    }
-    column "query_duration_ms" {
-      type = "UInt64"
-    }
-    column "read_rows" {
-      type = "UInt64"
-    }
-    column "read_bytes" {
-      type = "UInt64"
-    }
-    column "written_rows" {
-      type = "UInt64"
-    }
-    column "written_bytes" {
-      type = "UInt64"
-    }
-    column "result_rows" {
-      type = "UInt64"
-    }
-    column "result_bytes" {
-      type = "UInt64"
-    }
-    column "memory_usage" {
-      type = "UInt64"
-    }
-    column "peak_threads_usage" {
-      type = "UInt64"
-    }
-    column "current_database" {
-      type = "LowCardinality(String)"
-    }
-    column "query" {
-      type = "String"
-    }
-    column "formatted_query" {
-      type = "String"
-    }
-    column "normalized_query_hash" {
-      type = "UInt64"
-    }
-    column "query_kind" {
-      type = "LowCardinality(String)"
-    }
-    column "exception_code" {
-      type = "Int32"
-    }
-    column "exception" {
-      type = "String"
-    }
-    column "stack_trace" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "log_comment" {
-      type = "String"
-    }
-    column "ProfileEvents" {
-      type = "Map(LowCardinality(String), UInt64)"
     }
   }
 

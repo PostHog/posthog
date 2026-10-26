@@ -15,7 +15,7 @@ The estimate does not include separate failed or canceled generation jobs, or no
 ## Dashboard widgets
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
-Both generated notebook widgets and dashboard widgets must be enabled.
+Generated notebook widgets must be enabled.
 The selected widget version must have an available preview before the menu offers **Add to dashboard**.
 Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
 Search the dashboard picker by name, description, or creator to find a destination.

@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -11,6 +13,8 @@ import type { InsightVizNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 import type { InsightShortId } from '~/types'
+
+import type { InsightDataCheckApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 
@@ -27,12 +31,24 @@ describe('insightDataChecksLogic', () => {
     const dataChecks = jest.fn()
     const cancelledQueryIds: string[] = []
     let sentSources: Record<string, unknown>[]
+    let sentDepths: (string | undefined)[]
+    let savedFilters: unknown[]
+    let capture: jest.SpyInstance
+
+    const loadedEvents = (): Record<string, unknown>[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'insight data checks loaded')
+            .map(([, properties]) => properties as Record<string, unknown>)
 
     const answer =
         (response: [number, Record<string, unknown>], held?: Promise<void>, onSent?: () => void) =>
         async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
-            const body = (await request.json()) as { query: { source: Record<string, unknown> } }
+            const body = (await request.json()) as {
+                query: { source: Record<string, unknown> }
+                depth?: string
+            }
             sentSources.push(body.query.source)
+            sentDepths.push(body.depth)
             onSent?.()
             await held
             return response
@@ -46,7 +62,10 @@ describe('insightDataChecksLogic', () => {
 
     beforeEach(() => {
         dataChecks.mockReset()
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         sentSources = []
+        sentDepths = []
+        savedFilters = []
         cancelledQueryIds.length = 0
         useMocks({
             get: {
@@ -56,6 +75,13 @@ describe('insightDataChecksLogic', () => {
             post: {
                 '/api/environments/:team_id/query/:kind': { results: [] },
                 '/api/projects/:team_id/insights/data_checks/': dataChecks,
+            },
+            patch: {
+                '/api/projects/:team_id/': async ({ request }) => {
+                    const body = (await request.json()) as { test_account_filters: unknown[] }
+                    savedFilters.push(body.test_account_filters)
+                    return [200, { ...teamLogic.values.currentTeam, ...body }]
+                },
             },
             delete: {
                 '/api/projects/:team_id/query/:id/': ({ params }) => {
@@ -157,6 +183,22 @@ describe('insightDataChecksLogic', () => {
         expect(sentSources.at(-1)).toEqual(source)
     })
 
+    const PAID = { kind: NodeKind.EventsNode, event: 'paid' }
+    const ACTION = { kind: NodeKind.ActionsNode, id: 1 }
+    it.each([
+        ['events combined into one series', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID] }],
+        ['an action', ACTION],
+        ['an action combined with an event', { kind: NodeKind.GroupNode, operator: 'OR', nodes: [PAID, ACTION] }],
+    ])('checks a chart with %s', async (_name, series) => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const source = { kind: NodeKind.TrendsQuery, series: [series] }
+        insightDataLogic(props).actions.setQuery({ kind: NodeKind.InsightVizNode, source } as InsightVizNode)
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(sentSources.at(-1)).toEqual(source)
+    })
+
     it('checks again after a refresh of the chart that ends during a check', async () => {
         const first = holdTheFirstAnswer()
         turnTheFlagOn()
@@ -188,6 +230,37 @@ describe('insightDataChecksLogic', () => {
         expect(dataChecks).toHaveBeenCalledTimes(requests)
     })
 
+    it('runs a full check only after a person asks, and only for that query', async () => {
+        dataChecks.mockImplementationOnce(answer([200, checksOf('on_request')]))
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+        expect(logic.values.canRunFullCheck).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.runFullCheck(logic.values.checkedQuery!)
+        }).toFinishAllListeners()
+        expect(logic.values).toMatchObject({ status: 'passed', canRunFullCheck: false })
+
+        vizData.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
+        await expectLogic(logic, () => logic.actions.checkData()).toFinishAllListeners()
+
+        expect(sentDepths).toEqual(['quick', 'full', 'quick'])
+    })
+
+    it.each([
+        ['a check stopped at a limit', 'partial', 'read_limit', true],
+        ['every check stopped at a limit', 'inconclusive', 'time_limit', true],
+        ['another check found a problem', 'problem', 'memory_limit', true],
+        ['the only skipped check could not run for another reason', 'partial', 'hidden_property', false],
+    ])('offers a full check of a partly checked chart when %s', async (_name, status, skipReason, offered) => {
+        const skipped = { key: 'internal_users', level: 'skipped', skip_reason: skipReason }
+        dataChecks.mockImplementation(answer([200, { ...checksOf(status), checks: [skipped] }]))
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(logic.values.canRunFullCheck).toBe(offered)
+    })
+
     it.each([
         ['hides the mark from a person who may not run the checks', 403, 'unavailable'],
         ['reports a check the server could not finish', 500, 'failed'],
@@ -197,6 +270,19 @@ describe('insightDataChecksLogic', () => {
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 
         expect(logic.values.status).toBe(expected)
+    })
+
+    it.each([
+        ['problem', true],
+        ['warning', true],
+        ['passed', false],
+    ])('keeps the label open after a %s result only when there is a finding', async (result, open) => {
+        dataChecks.mockImplementation(answer([200, checksOf(result)]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        logic.actions.closeLabel()
+
+        expect(logic.values.labelOpen).toBe(open)
     })
 
     it('checks again when the chart type changes and the chart reuses its result', async () => {
@@ -269,5 +355,88 @@ describe('insightDataChecksLogic', () => {
         expect(cancelledQueryIds).toEqual([clientQueryId])
         expect(dataChecks).toHaveBeenCalledTimes(2)
         expect(logic.values.status).toBe('passed')
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['cancelled', 'passed'])
+    })
+
+    it('waits for a chart that starts to load right after the query changes, then checks once', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+
+        await expectLogic(logic, () => {
+            turnTheFlagOn()
+            vizData.actions.loadData()
+        }).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(1)
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['passed'])
+    })
+
+    it.each([
+        [
+            'a run with findings',
+            200,
+            { ...checksOf('warning'), checks: [{ key: 'bot_traffic', level: 'warning' }] },
+            { status: 'warning', findings: ['bot_traffic'] },
+        ],
+        ['a run the server could not finish', 500, { detail: 'No.' }, { status: 'failed', findings: [] }],
+        ['a run the person may not see', 403, { detail: 'No.' }, { status: 'unavailable', findings: [] }],
+    ])('reports how %s ended', async (_name, responseStatus, response, expected) => {
+        dataChecks.mockImplementation(answer([responseStatus, response]))
+
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(loadedEvents()).toEqual([{ ...expected, duration_ms: expect.any(Number) }])
+    })
+
+    it('turns the filter on for the insight from the checks, then checks the filtered chart', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () =>
+            logic.actions.setFiltersTestAccounts(true, 'internal_users')
+        ).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.filterTestAccounts).toBe(true)
+        expect(sentSources.map((source) => !!source.filterTestAccounts)).toEqual([false, true])
+    })
+
+    const rule = { key: 'email', type: 'person', operator: 'is_not', value: ['qa@example.com'] }
+    const addTheRule = (): void => {
+        logic.actions.addFilterRule({ key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi)
+    }
+    it("adds the check's rule to this insight's filters once, then checks the filtered chart", async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+        const check = { key: 'internal_users', filter_to_add: rule } as InsightDataCheckApi
+
+        await expectLogic(logic, () => {
+            logic.actions.excludeFromInsight(check)
+            logic.actions.excludeFromInsight(check)
+        }).toFinishAllListeners()
+
+        expect(vizData.values.querySource?.properties).toEqual([rule])
+        expect(sentSources.at(-1)?.properties).toEqual([rule])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
+    it("adds the check's rule to the project's filter, then checks again", async () => {
+        const existing = teamLogic.values.currentTeam?.test_account_filters ?? []
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, addTheRule).toFinishAllListeners()
+
+        expect(savedFilters).toEqual([[...existing, rule]])
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+    })
+
+    it('refreshes a chart that applies the filter once a rule is added, so it drops the excluded events', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('warning')]))
+        vizData.actions.updateQuerySource({ filterTestAccounts: true })
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, addTheRule).toDispatchActions(vizData, [
+            (action) =>
+                action.type === vizData.actionTypes.loadData && String(action.payload.refresh).startsWith('force'),
+        ])
     })
 })

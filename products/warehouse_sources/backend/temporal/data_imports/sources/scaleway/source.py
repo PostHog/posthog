@@ -76,7 +76,7 @@ class ScalewaySource(ResumableSource[ScalewaySourceConfig, ScalewayResumeConfig]
             name=ExternalDataSourceType.SCALEWAY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Scaleway",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Scaleway API secret key and Organization ID to pull your Scaleway data into the PostHog Data warehouse.
 
 Create an API key from the [IAM > API keys](https://console.scaleway.com/iam/api-keys) page in the Scaleway console, and find your Organization ID under [Organization settings](https://console.scaleway.com/organization/settings).

@@ -203,6 +203,32 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
 
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        run = _make_run(self.team, skill_name=config.skill_name, scout_config=config)
+        run.task_run.task.internal = True
+        run.task_run.task.save(update_fields=["internal"])
+        ordinary = _make_run(self.team)
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        assert self.client.get(self._detail_url(str(run.id))).status_code == 200
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/tasks/{run.task_run.task_id}/runs/{run.task_run_id}/"
+            ).status_code
+            == 200
+        )
+        response = self.client.get(self._list_url() + "recent-per-scout/")
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == 200
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
@@ -2197,10 +2223,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -2328,6 +2353,17 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    def test_search_filters_by_creating_skill(self) -> None:
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        flags_run = _make_run(self.team, skill_name="signals-scout-flags")
+        SignalScratchpad.objects.create(team=self.team, key="errors", content="v", created_by_run=errors_run)
+        SignalScratchpad.objects.create(team=self.team, key="flags", content="v", created_by_run=flags_run)
+
+        response = self.client.get(self._list_url(), {"skill_name": "signals-scout-errors"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["errors"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -3167,6 +3203,19 @@ class TestPrecheckQueryValidation(SimpleTestCase):
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_config_is_available_but_cannot_be_rerun(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        self._make_skill("signals-scout-first-report")
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert [row["skill_name"] for row in response.json()] == [config.skill_name]
+        assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 400
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
 
@@ -3896,6 +3945,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3916,6 +3966,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3943,6 +3994,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [
@@ -4303,7 +4377,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     @parameterized.expand([(None, True), ("onboarding", False)])
     def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        scout_names = {
+            n for n in canonical_names if n.startswith("signals-scout-") and n != "signals-scout-first-report"
+        }
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
         assert "authoring-scouts" in companion_names
@@ -4891,6 +4967,17 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         assert superseded, "expected the catalogue to hold at least one superseded tool"
 
         assert not superseded & set(self._tools())
+
+    def test_catalogue_context_tools_can_be_removed_from_a_saved_selection_before_editing(self) -> None:
+        body = self.client.get(self._url()).json()
+        selected = ["skill-get", "skill-file-get", "dashboard-update"]
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [name for name in selected if name not in body["run_context_tools"]]},
+            partial=True,
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_mcp_tools"] == ["dashboard-update"]
 
     def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
         # `holdable` has to be measured against the scout postures, not against the full MCP scope

@@ -38,6 +38,7 @@ import {
     DismissalFeedback,
     DismissalReasonValue,
     RESOLVE_REASON_OPTIONS,
+    STOP_MONITORING_REASON_OPTIONS,
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
@@ -188,6 +189,7 @@ function ReportContextMenuItems({
         openResolveReportDialog({
             reportTitle,
             hasOpenPr,
+            isMonitoring: report.status === SignalReportStatus.MONITORING,
             initialReason,
             onConfirm: ({ reason, note }) => resolveWith(reason, note),
         })
@@ -209,7 +211,7 @@ function ReportContextMenuItems({
         resolveWith(reason, '')
     }
 
-    // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
+    // The menu only mounts in the flat Reports list, whose rows link to the reports tab with no
     // back param, so the default detail URL is exactly the row's own href.
     const detailUrl = inboxReportDetailUrl(report.id)
 
@@ -323,7 +325,11 @@ function ReportContextMenuItems({
                         buttons' fixed height. */}
                         <ContextMenuSubContent className="max-w-80">
                             <ReasonSubmenuItems
-                                options={RESOLVE_REASON_OPTIONS}
+                                options={
+                                    report.status === SignalReportStatus.MONITORING
+                                        ? STOP_MONITORING_REASON_OPTIONS
+                                        : RESOLVE_REASON_OPTIONS
+                                }
                                 noteTooltip="Resolve and write a note"
                                 dataAttrPrefix="inbox-report-context-menu-resolve"
                                 onPick={pickResolveReason}

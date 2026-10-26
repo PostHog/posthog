@@ -56,7 +56,7 @@ class SpaceliftSource(ResumableSource[SpaceliftSourceConfig, SpaceliftResumeConf
             name=ExternalDataSourceType.SPACELIFT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Spacelift",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Spacelift API key to pull your infrastructure-as-code stacks, runs, policies, and managed resources into the PostHog Data warehouse.
 
 Create an API key under **Organization settings** → **API keys** in your Spacelift account. Grant it at least read access to the spaces you want to sync.

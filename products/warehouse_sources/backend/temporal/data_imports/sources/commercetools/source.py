@@ -183,7 +183,7 @@ Create an API client in the Merchant Center under Settings > Developer settings 
 The messages table also needs the Messages Query feature turned on in your project settings. Without it commercetools keeps no messages and the table syncs empty. commercetools also deletes messages once they pass your project's retention period, so the table covers that window rather than all history.""",
             iconPath="/static/services/commercetools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/commercetools",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

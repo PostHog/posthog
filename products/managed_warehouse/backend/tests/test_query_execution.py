@@ -2,14 +2,15 @@ from contextlib import nullcontext
 from uuid import UUID
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
-from posthog.schema import HogQLQuery
+from posthog.schema import HogQLQuery, HogQLQueryModifiers, HogQLQueryResponse
 
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import AccessMethod, QueryTags
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import Organization, Team, User
@@ -18,6 +19,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_TRINO_RAW_QUERY_STATUS_LABEL
 from products.managed_warehouse.backend.query_execution import execute_managed_trino_query, validate_managed_trino_query
 
 
@@ -38,9 +40,10 @@ def test_default_requests_keep_normal_execution_without_evaluating_the_flag(team
 
 
 @pytest.mark.parametrize("flag_result", [False, None, RuntimeError("flag unavailable")])
-def test_disabled_target_rejects_cached_requests(team: Team, flag_result: object) -> None:
+@pytest.mark.parametrize("raw", [False, True])
+def test_disabled_target_rejects_cached_requests(team: Team, flag_result: object, raw: bool) -> None:
     runner = object.__new__(HogQLQueryRunner)
-    runner.query = HogQLQuery(query="SELECT 1", executionTarget="managed_trino")
+    runner.query = HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=raw)
     runner.team = team
     runner.user = User(id=9)
     with (
@@ -56,8 +59,9 @@ def test_disabled_target_rejects_cached_requests(team: Team, flag_result: object
     cached_run.assert_not_called()
 
 
+@pytest.mark.django_db
 @pytest.mark.parametrize(
-    "user, connection_id, raw", [(None, None, False), (User(id=9), "external-source", False), (User(id=9), None, True)]
+    "user, connection_id, raw", [(None, None, False), (User(id=9), "external-source", False), (None, None, True)]
 )
 def test_hosted_target_rejects_unauthenticated_and_external_modes(
     team: Team, user: User | None, connection_id: str | None, raw: bool
@@ -137,3 +141,89 @@ def test_live_query_binds_values_and_uses_hosted_service_credentials(
     assert response.hasMore is has_more
     assert response.limit == expected_limit
     assert response.columns == ["value"]
+
+
+@pytest.mark.parametrize(
+    "access_method,has_project_access,error",
+    [(None, False, "access to this project"), *[(method, True, "browser session") for method in AccessMethod]],
+)
+@pytest.mark.django_db
+def test_raw_target_rejects_unauthorized_callers_before_cached_results(
+    team: Team, access_method: AccessMethod | None, has_project_access: bool, error: str
+) -> None:
+    runner = object.__new__(HogQLQueryRunner)
+    runner.query = HogQLQuery(query="SELECT 1", executionTarget="managed_trino", sendRawQuery=True)
+    runner.team = team
+    runner.user = User(id=9)
+    with (
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
+            new_callable=PropertyMock,
+            return_value=has_project_access,
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.get_query_tags",
+            return_value=QueryTags(access_method=access_method),
+        ),
+        patch.object(AnalyticsQueryRunner, "run") as cached_run,
+        pytest.raises(ExposedHogQLError, match=error),
+    ):
+        runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+    cached_run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "sql", ['SELECT CAST(JSON \'{"ratio": "100%"}\' AS JSON) AS value', "DELETE FROM example_table"]
+)
+@pytest.mark.django_db
+def test_raw_query_passes_native_sql_without_compilation(team: Team, sql: str) -> None:
+    cursor = MagicMock()
+    cursor.fetchmany.return_value = [("100%",)]
+    cursor.description = [("value", "varchar")]
+    connection = MagicMock()
+    connection.cursor.return_value = cursor
+    with (
+        patch("posthoganalytics.feature_enabled", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
+            new_callable=PropertyMock,
+            return_value=True,
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.compile_hogql_to_trino_sql",
+            side_effect=AssertionError("raw SQL reached the HogQL compiler"),
+        ),
+        patch(
+            "products.managed_warehouse.backend.query_execution.connect_managed_warehouse_trino",
+            return_value=nullcontext(connection),
+        ) as connect,
+    ):
+
+        def execute() -> HogQLQueryResponse:
+            runner = object.__new__(HogQLQueryRunner)
+            runner.query = HogQLQuery(query=sql, executionTarget="managed_trino", sendRawQuery=True)
+            runner.team = team
+            runner.user = User(id=9)
+            runner._user_access_control = None
+            runner.settings = HogQLGlobalSettings()
+            runner.modifiers = HogQLQueryModifiers()
+            runner.timings = HogQLTimings()
+            runner.limit_context = LimitContext.QUERY
+            runner.is_query_service = True
+            runner._direct_connection_validated = False
+            with patch.object(runner, "_parse_query", side_effect=AssertionError("raw SQL reached the HogQL parser")):
+                result = runner._calculate()
+            assert runner.query_status_labels() == [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
+            return result
+
+        if sql.startswith("DELETE"):
+            with pytest.raises(ExposedHogQLError, match="read-only"):
+                execute()
+            connect.assert_not_called()
+            return
+        response = execute()
+    cursor.execute.assert_called_once_with(sql)
+    assert response.results == [("100%",)]
+    assert response.clickhouse == sql
+    assert response.hogql is None

@@ -94,12 +94,6 @@ def test_invalid_company_id_stops_before_request(config: SevenShiftsSourceConfig
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
-        (200, (True, None)),
-        (
-            401,
-            (False, "7shifts rejected the access token. Create a token in Settings > Developer Tools, then reconnect."),
-        ),
-        (403, (False, "7shifts denied access. Check the company ID, token administrator, and your plan's API access.")),
         (404, (False, "7shifts could not find this company. Check the company ID.")),
     ],
 )

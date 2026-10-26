@@ -37,7 +37,8 @@ import type {
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
 } from '../generated/api.schemas'
-import { OFFLINE_ALL_UPLOAD_STATES } from './offlineOverviewState'
+import { OFFLINE_HISTORY_BREAKDOWN_LABELS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
+import { OFFLINE_ALL_UPLOAD_STATES, offlineFiltersFromUrl } from './offlineOverviewState'
 import {
     previousOfflinePeriod,
     resolveOfflineDateRange,
@@ -49,8 +50,12 @@ export interface OfflineScorerHistoryProps {
     scorerId: string
     teamId: number
 }
-export interface OfflineHistoryFilters extends ResourceTagFilters {
+export interface OfflineHistoryFilters
+    extends
+        ResourceTagFilters,
+        Pick<AiObservabilityOfflineScorersHistoryListParams, 'created_by' | 'created_by_is_null'> {
     version: string
+    breakdown: OfflineHistoryBreakdown | ''
     date_from: string
     date_to: string | null
     compare: 'none' | 'previous' | 'custom'
@@ -62,6 +67,7 @@ export interface OfflineHistoryFilters extends ResourceTagFilters {
 
 const DEFAULT_FILTERS: OfflineHistoryFilters = {
     version: '',
+    breakdown: '',
     date_from: '-30d',
     date_to: null,
     compare: 'none',
@@ -75,6 +81,7 @@ const DEFAULT_FILTERS: OfflineHistoryFilters = {
 
 function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     const filters = { ...DEFAULT_FILTERS }
+    const { created_by, created_by_is_null } = offlineFiltersFromUrl(search)
     for (const key of Object.keys(filters) as (keyof OfflineHistoryFilters)[]) {
         if (typeof search[key] === 'string' || ((key === 'date_to' || key === 'compare_to') && search[key] === null)) {
             Object.assign(filters, { [key]: search[key] })
@@ -83,13 +90,16 @@ function readFilters(search: Record<string, unknown>): OfflineHistoryFilters {
     if (filters.compare_to === 'now') {
         filters.compare_to = null
     }
+    if (!Object.hasOwn(OFFLINE_HISTORY_BREAKDOWN_LABELS, filters.breakdown)) {
+        filters.breakdown = ''
+    }
     if (!['none', 'previous', 'custom'].includes(filters.compare)) {
         filters.compare = 'none'
     }
     if (filters.date_from === 'all' && filters.compare === 'previous') {
         filters.compare = 'none'
     }
-    return { ...filters, ...cleanTagFilters(search) }
+    return { ...filters, ...cleanTagFilters(search), created_by, created_by_is_null }
 }
 
 export function offlineScorerHistoryUrl(
@@ -522,9 +532,12 @@ export const offlineScorerHistoryLogic = kea<offlineScorerHistoryLogicType>([
             (s) => [s.filters],
             (filters: OfflineHistoryFilters): AiObservabilityOfflineScorersHistoryListParams => ({
                 scorer_version_ids: filters.version,
+                breakdown: filters.breakdown || undefined,
                 limit: 50,
                 statuses: filters.statuses,
                 run_source: filters.run_source || undefined,
+                created_by: filters.created_by,
+                created_by_is_null: filters.created_by_is_null,
                 tags: JSON.stringify(filters.tags),
                 tag_match: filters.tag_match,
             }),

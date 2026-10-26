@@ -127,7 +127,7 @@ class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
             caption="Sync official US economic statistics from the Bureau of Economic Analysis. Register a free UserID at [apps.bea.gov/api/signup](https://apps.bea.gov/api/signup/). To sync a table beyond the built-in ones, fill in the custom query fields with a BEA dataset name and GetData parameters from the [API user guide](https://apps.bea.gov/api/_pdf/bea_web_service_api_user_guide.pdf).",
             docsUrl="https://posthog.com/docs/cdp/sources/us-bea",
             iconPath="/static/services/us_bea.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

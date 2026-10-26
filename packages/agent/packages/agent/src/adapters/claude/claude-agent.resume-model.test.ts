@@ -379,6 +379,42 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
+  it.each([
+    { isAiGateway: true, expectedSetModel: "zai-org/glm-5.2" },
+    { isAiGateway: false, expectedSetModel: "@cf/zai-org/glm-5.2" },
+  ])(
+    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel when isAiGateway is $isAiGateway",
+    async ({ isAiGateway, expectedSetModel }) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValueOnce([]);
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://gateway.test",
+          anthropicAuthToken: "token",
+          openaiBaseUrl: "http://gateway.test/v1",
+          openaiApiKey: "token",
+          isAiGateway,
+        },
+      });
+
+      const response = await agent.resumeSession({
+        sessionId: "0197a000-0000-7000-8000-000000000021",
+        cwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-glm", model: "@cf/zai-org/glm-5.2" },
+      });
+
+      expect(createdQueries).toHaveLength(1);
+      expect(createdQueries[0].setModel).toHaveBeenCalledWith(expectedSetModel);
+      expect(getModelConfigOption(response)?.currentValue).toBe(
+        expectedSetModel,
+      );
+    },
+  );
+
   // The shared claude settings file is cross-session state: the session's own
   // pick must win over it, with the file only as a fallback.
   it.each([

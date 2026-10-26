@@ -59,9 +59,8 @@ function makeMetric(overrides: Partial<ReportMetricApi> = {}): ReportMetricApi {
     }
 }
 
-function enableRedesign(enabled = true): void {
-    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-        [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+function enableImpactColumn(enabled = true): void {
+    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
         [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: enabled,
     })
 }
@@ -281,10 +280,10 @@ describe('ReportCard', () => {
         pending.mockRestore()
     })
 
-    it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {
+    it('shows the affected-user snapshot in a row and prefers it over the primary metric', async () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const user = userEvent.setup()
         const report = makeReport('r-2', {
             metrics: [
@@ -331,7 +330,7 @@ describe('ReportCard', () => {
     it.each(rowPartCases)('prints %s as a figure above its unit word', (_label, metric, figure, unitWord) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(<ReportCard report={makeReport('r-2', { metrics: [metric] })} />)
 
         const block = container.querySelector('[data-attr="report-card-impact-metric"]')
@@ -343,7 +342,7 @@ describe('ReportCard', () => {
     it('draws a rate strip as a line instead of bars', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard
                 report={makeReport('r-2', {
@@ -368,7 +367,7 @@ describe('ReportCard', () => {
     it('draws no strip for a single-bucket series but keeps the figure', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container } = render(
             <ReportCard report={makeReport('r-2', { metrics: [makeMetric({ series: [9] })] })} />
         )
@@ -385,7 +384,7 @@ describe('ReportCard', () => {
     ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign(impactColumn)
+        enableImpactColumn(impactColumn)
         const { container } = render(
             <ReportCard
                 report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
@@ -400,7 +399,7 @@ describe('ReportCard', () => {
     it('uses the primary snapshot when there is no affected-user snapshot', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const report = makeReport('r-2', {
             metrics: [
                 makeMetric({
@@ -423,29 +422,27 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_fixed', 'Very likely'],
+        ['with the impact column', true, 'ranking_fix', '2.7x more likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% engage',
+            '6.2% action',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign(impactColumn)
+        enableImpactColumn(impactColumn)
         const report = makeReport('r-2', {
             metrics: [makeMetric()],
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41, action: 0.062 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['action', 'fixed'],
-                stale: false,
+                predictions: [
+                    { outcome: 'action', probability: 0.062, lift: null, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -459,54 +456,36 @@ describe('ReportCard', () => {
     it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
+        enableImpactColumn()
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Not scored yet')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['fixed'],
-                stale: true,
+                predictions: [{ outcome: 'fix', probability: 0.41, lift: 2.7, readable: true }],
             },
         })
-        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('Very likely')).not.toBeInTheDocument()
+        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
     })
 
-    it('does not show a list metric without a stored snapshot, under the legacy design, or with the metrics flag off', () => {
+    it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {
         const report = makeReport('r-2', { metrics: [makeMetric({ value: null, value_at: null })] })
 
         // The harness renders a card for every test; these assert against their own.
         cleanup()
-        enableRedesign()
+        enableImpactColumn()
         const { container, rerender } = render(<ReportCard report={report} />)
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
 
-        enableRedesign(false)
-        rerender(
-            <ReportCard
-                report={makeReport('r-2', {
-                    metrics: [{ ...report.metrics![0], value: 42 }],
-                })}
-            />
-        )
-        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
-        })
+        enableImpactColumn(false)
         rerender(
             <ReportCard
                 report={makeReport('r-2', {

@@ -1,5 +1,6 @@
 import {
     MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_USER,
     MOCK_DEFAULT_ORGANIZATION,
     MOCK_DEFAULT_PROJECT,
     MOCK_DEFAULT_TEAM,
@@ -34,6 +35,7 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    CohortPropertyFilter,
     CohortType,
     FeatureFlagGroupType,
     FeatureFlagType,
@@ -69,6 +71,7 @@ import {
     dependencyActionLabel,
     dependencyDisabledReason,
     featureFlagLogic,
+    flagWentLive,
     hasDirectFlagDependency,
     hasMultipleVariantsActive,
     hasStaticCohortDependency,
@@ -110,6 +113,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         error: jest.fn(),
         warning: jest.fn(),
         info: jest.fn(),
+        loading: jest.fn((_message, options) => options?.toastId),
+        dismiss: jest.fn(),
     },
 }))
 
@@ -287,44 +292,86 @@ describe('featureFlagLogic', () => {
     })
 
     describe('stale list-cache reconciliation on mount', () => {
-        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
-            logic.unmount()
+        it.each([
+            {
+                cohortChange: 'deleted',
+                listMarkers: {},
+                serverMarkers: { cohort_name: 'Frequent buyers', cohort_deleted: true },
+                expectedDeletedCohortFilters: [
+                    expect.objectContaining({ value: 5, cohort_name: 'Frequent buyers', cohort_deleted: true }),
+                ],
+            },
+            {
+                cohortChange: 'restored',
+                listMarkers: { cohort_name: 'Frequent buyers', cohort_deleted: true },
+                serverMarkers: { cohort_name: 'Frequent buyers' },
+                expectedDeletedCohortFilters: [],
+            },
+        ])(
+            'refreshes a cache-painted flag so active and cohort markers reflect the server after the cohort was $cohortChange',
+            async ({ listMarkers, serverMarkers, expectedDeletedCohortFilters }) => {
+                logic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/projects/:projectId/feature_flags/': () => [
-                        200,
-                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
-                        200,
-                        { ...MOCK_FEATURE_FLAG, active: true },
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
-                        200,
-                        MOCK_FEATURE_FLAG_STATUS,
-                    ],
-                },
-            })
+                // The cohort changed after the list loaded, so the list copy and the server copy mark it differently.
+                const cohortCondition: CohortPropertyFilter = {
+                    key: 'id',
+                    type: PropertyFilterType.Cohort,
+                    value: 5,
+                    operator: PropertyOperator.In,
+                }
+                const withCohortCondition = (properties: CohortPropertyFilter[]): FeatureFlagFilters => ({
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties, rollout_percentage: 100, variant: null }],
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:projectId/feature_flags/': () => [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        ...MOCK_FEATURE_FLAG,
+                                        active: false,
+                                        filters: withCohortCondition([{ ...cohortCondition, ...listMarkers }]),
+                                    },
+                                ],
+                                count: 1,
+                            },
+                        ],
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                            200,
+                            {
+                                ...MOCK_FEATURE_FLAG,
+                                active: true,
+                                filters: withCohortCondition([{ ...cohortCondition, ...serverMarkers }]),
+                            },
+                        ],
+                        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]:
+                            () => [200, MOCK_FEATURE_FLAG_STATUS],
+                    },
+                })
 
-            featureFlagsLogic.mount()
-            featureFlagsLogic.actions.loadFeatureFlags()
-            await expectLogic(featureFlagsLogic).toFinishAllListeners()
-            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+                featureFlagsLogic.mount()
+                featureFlagsLogic.actions.loadFeatureFlags()
+                await expectLogic(featureFlagsLogic).toFinishAllListeners()
+                expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
 
-            logic = featureFlagLogic({ id: 1 })
-            logic.mount()
+                logic = featureFlagLogic({ id: 1 })
+                logic.mount()
 
-            await expectLogic(logic)
-                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
-                .toFinishAllListeners()
+                await expectLogic(logic)
+                    .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                    .toFinishAllListeners()
 
-            expect(logic.values.featureFlag.active).toBe(true)
-            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
-            expect(lemonToast.info).not.toHaveBeenCalled()
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.deletedCohortFilters).toEqual(expectedDeletedCohortFilters)
+                expect(logic.values.isFormDirty).toBe(false)
+                expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+                expect(lemonToast.info).not.toHaveBeenCalled()
 
-            featureFlagsLogic.unmount()
-        })
+                featureFlagsLogic.unmount()
+            }
+        )
 
         // The agent path surfaces its failures through this same loader, so its rethrow must not
         // reach this one.
@@ -1260,6 +1307,432 @@ describe('featureFlagLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(message)
             expect(logic.values).toMatchObject({ isEditingFlag: true, featureFlag: partial({ name: 'Edited name' }) })
         })
+    })
+
+    describe('send a broadcast to the people who have the flag', () => {
+        const COHORT = { id: 42, name: 'Users with feature flag test-flag enabled' }
+        const FILLING = { ...COHORT, is_calculating: true, errors_calculating: 0 }
+        const READY = { ...COHORT, is_calculating: false, errors_calculating: 0 }
+        const FAILED = { ...COHORT, is_calculating: false, errors_calculating: 1 }
+
+        const everyone = (rollout: number | null, active = true): any => ({
+            id: 1,
+            active,
+            filters: { groups: [{ properties: [], rollout_percentage: rollout }] },
+        })
+        const groupSet = { properties: [], rollout_percentage: 100, aggregation_group_type_index: 0 }
+
+        it.each([
+            { scenario: 'a raise to 100%', before: everyone(50), after: everyone(100), live: true },
+            {
+                scenario: 'enabling a flag already at 100%',
+                before: everyone(100, false),
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a null rollout, which means everyone',
+                before: everyone(0),
+                after: everyone(null),
+                live: true,
+            },
+            { scenario: 'a second save at 100%', before: everyone(100), after: everyone(100), live: false },
+            {
+                scenario: 'the first save of a new flag at 100%',
+                before: { ...everyone(100), id: null },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a flag gated by early access enrollment',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, feature_enrollment: true } },
+                live: false,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group in a person flag',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { groups: [groupSet] } },
+                live: false,
+            },
+            {
+                scenario: 'a raise to 100% from a 100% set that aggregates by group',
+                before: { ...everyone(0), filters: { groups: [groupSet] } },
+                after: everyone(100),
+                live: true,
+            },
+            {
+                scenario: 'a 100% set that aggregates by group and stops evaluation early',
+                before: everyone(0),
+                after: { ...everyone(0), filters: { early_exit: true, groups: [groupSet] } },
+                live: false,
+            },
+            { scenario: 'a partial rollout', before: everyone(0), after: everyone(99), live: false },
+            {
+                scenario: '100% of a targeted group only',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        groups: [
+                            {
+                                properties: [{ key: 'email', type: 'person', value: 'x', operator: 'icontains' }],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                },
+                live: false,
+            },
+            {
+                scenario: 'a 100% set behind a 0% set',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: true,
+            },
+            {
+                scenario: 'a 100% set behind a 0% set that stops evaluation early',
+                before: everyone(0),
+                after: {
+                    active: true,
+                    filters: {
+                        early_exit: true,
+                        groups: [
+                            { properties: [], rollout_percentage: 0 },
+                            { properties: [], rollout_percentage: 100 },
+                        ],
+                    },
+                },
+                live: false,
+            },
+            {
+                scenario: 'a multivariate flag',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, multivariate: { variants: [] } } },
+                live: false,
+            },
+            {
+                scenario: 'a group-targeted flag',
+                before: everyone(0),
+                after: { ...everyone(100), filters: { ...everyone(100).filters, aggregation_group_type_index: 0 } },
+                live: false,
+            },
+        ])('offers the launch broadcast after $scenario: $live', ({ before, after, live }) => {
+            expect(flagWentLive(before, after)).toBe(live)
+        })
+
+        it.each([
+            {
+                scenario: 'opens the broadcast once the cohort fills on the third check',
+                polls: [FILLING, FILLING, READY],
+                expectedPolls: 3,
+                outcome: 'opened',
+            },
+            {
+                scenario: 'shows an error when the cohort fails to fill',
+                polls: [FAILED],
+                expectedPolls: 1,
+                outcome: 'error',
+            },
+            {
+                scenario: 'points to the cohort when it is still filling after the wait',
+                polls: [FILLING],
+                expectedPolls: 31,
+                outcome: 'still filling',
+            },
+            {
+                scenario: 'points to the cohort when a status check stalls past the wait',
+                polls: [FILLING],
+                expectedPolls: 2,
+                outcome: 'still filling',
+                stallAfter: 1,
+            },
+            {
+                scenario: 'offers the broadcast in a toast when the person left the flag page',
+                polls: [READY],
+                expectedPolls: 1,
+                outcome: 'offered',
+                startPath: urls.cohorts(),
+            },
+            {
+                scenario: 'offers the broadcast in a toast after leaving the flag page unmounts its logic',
+                polls: [FILLING, READY],
+                expectedPolls: 2,
+                outcome: 'offered',
+                startPath: urls.cohorts(),
+                unmountOnLeave: true,
+            },
+        ])('$scenario', async ({ polls, expectedPolls, outcome, startPath, unmountOnLeave, stallAfter }) => {
+            jest.useFakeTimers()
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            let pollCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': () => [
+                        201,
+                        { cohort: FILLING },
+                    ],
+                },
+                get: {
+                    '/api/projects/:projectId/cohorts/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:projectId/cohorts/42/': () => {
+                        const poll = pollCount++
+                        if (stallAfter !== undefined && poll >= stallAfter) {
+                            return new Promise(() => {})
+                        }
+                        return [200, polls[Math.min(poll, polls.length - 1)]]
+                    },
+                },
+            })
+
+            logic.actions.findOrCreateBroadcastCohort()
+            if (startPath) {
+                router.actions.push(startPath)
+            }
+            if (unmountOnLeave) {
+                await jest.advanceTimersByTimeAsync(500)
+                logic.unmount()
+            }
+            await jest.advanceTimersByTimeAsync(61_000)
+            if (unmountOnLeave) {
+                logic.mount()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(pollCount).toBe(expectedPolls)
+            expect(capturesOf('message audience clicked')).toEqual([
+                ['message audience clicked', { source: 'feature_flag', destination: 'broadcast' }],
+            ])
+            expect(lemonToast.loading).toHaveBeenCalledTimes(1)
+            expect(lemonToast.dismiss).toHaveBeenCalledWith((lemonToast.loading as jest.Mock).mock.results[0].value)
+            const broadcastDetails = { name: 'test-flag announcement', source: 'feature_flag' }
+            if (outcome === 'opened') {
+                expect(router.values.location.pathname).toContain('/broadcasts/new')
+                expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                    expect.objectContaining({ type: 'cohort', value: 42 }),
+                ])
+                expect(router.values.searchParams).toMatchObject(broadcastDetails)
+                return
+            }
+            expect(router.values.location.pathname).toContain(startPath ?? urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            if (outcome === 'error') {
+                expect(lemonToast.error).toHaveBeenCalledWith(
+                    "Couldn't find the people who have this flag. Try again in a few minutes."
+                )
+            } else if (outcome === 'still filling') {
+                const [message, { button }] = (lemonToast.info as jest.Mock).mock.calls[0]
+                expect(message).toContain('Still finding the people who have this flag')
+                button.action()
+                expect(router.values.location.pathname).toContain(urls.cohort(42))
+            } else {
+                const [, { button }] = (lemonToast.success as jest.Mock).mock.calls[0]
+                expect(button.label).toBe('Open broadcast')
+                button.action()
+                expect(router.values.location.pathname).toContain('/broadcasts/new')
+                expect(router.values.searchParams).toMatchObject(broadcastDetails)
+            }
+        })
+
+        it.each([
+            ['a dropped connection', {}, 1],
+            ['an HTTP error the shared loader toast already reports', { status: 500 }, 0],
+        ])('reports a failed broadcast lookup after %s', (_, errorObject, errorToasts) => {
+            logic.actions.findOrCreateBroadcastCohortFailure('failed', errorObject)
+
+            expect(lemonToast.error).toHaveBeenCalledTimes(errorToasts)
+        })
+
+        it.each([
+            {
+                scenario: 'targets groups',
+                flag: { filters: { ...MOCK_FEATURE_FLAG.filters, aggregation_group_type_index: 0 } },
+                message: 'This flag targets groups, not people, so there is no one to email.',
+            },
+            {
+                scenario: 'was archived after the page loaded',
+                flag: { archived: true, active: false },
+                message: 'This flag is archived, so no one has it. Unarchive and enable it first.',
+            },
+            {
+                scenario: 'was disabled after the page loaded',
+                flag: { active: false },
+                message: 'This flag is disabled, so no one has it. Enable it first.',
+            },
+        ])('makes no cohort when the saved flag $scenario', async ({ flag, message }) => {
+            const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
+            useMocks({
+                post: {
+                    '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
+                },
+                get: { [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, ...flag }] },
+            })
+
+            logic.actions.findOrCreateBroadcastCohort()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(message)
+            expect(createStaticCohort).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).not.toContain('/broadcasts/new')
+        })
+
+        const NOW = new Date('2026-10-07T12:00:00Z')
+        const minutesAgo = (minutes: number): string => new Date(NOW.getTime() - minutes * 60_000).toISOString()
+        const listedCohort = (
+            flagKey: string,
+            createdAt: string,
+            createdByUuid: string = MOCK_DEFAULT_BASIC_USER.uuid
+        ): Record<string, any> => ({
+            id: 7,
+            name: `Users with feature flag ${flagKey} enabled at 2026-10-07 11:50:00`,
+            created_by: { id: 1, uuid: createdByUuid },
+            is_static: true,
+            deleted: false,
+            errors_calculating: 0,
+            is_calculating: false,
+            created_at: createdAt,
+        })
+
+        it.each([
+            {
+                scenario: 'reuses a recent cohort for this flag',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the existing one is over an hour old',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(61)),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the flag was saved after the recent one was made',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                flagUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the flag changed on the server after this page loaded it',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                serverUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'reuses a cohort still filling past the hour instead of starting a second scan',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(90)), is_calculating: true }),
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the one still filling is past the fill limit',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(241)), is_calculating: true }),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'finds a reusable cohort past a first page of newer cohorts',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                newerPage: true,
+                usesCohortId: 7,
+            },
+            {
+                scenario: 'creates a cohort when the recent one failed to fill',
+                listed: () => ({ ...listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)), errors_calculating: 1 }),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when someone changed who is in the recent one',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                edited: true,
+                usesCohortId: 42,
+            },
+            {
+                scenario: "creates a cohort when the recent one's history can't be read",
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                activityFails: true,
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when another user made the recent one',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10), 'another-user-uuid'),
+                usesCohortId: 42,
+            },
+            {
+                scenario: 'creates a cohort when the recent one belongs to a flag whose key extends this one',
+                listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
+                usesCohortId: 42,
+            },
+        ])(
+            '$scenario',
+            async ({ listed, usesCohortId, flagUpdatedAt, serverUpdatedAt, newerPage, edited, activityFails }) => {
+                jest.useFakeTimers()
+                jest.setSystemTime(NOW)
+                router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+                const createStaticCohort = jest.fn(() => [201, { cohort: FILLING }])
+                const existing = listed()
+                const listParams: URLSearchParams[] = []
+                let flagLoads = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
+                    },
+                    get: {
+                        [FLAG_URL]: () => {
+                            const updatedAt = flagLoads++ === 0 ? flagUpdatedAt : (serverUpdatedAt ?? flagUpdatedAt)
+                            return [200, { ...MOCK_FEATURE_FLAG, updated_at: updatedAt ?? minutesAgo(120) }]
+                        },
+                        '/api/projects/:projectId/cohorts/': ({ request }) => {
+                            const params = new URL(request.url).searchParams
+                            listParams.push(params)
+                            if (newerPage && params.get('offset') === '0') {
+                                const others = Array.from({ length: 20 }, (_, index) => ({
+                                    ...listedCohort(`other-flag-${index}`, minutesAgo(5)),
+                                    id: 100 + index,
+                                }))
+                                return [200, { count: 21, next: 'more', results: others }]
+                            }
+                            return [200, { count: 1, results: [existing] }]
+                        },
+                        '/api/projects/:projectId/cohorts/7/activity/': () =>
+                            activityFails
+                                ? [402, { detail: 'This feature is part of the premium PostHog offering.' }]
+                                : [
+                                      200,
+                                      {
+                                          next: null,
+                                          previous: null,
+                                          results: edited ? [{ activity: 'persons_added_manually' }] : [],
+                                      },
+                                  ],
+                        '/api/projects/:projectId/cohorts/7/': () => [200, { ...existing, is_calculating: false }],
+                        '/api/projects/:projectId/cohorts/42/': () => [200, READY],
+                    },
+                })
+
+                logic.unmount()
+                logic = featureFlagLogic({ id: 1 })
+                logic.mount()
+                await jest.advanceTimersByTimeAsync(1_000)
+
+                logic.actions.findOrCreateBroadcastCohort()
+                await jest.advanceTimersByTimeAsync(5_000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(Object.fromEntries(listParams[0])).toEqual({
+                    type: 'static',
+                    created_by_id: String(MOCK_DEFAULT_USER.id),
+                    limit: '20',
+                    offset: '0',
+                })
+                expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
+                expect(JSON.parse(router.values.searchParams.audience)).toEqual([
+                    expect.objectContaining({ type: 'cohort', value: usesCohortId }),
+                ])
+            }
+        )
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -5039,41 +5512,41 @@ describe('the editor a flag opens in', () => {
         expect(await editorKind(id, editorEnabled, search)).toBe(expected)
     })
 
-    // The editor builds its draft from the stored rules and would throw on, or drop, what it cannot represent.
+    const V2_FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`
+    const EXPERIMENT_RULE = {
+        id: 'rule-split',
+        rule_type: 'experiment',
+        targeting: { properties: [] },
+        paused: false,
+        variants: [
+            { key: 'control', weight: 50, value: false },
+            { key: 'test', weight: 50, value: true },
+        ],
+        rollout_percentage: 100,
+        on_rollout_miss: 'continue',
+        assignment_algorithm: 'sha1_60_v1',
+        assign_by: 'person',
+        seed: 'stored-seed',
+    }
+
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
-        ['group assignment', { aggregation_group_type_index: 0 }],
+        ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
-            'an experiment rule',
-            {
-                rules: [
-                    {
-                        id: 'rule-experiment',
-                        rule_type: 'experiment',
-                        targeting: { properties: [] },
-                        paused: false,
-                        variants: [
-                            { key: 'control', weight: 50, value: false },
-                            { key: 'test', weight: 50, value: true },
-                        ],
-                        rollout_percentage: 100,
-                        on_rollout_miss: 'continue',
-                        assignment_algorithm: 'sha1_60_v1',
-                        assign_by: 'person',
-                        seed: 'stored-seed',
-                    },
-                ],
-            },
+            'an experiment rule with a holdout',
+            { rules: [{ ...EXPERIMENT_RULE, holdout: { seed: 'holdout-seed', exclusion_percentage: 5 } }] },
         ],
+    ])('a v2 flag with %s opens the rules v2 editor', async (_label, filters) => {
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
+        expect(await editorKind(7, true)).toBe('rules_v2')
+    })
+
+    // The editor would drop, or rewrite on save, what it cannot represent.
+    it.each([
+        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [
-                    200,
-                    { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } },
-                ],
-            },
-        })
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
         expect(await editorKind(7, true)).toBeNull()
     })
 })

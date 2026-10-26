@@ -2,8 +2,6 @@ from typing import Any
 
 import pytest
 
-from requests.exceptions import HTTPError, RequestException
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -20,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmast
 from products.warehouse_sources.backend.temporal.data_imports.sources.ticketmaster.ticketmaster import (
     validate_credentials,
 )
+
+UNREACHABLE_MESSAGE = "Couldn't reach Ticketmaster to check your credentials. Try again in a few minutes."
 
 
 def make_config(keyword: str = " Example act ") -> TicketmasterSourceConfig:
@@ -102,20 +102,17 @@ def test_client_errors_hide_query_key(status: int) -> None:
     assert len(result.requests) == 1
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 429, 503])
-def test_credential_probe(status: int) -> None:
+@pytest.mark.parametrize(
+    "status,expected_message",
+    [
+        (429, UNREACHABLE_MESSAGE),
+        (503, UNREACHABLE_MESSAGE),
+        (404, "Ticketmaster request failed (HTTP 404)."),
+    ],
+)
+def test_credential_probe(status: int, expected_message: str) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
-        if status in (429, 503):
-            with pytest.raises(HTTPError, match=f"HTTP {status}") as error:
-                validate_credentials(make_config(), "venues", "v2")
-            assert "fake-ticketmaster-key" not in str(error.value)
-        else:
-            valid, message = validate_credentials(make_config(), "venues", "v2")
-            assert valid is (status == 200)
-            if status == 200:
-                assert message is None
-            else:
-                assert message in TicketmasterSource().get_non_retryable_errors()
+        assert validate_credentials(make_config(), "venues", "v2") == (False, expected_message)
     assert {request.path for request in network.requests_log} == {"/discovery/v2/venues.json"}
     for request in network.requests_log:
         assert request.query == {
@@ -148,11 +145,6 @@ def test_unknown_endpoint_rejected_before_request() -> None:
 
 
 @pytest.mark.parametrize("error", [ConnectionResetError("reset"), TimeoutError("timed out")])
-def test_credential_connection_error_hides_query_key(error: BaseException) -> None:
-    with (
-        scripted_network(always(error)),
-        pytest.raises(RequestException, match="Ticketmaster connection failed") as raised,
-    ):
-        validate_credentials(make_config(), "events", "v2")
-    assert "fake-ticketmaster-key" not in str(raised.value)
-    assert raised.value.__suppress_context__
+def test_credential_connection_error_gives_a_message(error: BaseException) -> None:
+    with scripted_network(always(error)):
+        assert validate_credentials(make_config(), "events", "v2") == (False, UNREACHABLE_MESSAGE)

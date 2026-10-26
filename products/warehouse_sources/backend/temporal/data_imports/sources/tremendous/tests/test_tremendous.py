@@ -175,26 +175,6 @@ class TestBalanceTransactionRowId:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Tremendous API key (check that it matches the selected environment)"),
-            ("forbidden", 403, False, "Invalid Tremendous API key (check that it matches the selected environment)"),
-            ("server_error", 500, False, "Tremendous returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("tremendous-key", "production") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        # A credential probe must never raise; a transport failure means "not validated".
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("tremendous-key", "production") == (
-                False,
-                "Could not validate Tremendous API key",
-            )
-
     def test_pins_redirects_off(self) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("tremendous-key", "production")

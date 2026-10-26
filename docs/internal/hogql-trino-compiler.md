@@ -80,7 +80,6 @@ The standalone `resolve_managed_warehouse_trino_connection(...)` helper returns 
 
 The connection uses HTTPS with certificate verification and a 60-second HTTP timeout.
 Its session bypasses environment proxies only for control-plane-issued targets with a single hostname label under `dw.us.postwh.com`, `dw.eu.postwh.com`, or `dw.dev.postwh.com`, on port 443.
-Customer-configured external sources retain the separate fixed-host allowlist (`trino.dw.us.postwh.com`, `trino.dw.eu.postwh.com`, and `trino.dw.dev.postwh.com`).
 The session checks and renews the same grant before sending POST, polling GET, or cancellation DELETE requests when less than two minutes remain.
 Mint and renewal calls have a ten-second timeout.
 Credential renewal is serialized so polling and cancellation share one renewal decision.
@@ -90,6 +89,15 @@ The gateway binds query ownership to the full credential, so rotating its secret
 Existing Duckgres refresh calls retain their default secret-rotation behavior.
 A changed endpoint, catalog or username fails closed, as do redirects and polling URLs outside the issued HTTPS origin.
 The session closes when the connection scope exits.
+
+Customer-configured external Trino sources also bypass environment proxies for these regional tenant hostnames.
+This requires HTTPS on port 443 with certificate verification.
+Use the same tenant hostname, SQL username, and password as the CLI.
+PostHog passes the configured credentials unchanged.
+External sources retain the tracked HTTP transport.
+They reject redirects or polling URLs outside the configured HTTPS origin.
+Other external hosts retain the environment proxy behavior.
+Existing shared Trino hostnames remain compatible with their configured usernames.
 
 Deploy the service-grant validator, Trino authenticator, Gateway service-identity routing, and cell-specific validation tokens before deploying this caller.
 The control plane must return a ready `trino_connect` block on mint and `secret_rotated=false` on renewal.

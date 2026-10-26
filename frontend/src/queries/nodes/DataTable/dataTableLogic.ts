@@ -106,6 +106,7 @@ export interface dataTableLogicValues {
         Omit<DataTableNode, 'response'>,
         'contextKey' | 'defaultColumns' | 'tags' | 'version'
     >
+    rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null
     sourceFeatures: Set<QueryFeature>
     sourceKind: NodeKind | null
 }
@@ -123,6 +124,9 @@ export interface dataTableLogicActions {
     } // tabUiStateLogic
     setColumnsInQuery: (columns: HogQLExpression[]) => {
         columns: string[]
+    }
+    setRowsTransformer: (rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null) => {
+        rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null
     }
     toggleRowExpanded: (rowIndex: number) => {
         rowIndex: number
@@ -176,7 +180,7 @@ export interface dataTableLogicMeta {
                 | TraceSpansTreeQueryResponse
                 | null,
             columnsInResponse: string[] | null,
-            arg: any,
+            rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => DataTableRow[] | null
         queryWithDefaults: (
@@ -216,10 +220,19 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({
         setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }),
+        setRowsTransformer: (rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null) => ({
+            rowsTransformer,
+        }),
         toggleRowExpanded: (rowIndex: number) => ({ rowIndex }),
     }),
     reducers(({ props }) => ({
         columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
+        // Kea mutates props in place, so a selector reading the transformer from props keeps a stale result.
+        // The default is a selector because kea reads a function default as one.
+        rowsTransformer: [
+            (_: unknown, props: DataTableLogicProps) => props.context?.dataTableRowsTransformer ?? null,
+            { setRowsTransformer: (_, { rowsTransformer }) => rowsTransformer },
+        ],
     })),
     connect((props: DataTableLogicProps) => ({
         values: [
@@ -287,20 +300,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [
-                s.sourceKind,
-                s.orderBy,
-                s.response,
-                s.columnsInResponse,
-                (_, props) => props.context,
-                s.currentTeam,
-            ],
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.rowsTransformer, s.currentTeam],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
                 columnsInResponse: string[] | null,
-                context: QueryContext<DataTableNode> | undefined,
+                rowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | null,
                 currentTeam: { timezone?: string } | null
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
@@ -363,7 +369,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         : null
 
                 const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
-                return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
+                return rowsTransformer ? rowsTransformer(rows ?? []) : rows
             },
             // A reload or poll reparses JSON, so unchanged results still arrive as new identities;
             // keeping the previous array lets memoized rows skip re-rendering.
@@ -444,6 +450,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
         const oldColumns = getColumnsForQuery(oldProps.query)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumnsInQuery(newColumns)
+        }
+        const rowsTransformer = props.context?.dataTableRowsTransformer ?? null
+        if (rowsTransformer !== (oldProps.context?.dataTableRowsTransformer ?? null)) {
+            actions.setRowsTransformer(rowsTransformer)
         }
     }),
 ])

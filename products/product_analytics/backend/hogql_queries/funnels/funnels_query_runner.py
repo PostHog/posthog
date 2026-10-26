@@ -98,6 +98,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             user=user,
         )
 
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self.context.set_user(self.user)
+
     def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
         return (
             RequireAtLeastTwoFunnelSteps(),

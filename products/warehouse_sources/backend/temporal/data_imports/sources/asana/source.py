@@ -59,7 +59,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
             name=ExternalDataSourceType.ASANA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Asana personal access token to pull your Asana data into the PostHog Data warehouse.
 
 You can create a personal access token from the [developer console](https://app.asana.com/0/my-apps).

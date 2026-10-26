@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlayFilled } from '@posthog/icons'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -160,8 +162,26 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
     const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const triggerButton = (
+    const triggerDisabledReason =
+        workflow?.status !== 'active'
+            ? 'Must enable workflow to use trigger'
+            : hasUnsavedChanges
+              ? 'Save changes first'
+              : undefined
+
+    const triggerButton = todayRailNav ? (
+        <Button
+            variant="primary"
+            disabledReason={triggerDisabledReason}
+            tooltip="Triggers workflow immediately"
+            onClick={() => setPopoverVisible(!popoverVisible)}
+        >
+            Trigger
+            <IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />
+        </Button>
+    ) : (
         <LemonButton
             type="primary"
             size="small"

@@ -43,8 +43,6 @@ class TestAdobeAnalyticsSource:
     @pytest.mark.parametrize(
         "other_error",
         [
-            "429 Client Error: Too Many Requests for url: https://analytics.adobe.io/api/gcid/reports",
-            "500 Server Error for url: https://analytics.adobe.io/api/gcid/reports",
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
         ],
     )

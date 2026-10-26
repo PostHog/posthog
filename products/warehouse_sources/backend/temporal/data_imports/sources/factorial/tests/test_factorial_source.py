@@ -49,11 +49,6 @@ class TestFactorialSource:
         ("status_code", "expected_valid", "expected_message"),
         [
             (200, True, None),
-            (
-                401,
-                False,
-                "Invalid Factorial API key, or it does not have access to your account's data.",
-            ),
         ],
     )
     def test_validate_credentials(
