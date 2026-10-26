@@ -211,11 +211,19 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
             team=self.team, skill_name="signals-scout-first-report", enabled=False
         )
         run = _make_run(self.team, skill_name=config.skill_name, scout_config=config)
+        run.task_run.task.internal = True
+        run.task_run.task.save(update_fields=["internal"])
         ordinary = _make_run(self.team)
         response = self.client.get(self._list_url())
         assert response.status_code == 200
         assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
         assert self.client.get(self._detail_url(str(run.id))).status_code == 200
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/tasks/{run.task_run.task_id}/runs/{run.task_run_id}/"
+            ).status_code
+            == 200
+        )
         response = self.client.get(self._list_url() + "recent-per-scout/")
         assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
         response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
