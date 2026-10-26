@@ -31,6 +31,7 @@ export interface GitHubRepositoryComboboxProps {
     /** Load every page. The default picker stops after the first page and waits for "Load more". */
     loadAll?: boolean
     fullWidth?: boolean
+    triggerClassName?: string
     defaultOpen?: boolean
 }
 
@@ -53,6 +54,7 @@ export function GitHubRepositoryCombobox({
     repositoryFilter,
     loadAll = false,
     fullWidth = false,
+    triggerClassName,
     defaultOpen = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId, loadAll })
@@ -103,7 +105,7 @@ export function GitHubRepositoryCombobox({
                         disabled={isDisabled}
                         aria-label="Repository"
                         aria-describedby={disabledReason ? disabledReasonId : undefined}
-                        className={fullWidth ? 'min-h-10 w-full justify-start' : undefined}
+                        className={triggerClassName ?? (fullWidth ? 'min-h-10 w-full justify-start' : undefined)}
                     >
                         <IconGithub className="shrink-0" />
                         <span className="min-w-0 truncate">{value || placeholder}</span>

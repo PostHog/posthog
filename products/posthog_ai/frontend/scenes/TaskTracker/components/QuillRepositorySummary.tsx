@@ -14,6 +14,8 @@ import { COMPOSER_MENU_CLASS } from '../../../components/quill/composerMenuClass
 import type { RepositoryConfig } from '../../../types/taskTypes'
 import { QuillGitHubAccountMenu } from './QuillGitHubAccountMenu'
 
+const PANEL_FIELD_CLASS = 'h-7 w-full justify-start'
+
 export interface QuillRepositorySummaryProps {
     value: RepositoryConfig
     integrationId: number
@@ -73,7 +75,7 @@ export function QuillRepositorySummary({
                         integrationId={integrationId}
                         value={repository}
                         onChange={(next) => onChange({ ...value, repository: next ?? undefined, branch: undefined })}
-                        fullWidth
+                        triggerClassName={PANEL_FIELD_CLASS}
                     />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -83,6 +85,7 @@ export function QuillRepositorySummary({
                         repo={repository}
                         value={value.branch ?? ''}
                         onChange={onBranchChange}
+                        triggerClassName={PANEL_FIELD_CLASS}
                     />
                 </div>
                 <div className="flex items-center justify-between gap-2 border-t border-border pt-3">

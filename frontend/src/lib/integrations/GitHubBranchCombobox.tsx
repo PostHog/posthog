@@ -26,6 +26,7 @@ export interface GitHubBranchComboboxProps {
     disabled?: boolean
     placeholder?: string
     allowCustomValues?: boolean
+    triggerClassName?: string
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
@@ -46,6 +47,7 @@ export function GitHubBranchCombobox({
     disabled = false,
     placeholder = 'Select branch...',
     allowCustomValues = true,
+    triggerClassName,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
     const { branches, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -99,7 +101,14 @@ export function GitHubBranchCombobox({
         >
             <ComboboxTrigger
                 render={
-                    <Button ref={triggerRef} variant="outline" size="sm" disabled={disabled} aria-label="Branch">
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        aria-label="Branch"
+                        className={triggerClassName}
+                    >
                         <IconGitBranch className="shrink-0" />
                         <span className="min-w-0 truncate">{value || placeholder}</span>
                     </Button>

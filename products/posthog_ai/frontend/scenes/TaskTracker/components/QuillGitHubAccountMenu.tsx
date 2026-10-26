@@ -44,7 +44,7 @@ export function QuillGitHubAccountMenu({
                         variant="outline"
                         size="sm"
                         aria-label={`GitHub account: ${current ?? 'GitHub'}`}
-                        className={cn(fullWidth && 'w-full justify-start')}
+                        className={cn(fullWidth && 'h-7 w-full justify-start')}
                         data-attr="task-composer-github-account"
                     >
                         <IconGithub className="shrink-0" />
