@@ -22,8 +22,6 @@
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
   configMigration: false,
-  // CI bots push regenerated snapshots and OpenAPI types onto PR branches.
-  // Without this, Renovate treats those PRs as modified and stops rebasing them
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
     '250237707+tests-posthog[bot]@users.noreply.github.com',
@@ -77,8 +75,7 @@
     },
   },
   packageRules: [
-    // pnpm and uv refuse versions younger than 7 days, so a shorter wait proposes updates
-    // whose lock file update fails. Crates get the same wait
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
     {
       matchDatasources: ['npm', 'pypi', 'crate'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
@@ -123,15 +120,12 @@
       ],
       minimumReleaseAge: null,
     },
-    // One non-major group per lock file keeps the dashboard under GitHub's issue size limit.
-    // Package files that share a lock file share a group, so merging one group PR does not
-    // conflict the others
     {
       matchManagers: ['npm', 'pep621', 'cargo'],
       matchUpdateTypes: ['minor', 'patch'],
       groupName: '{{manager}} non-major',
     },
-    // Directories with their own lock file, outside the root pnpm, uv and Cargo workspaces
+    // Directories with their own lock file
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
@@ -154,21 +148,18 @@
       ],
       groupName: '{{manager}} non-major in {{packageFileDir}}',
     },
-    // Workspaces with their own lock file and nested package files
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch'],
       matchFileNames: ['products/desktop/**', 'packages/agent/**'],
       groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
     },
-    // A 0.x minor release can break, so it gets its own PR
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor'],
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
     },
-    // Python and pnpm version bumps change the toolchain for every package, so each gets its own PR
     {
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
