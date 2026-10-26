@@ -2941,6 +2941,8 @@ export namespace Schemas {
       source_type?: string | null;
       /** Warehouse table name that was referenced */
       table_name: string;
+      /** Whether the query read a history table of this source */
+      uses_history_table?: boolean | null;
     }
 
     export interface DataWarehouseSyncWarning {
@@ -12247,6 +12249,8 @@ export namespace Schemas {
      * * `escalated_with_best` - escalated_with_best
      * * `escalated_no_reply` - escalated_no_reply
      * * `skipped_unactionable` - skipped_unactionable
+     * * `skipped_team_replied` - skipped_team_replied
+     * * `skipped_channel_excluded` - skipped_channel_excluded
      * * `blocked_unsafe` - blocked_unsafe
      * * `blocked_unsafe_reply` - blocked_unsafe_reply
      * * `clarified` - clarified
@@ -12263,6 +12267,8 @@ export namespace Schemas {
       EscalatedWithBest: 'escalated_with_best',
       EscalatedNoReply: 'escalated_no_reply',
       SkippedUnactionable: 'skipped_unactionable',
+      SkippedTeamReplied: 'skipped_team_replied',
+      SkippedChannelExcluded: 'skipped_channel_excluded',
       BlockedUnsafe: 'blocked_unsafe',
       BlockedUnsafeReply: 'blocked_unsafe_reply',
       Clarified: 'clarified',
@@ -13862,6 +13868,30 @@ export namespace Schemas {
       undo_ops: unknown[];
       /** The config as it now stands */
       marketing_analytics_config: unknown;
+    }
+
+    export interface ApplyUtmDefaultsRequest {
+      /** When true, only count the emails the change would update. Nothing is saved. */
+      dry_run?: boolean;
+      /** Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links. */
+      enable_where_off?: boolean;
+    }
+
+    export interface ApplyUtmDefaultsResponse {
+      /** Email steps that get (or would get) the team defaults. */
+      emails_updated: number;
+      /** Workflows and broadcasts that contain those email steps. */
+      workflows_updated: number;
+      /** Of those, the ones that are live, so their next send uses the new values. */
+      active_workflows_updated: number;
+      /** Email steps where UTM tags get (or would get) turned on. */
+      emails_turned_on: number;
+      /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
+      emails_off: number;
+      /** Workflows with emails to update that you can't edit. They keep their old values. */
+      workflows_without_access: number;
+      /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
+      workflows_failed: number;
     }
 
     export interface ApprovalPolicy {
@@ -40996,6 +41026,240 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailDomainConnectProvider {
+      /** Domain Connect endpoint of the provider. */
+      endpoint: string;
+      /** Display name of the provider. */
+      name: string;
+    }
+
+    export interface EmailDomainDnsHost {
+      /** Name of the company that hosts the domain's DNS, such as Cloudflare. */
+      name: string;
+      /** Link to the DNS settings page at that host. */
+      dns_settings_url: string;
+    }
+
+    export interface EmailDomainConnectCheck {
+      /** Whether the domain's DNS provider supports automatic setup through Domain Connect. */
+      supported: boolean;
+      /**
+         * Domain Connect provider that hosts the domain. Null when not supported.
+         * @nullable
+         */
+      provider_name: string | null;
+      /** Providers the user can pick manually when automatic detection fails. Empty when supported. */
+      available_providers: EmailDomainConnectProvider[];
+      /** The detected DNS host of the root domain, from its nameservers. Null when unknown. */
+      dns_host: EmailDomainDnsHost | null;
+      /** Email tools that already send for the root domain, detected from SPF and DKIM records. Best effort, empty when none are found or when include_email_setup is off. */
+      existing_email_tools: string[];
+    }
+
+    /**
+     * * `verification` - Domain ownership
+     * * `dkim` - DKIM signing
+     * * `spf` - SPF
+     * * `mail_from_mx` - MAIL FROM MX
+     * * `mail_from_spf` - MAIL FROM SPF
+     * * `dmarc` - DMARC
+     */
+    export type EmailDomainSetupRecordKindEnum = typeof EmailDomainSetupRecordKindEnum[keyof typeof EmailDomainSetupRecordKindEnum];
+
+
+    export const EmailDomainSetupRecordKindEnum = {
+      Verification: 'verification',
+      Dkim: 'dkim',
+      Spf: 'spf',
+      MailFromMx: 'mail_from_mx',
+      MailFromSpf: 'mail_from_spf',
+      Dmarc: 'dmarc',
+    } as const;
+
+    /**
+     * * `pending` - Not found yet
+     * * `found` - Found in DNS
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupRecordStatusEnum = typeof EmailDomainSetupRecordStatusEnum[keyof typeof EmailDomainSetupRecordStatusEnum];
+
+
+    export const EmailDomainSetupRecordStatusEnum = {
+      Pending: 'pending',
+      Found: 'found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `TXT` - TXT
+     * * `CNAME` - CNAME
+     * * `MX` - MX
+     */
+    export type EmailDomainSetupRecordTypeEnum = typeof EmailDomainSetupRecordTypeEnum[keyof typeof EmailDomainSetupRecordTypeEnum];
+
+
+    export const EmailDomainSetupRecordTypeEnum = {
+      Txt: 'TXT',
+      Cname: 'CNAME',
+      Mx: 'MX',
+    } as const;
+
+    /**
+     * * `not_started` - Not started
+     * * `pending` - Waiting for DNS records
+     * * `records_found` - Records found, waiting for verification
+     * * `verified` - Verified
+     * * `temporary_failure` - Temporary failure
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStatusEnum = typeof EmailDomainSetupStatusEnum[keyof typeof EmailDomainSetupStatusEnum];
+
+
+    export const EmailDomainSetupStatusEnum = {
+      NotStarted: 'not_started',
+      Pending: 'pending',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+      TemporaryFailure: 'temporary_failure',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `domain_added` - Domain added
+     * * `records_found` - DNS records found
+     * * `verified` - Verified
+     */
+    export type EmailDomainSetupStepKeyEnum = typeof EmailDomainSetupStepKeyEnum[keyof typeof EmailDomainSetupStepKeyEnum];
+
+
+    export const EmailDomainSetupStepKeyEnum = {
+      DomainAdded: 'domain_added',
+      RecordsFound: 'records_found',
+      Verified: 'verified',
+    } as const;
+
+    /**
+     * * `done` - Done
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type EmailDomainSetupStepStateEnum = typeof EmailDomainSetupStepStateEnum[keyof typeof EmailDomainSetupStepStateEnum];
+
+
+    export const EmailDomainSetupStepStateEnum = {
+      Done: 'done',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainStatusStep {
+      /** The setup step: domain_added (SES knows the domain), records_found (every DNS record is published), verified (SES verified the domain and the sender can send).
+       *
+       * * `domain_added` - Domain added
+       * * `records_found` - DNS records found
+       * * `verified` - Verified */
+      key: EmailDomainSetupStepKeyEnum;
+      /** Progress of this step.
+       *
+       * * `done` - Done
+       * * `pending` - Pending
+       * * `failed` - Failed */
+      state: EmailDomainSetupStepStateEnum;
+    }
+
+    export interface EmailDomainStatusRecord {
+      /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+       *
+       * * `verification` - Domain ownership
+       * * `dkim` - DKIM signing
+       * * `spf` - SPF
+       * * `mail_from_mx` - MAIL FROM MX
+       * * `mail_from_spf` - MAIL FROM SPF
+       * * `dmarc` - DMARC */
+      kind: EmailDomainSetupRecordKindEnum;
+      /** Full DNS name to create the record at, including the domain. */
+      hostname: string;
+      /** DNS record type.
+       *
+       * * `TXT` - TXT
+       * * `CNAME` - CNAME
+       * * `MX` - MX */
+      type: EmailDomainSetupRecordTypeEnum;
+      /** Value to publish. For an SPF record, add the include to an existing SPF record instead of creating a second one. For DMARC, any existing v=DMARC1 record counts. */
+      value: string;
+      /**
+         * MX priority. Null for other record types.
+         * @nullable
+         */
+      priority: number | null;
+      /** pending: not found in DNS yet. found: published in DNS, SES has not confirmed it yet. verified: SES confirmed the record, or for DMARC a v=DMARC1 record exists.
+       *
+       * * `pending` - Not found yet
+       * * `found` - Found in DNS
+       * * `verified` - Verified */
+      status: EmailDomainSetupRecordStatusEnum;
+    }
+
+    export interface EmailDomainStatus {
+      /** Overall setup status. records_found means every record is published and SES has not confirmed yet. temporary_failure means SES could not see the records, usually because DNS changes have not spread yet. failed means SES gave up after 72 hours; start verification again.
+       *
+       * * `not_started` - Not started
+       * * `pending` - Waiting for DNS records
+       * * `records_found` - Records found, waiting for verification
+       * * `verified` - Verified
+       * * `temporary_failure` - Temporary failure
+       * * `failed` - Failed */
+      status: EmailDomainSetupStatusEnum;
+      /** Whether the sender can send email. Set by email/verify once SES verifies the domain. */
+      verified: boolean;
+      /** When SES and DNS were read. Responses are cached for 10 seconds unless refresh is set. */
+      checked_at: string;
+      /** The three setup steps, in order. */
+      steps: EmailDomainStatusStep[];
+      /** DNS records to publish at the domain's DNS host, with the status of each. Empty when status is not_started. */
+      records: EmailDomainStatusRecord[];
+    }
+
+    /**
+     * * `success` - Success
+     * * `pending` - Pending
+     * * `failed` - Failed
+     */
+    export type EmailDomainVerificationStatusEnum = typeof EmailDomainVerificationStatusEnum[keyof typeof EmailDomainVerificationStatusEnum];
+
+
+    export const EmailDomainVerificationStatusEnum = {
+      Success: 'success',
+      Pending: 'pending',
+      Failed: 'failed',
+    } as const;
+
+    export interface EmailDomainVerificationRecord {
+      /** What the record does: verification, dkim, mail_from or dmarc. */
+      type: string;
+      /** DNS record type: TXT, CNAME or MX. */
+      recordType: string;
+      /** DNS name to create the record at. */
+      recordHostname: string;
+      /** Value to publish. */
+      recordValue: string;
+      /** success once SES or DNS confirms the record, else pending. */
+      status: string;
+      /** MX priority. Only set on MX records. */
+      priority?: number;
+    }
+
+    export interface EmailDomainVerification {
+      /** success when SES verified the domain and its senders are now marked verified.
+       *
+       * * `success` - Success
+       * * `pending` - Pending
+       * * `failed` - Failed */
+      status: EmailDomainVerificationStatusEnum;
+      /** DNS records the domain needs. */
+      dnsRecords: EmailDomainVerificationRecord[];
+    }
+
     /**
      * * `ai` - AI
      * * `template` - Template
@@ -43812,6 +44076,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -55685,6 +55951,55 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `no_data` - No data
+     * * `report_created` - Report created
+     * * `insufficient_data` - Insufficient data
+     * * `no_actionable_finding` - No actionable finding
+     * * `incomplete` - Incomplete
+     */
+    export type FirstReportStatusEnum = typeof FirstReportStatusEnum[keyof typeof FirstReportStatusEnum];
+
+
+    export const FirstReportStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      NoData: 'no_data',
+      ReportCreated: 'report_created',
+      InsufficientData: 'insufficient_data',
+      NoActionableFinding: 'no_actionable_finding',
+      Incomplete: 'incomplete',
+    } as const;
+
+    export interface FirstReportState {
+      /** Scout run ID for inspecting the investigation through the scout API. */
+      scout_run_id?: string;
+      /** Task ID for following the investigation's live activity. */
+      task_id?: string;
+      /** Task run ID for following the investigation's live activity. */
+      task_run_id?: string;
+      /** When the investigation's task run started. */
+      started_at?: string;
+      /** Progress of the first investigation.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `no_data` - No data
+       * * `report_created` - Report created
+       * * `insufficient_data` - Insufficient data
+       * * `no_actionable_finding` - No actionable finding
+       * * `incomplete` - Incomplete */
+      status: FirstReportStatusEnum;
+      /** The first useful report produced by the investigation. */
+      report_id?: string;
+      /** Products checked during the investigation. */
+      checked_products?: string[];
+      /** Data or history needed for a reliable finding. */
+      missing_data?: string[];
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -58366,6 +58681,13 @@ export namespace Schemas {
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails */
       origin_product?: HogFlowOriginProductEnum | null;
+      /**
+         * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+         * @maxLength 255
+         * @nullable
+         * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+         */
+      source_record?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -63602,7 +63924,7 @@ export namespace Schemas {
     } as const;
 
     export interface InboxOnboardingJobs {
-      /** Dispatch status of the first general scout run.
+      /** Dispatch status of the first-report scout run.
        *
        * * `pending` - Pending
        * * `started` - Started
@@ -63619,6 +63941,15 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingState {
+      /** Whether the current user can receive an in-app notification when this investigation finishes. */
+      first_report_completion_notification?: boolean;
+      /**
+         * The current user's email when enrolled for a first-report notification.
+         * @nullable
+         */
+      first_report_notification_email?: string | null;
+      /** First investigation outcome. */
+      first_report?: FirstReportState | null;
       /** Background work started by quick activation. */
       jobs?: InboxOnboardingJobs;
       /** Saved setup choices, without activating them. */
@@ -77566,9 +77897,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit: number;
@@ -81389,7 +81720,7 @@ export namespace Schemas {
        * * `on-track` - on-track
        * * `all` - all */
       sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
@@ -85579,6 +85910,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -88770,7 +89103,7 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
-      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
       email_utm_tags_enabled?: boolean;
       /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
       email_utm_params?: EmailUtmParams;
@@ -89949,9 +90282,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month?: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month?: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit?: number;
@@ -90264,6 +90597,24 @@ export namespace Schemas {
     export interface PatchedReviewValidatorConfigSelect {
       /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
       active?: boolean;
+    }
+
+    export interface PatchedReviewerExclusionUpdate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * New text for the instruction.
+         * @maxLength 2000
+         */
+      instruction?: string;
     }
 
     export type PatchedRoleMembersItem = { [key: string]: unknown };
@@ -104477,6 +104828,79 @@ export namespace Schemas {
       Confirm: 'confirm',
     } as const;
 
+    /**
+     * * `active` - Active
+     * * `revoked` - Revoked
+     */
+    export type SignalReviewerExclusionStatusEnum = typeof SignalReviewerExclusionStatusEnum[keyof typeof SignalReviewerExclusionStatusEnum];
+
+
+    export const SignalReviewerExclusionStatusEnum = {
+      Active: 'active',
+      Revoked: 'revoked',
+    } as const;
+
+    export interface ReviewerExclusion {
+      /** Identifier of the instruction. */
+      readonly id: string;
+      /** Repository in `owner/name` form that the instruction covers. Empty covers every one. */
+      readonly repository: string;
+      /** Path inside the repository that the instruction covers. Empty covers the repository. */
+      readonly path_prefix: string;
+      /** Why the member stays off this area. */
+      readonly instruction: string;
+      /** `active` instructions apply to automatic reviewer selection. `revoked` instructions do not.
+       *
+       * * `active` - Active
+       * * `revoked` - Revoked */
+      readonly status: SignalReviewerExclusionStatusEnum;
+      /** Increases by one at each change. */
+      readonly revision: number;
+      /** When the member saved the instruction. */
+      readonly created_at: string;
+      /** When the instruction last changed. */
+      readonly updated_at: string;
+    }
+
+    export interface ReviewerExclusionCreate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * Why you stay off this area, for the people who read it later.
+         * @maxLength 2000
+         */
+      instruction: string;
+      /** Optional report to take you off first. The report removal and the instruction save are separate steps. */
+      report_id?: string;
+    }
+
+    export interface ReviewerExclusionCreateResult {
+      /** True only when the instruction is saved. Only then does it keep you off automatic selection. */
+      instruction_saved: boolean;
+      /**
+         * True when the report removal succeeded. Null when no report was given.
+         * @nullable
+         */
+      report_removed: boolean | null;
+      /** The saved instruction, or null. */
+      exclusion: ReviewerExclusion | null;
+      /** What happened, and what to do next. */
+      detail: string;
+    }
+
+    export interface ReviewerExclusionError {
+      /** Why the request failed. */
+      detail: string;
+    }
+
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
       revoked_count: number;
@@ -109391,6 +109815,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at: string | null;
+      /**
+         * Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
     }
 
     export interface SlackChannel {
@@ -128690,7 +129119,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string;
     /**
@@ -129882,6 +130311,48 @@ export namespace Schemas {
       PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
+    } as const;
+
+    export type DataQualityChecksSubjectsListParams = {
+    /**
+     * Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.
+     */
+    include_columns?: boolean;
+    /**
+     * Maximum number of subjects to return. Omit to return every match.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Return only subjects whose name or display name contains this text, ignoring case.
+     */
+    search?: string;
+    /**
+     * Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric
+     * * `posthog_table` - posthog_table
+     * @minLength 1
+     */
+    subject_type?: DataQualityChecksSubjectsListSubjectType;
+    };
+
+    export type DataQualityChecksSubjectsListSubjectType = typeof DataQualityChecksSubjectsListSubjectType[keyof typeof DataQualityChecksSubjectsListSubjectType];
+
+
+    export const DataQualityChecksSubjectsListSubjectType = {
+      Table: 'table',
+      View: 'view',
+      Metric: 'metric',
+      PosthogTable: 'posthog_table',
     } as const;
 
     export type DataQualityRunsListParams = {
@@ -133263,6 +133734,10 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.
+     */
+    source_record?: string;
+    /**
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived
@@ -134669,6 +135144,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsEmailStatusRetrieveParams = {
+    /**
+     * Skip the 10 second status cache and read SES and DNS again. Use it after changing DNS records.
+     */
+    refresh?: boolean;
+    };
+
     export type IntegrationsGithubAssigneesRetrieveParams = {
     /**
      * Repository name, or owner/name, whose assignable users to list.
@@ -134799,6 +135281,18 @@ export namespace Schemas {
      * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
      */
     user_id?: string;
+    };
+
+    export type IntegrationsDomainConnectCheckRetrieveParams = {
+    /**
+     * Domain to check, such as mail.example.com. Its root domain is checked.
+     * @minLength 1
+     */
+    domain: string;
+    /**
+     * Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.
+     */
+    include_email_setup?: boolean;
     };
 
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };

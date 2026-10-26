@@ -346,6 +346,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -15840,6 +15841,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -22591,6 +22596,7 @@ export namespace Endpoints {
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;

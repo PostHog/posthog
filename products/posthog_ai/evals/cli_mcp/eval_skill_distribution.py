@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -172,7 +172,7 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-skill-distribution-cli",
         offline_suite=offline_suite(
             "cli_mcp/eval_skill_distribution::eval_skill_distribution",
