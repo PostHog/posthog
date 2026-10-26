@@ -1,8 +1,9 @@
+import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { loggedOutSpecifiers, planStableChunks, stableFileName, writeStableChunks } from './stableChunkNames.mjs'
+import { loggedOutSpecifiers, planStableChunks, shiftMappingsForPrelude, stableFileName } from './stableChunkNames.mjs'
 
 // Two chunks: an entry that imports a shared chunk, the way esbuild writes them with publicPath /static.
 const OUTPUTS = {
@@ -10,7 +11,7 @@ const OUTPUTS = {
     'dist/chunk-BBBB2222.js': { inputs: { 'src/lib/shared.ts': {}, 'src/lib/other.ts': {} } },
 }
 
-function plan(sources: Record<string, string>): Map<string, { stableFile: string; source: string; mapValid: boolean }> {
+function plan(sources: Record<string, string>): Map<string, { source: string; mapValid: boolean }> {
     return planStableChunks(OUTPUTS, (outputPath: string) => sources[outputPath]).plan
 }
 
@@ -35,11 +36,11 @@ describe('planStableChunks', () => {
             entry('export const a=1', 'renderAgain()'),
             false,
         ],
-    ])('%s', (_name, before, after, importerKeepsName) => {
+    ])('%s', (_name, before, after, importerKeepsSource) => {
         const [first, second] = [plan(before), plan(after)]
-        expect(
-            first.get('dist/Scene-AAAA1111.js')!.stableFile === second.get('dist/Scene-AAAA1111.js')!.stableFile
-        ).toBe(importerKeepsName)
+        expect(first.get('dist/Scene-AAAA1111.js')!.source === second.get('dist/Scene-AAAA1111.js')!.source).toBe(
+            importerKeepsSource
+        )
     })
 
     it('rewrites chunk imports to identity specifiers and leaves URLs alone', () => {
@@ -108,8 +109,15 @@ describe('planStableChunks', () => {
         })
     })
 
+    // Pins the one-line shift so a regression here doesn't only show up as misattributed stack traces.
+    describe('shiftMappingsForPrelude', () => {
+        it('adds one leading empty generated line to the mappings', () => {
+            expect(shiftMappingsForPrelude('AAAA')).toBe(';AAAA')
+        })
+    })
+
     // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
-    it('puts a prelude on its own first line, keyed by the chunk specifier, and names the chunk by it', () => {
+    it('puts a prelude on its own first line, keyed by the chunk specifier', () => {
         const sources = entry('export const a=1')
         const withPrelude = planStableChunks(
             OUTPUTS,
@@ -119,7 +127,6 @@ describe('planStableChunks', () => {
         ).plan.get('dist/Scene-AAAA1111.js')!
 
         expect(withPrelude.source.split('\n')[0]).toMatch(/^register\("@c\/e[0-9A-F]{10}"\);$/)
-        expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
     })
 
     it('imports a chunk with a prelude dynamically through the stylesheet-aware loader, and statically as is', () => {
@@ -144,45 +151,130 @@ describe('planStableChunks', () => {
     })
 
     describe('writeStableChunks', () => {
-        const ENTRY_OUTPUTS = {
-            'dist/entry-AAAA1111.js': { entryPoint: 'src/entry.tsx', inputs: { 'src/entry.tsx': {} } },
+        interface Written {
+            files: Record<string, string>
+            stableFileOf: (outputPath: string) => string
         }
 
-        function writeAndReadMap(prelude: string | null): unknown {
+        // esbuild refuses to load under jsdom, so the writer runs in a node process of its own.
+        function runWriter(
+            absWorkingDir: string,
+            outputs: Record<string, object>,
+            preludes: Record<string, string>
+        ): any {
+            const script = `
+                const { writeStableChunks } = await import(${JSON.stringify(path.join(__dirname, 'stableChunkNames.mjs'))})
+                const [absWorkingDir, outputs, preludes] = JSON.parse(process.argv[1])
+                const { manifest } = await writeStableChunks({
+                    absWorkingDir,
+                    outputs,
+                    chunks: {},
+                    entrypoints: [],
+                    preloadManifest: undefined,
+                    preludes: new Map(Object.entries(preludes).map(([file, prelude]) => [file, () => prelude])),
+                    target: 'es2020',
+                })
+                process.stdout.write(JSON.stringify(manifest))
+            `
+            const result = spawnSync(
+                'node',
+                ['--input-type=module', '-e', script, JSON.stringify([absWorkingDir, outputs, preludes])],
+                { encoding: 'utf8' }
+            )
+            if (result.status !== 0) {
+                throw new Error(result.stderr)
+            }
+            return JSON.parse(result.stdout)
+        }
+
+        function write(
+            outputs: Record<string, object>,
+            sources: Record<string, string>,
+            preludes: Record<string, string> = {}
+        ): Written {
             const absWorkingDir = mkdtempSync(path.join(tmpdir(), 'stable-chunks-'))
             try {
                 const distDir = path.join(absWorkingDir, 'dist')
                 mkdirSync(distDir, { recursive: true })
-                writeFileSync(path.join(distDir, 'entry-AAAA1111.js'), 'console.log(1)')
-                writeFileSync(
-                    path.join(distDir, 'entry-AAAA1111.js.map'),
-                    JSON.stringify({ version: 3, mappings: 'AAAA' })
+                for (const [outputPath, source] of Object.entries(sources)) {
+                    writeFileSync(path.join(absWorkingDir, outputPath), source)
+                }
+
+                const manifest = runWriter(absWorkingDir, outputs, preludes)
+
+                const files = Object.fromEntries(
+                    readdirSync(distDir).map((file) => [file, readFileSync(path.join(distDir, file), 'utf8')])
                 )
-
-                writeStableChunks({
-                    absWorkingDir,
-                    outputs: ENTRY_OUTPUTS,
-                    chunks: {},
-                    entrypoints: [],
-                    preloadManifest: undefined,
-                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', () => prelude]]) : new Map(),
-                })
-
-                const stableMapFile = readdirSync(distDir).find(
-                    (file) => file.startsWith('entry-S') && file.endsWith('.map')
-                )!
-                return JSON.parse(readFileSync(path.join(distDir, stableMapFile), 'utf8')).mappings
+                const { plan: written } = planStableChunks(outputs, (outputPath: string) => sources[outputPath])
+                const stableFileOf = (outputPath: string): string =>
+                    manifest.imports[`@c/${written.get(outputPath)!.identity}`].replace(/^static\//, '')
+                return { files, stableFileOf }
             } finally {
                 rmSync(absWorkingDir, { recursive: true, force: true })
             }
         }
 
-        // Pins the map shift so a regression here doesn't only show up as misattributed stack traces.
+        // Minified while bundling, an unchanged library chunk got new bytes, and a new name, on most deploys.
+        it('keeps a chunk stable name when only a chunk it imports changes', () => {
+            const library = 'const someLongLibraryName=function(){return 1};export{someLongLibraryName as a};'
+            const sources = (render: string): Record<string, string> => ({
+                'dist/Scene-AAAA1111.js': `import{a as libraryValue}from"/static/chunk-BBBB2222.js";${render}`,
+                'dist/chunk-BBBB2222.js': library,
+            })
+
+            const before = write(OUTPUTS, sources('console.log(libraryValue())'))
+            const after = write(OUTPUTS, sources('console.log(libraryValue(),2)'))
+
+            const libraryFile = before.stableFileOf('dist/chunk-BBBB2222.js')
+            expect(after.stableFileOf('dist/chunk-BBBB2222.js')).toBe(libraryFile)
+            expect(after.stableFileOf('dist/Scene-AAAA1111.js')).not.toBe(before.stableFileOf('dist/Scene-AAAA1111.js'))
+            expect(before.files[libraryFile]).not.toContain('someLongLibraryName')
+        })
+
+        // The prelude becomes part of the bytes a chunk's stable name hashes, so adding one must
+        // give the chunk a new name, the same as any other change to its own code.
+        it('gives a chunk a new stable name when a prelude is added', () => {
+            const outputs = {
+                'dist/Lazy-DDDD4444.js': { entryPoint: 'src/scenes/Lazy.tsx', inputs: { 'src/scenes/Lazy.tsx': {} } },
+            }
+            const sources = { 'dist/Lazy-DDDD4444.js': 'console.log(1)' }
+
+            const noPrelude = write(outputs, sources)
+            const withPrelude = write(outputs, sources, { 'dist/Lazy-DDDD4444.js': 'register();' })
+
+            expect(withPrelude.stableFileOf('dist/Lazy-DDDD4444.js')).not.toBe(
+                noPrelude.stableFileOf('dist/Lazy-DDDD4444.js')
+            )
+        })
+
+        // A wrong map only shows up later, as stack traces that point at the wrong code.
         it.each([
-            ['a prelude chunk', 'register();', ';AAAA'],
-            ['a chunk with no prelude', null, 'AAAA'],
-        ])('shifts the written source map by one line for %s', (_name, prelude, expectedMappings) => {
-            expect(writeAndReadMap(prelude)).toBe(expectedMappings)
+            ['a prelude chunk', { 'dist/entry-AAAA1111.js': 'register();' }],
+            ['a chunk with no prelude', {}],
+        ])('points the source map of %s back at the original source', (_name, preludes) => {
+            const outputs = {
+                'dist/entry-AAAA1111.js': { entryPoint: 'src/entry.tsx', inputs: { 'src/entry.tsx': {} } },
+            }
+            const { files, stableFileOf } = write(
+                outputs,
+                {
+                    'dist/entry-AAAA1111.js': 'console.log(1)\n//# sourceMappingURL=entry-AAAA1111.js.map\n',
+                    'dist/entry-AAAA1111.js.map': JSON.stringify({
+                        version: 3,
+                        sources: ['../src/entry.tsx'],
+                        sourcesContent: ['console.log(1)'],
+                        names: [],
+                        mappings: 'AAAA',
+                    }),
+                },
+                preludes
+            )
+
+            const stableFile = stableFileOf('dist/entry-AAAA1111.js')
+            expect(files[stableFile]).toContain(`//# sourceMappingURL=${stableFile}.map`)
+            const map = JSON.parse(files[`${stableFile}.map`])
+            expect(map.sources).toEqual(['../src/entry.tsx'])
+            expect(map.sourcesContent).toEqual(['console.log(1)'])
         })
     })
 

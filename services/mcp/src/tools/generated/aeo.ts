@@ -6,6 +6,26 @@ import * as orvalSchemas from '@/generated/aeo/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const AeoPromptsArchiveSchema = () => {
+    const AeoPromptsDestroyParams = orvalSchemas.AeoPromptsDestroyParams()
+    return AeoPromptsDestroyParams.omit({ project_id: true }).extend({
+        id: AeoPromptsDestroyParams.shape['id'].describe('The prompt id (a UUID), from `aeo-prompts-list`.'),
+    })
+}
+
+const aeoPromptsArchive = (): ToolBase<ReturnType<typeof AeoPromptsArchiveSchema>, unknown> => ({
+    name: 'aeo-prompts-archive',
+    schema: AeoPromptsArchiveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsArchiveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const AeoPromptsChecksListSchema = () => {
     const AeoPromptsChecksParams = orvalSchemas.AeoPromptsChecksParams()
     const AeoPromptsChecksQueryParams = orvalSchemas.AeoPromptsChecksQueryParams()
@@ -29,6 +49,7 @@ const aeoPromptsChecksList = (): ToolBase<
                 engine: params.engine,
                 limit: params.limit,
                 offset: params.offset,
+                version: params.version,
             },
         })
         return await withPostHogUrl(context, result, '/web/content-autopilot')
@@ -96,6 +117,7 @@ const aeoPromptsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/`,
             query: {
                 active: params.active,
+                include_archived: params.include_archived,
                 limit: params.limit,
                 offset: params.offset,
                 topic: params.topic,
@@ -159,6 +181,21 @@ const aeoPromptsUpdate = (): ToolBase<ReturnType<typeof AeoPromptsUpdateSchema>,
         if (params.active !== undefined) {
             body['active'] = params.active
         }
+        if (params.topic !== undefined) {
+            body['topic'] = params.topic
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
+        if (params.current_version !== undefined) {
+            body['current_version'] = params.current_version
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
         const result = await context.api.request<Schemas.AEOPrompt>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/`,
@@ -168,7 +205,31 @@ const aeoPromptsUpdate = (): ToolBase<ReturnType<typeof AeoPromptsUpdateSchema>,
     },
 })
 
+const AeoPromptsVersionsListSchema = () => {
+    const AeoPromptsVersionsParams = orvalSchemas.AeoPromptsVersionsParams()
+    return AeoPromptsVersionsParams.omit({ project_id: true }).extend({
+        id: AeoPromptsVersionsParams.shape['id'].describe('The prompt id (a UUID), from `aeo-prompts-list`.'),
+    })
+}
+
+const aeoPromptsVersionsList = (): ToolBase<
+    ReturnType<typeof AeoPromptsVersionsListSchema>,
+    Schemas.AEOPromptVersion[]
+> => ({
+    name: 'aeo-prompts-versions-list',
+    schema: AeoPromptsVersionsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsVersionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOPromptVersion[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/versions/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'aeo-prompts-archive': aeoPromptsArchive,
     'aeo-prompts-checks-list': aeoPromptsChecksList,
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,
@@ -176,4 +237,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,
+    'aeo-prompts-versions-list': aeoPromptsVersionsList,
 }
