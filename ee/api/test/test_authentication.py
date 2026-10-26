@@ -1379,18 +1379,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # against the domain would pass just as well if this regressed to reading the domain.
         self.assertEqual(json.loads(cached), {"idp": config.saml_relay_state, "next": next_url})
 
-    def test_relay_state_stays_in_the_clear_when_it_fits(self):
-        # Only a payload over the 80-byte cap needs the cache, so keep the legacy wire format for
-        # everything else and let older workers finish their logins during a rolling deploy.
-        response = self.client.get("/login/saml/?email=hellohello@posthog.com&next=/insights")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-
-        config = self.organization_domain.saml_identity_provider_configs.first()
-        assert config is not None
-        relay_state = parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0]
-        self.assertEqual(json.loads(relay_state), {"idp": config.saml_relay_state, "next": "/insights"})
-        self.assertIsNone(get_client().get(f"saml_relay_state:{relay_state}"))
-
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
         We need the email address to know how to route the SAML request.

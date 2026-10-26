@@ -91,7 +91,6 @@ def saml_metadata_view(request, *args, **kwargs):
 
 
 # OASIS SAML bindings cap RelayState at 80 bytes; the cache TTL only needs to outlast the IdP round trip.
-SAML_RELAY_STATE_MAX_BYTES = 80
 SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
 
 
@@ -99,13 +98,21 @@ def _saml_relay_state_cache_key(key: str) -> str:
     return f"saml_relay_state:{key}"
 
 
+def _relay_state_from_json(raw: str | bytes) -> dict[str, Any] | None:
+    try:
+        state = json.loads(raw)
+    except ValueError:
+        return None
+    return state if isinstance(state, dict) else None
+
+
 def _store_saml_relay_state(state: dict[str, Any]) -> str:
     key = str(uuid4())
     try:
         get_client().setex(_saml_relay_state_cache_key(key), SAML_RELAY_STATE_CACHE_TTL_SECONDS, json.dumps(state))
     except redis_exceptions.RedisError:
-        # Sessions are DB-backed, so a Redis outage must not block login. Fall back to the payload
-        # this code sent before the cache existed, even though it can exceed the cap.
+        # Sessions are DB-backed, so a Redis outage must not block login. Send the pre-cache JSON
+        # instead: the IdP may refuse it above the RelayState cap, but failing the flow is worse.
         return json.dumps(state)
     return key
 
@@ -115,13 +122,7 @@ def _load_saml_relay_state(key: str) -> dict[str, Any] | None:
         raw = get_client().get(_saml_relay_state_cache_key(key))
     except redis_exceptions.RedisError:
         return None
-    if not raw:
-        return None
-    try:
-        state = json.loads(raw)
-    except ValueError:
-        return None
-    return state if isinstance(state, dict) else None
+    return _relay_state_from_json(raw) if raw else None
 
 
 class MultitenantSAMLAuth(SAMLAuth):
@@ -197,15 +198,11 @@ class MultitenantSAMLAuth(SAMLAuth):
         strategy.request.POST = mutable_post  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     def parse_relay_state(self, relay_state_str: str) -> dict:
-        # JSON first: a login started on an older worker, or during a Redis outage, carries the
-        # legacy payload. Anything else is our opaque key, a value the IdP supplies itself (its
-        # launch URL or the config's `saml_relay_state`), or an expired key, all of which the base
-        # parser already routes to the IdP-initiated recovery.
-        try:
-            legacy = json.loads(relay_state_str)
-        except ValueError:
-            legacy = None
-        if isinstance(legacy, dict):
+        # Only reads still accept the pre-cache JSON payload, for logins already in flight. Anything
+        # else is our opaque key, an IdP-supplied value, or an expired key, which the base parser
+        # routes to the IdP-initiated recovery.
+        legacy = _relay_state_from_json(relay_state_str)
+        if legacy is not None:
             return legacy
         stored = _load_saml_relay_state(relay_state_str)
         return stored if stored is not None else super().parse_relay_state(relay_state_str)
@@ -320,11 +317,6 @@ class MultitenantSAMLAuth(SAMLAuth):
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
         relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
-        encoded = json.dumps(relay_state)
-        # Keep the wire format unchanged wherever it fits, so only a long `next` (an OAuth
-        # authorize URL) takes the opaque-key path that older workers cannot parse.
-        if len(encoded) <= SAML_RELAY_STATE_MAX_BYTES:
-            return auth.login(return_to=encoded)
         return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(
