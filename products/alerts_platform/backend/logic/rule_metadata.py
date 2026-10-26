@@ -30,6 +30,8 @@ _RESERVED_LABELS: Final = frozenset({"alertname"})
 
 _LABEL_REFERENCE: Final = re2.compile(rf"\s*\$labels\.({_NAME_PATTERN})\s*")
 _VALUE_REFERENCE: Final = re2.compile(r"\s*\$value\s*")
+# A host name and an optional port, and nothing a browser reads as the end of the host, such as `\`.
+_LINK_HOST: Final = re2.compile(r"[a-zA-Z0-9.-]+(:[0-9]+)?")
 
 
 class InvalidRuleMetadata(ValueError):
@@ -69,8 +71,8 @@ def _check_link(name: str, value: str) -> None:
     # can change which page a link opens but never which site.
     if not value.startswith("https://"):
         raise InvalidRuleMetadata(f"Annotation `{name}` must start with https://.")
-    host = value.removeprefix("https://").split("/", 1)[0]
-    if not host or "{{" in host:
+    host = re2.split(r"[/?#]", value.removeprefix("https://"), maxsplit=1)[0]
+    if not _LINK_HOST.fullmatch(host):
         raise InvalidRuleMetadata(f"Annotation `{name}` must name its host without a template.")
 
 
@@ -103,7 +105,8 @@ def _template_bodies(name: str, value: str) -> list[str]:
 
 
 def _check_name(name: str, kind: str) -> None:
-    if len(name) > _MAX_NAME_LENGTH or not _NAME.fullmatch(name):
+    # re2 cannot encode a lone surrogate, so it would raise instead of refusing the name.
+    if len(name) > _MAX_NAME_LENGTH or UNSTORABLE.search(name) or not _NAME.fullmatch(name):
         raise InvalidRuleMetadata(
             f"`{name}` is not a valid {kind} name. Use letters, digits and underscores, "
             f"start with a letter or underscore, and use at most {_MAX_NAME_LENGTH} characters."

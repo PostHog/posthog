@@ -44,6 +44,7 @@ def test_a_template_beyond_substitution_is_refused(_name: str, value: str) -> No
         ("reserved_prefix", {"posthog_team": "api"}),
         ("blank_value", {"team": " "}),
         ("unstorable_value", {"team": "a\x00b"}),
+        ("unencodable_name", {"te\ud800am": "api"}),
         ("too_many", {f"label_{index}": "x" for index in range(MAX_RULE_LABELS + 1)}),
     ]
 )
@@ -61,6 +62,8 @@ def test_a_link_may_template_its_path() -> None:
         ("templated_scheme", "{{ $labels.team }}"),
         ("templated_host", "https://{{ $labels.team }}/runbook"),
         ("templated_subdomain", "https://{{ $labels.team }}.example.com/runbook"),
+        ("backslash_for_a_host", "https://\\/{{ $labels.team }}"),
+        ("credentials_before_the_host", "https://user@{{ $labels.team }}/runbook"),
     ]
 )
 def test_a_link_may_not_template_its_site(_name: str, value: str) -> None:
