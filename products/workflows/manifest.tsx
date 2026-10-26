@@ -43,11 +43,18 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send a one-time or scheduled email to a group of people',
         },
+        WorkflowsEmailDomain: {
+            import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
+            name: 'Workflows',
+            iconType: 'workflows',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
+        '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
