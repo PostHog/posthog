@@ -29,7 +29,6 @@ from products.conversations.backend.api.ticket_actions import (
     handle_ticket_get,
     handle_ticket_message,
     handle_ticket_patch,
-    wants_first_customer_message_text,
 )
 from products.conversations.backend.metrics import TICKET_ACTION_AUTH_COUNTER
 
@@ -63,9 +62,7 @@ class InternalTicketView(APIView):
             return error
         assert team is not None
         TICKET_ACTION_AUTH_COUNTER.labels(auth_method="scoped_jwt", http_method="get").inc()
-        return handle_ticket_get(
-            team, ticket_id, include_first_customer_message_text=wants_first_customer_message_text(request)
-        )
+        return handle_ticket_get(request, team, ticket_id, allow_first_message_max_bytes=True)
 
     def patch(self, request: Request, team_id: str, ticket_id: uuid.UUID) -> Response:
         team, error = _check_ticket_access(request, ticket_id)

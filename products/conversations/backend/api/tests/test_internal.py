@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import timedelta
 
@@ -20,8 +21,11 @@ from products.conversations.backend.api.internal import (
     CONVERSATIONS_TICKETS_PURPOSE,
     ConversationsTicketJWTAuthentication,
 )
+from products.conversations.backend.api.ticket_actions import TICKET_RESPONSE_MAX_BYTES
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_NAME, WORKFLOW_AUTHOR_TYPE, Status
+
+_IMAGE_ATTACHMENT = "![image001.png](https://us.posthog.com/uploaded_media/0199a0b1-2c3d-4e5f-8a9b-0c1d2e3f4a5b)"
 
 # Signed with this route's key but carrying another surface's audience — a token minted for a
 # different purpose must never authenticate here even when the signing key checks out.
@@ -79,6 +83,67 @@ class TestInternalTicketAPI(BaseTest):
         response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["first_customer_message_text"], "How do I export my data?")
+
+    def _create_customer_message(self, content: str) -> None:
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context={"author_type": "customer"},
+        )
+
+    def _get_first_message(self, max_bytes: int | str):
+        return self.client.get(
+            self.url,
+            {"include_first_customer_message_text": "true", "first_customer_message_max_bytes": max_bytes},
+            **self._headers(),
+        )
+
+    @parameterized.expand(
+        [
+            ("longer_budget", "x" * 9000, 2200, "x" * 2197 + "..."),
+            ("clamped_up_to_the_preview", "x" * 900, 50, "x" * 197 + "..."),
+            # The scan window cut the body, so the excerpt says so even though what is left fits.
+            ("window_cut_is_marked", "It broke " + _IMAGE_ATTACHMENT * 70, 2200, "It broke..."),
+            # Email preheader padding goes, but a non-joiner between letters is part of the word.
+            (
+                "invisible_padding_stripped",
+                "Refund\u034f\u034f please\u00ad now\u200b\u2060\ufeff ok" + "\u200c\u00a0" * 50 + " می\u200cخواهم",
+                2200,
+                "Refund please now ok می\u200cخواهم",
+            ),
+        ]
+    )
+    def test_get_returns_a_longer_first_message_when_asked(self, _name, content, max_bytes, expected):
+        self._create_customer_message(content)
+
+        response = self._get_first_message(max_bytes)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["first_customer_message_text"], expected)
+
+    def test_get_fits_a_longer_first_message_into_the_response_budget(self):
+        # Multibyte subject and last message take most of the budget, so the excerpt gets the rest.
+        self._create_customer_message("あ" * 3000)
+        Ticket.objects.filter(id=self.ticket.id).update(email_subject="件名" * 100, last_message_text="あ" * 500)
+
+        response = self._get_first_message(5000)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertLessEqual(
+            len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()), TICKET_RESPONSE_MAX_BYTES
+        )
+        self.assertTrue(body["first_customer_message_text"].endswith("..."))
+
+    def test_get_rejects_a_first_message_length_that_is_not_a_number(self):
+        self._create_customer_message("Hello")
+
+        response = self._get_first_message("lots")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("first_customer_message_max_bytes", response.json()["error"])
 
     def test_post_sends_a_public_message(self):
         response = self.client.post(

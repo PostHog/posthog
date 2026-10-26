@@ -27,11 +27,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 
-from products.conversations.backend.api.ticket_actions import (
-    handle_ticket_get,
-    handle_ticket_patch,
-    wants_first_customer_message_text,
-)
+from products.conversations.backend.api.ticket_actions import handle_ticket_get, handle_ticket_patch
 from products.conversations.backend.metrics import LEGACY_TICKET_AUTH_BY_TEAM_COUNTER, TICKET_ACTION_AUTH_COUNTER
 
 
@@ -155,9 +151,7 @@ class ExternalTicketView(APIView):
 
         assert team is not None
 
-        return handle_ticket_get(
-            team, ticket_id, include_first_customer_message_text=wants_first_customer_message_text(request)
-        )
+        return handle_ticket_get(request, team, ticket_id)
 
     def patch(self, request: Request, ticket_id: str) -> Response:
         if is_authenticated_via_project_secret_api_key(request):
