@@ -14,7 +14,12 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.logic import RetrievalTrace, async_search_knowledge_for_team, has_ready_sources
+from products.business_knowledge.backend.logic import (
+    RetrievalLimitedError,
+    RetrievalTrace,
+    async_search_knowledge_for_team,
+    has_ready_sources,
+)
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
@@ -184,7 +189,14 @@ class SearchTool(MaxTool):
         return response, None
 
     async def _search_business_knowledge(self, query: str) -> str:
-        results = await async_search_knowledge_for_team(self._team, query, trace=RetrievalTrace(surface="posthog_ai"))
+        try:
+            results = await async_search_knowledge_for_team(
+                self._team, query, trace=RetrievalTrace(surface="posthog_ai")
+            )
+        except RetrievalLimitedError:
+            # Business knowledge only adds context here, so the conversation carries on without it.
+            logger.info("bk_search_skipped_quota_limited", team_id=self._team.id)
+            return BK_SEARCH_QUOTA_LIMITED_MESSAGE
         try:
             await database_sync_to_async(posthoganalytics.capture)(
                 distinct_id=str(self._team.uuid),
@@ -367,5 +379,13 @@ No results found in the project's knowledge base for this query.
 
 <system_reminder>
 No relevant business knowledge was found. Proceed normally — do not mention the empty search to the customer.
+</system_reminder>
+""".strip()
+
+BK_SEARCH_QUOTA_LIMITED_MESSAGE = """
+The project's knowledge base can't be searched right now because its business knowledge usage limit has been reached.
+
+<system_reminder>
+Answer without business knowledge. If the user asks why it wasn't used, say the project reached its business knowledge billing limit, which an admin can raise in billing settings.
 </system_reminder>
 """.strip()

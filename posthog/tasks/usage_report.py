@@ -64,6 +64,10 @@ from posthog.usage_counters import (
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.facade import api as batch_exports_api
+from products.business_knowledge.backend.billing import (
+    get_chunks_by_team as get_business_knowledge_chunks_by_team,
+    get_queries_by_team as get_business_knowledge_queries_by_team,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -221,6 +225,10 @@ class UsageReportCounters:
     replay_vision_observation_count_in_period: int
     replay_vision_scanner_count: int
     replay_vision_scanner_active_count: int
+
+    # Business knowledge
+    business_knowledge_chunks_in_period: int
+    business_knowledge_queries_in_period: int
 
     # Persons and Groups
     group_types_total: int
@@ -1258,6 +1266,20 @@ def get_teams_with_replay_vision_credits_used_in_period(begin: datetime, end: da
 def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     # Counted from the same ReplayObservationUsage receipt ledger the credits sum over, so it stays consistent.
     return get_replay_vision_observations_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_business_knowledge_chunks_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
+    return get_business_knowledge_chunks_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_business_knowledge_queries_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
+    return get_business_knowledge_queries_by_team(begin, end)
 
 
 @timed_log()
@@ -2985,6 +3007,8 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
         or report.replay_vision_credits_used_in_period > 0
+        or report.business_knowledge_chunks_in_period > 0
+        or report.business_knowledge_queries_in_period > 0
     )
 
 
@@ -3399,6 +3423,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         replay_vision_scanner_count=all_data["teams_with_replay_vision_scanner_count"].get(team.id, 0),
         replay_vision_scanner_active_count=all_data["teams_with_replay_vision_scanner_active_count"].get(team.id, 0),
+        business_knowledge_chunks_in_period=all_data["teams_with_business_knowledge_chunks_in_period"].get(team.id, 0),
+        business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(
+            team.id, 0
+        ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,

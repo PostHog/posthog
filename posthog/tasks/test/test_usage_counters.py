@@ -169,6 +169,8 @@ class TestUsageCounterReport(SimpleTestCase):
             "get_teams_with_signals_credits_used_in_period": self.legacy[UsageCounter.SIGNALS_CREDITS],
             "get_teams_with_posthog_code_credits_used_in_period": self.legacy[UsageCounter.POSTHOG_CODE_CREDITS],
             "get_teams_with_replay_vision_credits_used_in_period": self.legacy[UsageCounter.REPLAY_VISION_CREDITS],
+            "get_teams_with_business_knowledge_chunks_in_period": self.legacy[UsageCounter.BUSINESS_KNOWLEDGE_CHUNKS],
+            "get_teams_with_business_knowledge_queries_in_period": self.legacy[UsageCounter.BUSINESS_KNOWLEDGE_QUERIES],
             "get_teams_with_billable_event_count_in_period": self.events,
             "get_teams_with_billable_enhanced_persons_event_count_in_period": Mock(
                 side_effect=lambda begin, end, **kwargs: self.legacy[UsageCounter.ENHANCED_PERSON_EVENTS](begin, end)
@@ -677,6 +679,8 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.POSTHOG_CODE_CREDITS,
             UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
+            UsageCounter.BUSINESS_KNOWLEDGE_CHUNKS,
+            UsageCounter.BUSINESS_KNOWLEDGE_QUERIES,
         )
         expected = {counter.value: [(1, index + 1)] for index, counter in enumerate(counters)}
         dictionary_readers = {

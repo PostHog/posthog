@@ -27,6 +27,7 @@ from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
 
 from ..constants import (
@@ -431,7 +432,7 @@ def _contradiction_gate_rejection(
     return "none"
 
 
-def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSearchResult]:
+def _search_existing_knowledge(team: Team, query: str, *, run_id: UUID) -> list[logic.KnowledgeSearchResult]:
     embedding = generate_embedding(
         team,
         query,
@@ -446,6 +447,9 @@ def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSe
         limit=LEARNING_SEARCH_LIMIT,
         use_semantic=True,
         query_embedding=embedding,
+        # Learning searches bill like any other retrieval. One run analyses one evidence revision, so a
+        # retried analysis reuses the run's trace id and bills its search once.
+        trace=RetrievalTrace(surface="learning", trace_id=stable_trace_id("learning", run_id)),
     )
 
 
@@ -543,7 +547,7 @@ def _finish_without_knowledge(
         "pii": "rejected_pii",
         "already_known": "rejected_already_known",
         "low_confidence": "rejected_not_useful",
-        "learned_cap_reached": "rejected_learned_cap",
+        "usage_limit_reached": "rejected_usage_limit",
         "stale_candidate": "rejected_stale_candidate",
     }.get(rejection_code, "rejected_not_useful")
     _increment_counter(metric_outcome)
@@ -626,8 +630,8 @@ def _publish_candidate(
     except _SupersessionUnavailable:
         # The transaction is rolled back, so the candidate is not published and search keeps one answer.
         return _finish_without_knowledge(run, rejection_code="already_known")
-    except logic.LearnedSourceCapReached:
-        return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
+    except logic.IngestionLimitedError:
+        return _finish_without_knowledge(run, rejection_code="usage_limit_reached")
     except Exception:
         raise LearningAnalysisError("knowledge_publication_failed") from None
     if did_supersede:
@@ -672,15 +676,8 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
             rejection_code="ineligible",
         )
 
-    source_id = logic.learned_source_id_for(
-        team_id=run.team_id,
-        provider=input.evidence.provider,
-        ticket_id=input.evidence.ticket_id,
-        resolution_comment_id=input.evidence.resolution_comment_id,
-        analysis_version=ANALYSIS_VERSION,
-    )
-    if not logic.can_publish_learned_source(team_id=run.team_id, source_id=source_id):
-        return _finish_without_knowledge(run, rejection_code="learned_cap_reached")
+    if not logic.can_publish_learned_source(team_id=run.team_id):
+        return _finish_without_knowledge(run, rejection_code="usage_limit_reached")
 
     provider = get_learning_provider(input.evidence.provider)
     if provider is None:
@@ -708,7 +705,7 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
-        results = _search_existing_knowledge(run.team, generated_text)
+        results = _search_existing_knowledge(run.team, generated_text, run_id=run.id)
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)

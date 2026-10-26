@@ -58,6 +58,8 @@ class UsageCounter(StrEnum):
     POSTHOG_CODE_CREDITS = "teams_with_posthog_code_credits_used_in_period"
     SANDBOX_COMPUTE_CREDITS = "teams_with_sandbox_compute_credits_used_in_period"
     REPLAY_VISION_CREDITS = "teams_with_replay_vision_credits_used_in_period"
+    BUSINESS_KNOWLEDGE_CHUNKS = "teams_with_business_knowledge_chunks_in_period"
+    BUSINESS_KNOWLEDGE_QUERIES = "teams_with_business_knowledge_queries_in_period"
 
 
 UsageCounterQuery = Callable[[datetime, datetime], list[tuple[int, int]]]
@@ -385,6 +387,8 @@ class UsageCounterService:
             UsageCounter.POSTHOG_CODE_CREDITS: usage_report.get_teams_with_posthog_code_credits_used_in_period,
             UsageCounter.SANDBOX_COMPUTE_CREDITS: lambda begin, end: self._sandbox_compute_query(begin, end).credits,
             UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
+            UsageCounter.BUSINESS_KNOWLEDGE_CHUNKS: usage_report.get_teams_with_business_knowledge_chunks_in_period,
+            UsageCounter.BUSINESS_KNOWLEDGE_QUERIES: usage_report.get_teams_with_business_knowledge_queries_in_period,
         }
         self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period

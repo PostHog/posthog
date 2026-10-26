@@ -2484,6 +2484,8 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         workflow_destinations_dispatched=0,
         logs_mb_ingested=0,
         replay_vision_credits=0,
+        business_knowledge_chunks=0,
+        business_knowledge_queries=0,
     )
     base.update(overrides)  # type: ignore[typeddict-item]
     return base

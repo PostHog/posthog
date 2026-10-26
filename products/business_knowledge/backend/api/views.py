@@ -26,7 +26,7 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
-from .. import libraries, logic
+from .. import billing, libraries, logic, quota
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -53,6 +53,7 @@ from .serializers import (
     KnowledgeSearchResultSerializer,
     KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
+    KnowledgeUsageSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
@@ -200,8 +201,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     def _create_url_source(self, request: Request) -> Response:
@@ -221,8 +222,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         return self._respond_claimed(source)
 
     def _create_crawl_source(self, request: Request) -> Response:
@@ -244,8 +245,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         return self._respond_claimed(source)
 
     def _respond_claimed(self, source: KnowledgeSource) -> Response:
@@ -301,8 +302,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except FileParseError as exc:
             raise exceptions.ValidationError({"file": str(exc) or "Unable to parse the uploaded file."})
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         return Response(KnowledgeSourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: KnowledgeSourceSerializer})
@@ -393,8 +394,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 text=None,
                 always_include=serializer.validated_data.get("always_include"),
             )
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
@@ -418,8 +419,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(logic.GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE)
         except logic.InvalidGeneratedKnowledgeDocument:
             raise exceptions.ValidationError("Couldn't save this learned source. Refresh the page and try again.")
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
@@ -446,8 +447,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"url": "Could not fetch the URL."})
         except logic.SourceBusyError:
             raise _ConflictError("A refresh is already in progress for this source.")
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         if updated is None:
@@ -512,8 +513,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})
-        except logic.QuotaExceededError:
-            raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
+        except logic.QuotaExceededError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         except logic.GeneratedSourceReadOnlyError:
             raise exceptions.PermissionDenied(detail="Generated sources are read-only.")
         self._start_background_refresh(source)
@@ -555,6 +556,59 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not deleted:
             raise exceptions.NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        summary="Get business knowledge usage",
+        description=(
+            "Chunks ingested and knowledge searches for this project in the current billing period, with the "
+            "organization's free allowance, billing limit, and whether the billing quota is blocking new work."
+        ),
+        responses={200: KnowledgeUsageSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="usage",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        period = billing.current_usage_period(self.organization)
+        used = billing.get_team_usage(canonical_team_id, period.start, period.end)
+        org_usage = self.organization.usage or {}
+
+        def meter(key: str, project_used: int, free_allowance: int, limited: bool) -> dict[str, Any]:
+            synced = org_usage.get(key)
+            # Billing syncs the period total up to yesterday as `usage` and today's count separately.
+            organization_used = (
+                (synced.get("usage") or 0) + (synced.get("todays_usage") or 0) if synced is not None else None
+            )
+            return {
+                "used": project_used,
+                "organization_used": organization_used,
+                "free_allowance": free_allowance,
+                "billing_limit": synced.get("limit") if synced is not None else None,
+                "limited": limited,
+            }
+
+        data = {
+            "period_start": period.start,
+            "period_end": period.end,
+            "chunks": meter(
+                "business_knowledge_chunks",
+                used.chunks,
+                billing.FREE_CHUNKS_PER_MONTH,
+                quota.is_ingestion_limited(canonical_team_id, self.team.api_token),
+            ),
+            "queries": meter(
+                "business_knowledge_queries",
+                used.queries,
+                billing.FREE_QUERIES_PER_MONTH,
+                quota.is_retrieval_limited(canonical_team_id, self.team.api_token),
+            ),
+        }
+        return Response(KnowledgeUsageSerializer(instance=data).data)
 
 
 class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -692,9 +746,12 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         library_id = self._search_library_id(request)
         search_limit = limit * 2 if rerank else limit
         trace = RetrievalTrace(surface="api")
-        results = logic.search_knowledge_for_team(
-            self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
-        )
+        try:
+            results = logic.search_knowledge_for_team(
+                self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
+            )
+        except logic.RetrievalLimitedError as error:
+            raise exceptions.PermissionDenied(detail=str(error), code="quota_limited")
         if rerank:
             results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it

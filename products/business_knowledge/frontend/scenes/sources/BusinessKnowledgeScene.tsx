@@ -22,6 +22,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BusinessKnowledgeTabs } from '../../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { CreateKnowledgeSourceModal } from '../../components/CreateKnowledgeSourceModal/CreateKnowledgeSourceModal'
 import { StatusTag } from '../../components/StatusTag/StatusTag'
+import { businessKnowledgeUsageLogic } from '../../components/UsageMeter/businessKnowledgeUsageLogic'
+import { BusinessKnowledgeUsageMeter } from '../../components/UsageMeter/BusinessKnowledgeUsageMeter'
 import { businessKnowledgeEmptyState } from '../../emptyState/businessKnowledgeEmptyState'
 import {
     KnowledgeSource,
@@ -44,8 +46,11 @@ export const scene: SceneExport = {
     emptyState: businessKnowledgeEmptyState,
 }
 
+const INGESTION_LIMITED_REASON = 'Your organization reached its business knowledge ingestion limit'
+
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
+    const { ingestionLimited } = useValues(businessKnowledgeUsageLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         sources,
@@ -75,18 +80,27 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 resourceType={{ type: 'business_knowledge' }}
                 actions={
                     todayRailNav ? (
-                        <Button variant="primary" onClick={() => openCreateModal()}>
+                        <Button variant="primary" disabled={ingestionLimited} onClick={() => openCreateModal()}>
                             <IconPlus />
                             Add source
                         </Button>
                     ) : (
-                        <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlusSmall />}
+                            disabledReason={ingestionLimited ? INGESTION_LIMITED_REASON : undefined}
+                            onClick={() => openCreateModal()}
+                        >
                             Add source
                         </LemonButton>
                     )
                 }
             />
             <BusinessKnowledgeTabs activeTab="sources" />
+            <SceneSection title="Usage this billing period" className="gap-y-2">
+                <BusinessKnowledgeUsageMeter />
+            </SceneSection>
+            <SceneDivider />
             <SceneSection title="Libraries" className="gap-y-2">
                 <LibraryRow />
                 <LibrarySummary />
@@ -213,6 +227,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                             size="small"
                                             tooltip="Re-fetch and re-index this URL"
                                             loading={refreshingIds.includes(row.id)}
+                                            disabledReason={ingestionLimited ? INGESTION_LIMITED_REASON : undefined}
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 refreshSource(row.id)

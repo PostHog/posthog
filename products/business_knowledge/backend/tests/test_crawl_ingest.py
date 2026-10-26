@@ -421,28 +421,6 @@ class TestCreateCrawlSource(APIBaseTest):
         assert all(d.content_hash for d in docs)
         assert KnowledgeChunk.objects.unscoped().filter(source=source).count() >= 3
 
-    def test_chunk_cap_hit_in_a_later_batch_leaves_no_documents(self) -> None:
-        urls = ["https://example.com/a", "https://example.com/b"]
-        behaviours = {url: _ok(url, f"<html><body>Body of {url}.</body></html>".encode()) for url in urls}
-        with (
-            patch.object(discover, "_http_get_text", return_value=_sitemap_xml(urls)),
-            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
-            patch.object(logic, "CRAWL_WRITE_BATCH_SIZE", 1),
-            patch.object(logic, "MAX_CHUNKS_PER_TEAM", 1),
-        ):
-            source = create_crawl_source(
-                team_id=self.team.id,
-                created_by_id=self.user.id,
-                name="Handbook",
-                url="https://example.com/sitemap.xml",
-                crawl_mode="sitemap",
-                crawl_config={"max_pages": 10},
-            )
-        assert source.status == SourceStatus.ERROR
-        assert "would exceed" in source.error_message
-        assert not KnowledgeDocument.objects.unscoped().filter(source=source).exists()
-        assert not KnowledgeChunk.objects.unscoped().filter(source=source).exists()
-
     @parameterized.expand(
         [
             ("retry_succeeds", False, SourceStatus.READY, 2),
@@ -827,30 +805,6 @@ class TestRefreshCrawlSource(APIBaseTest):
         # Chunks for the vanished doc are gone, but the doc row is preserved.
         assert KnowledgeChunk.objects.unscoped().filter(document_id=doc_b.id).count() == 0
         assert KnowledgeDocument.objects.unscoped().filter(id=doc_b.id).exists()
-
-    def test_vanished_page_chunks_do_not_count_against_the_cap(self) -> None:
-        source = self._seed(["https://example.com/a", "https://example.com/b"])
-        doc_b = KnowledgeDocument.objects.unscoped().get(source=source, stable_id="https://example.com/b")
-        at_cap = KnowledgeChunk.objects.unscoped().filter(team_id=self.team.id).count()
-
-        sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/c"])
-        behaviours = {
-            url: _ok(url, f"<html><body>body of {url}</body></html>".encode())
-            for url in ["https://example.com/a", "https://example.com/c"]
-        }
-        with (
-            patch.object(discover, "_http_get_text", return_value=sitemap),
-            patch.object(crawl.url_fetch, "fetch_url", side_effect=_FakeFetch(behaviours)),
-            patch.object(logic, "MAX_CHUNKS_PER_TEAM", at_cap),
-        ):
-            refresh_source(source_id=source.id, team_id=self.team.id)
-
-        source.refresh_from_db()
-        doc_b.refresh_from_db()
-        assert source.status == SourceStatus.READY
-        assert source.last_refresh_error == ""
-        assert doc_b.tombstoned_at is not None
-        assert KnowledgeDocument.objects.unscoped().filter(source=source, stable_id="https://example.com/c").exists()
 
     def test_refresh_cut_off_by_the_crawl_deadline_stores_new_pages_and_refreshes_stored_ones(self) -> None:
         source = self._seed(["https://example.com/a", "https://example.com/b"])

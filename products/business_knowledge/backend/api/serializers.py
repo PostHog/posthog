@@ -531,6 +531,41 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeUsageMeterSerializer(serializers.Serializer):
+    """One billing meter: this project's usage, and the organization's usage and limit from billing."""
+
+    used = serializers.IntegerField(read_only=True, help_text="Units this project used in the current period.")
+    organization_used = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Units the whole organization used in the current period, as last synced from billing. "
+            "Null until billing has synced usage for this product."
+        ),
+    )
+    free_allowance = serializers.IntegerField(read_only=True, help_text="Units included free each month.")
+    billing_limit = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Units the organization may use this period: the free allowance on the free plan, or the billing "
+            "limit on a paid plan. Null when unsynced, or on a paid plan with no billing limit."
+        ),
+    )
+    limited = serializers.BooleanField(read_only=True, help_text="True when the billing quota blocks this work.")
+
+
+class KnowledgeUsageSerializer(serializers.Serializer):
+    """Business knowledge usage for the current billing period. Output-only."""
+
+    period_start = serializers.DateTimeField(read_only=True)
+    period_end = serializers.DateTimeField(read_only=True)
+    chunks = KnowledgeUsageMeterSerializer(
+        read_only=True, help_text="Chunks ingested. A refresh that re-indexes changed content counts again."
+    )
+    queries = KnowledgeUsageMeterSerializer(read_only=True, help_text="Knowledge searches, on any surface.")
+
+
 class KnowledgeSearchResultSerializer(serializers.Serializer):
     """
     One ranked chunk from a business knowledge search.

@@ -625,11 +625,12 @@ class TestLearningAnalyzer:
         get_provider.assert_not_called()
         publish.assert_not_called()
 
-    def test_learned_cap_skips_llm_and_completes_without_knowledge(self, team: Team) -> None:
+    @pytest.mark.parametrize("limited", ["is_ingestion_limited", "is_retrieval_limited"])
+    def test_usage_limit_skips_llm_and_completes_without_knowledge(self, team: Team, limited: str) -> None:
         run, input = _setup_sync(team)
 
         with (
-            patch.object(logic, "MAX_LEARNED_SOURCES_PER_TEAM", 0),
+            patch(f"products.business_knowledge.backend.quota.{limited}", return_value=True),
             patch(f"{_MODULE}.get_learning_provider") as get_provider,
             patch(f"{_MODULE}._invoke_structured_model") as invoke,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -638,14 +639,14 @@ class TestLearningAnalyzer:
 
         run.refresh_from_db()
         assert result.result == "no_knowledge"
-        assert result.rejection_code == "learned_cap_reached"
+        assert result.rejection_code == "usage_limit_reached"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         assert run.status == "completed"
         get_provider.assert_not_called()
         invoke.assert_not_called()
         publish.assert_not_called()
 
-    def test_learned_cap_during_publish_does_not_fail_the_run(self, team: Team) -> None:
+    def test_ingestion_limit_during_publish_does_not_fail_the_run(self, team: Team) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
 
@@ -660,14 +661,14 @@ class TestLearningAnalyzer:
             patch(f"{_MODULE}.logic.search_knowledge", return_value=[]),
             patch(
                 f"{_MODULE}.logic.create_generated_knowledge_document",
-                side_effect=logic.LearnedSourceCapReached("cap"),
+                side_effect=logic.IngestionLimitedError("limit"),
             ) as publish,
         ):
             result = analyze_learning_evidence(input)
 
         run.refresh_from_db()
         assert result.result == "no_knowledge"
-        assert result.rejection_code == "learned_cap_reached"
+        assert result.rejection_code == "usage_limit_reached"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         assert run.status == "completed"
         publish.assert_called_once()

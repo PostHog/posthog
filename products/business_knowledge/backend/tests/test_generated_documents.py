@@ -396,41 +396,10 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert document.content == "Edited by a person."
         assert document.metadata["edited_by_user"] is True
 
-    def test_generated_source_does_not_consume_user_source_quota(self) -> None:
-        logic.create_generated_knowledge_document(self._input())
-
-        with patch.object(logic, "MAX_SOURCES_PER_TEAM", 1):
-            logic.create_text_source(
-                team_id=self.team.id,
-                created_by_id=self.user.id,
-                name="User source",
-                text="User-authored content",
-            )
-            with self.assertRaises(logic.QuotaExceededError):
-                logic.create_text_source(
-                    team_id=self.team.id,
-                    created_by_id=self.user.id,
-                    name="Second user source",
-                    text="More user-authored content",
-                )
-
-    def test_generated_source_can_be_created_at_user_source_quota(self) -> None:
-        with patch.object(logic, "MAX_SOURCES_PER_TEAM", 1):
-            logic.create_text_source(
-                team_id=self.team.id,
-                created_by_id=self.user.id,
-                name="User source",
-                text="User-authored content",
-            )
-
-            result = logic.create_generated_knowledge_document(self._input())
-
-        assert KnowledgeSource.objects.unscoped().get(id=result.source_id).is_generated is True
-
-    def test_chunk_quota_failure_rolls_back_new_source(self) -> None:
+    def test_ingestion_limit_blocks_learned_sources(self) -> None:
         with (
-            patch.object(logic, "MAX_CHUNKS_PER_TEAM", 0),
-            self.assertRaises(logic.QuotaExceededError),
+            patch("products.business_knowledge.backend.quota.is_ingestion_limited", return_value=True),
+            self.assertRaises(logic.IngestionLimitedError),
         ):
             logic.create_generated_knowledge_document(self._input())
 
@@ -688,13 +657,11 @@ class TestGeneratedKnowledgeDocuments(BaseTest):
         assert source.status == SourceStatus.READY
         assert source.error_message == ""
 
-    def test_learned_source_cap_blocks_new_identities_not_retries(self) -> None:
+    def test_ingestion_limit_lets_a_retry_that_writes_nothing_through(self) -> None:
         first = logic.create_generated_knowledge_document(self._input())
 
-        with patch.object(logic, "MAX_LEARNED_SOURCES_PER_TEAM", 1):
-            retry = logic.create_generated_knowledge_document(self._input(content="Retry must skip the cap."))
-            with self.assertRaises(logic.LearnedSourceCapReached):
-                logic.create_generated_knowledge_document(self._input(analysis_version="post_resolution_v2"))
+        with patch("products.business_knowledge.backend.quota.is_ingestion_limited", return_value=True):
+            retry = logic.create_generated_knowledge_document(self._input())
 
         assert retry.source_id == first.source_id
-        assert KnowledgeSource.objects.unscoped().filter(team=self.team, is_generated=True).count() == 1
+        assert retry.created is False

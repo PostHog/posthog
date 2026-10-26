@@ -11,7 +11,7 @@ import math
 import dataclasses
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import structlog
 import posthoganalytics
@@ -37,7 +37,7 @@ EMBEDDING_COST_PROVIDER = "openai"
 # The Kafka embedding path returns no token usage, so ingestion estimates it.
 CHARS_PER_TOKEN_ESTIMATE = 4
 
-RetrievalSurface = Literal["api", "support", "posthog_ai", "docs_shadow"]
+RetrievalSurface = Literal["api", "support", "posthog_ai", "docs_shadow", "learning"]
 EventProperties = dict[str, str | int]
 
 
@@ -46,7 +46,17 @@ class RetrievalTrace:
     """One search. The query embedding and the rerank of that search share the trace."""
 
     surface: RetrievalSurface
+    # Also the search's billing idempotency key. Work that can be retried (Temporal activities) passes
+    # `stable_trace_id(...)` so a retry bills the search once.
     trace_id: str = dataclasses.field(default_factory=lambda: str(uuid4()))
+
+
+_TRACE_NAMESPACE = UUID("8c1f3b1e-6f0a-4d7e-9a43-2b5b0f6c1d27")
+
+
+def stable_trace_id(*parts: object) -> str:
+    """A trace id that is the same every time it is built from the same parts."""
+    return str(uuid5(_TRACE_NAMESPACE, ":".join(str(part) for part in parts)))
 
 
 def ingest_properties(

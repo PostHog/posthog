@@ -735,6 +735,8 @@ class BillingManager:
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 replay_vision_credits=usage_summary.get("replay_vision_credits", {}),
+                business_knowledge_chunks=usage_summary.get("business_knowledge_chunks", {}),
+                business_knowledge_queries=usage_summary.get("business_knowledge_queries", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

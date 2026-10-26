@@ -29,6 +29,7 @@ from posthog.security.url_validation import PinnedUrlVerdict
 from products.business_knowledge.backend import url_fetch
 from products.business_knowledge.backend.html_parse import _bs4_fallback, parse_html
 from products.business_knowledge.backend.logic import (
+    INGESTION_LIMITED_MESSAGE,
     InvalidUrlError,
     QuotaExceededError,
     SourceBusyError,
@@ -311,7 +312,7 @@ class TestCreateUrlSource(BaseTest):
         )
         with patch(
             "products.business_knowledge.backend.logic._replace_source_content",
-            side_effect=QuotaExceededError("Team already near the 100000 chunk cap."),
+            side_effect=QuotaExceededError("Business Knowledge ingestion limit reached."),
         ):
             with self.assertRaises(QuotaExceededError):
                 create_url_source(
@@ -322,7 +323,7 @@ class TestCreateUrlSource(BaseTest):
                 )
         source = KnowledgeSource.objects.unscoped().get(team_id=self.team.id, name="Over quota")
         assert source.status == SourceStatus.ERROR
-        assert "Quota exceeded" in source.error_message
+        assert source.error_message == INGESTION_LIMITED_MESSAGE
 
     @patch("products.business_knowledge.backend.logic.url_fetch.fetch_url")
     @patch("products.business_knowledge.backend.logic.is_url_allowed", return_value=(True, None))

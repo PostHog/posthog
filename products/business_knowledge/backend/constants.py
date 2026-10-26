@@ -4,15 +4,11 @@ Constants and tunables for business_knowledge.
 
 import datetime
 
-# Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
-# to relax for a single paying customer without a migration.
-MAX_SOURCES_PER_TEAM = 500
-# Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
-# sources list when learning publishes one text source per accepted topic.
-MAX_LEARNED_SOURCES_PER_TEAM = 10000
+# There are no per-team caps on sources or chunks: usage is billed, and billing quota limits (see
+# quota.py) stop a team that runs past its limit. The size limits below protect single requests.
+# Libraries keep a cap because they are not billed and their list endpoint is not paginated.
 MAX_LIBRARIES_PER_TEAM = 100
 DEFAULT_LIBRARY_NAME = "Learned"
-MAX_CHUNKS_PER_TEAM = 250_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.
 MAX_TEXT_SIZE_BYTES = 1_000_000

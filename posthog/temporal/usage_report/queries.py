@@ -59,6 +59,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
+    get_teams_with_business_knowledge_chunks_in_period,
+    get_teams_with_business_knowledge_queries_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -349,6 +351,14 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_replay_vision_observation_count_in_period",
         fn=get_teams_with_replay_vision_observation_count_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_business_knowledge_chunks_in_period",
+        fn=get_teams_with_business_knowledge_chunks_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_business_knowledge_queries_in_period",
+        fn=get_teams_with_business_knowledge_queries_in_period,
     ),
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
