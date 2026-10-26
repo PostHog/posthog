@@ -663,9 +663,7 @@ class TestStandingExclusions(BaseTest):
             StandingExclusions.load(team_id=self.team.id, report_id=str(self.report.id))
         assert not [query for query in queries.captured_queries if "signal_finding" in query["sql"]]
 
-    def test_create_rejects_a_blank_subject_and_returns_the_active_twin(self) -> None:
-        with self.assertRaises(ValueError):
-            create_exclusion(team_id=self.team.id, actor_id=self.user.id, instruction="x", subject_github_login="   ")
+    def test_create_returns_the_active_twin_and_revise_rejects_one(self) -> None:
         first = self.exclude(repository="org/app")
         assert self.exclude(repository=" Org/App ") == first
         after_github_connect, created = create_exclusion(
@@ -691,25 +689,35 @@ class TestStandingExclusions(BaseTest):
             revise_exclusion(team_id=self.team.id, exclusion_id=second, actor_id=self.user.id, repository="org/app")
         assert SignalReviewerExclusion.objects.for_team(self.team.id).get(id=second).repository == "org/other"
 
-    def test_create_with_a_user_reuses_the_login_only_instruction(self) -> None:
-        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
-        login_only, _ = create_exclusion(
-            team_id=self.team.id, actor_id=self.user.id, instruction="Off.", subject_github_login="member"
-        )
-        with_user, created = create_exclusion(
+    def test_a_moved_login_does_not_make_another_member_a_twin(self) -> None:
+        theirs, _ = create_exclusion(
             team_id=self.team.id,
             actor_id=self.member.id,
             instruction="Off.",
             subject_user_uuid=self.member.uuid,
-            subject_github_login="Member",
+            subject_github_login="shared-login",
         )
-        assert (with_user.id, with_user.subject_user_uuid, created) == (login_only.id, self.member.uuid, False)
-        assert SignalReviewerExclusion.objects.for_team(self.team.id).filter(status="active").count() == 1
+        mine, created = create_exclusion(
+            team_id=self.team.id,
+            actor_id=self.user.id,
+            instruction="Off.",
+            subject_user_uuid=self.user.uuid,
+            subject_github_login="shared-login",
+        )
+        assert created
+        assert {theirs.subject_user_uuid, mine.subject_user_uuid} == {self.member.uuid, self.user.uuid}
 
-        revoke_exclusion(team_id=self.team.id, exclusion_id=with_user.id, actor_id=self.member.id)
-        self.write(self.other)
-
-        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.other.user_uuid]
+    def test_each_login_resolves_once_per_load(self) -> None:
+        UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        self.exclude()
+        standing = StandingExclusions.load(team_id=self.team.id, report_id=str(self.report.id))
+        with patch(
+            "products.signals.backend.reviewer_exclusions.resolve_org_github_login_to_users",
+            wraps=resolve_org_github_login_to_users,
+        ) as resolve:
+            assert standing.allowed_logins(["member", "someone"]) == ["someone"]
+            assert standing.allowed_logins(["Member"]) == []
+        assert resolve.call_count == 1
 
     def test_active_twin_is_scoped_to_one_team(self) -> None:
         self.exclude(repository="org/app")

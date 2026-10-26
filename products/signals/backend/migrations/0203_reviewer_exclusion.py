@@ -2,7 +2,6 @@
 
 import django.db.models.manager
 import django.db.models.deletion
-import django.db.models.functions.text
 from django.conf import settings
 from django.db import migrations, models
 
@@ -29,7 +28,7 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("subject_user_uuid", models.UUIDField(blank=True, null=True)),
+                ("subject_user_uuid", models.UUIDField()),
                 (
                     "subject_github_login",
                     models.CharField(blank=True, max_length=100, null=True),
@@ -106,7 +105,7 @@ class Migration(migrations.Migration):
                         max_length=10,
                     ),
                 ),
-                ("subject_user_uuid", models.UUIDField(blank=True, null=True)),
+                ("subject_user_uuid", models.UUIDField()),
                 (
                     "subject_github_login",
                     models.CharField(blank=True, max_length=100, null=True),
@@ -172,17 +171,6 @@ class Migration(migrations.Migration):
             model_name="signalreviewerexclusion",
             constraint=models.CheckConstraint(
                 condition=models.Q(
-                    ("subject_user_uuid__isnull", False),
-                    ("subject_github_login__isnull", False),
-                    _connector="OR",
-                ),
-                name="signals_rev_excl_has_subject",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="signalreviewerexclusion",
-            constraint=models.CheckConstraint(
-                condition=models.Q(
                     ("path_prefix", ""),
                     models.Q(("repository", ""), _negated=True),
                     _connector="OR",
@@ -193,20 +181,9 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="signalreviewerexclusion",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("status", "active"), ("subject_user_uuid__isnull", False)),
+                condition=models.Q(("status", "active")),
                 fields=("team", "subject_user_uuid", "repository", "path_prefix"),
                 name="signals_rev_excl_active_user_uniq",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="signalreviewerexclusion",
-            constraint=models.UniqueConstraint(
-                models.F("team"),
-                django.db.models.functions.text.Lower("subject_github_login"),
-                models.F("repository"),
-                models.F("path_prefix"),
-                condition=models.Q(("status", "active"), ("subject_user_uuid__isnull", True)),
-                name="signals_rev_excl_active_login_uniq",
             ),
         ),
         migrations.AddConstraint(

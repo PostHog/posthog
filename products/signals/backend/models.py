@@ -12,7 +12,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models.functions import Lower, Upper
+from django.db.models.functions import Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -2632,8 +2632,8 @@ class SignalReviewerExclusion(TeamScopedRootMixin, UUIDModel):
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    # The subject is a PostHog user, a GitHub login, or both. Candidates match on either identity.
-    subject_user_uuid = models.UUIDField(null=True, blank=True)
+    # The subject is always a PostHog user. The login is a snapshot for display and telemetry, never an identity.
+    subject_user_uuid = models.UUIDField()
     subject_github_login = models.CharField(max_length=100, null=True, blank=True)
     # An empty repository covers every repository. A path prefix narrows a repository to one subtree.
     repository = models.CharField(max_length=200, blank=True, default="")
@@ -2652,28 +2652,15 @@ class SignalReviewerExclusion(TeamScopedRootMixin, UUIDModel):
         indexes = [models.Index(fields=["team", "status"], name="signals_rev_excl_status_idx")]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(subject_user_uuid__isnull=False) | models.Q(subject_github_login__isnull=False),
-                name="signals_rev_excl_has_subject",
-            ),
-            models.CheckConstraint(
                 condition=models.Q(path_prefix="") | ~models.Q(repository=""),
                 name="signals_rev_excl_path_needs_repo",
             ),
-            # One active instruction per subject and area, so a retried create cannot leave a twin
-            # that stays active after the other is revoked. A person is keyed by user alone, because
-            # their GitHub login can appear or change after the instruction exists.
+            # One active instruction per person and area, so a retried create cannot leave a twin
+            # that stays active after the other is revoked.
             models.UniqueConstraint(
                 fields=["team", "subject_user_uuid", "repository", "path_prefix"],
-                condition=models.Q(status="active", subject_user_uuid__isnull=False),
+                condition=models.Q(status="active"),
                 name="signals_rev_excl_active_user_uniq",
-            ),
-            models.UniqueConstraint(
-                "team",
-                Lower("subject_github_login"),
-                "repository",
-                "path_prefix",
-                condition=models.Q(status="active", subject_user_uuid__isnull=True),
-                name="signals_rev_excl_active_login_uniq",
             ),
         ]
 
@@ -2692,7 +2679,7 @@ class SignalReviewerExclusionRevision(TeamScopedRootMixin, UUIDModel):
     exclusion = models.ForeignKey(SignalReviewerExclusion, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
     action = models.CharField(max_length=10, choices=Action)
-    subject_user_uuid = models.UUIDField(null=True, blank=True)
+    subject_user_uuid = models.UUIDField()
     subject_github_login = models.CharField(max_length=100, null=True, blank=True)
     repository = models.CharField(max_length=200, blank=True, default="")
     path_prefix = models.CharField(max_length=500, blank=True, default="")
