@@ -20,12 +20,12 @@ import { DateMappingOption, OrganizationType } from '~/types'
 import type {
     BillingSpendExportDownloadParams,
     BillingSpendTimeseriesRetrieveParams,
+    PaginatedBillingSpendTimeSeriesListApi,
 } from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildSpendTrackingProperties,
-    calculateBillingPeriodMarkers,
     filterSpendUsageTypes,
     selectionCoversEveryProject,
     syncBillingSearchParams,
@@ -51,10 +51,7 @@ export enum BillingSpendResponseBreakdownType {
     MULTIPLE = 'multiple',
 }
 
-export interface BillingSpendResponse {
-    count: number
-    next: string | null
-    previous: string | null
+export interface BillingSpendResponse extends Omit<PaginatedBillingSpendTimeSeriesListApi, 'results'> {
     results: Array<{
         id: number
         label: string
@@ -276,11 +273,7 @@ export interface billingSpendLogicMeta {
         }[]
         dates: (billingSpendResponse: BillingSpendResponse | null) => string[]
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
-        billingPeriodMarkers: (
-            billingPeriodUTC: BillingPeriod,
-            dateFrom: string,
-            dateTo: string | null
-        ) => BillingPeriodMarker[]
+        billingPeriodMarkers: (billingSpendResponse: BillingSpendResponse | null) => BillingPeriodMarker[]
         emptySeriesIDs: (
             series: {
                 breakdown_type: BillingSpendResponseBreakdownType | null
@@ -611,14 +604,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         billingPeriodMarkers: [
-            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
-            (
-                currentPeriod: import('~/types').BillingPeriod,
-                dateFrom: string,
-                dateTo: string | null
-            ): BillingPeriodMarker[] => {
-                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
-            },
+            (s) => [s.billingSpendResponse],
+            (response: BillingSpendResponse | null): BillingPeriodMarker[] =>
+                (response?.pricing_reset_dates ?? []).map((date) => ({ date: dayjs.utc(date) })),
         ],
         emptySeriesIDs: [
             (s) => [s.series],
