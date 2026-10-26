@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-from hogli_commands import ownership_lint
+from hogli_commands import ownership_lint, preflight_checks
 from hogli_commands.preflight_checks import Scope
 
 OWNERS_YAML = """\
@@ -33,6 +34,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
     monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(preflight_checks, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", date.min)
     return tmp_path
 
 
@@ -48,16 +51,26 @@ def _check(*files: str) -> tuple[str, str]:
 
 class TestCheckTestOwners:
     @pytest.mark.parametrize(
-        ("baseline", "status", "named"),
+        ("baseline", "blocking_from", "status", "named"),
         [
-            pytest.param("nobody\nperson\n", "pass", None, id="baseline_matches"),
-            pytest.param("nobody\n", "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
-            pytest.param("nobody\nperson\nteam\n", "fail", "team has no unowned tests left", id="stale_entry"),
+            pytest.param("nobody\nperson\n", date.min, "pass", None, id="baseline_matches"),
+            pytest.param("nobody\n", date.min, "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
+            pytest.param("nobody\n", date.max, "warning", "person holds tests", id="new_gap_warns_before_blocking"),
+            pytest.param(
+                "nobody\nperson\nteam\n", date.max, "fail", "team has no unowned tests left", id="stale_entry"
+            ),
         ],
     )
     def test_compares_unowned_test_directories_with_the_baseline(
-        self, repo: Path, baseline: str, status: str, named: str | None
+        self,
+        repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        baseline: str,
+        blocking_from: date,
+        status: str,
+        named: str | None,
     ) -> None:
+        monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", blocking_from)
         (repo / ownership_lint.BASELINE).write_text(baseline)
 
         result_status, detail = _check(str(ownership_lint.BASELINE))
