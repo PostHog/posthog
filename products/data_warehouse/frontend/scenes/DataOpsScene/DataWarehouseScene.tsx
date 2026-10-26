@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -12,10 +10,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import type { DataOpsVariant } from './dataOpsVariant'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { MonitoringTab } from './tabs/MonitoringTab'
 import { OverviewTab } from './tabs/OverviewTab'
 import { SettingsTab } from './tabs/SettingsTab'
+import { TrinoMonitoringTab } from './tabs/TrinoMonitoringTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
@@ -29,24 +29,23 @@ const TAB_LABELS: Record<DataWarehouseTab, string> = {
     [DataWarehouseTab.SETTINGS]: 'Settings',
 }
 
-function tabContent(tab: DataWarehouseTab): JSX.Element {
+function tabContent(tab: DataWarehouseTab, variant: DataOpsVariant): JSX.Element {
     switch (tab) {
         case DataWarehouseTab.OVERVIEW:
             return <OverviewTab />
         case DataWarehouseTab.MONITORING:
-            return <MonitoringTab />
+            return variant === 'trino' ? <TrinoMonitoringTab /> : <MonitoringTab />
         case DataWarehouseTab.SETTINGS:
             return <SettingsTab />
     }
 }
 
 export function DataWarehouseScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { availableTabs, activeTab, warehouseStatusResolved } = useValues(dataWarehouseSceneLogic)
+    const { availableTabs, activeTab, dataOpsVariant, warehouseStatusResolved } = useValues(dataWarehouseSceneLogic)
     const { setActiveTab } = useActions(dataWarehouseSceneLogic)
 
-    // Nothing to show without the scene flag, or when no tab's feature flag is enabled.
-    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] || !activeTab) {
+    // Nothing to show without either scene flag, or when no tab's feature flag is enabled.
+    if (!dataOpsVariant || !activeTab) {
         return <NotFound object="Data warehouse" />
     }
 
@@ -74,11 +73,11 @@ export function DataWarehouseScene(): JSX.Element {
                     tabs={availableTabs.map((tab) => ({
                         key: tab,
                         label: TAB_LABELS[tab],
-                        content: tabContent(tab),
+                        content: tabContent(tab, dataOpsVariant),
                     }))}
                 />
             ) : (
-                tabContent(activeTab)
+                tabContent(activeTab, dataOpsVariant)
             )}
         </SceneContent>
     )

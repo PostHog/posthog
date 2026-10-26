@@ -3,16 +3,19 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { SqlChartProps } from './SqlChart'
 import { SqlPieGraph } from './SqlPieGraph'
 import { SqlProportionBar } from './SqlProportionBar'
 
 export interface PartOfWholeChartProps {
+    labelFormatter?: (label: string) => string
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
     className?: string
+    onSliceClick?: SqlChartProps['onSliceClick']
 }
 
 export function PartOfWholeChart(props: PartOfWholeChartProps): JSX.Element {

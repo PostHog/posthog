@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HarvestSource(ResumableSource[HarvestSourceConfig, HarvestResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = HARVEST_SUPPORTED_VERSIONS
     default_version = HARVEST_API_VERSION
@@ -119,7 +122,7 @@ class HarvestSource(ResumableSource[HarvestSourceConfig, HarvestResumeConfig]):
             name=ExternalDataSourceType.HARVEST,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Harvest",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["time tracking", "timesheets", "invoicing"],
             caption="""Enter your Harvest account ID and a personal access token to sync your time tracking and invoicing data into the PostHog Data warehouse.
 

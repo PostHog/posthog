@@ -69,6 +69,7 @@ from products.data_catalog.evals.constants import (
     WEBSITE_404_HITS_DAILY_METRIC_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
 )
+from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     GovernedBehaviorCorrectness,
@@ -99,7 +100,7 @@ from products.data_catalog.evals.seeders import (
     seed_web_sessions_daily_metric,
     seed_website_404_hits_daily_metric,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -689,8 +690,22 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-governed-metrics-cli",
+        offline_suite=offline_suite(
+            "data_catalog/eval_governed_metrics::eval_governed_metrics",
+            metrics=[
+                "metrics_catalog_queried",
+                "metrics_catalog_before_answer",
+                "metrics_catalog_before_data_discovery",
+                "canonical_metric_run",
+                "metrics_catalog_not_queried",
+                "governed_behavior_correctness",
+                "trust_badge",
+                "proposed_badge",
+                "no_metric_write",
+            ],
+        ),
         cases=cases,
         scorers=[
             MetricsCatalogQueried(),

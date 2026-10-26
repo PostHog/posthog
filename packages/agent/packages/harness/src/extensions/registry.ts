@@ -51,10 +51,21 @@ const EXTENSIONS: HarnessExtension[] = [
   },
 ];
 
+const OPT_IN_EXTENSION_ENV: Partial<Record<HarnessExtensionName, string>> = {
+  rtk: "POSTHOG_RTK",
+  orchestration: "POSTHOG_ORCHESTRATION",
+};
+
+function isExtensionEnabled(name: HarnessExtensionName): boolean {
+  const envName = OPT_IN_EXTENSION_ENV[name];
+  if (!envName) {
+    return true;
+  }
+  return process.env[envName] === "1";
+}
+
 function enabledExtensions(): HarnessExtension[] {
-  return EXTENSIONS.filter(
-    (extension) => extension.name !== "rtk" || process.env.POSTHOG_RTK === "1",
-  );
+  return EXTENSIONS.filter((extension) => isExtensionEnabled(extension.name));
 }
 
 export const HARNESS_EXTENSION_NAMES: readonly string[] = EXTENSIONS.map(

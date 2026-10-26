@@ -31,7 +31,7 @@ class FilloutEndpointConfig:
     default_incremental_field: str | None = None
     partition_key: str | None = None
     page_size: int = SUBMISSIONS_PAGE_SIZE
-    sort_mode: Literal["asc", "desc"] = "asc"
+    sort_mode: Literal["asc", "desc"] | None = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
     # JSONPath to the rows in the response. Fillout returns bare objects/arrays on every
@@ -87,9 +87,9 @@ FILLOUT_ENDPOINTS: dict[str, FilloutEndpointConfig] = {
         page_size=SUBMISSIONS_PAGE_SIZE,
         data_selector="responses",
         paginated=True,
-        # We request `sort=asc`, so rows arrive oldest-first and the pipeline's ascending
-        # incremental watermark bookkeeping is correct.
-        sort_mode="asc",
+        # `sort=asc` orders the rows of one form only. The run reads one form after another, so
+        # `submissionTime` starts again for each form and the run has no order.
+        sort_mode=None,
         fanout=DependentEndpointConfig(
             parent_name="forms",
             resolve_param="form_id",

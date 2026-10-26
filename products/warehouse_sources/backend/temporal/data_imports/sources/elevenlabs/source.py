@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeConfig]):
+    codebase_detection = detect(
+        env=("^ELEVENLABS_", "^ELEVEN_LABS_"),
+        npm=(
+            "@elevenlabs/elevenlabs-js",
+            "elevenlabs",
+            "@elevenlabs/client",
+            "@elevenlabs/react",
+            "@elevenlabs/react-native",
+        ),
+        pypi=("elevenlabs",),
+        swiftpm=("github.com/elevenlabs/elevenlabs-swift-sdk",),
+    )
+
     api_docs_url = "https://elevenlabs.io/docs/api-reference/introduction"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -46,15 +60,18 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
             name=ExternalDataSourceType.ELEVENLABS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ElevenLabs API key to sync your ElevenLabs data into the PostHog Data warehouse.
 
 You can create an API key in your [ElevenLabs account settings](https://elevenlabs.io/app/settings/api-keys).
 
 Grant the following read permissions when creating the key:
 - **History** (text-to-speech generation history)
-- **Conversational AI** (conversations, agents, and triage tickets)
-- **Voices**
+- **Conversational AI** (conversations, agents, agent deployments, triage tickets, tools, tool executions, phone numbers, and batch calls)
+- **Voices** (voices and voice collections)
+- **Models**
+- **Workspace** (members and groups)
+- **User** (subscription)
 """,
             iconPath="/static/services/elevenlabs.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/elevenlabs",
@@ -83,10 +100,11 @@ Grant the following read permissions when creating the key:
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
-            # Retrying can never satisfy a credential/permission problem, so fail the sync. Match the
-            # stable status text and base host, not the per-request path/query.
+            # 401/402/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # Retrying can never satisfy a credential/billing/permission problem, so fail the sync.
+            # Match the stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.elevenlabs.io": "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your ElevenLabs account settings, then reconnect.",
+            "402 Client Error: Payment Required for url: https://api.elevenlabs.io": "Your ElevenLabs account is out of credits, or this data needs a plan upgrade. Check your ElevenLabs billing and plan, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.elevenlabs.io": "Your ElevenLabs API key is missing the read permissions needed to sync this data. Grant the required read scopes in your ElevenLabs account settings, then reconnect.",
         }
 

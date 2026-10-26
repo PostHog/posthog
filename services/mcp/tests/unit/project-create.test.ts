@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolsFromContext } from '@/tools'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { GENERATED_TOOLS } from '@/tools/generated/core'
 import type { Context } from '@/tools/types'
 
@@ -64,6 +65,43 @@ describe('project-create', () => {
             organization: 'org-abc',
             api_token: 'phc_public',
             created_at: '2026-09-19T00:00:00Z',
+        })
+    })
+
+    it('returns the plan limit and distinguishes demo projects from multiple environments', async () => {
+        const request = vi.fn().mockResolvedValue({
+            id: 'org-abc',
+            name: 'Example',
+            projects: [
+                { id: 1, name: 'Default' },
+                { id: 2, name: 'Demo' },
+            ],
+            teams: [
+                { id: 11, project_id: 1, name: 'Production', is_demo: false, api_token: 'phc_example' },
+                { id: 12, project_id: 1, name: 'Staging', is_demo: false },
+                { id: 21, project_id: 2, name: 'Demo', is_demo: true },
+            ],
+            available_product_features: [
+                { key: 'organizations_projects', name: 'Projects', limit: 2, unit: 'projects' },
+                { key: 'group_analytics', name: 'Group analytics' },
+            ],
+        })
+
+        const result = await GENERATED_TOOL_MAP['organization-get']!().handler(createMockContext(request), {})
+
+        expect(result).toEqual({
+            id: 'org-abc',
+            name: 'Example',
+            projects: [
+                { id: 1, name: 'Default' },
+                { id: 2, name: 'Demo' },
+            ],
+            teams: [
+                { id: 11, project_id: 1, name: 'Production', is_demo: false },
+                { id: 12, project_id: 1, name: 'Staging', is_demo: false },
+                { id: 21, project_id: 2, name: 'Demo', is_demo: true },
+            ],
+            available_product_features: [{ key: 'organizations_projects', limit: 2 }, { key: 'group_analytics' }],
         })
     })
 

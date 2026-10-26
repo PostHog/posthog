@@ -118,4 +118,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time the feature grant was created, as a Unix timestamp in milliseconds.",
         },
     },
+    "Licenses": {
+        "description": "A customer's license pool: seats of a license plan offered by a parent plan, and how many are assigned.",
+        "docs_url": "https://docs.useautumn.com/api-reference/licenses/listLicenses",
+        "columns": {
+            "customer_id": "ID of the customer that owns the license pool.",
+            "license_plan_id": "The plan offered as an assignable license.",
+            "parent_plan_id": "The plan that offers this license.",
+            "license_plan_name": "Display name of the license plan.",
+            "granted": "Total seats the customer has for this license, included plus paid.",
+            "usage": "Seats currently assigned to entities.",
+            "remaining": "Seats still available to assign.",
+            "paid_quantity": "Paid seats purchased on top of the plan's included amount.",
+        },
+    },
 }

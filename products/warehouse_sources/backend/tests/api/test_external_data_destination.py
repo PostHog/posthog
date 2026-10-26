@@ -18,6 +18,11 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.batch_exports.backend.facade.contracts import (
+    DestinationTest,
+    DestinationTestStep,
+    DestinationTestStepResult,
+)
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
@@ -32,10 +37,36 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     CheckFailure,
     DestinationConnectionCheckError,
 )
+from products.warehouse_sources.backend.presentation.destination_connection_testing import (
+    CONNECTION_TEST_TABLE_PREFIX,
+    new_connection_test_table,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
     ExternalDataDestinationViewSet,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+
+def _destination_test(step_count: int) -> DestinationTest:
+    return DestinationTest(
+        steps=tuple(
+            DestinationTestStep(name=f"Step {index}", description=f"Checks {index}", result=None)
+            for index in range(step_count)
+        )
+    )
+
+
+def _step_results(*statuses: str):
+    def run_step(team_id: int, *, destination_type: str, config, integration_id: int | None, step: int):
+        status = statuses[step] if step < len(statuses) else "Passed"
+        message = None if status == "Passed" else f"Step {step} said no"
+        return DestinationTestStep(
+            name=f"Step {step}",
+            description=f"Checks {step}",
+            result=DestinationTestStepResult(status=status, message=message),
+        )
+
+    return run_step
 
 
 class DestinationAPITestBase(APIBaseTest):
@@ -46,6 +77,19 @@ class DestinationAPITestBase(APIBaseTest):
         )
         self.check_connection = check_patcher.start()
         self.addCleanup(check_patcher.stop)
+        facade = "products.warehouse_sources.backend.presentation.destination_connection_testing.batch_exports_api"
+        describe_patcher = patch(f"{facade}.describe_destination_test", return_value=_destination_test(1))
+        self.describe_test = describe_patcher.start()
+        self.addCleanup(describe_patcher.stop)
+        run_patcher = patch(f"{facade}.run_destination_test_step", side_effect=_step_results("Passed"))
+        self.run_test_step = run_patcher.start()
+        self.addCleanup(run_patcher.stop)
+        table_patcher = patch(
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.new_connection_test_table",
+            return_value=f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
+        )
+        table_patcher.start()
+        self.addCleanup(table_patcher.stop)
         self.base = f"/api/projects/{self.team.pk}/external_data_destinations"
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -82,6 +126,8 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert [d["id"] for d in listing["results"]] == [str(destination.id)]
         assert listing["results"][0]["is_posthog_warehouse"] is False
+        assert listing["results"][0]["status"] == ExternalDataDestination.Status.HEALTHY
+        assert listing["results"][0]["latest_error"] is None
 
     def test_a_destination_needs_an_integration(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTGRES, "name": "no creds"})
@@ -148,6 +194,189 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         self.check_connection.assert_called_once_with(integration, {"database": "analytics", "schema": "posthog"})
 
+    @parameterized.expand(
+        [
+            (
+                "bigquery",
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                {"dataset": "analytics", "project": "acme-project"},
+                "BigQueryCreateDataset",
+                {
+                    "project_id": "acme-project",
+                    "dataset_id": "analytics",
+                    "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
+                },
+            ),
+            (
+                "bigquery_aliases_without_project",
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                {"dataset_id": "analytics"},
+                "BigQueryCreateDataset",
+                {
+                    "project_id": None,
+                    "dataset_id": "analytics",
+                    "table_id": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
+                },
+            ),
+            (
+                "aws_s3",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.AWS_S3,
+                {"bucket": "/my-bucket/", "region": " us-east-1 ", "prefix": "posthog"},
+                "AwsS3",
+                {"bucket_name": "my-bucket", "region": "us-east-1"},
+            ),
+            (
+                "s3_compatible",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.S3_COMPATIBLE,
+                {"bucket_name": "my-bucket"},
+                "S3Compatible",
+                {"bucket_name": "my-bucket", "region": None},
+            ),
+            (
+                "azure_blob",
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                {"container": "exports"},
+                "AzureBlob",
+                {"container_name": "exports"},
+            ),
+            (
+                "snowflake",
+                ExternalDataDestination.Type.SNOWFLAKE,
+                Integration.IntegrationKind.SNOWFLAKE,
+                {"database": "ANALYTICS", "warehouse": "COMPUTE_WH"},
+                "Snowflake",
+                {"database": "ANALYTICS", "schema": "PUBLIC", "warehouse": "COMPUTE_WH", "role": None},
+            ),
+            (
+                "databricks",
+                ExternalDataDestination.Type.DATABRICKS,
+                Integration.IntegrationKind.DATABRICKS,
+                {"http_path": "/sql/1.0/warehouses/abc"},
+                "Databricks",
+                {
+                    "catalog": "main",
+                    "schema": "default",
+                    "http_path": "/sql/1.0/warehouses/abc",
+                    "table_name": f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
+                },
+            ),
+        ]
+    )
+    def test_creating_a_destination_runs_its_connection_test(
+        self,
+        _name: str,
+        destination_type: str,
+        kind: str,
+        config: dict,
+        expected_test: str,
+        expected_config: dict,
+    ) -> None:
+        integration = self._integration(kind)
+        self.describe_test.return_value = _destination_test(2)
+
+        response = self.client.post(
+            self.base,
+            {"type": destination_type, "name": "tested", "integration": integration.pk, "config": config},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.describe_test.assert_called_once_with(expected_test)
+        assert [call.kwargs for call in self.run_test_step.call_args_list] == [
+            {
+                "destination_type": expected_test,
+                "config": expected_config,
+                "integration_id": integration.pk,
+                "step": step,
+            }
+            for step in range(2)
+        ]
+        self.check_connection.assert_not_called()
+
+    def test_each_connection_test_run_uses_its_own_scratch_table(self) -> None:
+        names = {new_connection_test_table() for _ in range(5)}
+
+        assert len(names) == 5
+        assert all(name.startswith(f"{CONNECTION_TEST_TABLE_PREFIX}_") for name in names)
+
+    @parameterized.expand(
+        [
+            # BigQuery's first three steps check the service account and project on the integration.
+            (
+                "credential_step",
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                ("Skipped", "Failed"),
+                1,
+                "integration",
+            ),
+            (
+                "target_step",
+                ExternalDataDestination.Type.BIGQUERY,
+                Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+                ("Skipped", "Skipped", "Passed", "Failed"),
+                3,
+                "config",
+            ),
+            (
+                "assume_role",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.AWS_S3,
+                ("Failed",),
+                0,
+                "integration",
+            ),
+            (
+                "bucket",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.S3_COMPATIBLE,
+                ("Failed",),
+                0,
+                "config",
+            ),
+        ]
+    )
+    def test_a_destination_that_fails_a_connection_test_step_is_not_created(
+        self,
+        _name: str,
+        destination_type: str,
+        kind: str,
+        statuses: tuple[str, ...],
+        failed_step: int,
+        expected_field: str,
+    ) -> None:
+        self.describe_test.return_value = _destination_test(5)
+        self.run_test_step.side_effect = _step_results(*statuses)
+
+        response = self.client.post(
+            self.base,
+            {"type": destination_type, "name": "unusable", "integration": self._integration(kind).pk},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_field
+        assert response.json()["detail"] == f"Step {failed_step}: Step {failed_step} said no"
+        assert self.run_test_step.call_count == failed_step + 1
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="unusable").exists()
+
+    @parameterized.expand(
+        [
+            (ExternalDataDestination.Type.POSTGRES, Integration.IntegrationKind.POSTGRESQL),
+            (ExternalDataDestination.Type.REDSHIFT, Integration.IntegrationKind.AWS_REDSHIFT),
+        ]
+    )
+    def test_types_without_a_batch_export_test_skip_it(self, destination_type: str, kind: str) -> None:
+        self._create_destination(type=destination_type, integration=self._integration(kind).pk)
+
+        self.describe_test.assert_not_called()
+        self.run_test_step.assert_not_called()
+
     def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
         destination = self._create_destination()
         self.check_connection.reset_mock()
@@ -156,6 +385,66 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_200_OK
         self.check_connection.assert_not_called()
+
+    def test_test_connection_returns_each_step_and_stops_at_the_first_failure(self) -> None:
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.BIGQUERY,
+            integration=self._integration(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT).pk,
+            config={"dataset": "analytics"},
+        )
+        self.describe_test.return_value = _destination_test(3)
+        self.run_test_step.side_effect = _step_results("Skipped", "Failed")
+
+        response = self.client.post(f"{self.base}/{destination.id}/test_connection")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "steps": [
+                {"name": "Step 0", "description": "Checks 0", "status": "Skipped", "message": "Step 0 said no"},
+                {"name": "Step 1", "description": "Checks 1", "status": "Failed", "message": "Step 1 said no"},
+                {"name": "Step 2", "description": "Checks 2", "status": None, "message": None},
+            ]
+        }
+
+    @parameterized.expand(
+        [
+            (None, "Passed", None),
+            (
+                DestinationConnectionCheckError(CheckFailure.AUTHENTICATION),
+                "Failed",
+                FAILURE_MESSAGES[CheckFailure.AUTHENTICATION],
+            ),
+        ]
+    )
+    def test_test_connection_runs_the_postgres_check_as_one_step(
+        self, error: Exception | None, expected_status: str, expected_message: str | None
+    ) -> None:
+        destination = self._create_destination(config={"database": "analytics"})
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.check_postgres_destination",
+            side_effect=error,
+        ) as check:
+            response = self.client.post(f"{self.base}/{destination.id}/test_connection")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        check.assert_called_once_with(destination.integration, {"database": "analytics"})
+        assert [(step["status"], step["message"]) for step in response.json()["steps"]] == [
+            (expected_status, expected_message)
+        ]
+
+    def test_test_connection_rejects_destinations_without_a_test(self) -> None:
+        redshift = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            integration=self._integration(Integration.IntegrationKind.AWS_REDSHIFT).pk,
+        )
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+
+        for destination in (redshift, warehouse):
+            response = self.client.post(f"{self.base}/{destination.id}/test_connection")
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, destination.type
+            assert response.json()["attr"] == "type"
 
     def test_the_posthog_warehouse_is_not_user_managed(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTHOG_WAREHOUSE, "name": "mine"})
@@ -252,6 +541,66 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [
+            ("s3_bucket", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "bucket", True),
+            (
+                "s3_bucket_alias",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.AWS_S3,
+                "bucket_name",
+                True,
+            ),
+            ("s3_region", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "region", True),
+            ("s3_prefix", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "prefix", False),
+            (
+                "azure_container",
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container_name",
+                True,
+            ),
+            (
+                "azure_container_alias",
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container",
+                True,
+            ),
+            (
+                "postgres_schema",
+                ExternalDataDestination.Type.POSTGRES,
+                Integration.IntegrationKind.POSTGRESQL,
+                "schema",
+                False,
+            ),
+        ]
+    )
+    def test_a_name_saved_with_a_stray_space_is_trimmed(
+        self, _name: str, destination_type: str, kind: str, field: str, trimmed: bool
+    ) -> None:
+        destination = self._create_destination(
+            type=destination_type, integration=self._integration(kind).pk, config={field: " example-name "}
+        )
+
+        assert destination.config[field] == ("example-name" if trimmed else " example-name ")
+
+    @parameterized.expand([("resent_as_stored", " example-bucket"), ("resent_trimmed", "example-bucket")])
+    def test_a_bucket_saved_before_trimming_can_still_be_edited(self, _name: str, resent: str) -> None:
+        destination = ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            type=ExternalDataDestination.Type.S3,
+            name="exports",
+            integration=self._integration(Integration.IntegrationKind.AWS_S3),
+            config={"bucket": " example-bucket", "region": "us-east-1"},
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {"bucket": resent}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.config == {"bucket": "example-bucket", "region": "us-east-1"}
 
     def test_a_partial_config_update_keeps_the_fields_it_did_not_mention(self) -> None:
         # `config` is one JSON blob. A PATCH naming only the key it means to change must not
@@ -695,6 +1044,79 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
 
         assert self.client.get(self.source_url).json()["destination_ids"] == [str(other.id)]
 
+    @parameterized.expand(
+        [
+            ("edit_paused", "edit", ExternalDataDestination.Status.PAUSED),
+            ("edit_failing", "edit", ExternalDataDestination.Status.FAILING),
+            ("select_on_source", "source", ExternalDataDestination.Status.PAUSED),
+            ("select_on_table", "schema", ExternalDataDestination.Status.PAUSED),
+        ]
+    )
+    def test_a_user_turns_a_paused_destination_back_on(self, _name: str, action: str, status_before: str) -> None:
+        other_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="other",
+            connection_id="conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        paused = status_before == ExternalDataDestination.Status.PAUSED
+        source_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=other_source, destination=self.destination, enabled=not paused
+        )
+        schema_link = ExternalDataSchemaDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, schema=self.schema, destination=self.destination, enabled=not paused
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=status_before, consecutive_configuration_failures=3, latest_error="The host name does not exist."
+        )
+
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        else:
+            url = self.source_url if action == "source" else self.schema_url
+            response = self.client.patch(url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        if action == "edit":
+            assert response.json()["status"] == ExternalDataDestination.Status.HEALTHY
+        self.destination.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.HEALTHY
+        assert self.destination.consecutive_configuration_failures == 0
+        assert self.destination.latest_error == "The host name does not exist."
+        source_link.refresh_from_db()
+        assert source_link.enabled is True
+        if action != "schema":
+            schema_link.refresh_from_db()
+            assert schema_link.enabled is True
+
+    def test_selecting_a_destination_recovers_a_pause_that_races_with_selection(self) -> None:
+        from products.warehouse_sources.backend.presentation.views.destination_links import _resolve_destinations
+
+        def pause_after_resolving(*args, **kwargs):
+            destinations = _resolve_destinations(*args, **kwargs)
+            ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+                status=ExternalDataDestination.Status.PAUSED,
+                consecutive_configuration_failures=3,
+            )
+            return destinations
+
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.destination_links._resolve_destinations",
+            side_effect=pause_after_resolving,
+        ):
+            response = self.client.patch(self.source_url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.destination.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.HEALTHY
+        assert self.destination.consecutive_configuration_failures == 0
+        assert (
+            ExternalDataSourceDestination.objects.for_team(self.team.pk)
+            .get(source=self.source, destination=self.destination)
+            .enabled
+        )
+
     def test_an_unknown_destination_is_rejected(self) -> None:
         response = self.client.patch(self.source_url, {"destination_ids": ["00000000-0000-0000-0000-000000000000"]})
 
@@ -759,3 +1181,67 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         body = self.client.get(self.schema_url).json()
         assert body["inherits_from_source"] is False
         assert body["destination_ids"] == [str(other.id)]
+
+
+@pytest.mark.ee
+class TestDestinationResumeAccessControl(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.editor = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
+        membership = self.organization.memberships.get(user=self.editor)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=self.hidden_source, name="hidden_table")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.hidden_source.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.destination = self._create_destination()
+        self.hidden_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.hidden_source, destination=self.destination, enabled=False
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=ExternalDataDestination.Status.PAUSED
+        )
+        self.client.force_login(self.editor)
+
+    @parameterized.expand([("edit",), ("select_on_source",), ("select_on_table",)])
+    def test_resuming_requires_editor_access_to_every_wired_table(self, action: str) -> None:
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        elif action == "select_on_source":
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_sources/{self.source.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.destination.refresh_from_db()
+        self.hidden_link.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.PAUSED
+        assert self.hidden_link.enabled is False

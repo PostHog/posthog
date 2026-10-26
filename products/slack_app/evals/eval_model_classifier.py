@@ -24,13 +24,13 @@ from __future__ import annotations
 
 import asyncio
 
-from posthog.temporal.ai.slack_app.activities import classifiers
-
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.services.model_catalogue import ModelChoice
+from products.slack_app.backend.temporal.activities import classifiers
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -65,6 +65,7 @@ CHOICES: tuple[ModelChoice, ...] = (
     ModelChoice("codex", "gpt-5.6-terra", "GPT-5.6 Terra", _MAX),
     ModelChoice("codex", "gpt-5.6-luna", "GPT-5.6 Luna", _MAX),
     ModelChoice("codex", "gpt-6.1-sol", "GPT-6.1 Sol", _MAX),
+    ModelChoice("codex", "gpt-6-luna", "GPT-6 Luna", _MAX),
     ModelChoice("codex", "gpt-5.5", "GPT-5.5", _XHIGH),
     ModelChoice("codex", "gpt-5.4", "GPT-5.4", _STANDARD),
     ModelChoice("codex", "gpt-5.3-codex", "GPT-5.3 Codex", _STANDARD),
@@ -103,7 +104,7 @@ INSTRUCTION_CASES = [
     BaseEvalCase(
         name="colloquial_model_name",
         prompt="@PostHog do this one with luna: add a loading state to the cohort picker",
-        expected=_asks(model="gpt-5.6-luna"),
+        expected=_asks(model="gpt-6-luna"),
     ),
     BaseEvalCase(
         name="instruction_with_model_also_as_subject",
@@ -119,12 +120,18 @@ INSTRUCTION_CASES = [
     BaseEvalCase(
         name="runtime_qualified_model",
         prompt="@PostHog can you investigate using codex sol on high",
-        expected=_asks(model="gpt-5.6-sol", reasoning_effort="high"),
+        expected=_asks(model="gpt-6.1-sol", reasoning_effort="high"),
     ),
     BaseEvalCase(
         name="vendor_qualified_model",
         prompt="@PostHog use openai luna and work out why the nightly export job stalls at 90%",
-        expected=_asks(model="gpt-5.6-luna"),
+        expected=_asks(model="gpt-6-luna"),
+    ),
+    # People write the version after the nickname as often as before it.
+    BaseEvalCase(
+        name="version_after_nickname",
+        prompt="@PostHog why does the cohort export stop at 10k rows? use luna 6 for this one",
+        expected=_asks(model="gpt-6-luna"),
     ),
     BaseEvalCase(
         name="decimal_model_version",
@@ -191,6 +198,19 @@ SUBJECT_MATTER_CASES = [
         prompt="@PostHog why is opus 5 slower than sonnet 5 on our eval suite? dig into the traces",
         expected=_asks(),
     ),
+    # A data question about a fleet of models, often asked inside a thread where the agent
+    # already runs. A model after "for" or "via" reads like a run instruction, and in a
+    # running thread a false positive on the other runtime is answered with a refusal.
+    BaseEvalCase(
+        name="metrics_question_about_model",
+        prompt="@PostHog what are the p50 and p95 token counts for sol 6.1 runs, next to every other model in the fleet?",
+        expected=_asks(),
+    ),
+    BaseEvalCase(
+        name="cost_breakdown_names_model",
+        prompt="@PostHog split last week's spend per run by model, and show where luna 6 lands via the scout view",
+        expected=_asks(),
+    ),
     BaseEvalCase(
         name="model_as_incident_topic",
         prompt="@PostHog the fable rollout broke the usage dashboard last night, can you find what changed",
@@ -254,8 +274,13 @@ async def eval_model_classifier(ctx: EvalContext) -> None:
             "last_message": f"{classifier_model}: {override.model_dump() if override else None}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-model-classifier",
+        offline_suite=offline_suite(
+            "slack_app/eval_model_classifier::eval_model_classifier",
+            metrics=["model_override_match", "no_unasked_override"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*INSTRUCTION_CASES, *UNDERSPECIFIED_CASES, *SUBJECT_MATTER_CASES],
         scorers=[ModelOverrideMatch(), NoUnaskedOverride()],
         task=task,

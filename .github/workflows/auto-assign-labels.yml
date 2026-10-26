@@ -1,6 +1,6 @@
 name: Auto Assign Labels
 
-# Adds team/feature labels to a PR based on its conventional-commit scope, e.g.
+# Adds team/feature labels to a PR based on its conventional-commit scope and the paths it changes, e.g.
 # `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. Small
 # feature flags PRs from the PostHog AI app also get `review/low-hanging-fruit`. The
 # scope -> label mappings live in .github/auto-assign-labels.json so the owning
@@ -18,7 +18,7 @@ name: Auto Assign Labels
 # nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
-        types: [opened, edited, reopened, ready_for_review]
+        types: [opened, edited, reopened, ready_for_review, synchronize]
 
 permissions:
     contents: read
@@ -45,6 +45,11 @@ jobs:
               with:
                   # MUST be `master` so we never execute untrusted PR code.
                   ref: master
+                  sparse-checkout: |
+                      /.github/
+                      /.nvmrc
+                      .gitattributes
+                  sparse-checkout-cone-mode: false
 
             # No fork guard: pull_request_target runs in base context, so org
             # secrets are available even when the PR comes from a fork.

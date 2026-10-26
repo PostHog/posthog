@@ -17,6 +17,7 @@ from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
+from products.warehouse_sources.backend.facade.destination_health import resume_destination
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchema,
@@ -24,9 +25,15 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSourceDestination,
 )
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
-    CheckFailure,
+    CONFIG_FAILURES,
     DestinationConnectionCheckError,
     check_postgres_destination,
+)
+from products.warehouse_sources.backend.presentation.destination_connection_testing import (
+    ConnectionTestRun,
+    DestinationConnectionTestStepStatus,
+    run_connection_test,
+    run_postgres_connection_test,
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
@@ -98,6 +105,41 @@ class AddSourcesResponseSerializer(serializers.Serializer):
     )
 
 
+class DestinationConnectionTestStepSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="What this step checks.")
+    description = serializers.CharField(help_text="A longer explanation of what this step checks.")
+    status = serializers.ChoiceField(
+        choices=DestinationConnectionTestStepStatus.choices,
+        allow_null=True,
+        help_text="The result of the step. Null when the step did not run because an earlier step failed.",
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text="Why the step failed or was skipped. Null when the step passed or did not run.",
+    )
+
+
+class DestinationConnectionTestResponseSerializer(serializers.Serializer):
+    steps = DestinationConnectionTestStepSerializer(
+        many=True,
+        help_text="The steps of the connection test, in order. The test stops at the first failed step.",
+    )
+
+
+def _connection_test_response(run: ConnectionTestRun) -> dict[str, Any]:
+    return {
+        "steps": [
+            {
+                "name": step.name,
+                "description": step.description,
+                "status": step.result.status if step.result else None,
+                "message": step.result.message if step.result else None,
+            }
+            for step in run.steps
+        ]
+    }
+
+
 def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
     # Prefix is part of how a person recognizes a source, since one connector can be added twice.
     return {
@@ -131,6 +173,23 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     )
     is_posthog_warehouse = serializers.BooleanField(
         read_only=True, help_text="Whether this is the managed PostHog warehouse destination."
+    )
+    status = serializers.ChoiceField(
+        choices=ExternalDataDestination.Status.choices,
+        read_only=True,
+        help_text=(
+            "Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the "
+            "last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. "
+            "Edit the destination to turn it back on."
+        ),
+    )
+    latest_error = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last delivery error, safe to show to the user. Null if no delivery has failed.",
+    )
+    latest_error_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last delivery error occurred."
     )
     synced_sources = serializers.SerializerMethodField(
         help_text=(
@@ -191,8 +250,21 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
         ]
-        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at", "synced_sources"]
+        read_only_fields = [
+            "id",
+            "is_posthog_warehouse",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
+        ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -218,10 +290,15 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
 
+        if isinstance(attrs.get("config"), dict):
+            attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
+
         if self.instance is not None:
             self._reject_retargeting(attrs)
         elif destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
+        else:
+            self._run_connection_test(destination_type, integration, attrs.get("config"))
 
         return attrs
 
@@ -231,12 +308,13 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         try:
             check_postgres_destination(integration, config)
         except DestinationConnectionCheckError as error:
-            field = (
-                "config"
-                if error.failure in (CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING_PRIVILEGE)
-                else "integration"
-            )
+            field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
+
+    def _run_connection_test(self, destination_type: str, integration: Integration, config: Any) -> None:
+        run = run_connection_test(destination_type, integration, config)
+        if run is not None and run.failure is not None:
+            raise ValidationError({run.failure.field: str(run.failure)})
 
     # Where a destination points is fixed once it exists. Everything already synced sits at the
     # current server and schema, so repointing one strands that data and needs a full resync of
@@ -259,6 +337,20 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
     }
 
+    # Config fields whose names cannot hold a space, per type. A pasted bucket or container name
+    # often has a stray space at one end, and the store then rejects the name on every run. A
+    # prefix is not here: a prefix with a space is a valid key, and rows may already sit under it.
+    TRIMMED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
+    }
+
+    def _trim_names(self, destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
+        fields = self.TRIMMED_FIELDS_BY_TYPE.get(destination_type, ())
+        return {
+            key: value.strip() if key in fields and isinstance(value, str) else value for key, value in config.items()
+        }
+
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
         if "integration" in attrs and attrs["integration"] != self.instance.integration:
@@ -274,9 +366,10 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if "config" not in attrs:
             return
 
-        current = self.instance.config or {}
-        incoming = attrs["config"] or {}
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
+        # A name saved with a stray space never worked, so the trimmed name is the same target.
+        current = self._trim_names(str(destination_type), self.instance.config or {})
+        incoming = attrs["config"] or {}
         for field in self.RETARGETING_FIELDS_BY_TYPE.get(str(destination_type), ()):
             if field in incoming and incoming[field] != current.get(field):
                 label = field.replace("_", " ")
@@ -385,8 +478,8 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if is_service_auth(self.request):
             return
 
-        source_ids = {link.source_id for link in instance.source_links.filter(enabled=True)}
-        direct_schema_ids = {link.schema_id for link in instance.schema_links.filter(enabled=True)}
+        source_ids = {link.source_id for link in instance.source_links.all()}
+        direct_schema_ids = {link.schema_id for link in instance.schema_links.all()}
         schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=self.team_id)
@@ -494,11 +587,35 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             ).data
         )
 
+    @extend_schema(request=None, responses={200: DestinationConnectionTestResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def test_connection(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Test the credentials and target of an existing destination, and return the result of each step."""
+        destination: ExternalDataDestination = self.get_object()
+        integration = destination.integration
+        if destination.is_posthog_warehouse or integration is None:
+            raise ValidationError(
+                {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
+            )
+
+        if destination.type == ExternalDataDestination.Type.POSTGRES:
+            run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)
+        else:
+            run = run_connection_test(destination.type, integration, destination.config)
+        if run is None:
+            raise ValidationError({"type": f"Connection tests are not available for {destination.type} destinations."})
+
+        return Response(DestinationConnectionTestResponseSerializer(_connection_test_response(run)).data)
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # `.instance` is `Any | None` on the base serializer type, but `update`/`partial_update`
         # always construct this viewset's serializer with the existing instance to update.
         self._assert_can_mutate(cast(ExternalDataDestination, serializer.instance))
         super().perform_update(serializer)
+        # An edit is how a user says they fixed the destination, so the next sync tries it again.
+        destination = cast(ExternalDataDestination, serializer.instance)
+        # Reload under the destination lock: a delivery can pause it after this request reads it.
+        resume_destination(destination)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Soft-delete, and detach it from everything that syncs to it.

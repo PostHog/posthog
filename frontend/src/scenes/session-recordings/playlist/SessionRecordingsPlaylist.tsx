@@ -17,7 +17,6 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { WatchPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/WatchPicksListColumn'
 import { watchPicksLogic } from 'products/replay_vision/frontend/replay_scanners/watchPicksLogic'
-import { WatchPicksVariant } from 'products/replay_vision/frontend/replay_scanners/watchPicksVariant'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -33,11 +32,11 @@ type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     description?: string
     /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
     listEmptyState?: JSX.Element
-    watchPicksVariant?: WatchPicksVariant | null
+    picksInList?: boolean
 }
 
 export function SessionRecordingsPlaylist({
-    watchPicksVariant,
+    picksInList = false,
     ...props
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
@@ -57,7 +56,6 @@ export function SessionRecordingsPlaylist({
     }
     const isVerticalLayout = layoutRef.current
 
-    const picksInList = watchPicksVariant === 'in-list' || watchPicksVariant === 'both'
     const layout = (
         <div className={cn('w-full h-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
             {isVerticalLayout ? (
@@ -84,7 +82,7 @@ export function SessionRecordingsPlaylist({
     )
 }
 
-type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'watchPicksVariant'> & { picksInList: boolean }
+type LayoutProps = Omit<SessionRecordingsPlaylistProps, 'picksInList'> & { picksInList: boolean }
 
 function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)

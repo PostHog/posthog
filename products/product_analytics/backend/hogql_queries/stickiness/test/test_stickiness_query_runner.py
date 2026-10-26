@@ -55,7 +55,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -1517,9 +1517,16 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestStickinessDashboardFilters(BaseTest):
-    def _runner(self) -> StickinessQueryRunner:
+    def _runner(
+        self, date_from: str | None = None, compare_filter: CompareFilter | None = None
+    ) -> StickinessQueryRunner:
         return StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.DAY),
+            query=StickinessQuery(
+                series=[EventsNode(event="$pageview")],
+                interval=IntervalType.DAY,
+                dateRange=DateRange(date_from=date_from) if date_from else None,
+                compareFilter=compare_filter,
+            ),
             team=self.team,
         )
 
@@ -1555,6 +1562,41 @@ class TestStickinessDashboardFilters(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter(filterTestAccounts=dashboard_filter))
 
         assert runner.query.filterTestAccounts is expected
+
+    def test_dashboard_compare_filter_override(self) -> None:
+        runner = self._runner()
+
+        runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True, compare_to="-4w")))
+
+        assert runner.query.compareFilter == CompareFilter(compare=True, compare_to="-4w")
+
+    @parameterized.expand(
+        [
+            ("compare_set_on_construction", "all", CompareFilter(compare=True), None),
+            ("compare_arrives_via_override", "all", None, CompareFilter(compare=True)),
+            ("compare_set_on_construction_via_date_override", "-14d", CompareFilter(compare=True), None),
+        ]
+    )
+    def test_dashboard_compare_filter_is_stripped_for_all_time_range(
+        self,
+        _name: str,
+        query_date_from: str,
+        construction_compare_filter: Optional[CompareFilter],
+        override_compare_filter: Optional[CompareFilter],
+    ) -> None:
+        runner = self._runner(date_from=query_date_from, compare_filter=construction_compare_filter)
+        dashboard_date_from = "all" if query_date_from != "all" else None
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(date_from=dashboard_date_from, compareFilter=override_compare_filter)
+        )
+
+        assert runner.query.dateRange is not None
+        assert runner.query.dateRange.date_from == "all"
+        assert runner.query.compareFilter == CompareFilter(compare=False)
+        # Guards the series-doubling bug this fix also closes: setup_series() doubles entries
+        # while compare=True, so a stale rebuild after the strip would leave 2 series here.
+        assert len(runner.series) == 1
 
 
 class TestStickinessSeriesCustomNames(BaseTest):
@@ -1599,6 +1641,26 @@ class TestStickinessSeriesCustomNames(BaseTest):
 
         assert patched_response.results == expected_results
         assert was_modified is expect_modified
+
+    def test_a_cached_row_without_a_top_level_order_takes_it_from_action(self) -> None:
+        query = StickinessQuery(series=[EventsNode(event="$pageview"), EventsNode(event="sign up")])
+        cached_rows = [
+            {"label": "$pageview", "data": [3], "action": {"order": 0, "name": "$pageview"}},
+            {"label": "sign up", "data": [1], "action": {"order": 1, "name": "sign up"}},
+        ]
+        with patch.object(
+            StickinessQueryRunner, "_calculate", return_value=StickinessQueryResponse(results=cached_rows)
+        ):
+            StickinessQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )
+
+        response = StickinessQueryRunner(query=query, team=self.team).run(
+            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+        )
+
+        assert isinstance(response, CachedStickinessQueryResponse)
+        assert [row["order"] for row in response.results] == [0, 1]
 
 
 class TestStickinessSeriesFanOut(BaseTest):

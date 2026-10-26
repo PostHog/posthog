@@ -1,12 +1,18 @@
 import { dayjs } from 'lib/dayjs'
 
-import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchSource } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsSearchQuery,
+    MarketingAnalyticsSearchSource,
+    MarketingAnalyticsSearchRow,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 export type SearchPlatform = MarketingAnalyticsSearchSource['sourceType']
 export type SearchMetrics = 'traffic' | 'conversions'
 export type SearchBreakdown = NonNullable<MarketingAnalyticsSearchQuery['breakdown']>
 export type SearchChannel = 'all' | 'paid' | 'organic'
+
+export const SEARCH_PERFORMANCE_QUERY_KEY = 'marketing-search-performance'
 
 export const SEARCH_PLATFORM_LABELS: Record<SearchPlatform, string> = {
     GoogleAds: 'Google Ads',
@@ -50,10 +56,7 @@ function searchTableNames(source: ExternalDataSource, breakdown: SearchBreakdown
     if (source.source_type === 'GoogleSearchConsole') {
         return detail
             ? ['search_analytics_by_query_page']
-            : [
-                  breakdown === 'page' ? 'search_analytics_by_page' : 'search_analytics_by_query',
-                  'search_analytics_by_query_page',
-              ]
+            : [breakdown === 'page' ? 'search_analytics_by_page' : 'search_analytics_by_query']
     }
     if (source.source_type === 'GoogleAds') {
         return breakdown === 'page' ? ['landing_page_stats'] : ['keyword', 'keyword_stats']
@@ -74,10 +77,7 @@ export function searchPerformanceSource(
     }
     const tables = searchTableNames(source, breakdown, detail).map(table)
     if (source.source_type === 'GoogleSearchConsole') {
-        const index = tables.findIndex(Boolean)
-        return index < 0
-            ? null
-            : { sourceType: 'GoogleSearchConsole', statsTable: tables[index]!, queryPageTable: detail || index === 1 }
+        return tables[0] ? { sourceType: 'GoogleSearchConsole', statsTable: tables[0], queryPageTable: detail } : null
     }
     if (tables.length === 0 || tables.some((table) => !table)) {
         return null
@@ -86,7 +86,14 @@ export function searchPerformanceSource(
         ? {
               sourceType: 'GoogleAds',
               statsTable: tables[tables.length - 1]!,
-              ...(breakdown === 'keyword' ? { keywordTable: tables[0] } : {}),
+              ...(breakdown === 'keyword'
+                  ? {
+                        keywordTable: tables[0],
+                        ...(table('keyword_placement_stats')
+                            ? { placementTable: table('keyword_placement_stats') }
+                            : {}),
+                    }
+                  : {}),
           }
         : { sourceType: 'BingAds', statsTable: tables[0]! }
 }
@@ -97,8 +104,22 @@ export function searchPerformanceSourceNotice(
     detail = false
 ): string | null {
     const querySource = searchPerformanceSource(source, breakdown, detail)
-    const fallback = querySource?.queryPageTable && !detail
-    if (querySource && !fallback) {
+    if (querySource) {
+        if (source.source_type === 'GoogleAds' && breakdown === 'keyword' && !querySource.placementTable) {
+            const status = searchTableStatus(source.schemas.find((schema) => schema.name === 'keyword_placement_stats'))
+            const message = {
+                disabled: 'Enable keyword_placement_stats in the source settings to see Top and First percentages.',
+                pending: 'Position data will appear after the first sync of keyword_placement_stats finishes.',
+                failed: 'The sync of keyword_placement_stats failed. Retry it in the source settings to see position data.',
+                billing:
+                    'A billing limit is blocking keyword_placement_stats. Check the source settings to restore position data.',
+                paused: 'Syncing has stopped for keyword_placement_stats. Resume it in the source settings to restore position data.',
+                stale: 'Position data in keyword_placement_stats is out of date. Sync it again in the source settings.',
+                ready: '',
+            }[status]
+            const label = source.description || SEARCH_PLATFORM_LABELS.GoogleAds
+            return `${label}: ${message} Traffic data is available.`
+        }
         return null
     }
     const names = searchTableNames(source, breakdown, detail)
@@ -121,7 +142,7 @@ export function searchPerformanceSourceNotice(
         }[status]
     })
     const label = source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]
-    return `${label}: ${issues.join(' ')}${fallback ? ' Showing query-and-page data instead. Totals may differ from the dedicated query or page table.' : ' Data from this source will appear when the tables are ready.'}`
+    return `${label}: ${issues.join(' ')}`
 }
 
 export const SEARCH_SOURCE_TYPES = ['GoogleAds', 'BingAds', 'GoogleSearchConsole']
@@ -130,4 +151,14 @@ export function selectedSearchSources(sources: ExternalDataSource[], selectedIds
     const searchSources = sources.filter((source) => SEARCH_SOURCE_TYPES.includes(source.source_type))
     const selected = searchSources.filter((source) => selectedIds.includes(source.id))
     return selectedIds.length > 0 ? selected : searchSources
+}
+
+export function searchPerformanceRowKey(row: MarketingAnalyticsSearchRow): string {
+    return JSON.stringify([
+        row.keyword ?? null,
+        row.page ?? null,
+        row.platform,
+        row.matchType ?? null,
+        row.currency ?? null,
+    ])
 }

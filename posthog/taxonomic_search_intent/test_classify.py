@@ -181,7 +181,7 @@ class TestClassifySearchIntent(SimpleTestCase):
 
     def test_managed_model_is_sent_to_the_gateway_and_separates_cached_answers(self) -> None:
         self.decide.return_value = _answer("events", 0.9)
-        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/jeeves-0.1")
+        managed = dataclasses.replace(BUNDLED_SEARCH_INTENT_PROMPT, model="posthog/hogference/managed-model")
 
         classify_search_intent(_search("checkout"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
         classify_search_intent(_search("checkout"), prompt=managed)

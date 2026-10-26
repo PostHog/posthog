@@ -58,6 +58,23 @@ describe('getDiscoveryHint', () => {
         expect(getDiscoveryHint({ toolName, handlerResult: { results: [] } })?.text).toContain(skillName)
     })
 
+    it.each([
+        ['logs-context', { anchor: {}, timeline: [] }],
+        ['apm-service-health', { summary: {}, services: [] }],
+        ['logs-group-by', { groups: [] }],
+    ])('treats an empty primary array as empty for %s', (toolName, handlerResult) => {
+        const hint = getDiscoveryHint({ toolName, handlerResult })
+
+        expect(hint?.kind).toBe('empty_state')
+        expect(hint?.text).toContain('dateRange')
+    })
+
+    it('does not fire the empty-state hint when logs-context has timeline rows', () => {
+        const hint = getDiscoveryHint({ toolName: 'logs-context', handlerResult: { timeline: [{ body: 'x' }] } })
+
+        expect(hint?.kind).not.toBe('empty_state')
+    })
+
     it('cross-sells subscriptions and dashboards after insight creation', () => {
         const hint = getDiscoveryHint({ toolName: 'insight-create', handlerResult: { id: 1, short_id: 'abc' } })
 

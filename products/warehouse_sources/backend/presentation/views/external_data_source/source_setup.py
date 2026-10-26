@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.hogql.direct_sql.capability import direct_capable_source_types
+from posthog.hogql.direct_sql.capability import direct_capable_source_types, direct_capable_source_types_for_team
 
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
@@ -37,7 +37,7 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_custom_source_ai_builder_enabled_for_team,
 )
-from products.warehouse_sources.backend.facade.api import validate_source_prefix
+from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -69,12 +69,15 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    history_column_collisions,
+    is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
@@ -91,6 +94,14 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 )
 
 from . import base, connection_options, credential_store, helpers, webhook_setup
+
+
+def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
+    """`None` syncs every column. `[]` syncs only the always-retained key and incremental field."""
+    payload_enabled_columns = schema.get("enabled_columns")
+    if not isinstance(payload_enabled_columns, list):
+        return None
+    return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -320,36 +331,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
-        # Negative statuses should ignore schemas the user has disabled — those can linger in
-        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
-        syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
-        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
-        any_billing_limits_reached = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in syncing_schemas
-        )
-        any_billing_limits_too_low = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in syncing_schemas
-        )
-        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
-        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
-        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
-
-        if any_failures:
-            return ExternalDataSchema.Status.FAILED
-        elif any_billing_limits_reached:
-            return "Billing limits"
-        elif any_billing_limits_too_low:
-            return "Billing limits too low"
-        elif any_paused:
-            return ExternalDataSchema.Status.PAUSED
-        elif any_running:
-            return ExternalDataSchema.Status.RUNNING
-        elif any_completed:
-            return ExternalDataSchema.Status.COMPLETED
-        else:
-            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
-            return instance.status
+        return effective_source_status(self._active_schemas(instance), fallback=instance.status)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
@@ -1157,7 +1139,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": helpers.RESERVED_SOURCE_NAME_MESSAGE},
             )
 
-        if is_direct_query and source_type not in direct_capable_source_types():
+        if is_direct_query and source_type not in direct_capable_source_types_for_team(self.team):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": helpers.DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE},
@@ -1212,6 +1194,18 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     {"message": f"{source_type_model.label} is available only as a direct connection."}
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if source.syncs_on_demand is True:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"A {source_type_model.label} source can't be created here. Use its own setup flow."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
             )
         max_instances = source.max_instances_per_team
         if max_instances is not None and helpers.count_active_sources(self.team_id, source_type_model) >= max_instances:
@@ -1375,6 +1369,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
 
         active_schemas: list[ExternalDataSchema] = []
+        history_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
@@ -1468,6 +1463,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
+            # The history table stamps each row version with these columns, so a synced source column
+            # of the same name would fail every load into it.
+            tables_with_validity_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and is_history_table_mode(schema.get("cdc_table_mode"))
+                    and isinstance(schema.get("name"), str)
+                    and history_column_collisions(
+                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                        _payload_enabled_columns(schema),
+                        pk_columns_by_table.get(schema["name"]),
+                    )
+                }
+            )
+            if tables_with_validity_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table can't store a column that loads as valid_from or valid_to, because "
+                            "PostHog uses those names to record when each version was current. Rename the column on "
+                            "your database, or choose the consolidated table only for these tables: "
+                            f"{', '.join(tables_with_validity_column)}."
+                        )
+                    },
+                )
+
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
         if cdc_enabled:
@@ -1493,15 +1519,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
-            payload_enabled_columns = schema.get("enabled_columns")
-            if isinstance(payload_enabled_columns, list):
-                # `[]` and `None` are distinct: `None` means sync all columns, `[]` means
-                # sync only the always-retained PK + incremental field.
-                enabled_columns: list[str] | None = [
-                    str(column) for column in payload_enabled_columns if isinstance(column, str)
-                ]
-            else:
-                enabled_columns = None
+            enabled_columns = _payload_enabled_columns(schema)
 
             payload_row_filters = schema.get("row_filters")
             row_filters: list[dict[str, Any]] | None = (
@@ -1611,7 +1629,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
                     )
                 try:
-                    validate_and_coerce_row_filters(row_filters, schema_metadata)
+                    validate_and_coerce_row_filters(
+                        row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
+                    )
                 except RowFilterValidationError as e:
                     new_source_model.delete()
                     return Response(
@@ -1761,6 +1781,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+            if schema_model.keeps_history:
+                history_schemas.append(schema_model)
 
         # Attach destinations before any schedule starts. Extraction snapshots the set onto the
         # run, so a source whose destinations arrive after its first sync began writes that run
@@ -1772,6 +1794,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 team_id=self.team_id,
                 source_id=new_source_model.pk,
                 destination_ids=selected_destination_ids,
+                authorize_resume=self._assert_can_write_schemas,
             )
         except Exception as e:
             # The source is already created and its tables are configured. Losing that over a
@@ -1847,6 +1870,15 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             team=self.team,
             request=request,
         )
+
+        for schema_model in history_schemas:
+            report_history_toggled(
+                cast(User, request.user),
+                schema_model,
+                enabled=True,
+                table_mode=schema_model.cdc_table_mode,
+                request=request,
+            )
 
         return Response(
             status=status.HTTP_201_CREATED,
@@ -2044,6 +2076,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:

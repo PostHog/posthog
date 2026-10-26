@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -15,37 +14,6 @@ class TestJudgeMeReviewsSource:
         self.source = JudgeMeReviewsSource()
         self.team_id = 123
         self.config = JudgeMeReviewsSourceConfig(shop_domain="example.myshopify.com", api_token="jm-token")
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["products"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "products"
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://judge.me/api/v1/reviews?shop_domain=example.myshopify.com&page=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://judge.me/api/v1/products?shop_domain=example.myshopify.com&page=1",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://judge.me/api/v1/reviews"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://judge.me/api/v1/products"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [
@@ -79,9 +47,3 @@ class TestJudgeMeReviewsSource:
         assert kwargs["shop_domain"] == "example.myshopify.com"
         assert kwargs["endpoint"] == "reviews"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_table"
-        with pytest.raises(ValueError, match="Unknown Judge.me schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)

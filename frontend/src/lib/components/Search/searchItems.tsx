@@ -42,6 +42,15 @@ export interface SearchItem {
     parentName?: string
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
+    rankKey?: number[]
+    createdByName?: string
+    searchMatch?: {
+        matchedAllWords: boolean
+        matchedWords: string[]
+        typeCount: number
+        countsCapped: boolean
+        withTypos: boolean
+    }
     /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
      * (e.g. the user has no access to the product or resource). */
     disabledReason?: string
@@ -119,6 +128,7 @@ export const fileSystemEntryToSearchItem = (
 export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'][number]): SearchItem => {
     let name = result.result_id
     let href = ''
+    let itemType: string = result.type
 
     switch (result.type) {
         case 'insight':
@@ -129,9 +139,19 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             name = safeString(result.extra_fields.name) || result.result_id
             href = `/dashboard/${result.result_id}`
             break
+        case 'data_warehouse_view':
+            name = safeString(result.extra_fields.name) || result.result_id
+            href = urls.nodeDetail(safeString(result.extra_fields.node_id) || result.result_id)
+            itemType = 'data_modeling'
+            break
+        case 'endpoint':
+            name = safeString(result.extra_fields.name) || result.result_id
+            href = urls.endpoint(name)
+            itemType = 'endpoints'
+            break
         case 'feature_flag':
             name = safeString(result.extra_fields.key) || result.result_id
-            href = `/feature_flags/${result.result_id}`
+            href = `/feature-flags/${result.result_id}`
             break
         case 'experiment':
             name = safeString(result.extra_fields.name) || result.result_id
@@ -176,7 +196,7 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
         name,
         category: result.type,
         href,
-        itemType: result.type,
+        itemType,
         rank: result.rank,
         disabledReason: getEntryAccessDisabledReason(result),
         record: {

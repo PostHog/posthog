@@ -134,7 +134,7 @@ pub struct FlagsQueryParams {
 pub enum ServiceResponse {
     Default(LegacyFlagsResponse),
     V2(FlagsResponse),
-    V3(FlagsResponseV3),
+    V4(FlagsResponseV4),
     DecideV1(DecideV1Response),
     DecideV2(DecideV2Response),
 }
@@ -224,7 +224,7 @@ pub struct FlagsResponse {
     /// Set to `true` when the team is gated into slim `$feature_flag_called` events
     /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
     /// that see no field at all fall back to full events, same as legacy teams.
-    /// Only reaches the wire on this v2 shape and on `FlagsResponseV3`: `LegacyFlagsResponse`,
+    /// Only reaches the wire on this v2 shape and on `FlagsResponseV4`: `LegacyFlagsResponse`,
     /// `DecideV1Response`, and `DecideV2Response` intentionally never carry it over. SDKs old
     /// enough to hit those response shapes predate this field and have no code path that reads
     /// it, so there's nothing gained by sending it to them.
@@ -367,6 +367,27 @@ impl FlagsResponse {
         }
     }
 
+    /// Empty flags with the minimal config that `posthog-js` needs to boot. Served to GET
+    /// requests and to requests the service refuses to evaluate (bots, blocked callers).
+    pub fn minimal(request_id: Uuid) -> Self {
+        let mut config = ConfigResponse::new();
+        config.set(
+            "supportedCompression",
+            serde_json::json!(["gzip", "gzip-js"]),
+        );
+        config.set(
+            "config",
+            serde_json::json!({"enable_collect_everything": true}),
+        );
+        config.set("toolbarParams", serde_json::json!({}));
+        config.set("isAuthenticated", serde_json::json!(false));
+        config.set("sessionRecording", serde_json::json!(false));
+
+        let mut response = Self::new(false, HashMap::new(), None, request_id);
+        response.config = config;
+        response
+    }
+
     /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
     #[cfg(test)]
     pub fn with_evaluated_at(
@@ -451,7 +472,7 @@ pub struct FlagDetails {
     pub config_outcome: ConfigOutcome,
 }
 
-/// The config format and, for a v2 flag that evaluated, the typed outcome the v3 record needs.
+/// The config format and, for a v2 flag that evaluated, the typed outcome the v4 record needs.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConfigOutcome {
     #[default]
@@ -471,9 +492,9 @@ impl ConfigOutcome {
 
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FlagsResponseV3 {
+pub struct FlagsResponseV4 {
     pub errors_while_computing_flags: bool,
-    pub flags: HashMap<String, FlagDetailsV3>,
+    pub flags: HashMap<String, FlagDetailsV4>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
     pub request_id: Uuid,
@@ -484,14 +505,14 @@ pub struct FlagsResponseV3 {
     pub config: ConfigResponse,
 }
 
-impl FlagsResponseV3 {
+impl FlagsResponseV4 {
     pub fn from_response(response: FlagsResponse) -> Self {
         Self {
             errors_while_computing_flags: response.errors_while_computing_flags,
             flags: response
                 .flags
                 .into_iter()
-                .map(|(key, flag)| (key, FlagDetailsV3::from(flag)))
+                .map(|(key, flag)| (key, FlagDetailsV4::from(flag)))
                 .collect(),
             quota_limited: response.quota_limited,
             request_id: response.request_id,
@@ -502,22 +523,22 @@ impl FlagsResponseV3 {
     }
 }
 
-/// `/flags?v=3` record: one typed `value` instead of `enabled` and `variant`.
+/// `/flags?v=4` record: one typed `value` instead of `enabled` and `variant`.
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
-pub struct FlagDetailsV3 {
+pub struct FlagDetailsV4 {
     pub key: String,
     /// `null` is a null flag default or a failed record.
     pub value: Value,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
     pub reason: FlagEvaluationReason,
-    pub metadata: FlagDetailsMetadataV3,
+    pub metadata: FlagDetailsMetadataV4,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conditions: Option<Vec<ConditionAnalysis>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct FlagDetailsMetadataV3 {
+pub struct FlagDetailsMetadataV4 {
     pub id: i32,
     pub version: i32,
     pub config_version: u8,
@@ -532,7 +553,7 @@ pub struct FlagDetailsMetadataV3 {
     pub variant_key: Option<String>,
 }
 
-impl From<FlagDetails> for FlagDetailsV3 {
+impl From<FlagDetails> for FlagDetailsV4 {
     fn from(flag: FlagDetails) -> Self {
         let legacy_value = match flag.to_value() {
             FlagValue::Boolean(enabled) => Value::Bool(enabled),
@@ -563,7 +584,14 @@ impl From<FlagDetails> for FlagDetailsV3 {
                     condition_index: rule.map(|rule| rule.index as i32),
                     description: Some(evaluation.description),
                 };
-                (evaluation.value, reason, rule, 2, None, None)
+                (
+                    evaluation.value,
+                    reason,
+                    rule,
+                    2,
+                    None,
+                    evaluation.variant_key,
+                )
             }
             ConfigOutcome::V2(None) => {
                 let reason = FlagEvaluationReason {
@@ -579,7 +607,7 @@ impl From<FlagDetails> for FlagDetailsV3 {
             value,
             failed: flag.failed,
             reason,
-            metadata: FlagDetailsMetadataV3 {
+            metadata: FlagDetailsMetadataV4 {
                 id: flag.metadata.id,
                 version: flag.metadata.version,
                 config_version,
@@ -2521,7 +2549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_v3_record_of_a_failed_v1_flag_has_a_null_value() {
+    fn test_v4_record_of_a_failed_v1_flag_has_a_null_value() {
         let flag = FlagDetails {
             key: "v1-failed".to_string(),
             enabled: false,
@@ -2543,7 +2571,7 @@ mod tests {
             config_outcome: ConfigOutcome::V1,
         };
 
-        let record = FlagDetailsV3::from(flag);
+        let record = FlagDetailsV4::from(flag);
 
         assert_eq!(record.value, Value::Null);
         assert!(record.failed);

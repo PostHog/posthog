@@ -197,7 +197,32 @@ describe('tracingDataLogic', () => {
             },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
-            expect(captureSpy).toHaveBeenCalledWith(event, properties)
+            expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
+        })
+
+        it('records that a service name filter scoped the trace lookup', () => {
+            logic.actions.setServiceNames(['checkout-api'])
+            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
+            expect(logic.values.traceLoadFiltersActive).toBe(true)
+        })
+
+        // Filters changing mid-flight must not rescope or relabel a request made under the old filters.
+        it('keeps the filters active at request time through the widened lookup', async () => {
+            type TraceResponse = Awaited<ReturnType<typeof api.tracing.getTrace>>
+            const empty: TraceResponse = { results: [], hasMore: false, nextOffset: null }
+            let releaseBoundedLookup: (response: TraceResponse) => void = () => {}
+            const getTraceSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseBoundedLookup = resolve)))
+                .mockResolvedValueOnce(empty)
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-x', ts: '2024-01-01T00:00:00Z' })
+            logic.actions.setServiceNames(['checkout-api'])
+            releaseBoundedLookup(empty)
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            expect(getTraceSpy.mock.calls.map(([, params]) => params?.serviceNames)).toEqual([undefined, undefined])
+            expect(logic.values.traceLoadFiltersActive).toBe(false)
         })
     })
 
@@ -392,6 +417,125 @@ describe('tracingDataLogic', () => {
                 apiSpy.mockRestore()
             }
         )
+    })
+
+    describe('query failures', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])(
+            'sets the $name error instead of toasting once the retry also fails',
+            async ({ apiMethod, fetch, error }) => {
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockRejectedValue(new Error('boom'))
+                logic = mountWithSpans([])
+
+                await fetch(logic).catch(() => {})
+
+                expect(apiSpy).toHaveBeenCalledTimes(2)
+                expect(error(logic)).toBe('boom')
+                expect(toastSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                result: { results: [], hasMore: false },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSpans(),
+                error: (l: typeof logic) => l.values.spansError,
+            },
+            {
+                name: 'sparkline',
+                apiMethod: 'sparkline' as const,
+                result: { results: [] },
+                fetch: (l: typeof logic) => l.asyncActions.fetchSparkline(),
+                error: (l: typeof logic) => l.values.sparklineError,
+            },
+        ])('recovers when the retry of a fast $name failure succeeds', async ({ apiMethod, result, fetch, error }) => {
+            const apiSpy = jest
+                .spyOn(api.tracing, apiMethod)
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValueOnce(result as any)
+            logic = mountWithSpans([])
+
+            await fetch(logic)
+
+            expect(apiSpy).toHaveBeenCalledTimes(2)
+            expect(error(logic)).toBeNull()
+        })
+
+        it('clears the spans error when the next query starts', () => {
+            jest.spyOn(api.tracing, 'listSpans').mockReturnValue(new Promise(() => {}) as any)
+            logic = mountWithSpans([])
+            logic.actions.fetchSpansFailure('boom')
+            expect(logic.values.spansError).toBe('boom')
+
+            logic.actions.fetchSpans()
+
+            expect(logic.values.spansError).toBeNull()
+        })
+
+        it('flags a failed trace load and clears the flag once the next trace load starts', () => {
+            logic = mountWithSpans([])
+            logic.actions.loadTraceSpansFailure('boom')
+            expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+            // Reopening a trace (even a different one) must not inherit the previous failure.
+            logic.actions.loadTraceSpans({ traceId: 'trace-1' })
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+        })
+
+        it('does not flag a failure when a superseded trace load rejects after the newer one resolved', async () => {
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+            let rejectA: (error: Error) => void = () => {}
+            let resolveB: (value: { results: Span[]; hasMore: boolean; nextOffset: number | null }) => void = () => {}
+            const apiSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectA = reject)))
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)))
+            logic = mountWithSpans([])
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-a' })
+            logic.actions.loadTraceSpans({ traceId: 'trace-b' })
+
+            const bSpans = [createMockSpan('span-b', '2024-01-01T04:00:00Z')]
+            resolveB({ results: bSpans, hasMore: false, nextOffset: null })
+            await flushPromises()
+
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+
+            // trace A's late rejection must not mark trace B's spans as failed.
+            rejectA(new Error('boom'))
+            await flushPromises()
+
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            apiSpy.mockRestore()
+        })
     })
 
     describe('cancelled requests', () => {

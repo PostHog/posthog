@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
 
@@ -9,20 +9,39 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postscript import (
+    PostscriptSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript import (
     PostscriptResumeConfig,
     _format_postscript_datetime,
     _rest_api_client_config,
     get_resource,
-    postscript_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source import PostscriptSource
 
 
 def _subscribers_response(total_pages: int) -> Mock:
     response = Mock()
     response.json.return_value = {"page_info": {"page": 1, "total_pages": total_pages}, "subscribers": []}
     return response
+
+
+def _subscribers_page(total_pages: int, page: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"page_info": {"page": page, "total_pages": total_pages}, "subscribers": [{"id": f"s_{page}"}]}
+    )
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(PostscriptSource(), PostscriptSourceConfig(api_key="sk_postscript"))
 
 
 class TestPostscriptTransport:
@@ -113,13 +132,9 @@ class TestPostscriptTransport:
             (500, False, "unexpected status code"),
         ]
     )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript.make_tracked_session"
-    )
-    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment, mock_session) -> None:
-        mock_session.return_value.get.return_value = Mock(status_code=status)
-
-        is_valid, message = validate_credentials("sk_postscript", "v2")
+    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
+            is_valid, message = validate_credentials("sk_postscript", "v2")
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -127,12 +142,12 @@ class TestPostscriptTransport:
         else:
             assert message is not None and message_fragment in message
 
-        call = mock_session.return_value.get.call_args
-        assert call.args[0] == "https://api.postscript.io/api/v2/subscribers"
-        assert call.kwargs["headers"]["Authorization"] == "Bearer sk_postscript"
+        request = network.requests_log[0]
+        assert request.url.startswith("https://api.postscript.io/api/v2/subscribers")
+        assert request.headers["authorization"] == "Bearer sk_postscript"
         # The validation session must refuse redirects so a 3xx can't replay the token off-host.
-        assert mock_session.call_args.kwargs["allow_redirects"] is False
-        assert mock_session.call_args.kwargs["redact_values"] == ("sk_postscript",)
+        assert network.session_options[0]["allow_redirects"] is False
+        assert network.session_options[0]["redact_values"] == ("sk_postscript",)
 
     def test_rest_client_config_pins_host_and_blocks_redirects(self) -> None:
         # A redirect off the Postscript host would otherwise replay the bearer token.
@@ -141,48 +156,32 @@ class TestPostscriptTransport:
         assert config["allow_redirects"] is False
         assert config["auth"] == {"type": "bearer", "token": "sk_postscript"}
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript.rest_api_resource")
-    def test_resume_state_seeds_paginator(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = PostscriptResumeConfig(page=7)
-
-        postscript_source(
-            api_key="sk_postscript",
-            endpoint="subscribers",
-            api_version="v2",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+    def test_resume_state_seeds_paginator(self) -> None:
+        result = _driver().run(
+            "subscribers", [_subscribers_page(total_pages=7, page=7)], resume_state=PostscriptResumeConfig(page=7)
         )
 
-        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"page": 7}
+        assert result.params("page")[0] == "7"
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript.rest_api_resource")
-    def test_resume_hook_saves_only_a_real_next_page(self, mock_rest_api_resource) -> None:
-        manager = MagicMock()
-        manager.can_resume.return_value = False
+    def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
+        result = _driver().run("subscribers", [_subscribers_page(total_pages=1)])
 
-        postscript_source(
-            api_key="sk_postscript",
-            endpoint="subscribers",
-            api_version="v2",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
+        assert result.params("page")[0] == "1"
+
+    def test_resume_hook_saves_only_a_real_next_page(self) -> None:
+        result = _driver().run(
+            "subscribers",
+            [
+                _subscribers_page(total_pages=3, page=1),
+                _subscribers_page(total_pages=3, page=2),
+                _subscribers_page(total_pages=3, page=3),
+            ],
         )
 
-        resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
-
-        resume_hook({"page": 3})
-        assert manager.save_state.call_args.args[0] == PostscriptResumeConfig(page=3)
-
-        manager.save_state.reset_mock()
-        # The paginator returns None once it is on the last page — persisting then would
+        assert result.params("page") == ["1", "2", "3"]
+        # The paginator has no next page once it is on the last page — persisting then would
         # resume a finished sync onto a page that no longer exists.
-        resume_hook(None)
-        resume_hook({})
-        manager.save_state.assert_not_called()
+        assert result.saved_states == [PostscriptResumeConfig(page=2), PostscriptResumeConfig(page=3)]
 
     @parameterized.expand(
         [
@@ -190,19 +189,14 @@ class TestPostscriptTransport:
             ("keywords", "keywords", ["id"], ["created_at"]),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.postscript.rest_api_resource")
-    def test_source_response_shape(
-        self, _name, endpoint, expected_keys, expected_partition_keys, mock_rest_api_resource
-    ) -> None:
-        response = postscript_source(
-            api_key="sk_postscript",
-            endpoint=endpoint,
-            api_version="v2",
-            team_id=1,
-            job_id="job-1",
-            should_use_incremental_field=True,
+    def test_source_response_shape(self, _name, endpoint, expected_keys, expected_partition_keys) -> None:
+        page = (
+            _subscribers_page(total_pages=1) if endpoint == "subscribers" else ScriptedResponse(json={"keywords": []})
         )
 
+        response = _driver().run(endpoint, [page], should_use_incremental_field=True).response
+
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         # Every paginated request pins `<field>__asc`, so rows really do arrive oldest-first.

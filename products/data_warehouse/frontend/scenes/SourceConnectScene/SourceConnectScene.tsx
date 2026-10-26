@@ -33,9 +33,11 @@ export function SourceConnectScene(): JSX.Element {
     if (!sourceConfig) {
         return (
             <SceneContent>
-                <LemonBanner type="error">
-                    {kind ? `Unknown source type '${kind}'.` : 'No source type specified.'} Check the link you were
-                    given and try again.
+                <LemonBanner type="error" action={{ children: 'Browse sources', to: urls.dataWarehouseSourceNew() }}>
+                    {kind
+                        ? "This link names a source we don't support."
+                        : "This link doesn't say which source to connect."}{' '}
+                    Choose your source from the full list to set it up.
                 </LemonBanner>
             </SceneContent>
         )

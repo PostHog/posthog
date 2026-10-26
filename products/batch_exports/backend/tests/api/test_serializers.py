@@ -15,13 +15,15 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
+from posthog.models.scoping import team_scope
 
-from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportSource
 from products.batch_exports.backend.presentation.views.batch_export.destinations import BatchExportDestinationSerializer
 from products.batch_exports.backend.presentation.views.batch_export.exports import (
     BatchExportSerializer,
     parse_events_hogql_query,
 )
+from products.batch_exports.backend.presentation.views.utils import HogQLModifiersField
 
 
 class TestBatchExportModelValidation(SimpleTestCase):
@@ -47,6 +49,23 @@ class TestBatchExportModelValidation(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data == {"name": "Renamed"}
+
+    @parameterized.expand(
+        [
+            ("unset", {}, {}),
+            ("false", {"useNewEventsCluster": False}, {"useNewEventsCluster": False}),
+            ("true", {"useNewEventsCluster": True}, None),
+        ]
+    )
+    def test_cluster_opt_ins_are_not_supported_by_exports(
+        self, _name: str, modifiers: dict, expected: dict | None
+    ) -> None:
+        field = HogQLModifiersField()
+        if expected is None:
+            with self.assertRaisesMessage(serializers.ValidationError, "synchronous query API"):
+                field.run_validation(modifiers)
+        else:
+            assert field.run_validation(modifiers) == expected
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
@@ -277,6 +296,75 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         field = schema["fields"][0]
         assert field["alias"] == "`$feature/checkout`", field
         assert "JSONExtractRaw(" in field["expression"], field
+
+
+class TestBatchExportIncrementalMode(BaseTest):
+    @parameterized.expand([("events",), ("hogql",)])
+    def test_create_and_patch_incremental_mode(self, model: str) -> None:
+        context = {
+            "team_id": self.team.pk,
+            "get_team": lambda: self.team,
+            "request": SimpleNamespace(user=self.user, method="POST"),
+        }
+        data = {
+            "name": "Incremental export",
+            "model": model,
+            "interval": "hour",
+            "destination": {"type": "NoOp", "config": {}},
+            "incremental_mode": "MERGE",
+        }
+        if model == "hogql":
+            data.update(hogql_query="SELECT uuid FROM events", primary_key=["uuid"])
+
+        with (
+            team_scope(self.team.pk),
+            patch("products.batch_exports.backend.presentation.views.batch_export.exports.sync_batch_export"),
+            patch(
+                "products.batch_exports.backend.presentation.views.utils.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+        ):
+            serializer = BatchExportSerializer(data=data, context=context)
+            assert serializer.is_valid(), serializer.errors
+            batch_export = serializer.save()
+            batch_export.refresh_from_db()
+            assert batch_export.incremental_mode == BatchExport.IncrementalMode.MERGE
+            assert BatchExportSerializer(batch_export).data["incremental_mode"] == "MERGE"
+
+            serializer = BatchExportSerializer(
+                batch_export, data={"name": "Renamed export"}, partial=True, context=context
+            )
+            assert serializer.is_valid(), serializer.errors
+            serializer.save()
+            batch_export.refresh_from_db()
+            assert batch_export.incremental_mode == BatchExport.IncrementalMode.MERGE
+
+            serializer = BatchExportSerializer(
+                batch_export, data={"incremental_mode": "APPEND"}, partial=True, context=context
+            )
+            assert serializer.is_valid(), serializer.errors
+            serializer.save()
+            batch_export.refresh_from_db()
+            assert batch_export.incremental_mode == BatchExport.IncrementalMode.APPEND
+            assert BatchExportSerializer(batch_export).data["incremental_mode"] == "APPEND"
+
+    @parameterized.expand([("MERGE", False), ("APPEND", True)])
+    def test_patch_validates_keys_against_saved_export_mode(self, mode: str, valid: bool) -> None:
+        batch_export = BatchExport(
+            model=BatchExport.Model.HOGQL,
+            incremental_mode=mode,
+            source=BatchExportSource(team=self.team, hogql_query="SELECT uuid FROM events", primary_key=["uuid"]),
+        )
+        serializer = BatchExportSerializer(
+            batch_export,
+            data={"primary_key": None},
+            partial=True,
+            context={"get_team": lambda: self.team, "request": SimpleNamespace(user=self.user)},
+        )
+
+        assert serializer.is_valid() is valid, serializer.errors
+        if not valid:
+            assert "primary_key" in serializer.errors
 
 
 class TestBatchExportDestinationSerializerTeamScoping(BaseTest):
