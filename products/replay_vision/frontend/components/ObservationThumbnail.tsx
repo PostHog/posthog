@@ -14,6 +14,8 @@ interface ObservationThumbnailProps {
     chapter?: number
     /** Sizing and shape come from the caller, since a table cell and a detail page want very different frames. */
     className?: string
+    /** `small` (up to 480px wide) for posters at most 240px wide, so it stays sharp at 2x. Defaults to `large`. */
+    size?: VisionObservationsThumbnailRetrieveSize
     children?: React.ReactNode
 }
 
@@ -24,6 +26,7 @@ export function ObservationThumbnail({
     observation,
     chapter,
     className,
+    size = VisionObservationsThumbnailRetrieveSize.Large,
     children,
 }: ObservationThumbnailProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -54,18 +57,14 @@ export function ObservationThumbnail({
     const hasThumbnail = (observation.media ?? []).some((entry) =>
         chapter === undefined ? entry.kind === 'thumbnail' : entry.kind === 'chapter' && entry.position === chapter
     )
-    const urlFor = (size: VisionObservationsThumbnailRetrieveSize): string | undefined => {
-        if (!hasThumbnail || currentTeamId === null || failed) {
-            return undefined
-        }
-        const url = getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, {
-            ...(chapter === undefined ? {} : { chapter }),
-            size,
-        })
-        return attempt > 0 ? `${url}&retry=${attempt}` : url
-    }
-    const src = urlFor(VisionObservationsThumbnailRetrieveSize.Large)
-    const smallSrc = urlFor(VisionObservationsThumbnailRetrieveSize.Small)
+    const baseSrc =
+        hasThumbnail && currentTeamId !== null && !failed
+            ? getVisionObservationsThumbnailRetrieveUrl(String(currentTeamId), observation.id, {
+                  ...(chapter === undefined ? {} : { chapter }),
+                  size,
+              })
+            : undefined
+    const src = baseSrc !== undefined && attempt > 0 ? `${baseSrc}&retry=${attempt}` : baseSrc
 
     const onError = (): void => {
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
@@ -81,9 +80,6 @@ export function ObservationThumbnail({
             {src && (
                 <img
                     src={src}
-                    // `auto` picks a copy from the rendered width, and a browser without it falls back to the large one.
-                    srcSet={`${smallSrc} 480w, ${src} 1280w`}
-                    sizes="auto, 100vw"
                     alt=""
                     className="absolute inset-0 size-full object-cover"
                     loading="lazy"
