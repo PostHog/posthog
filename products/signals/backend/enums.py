@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+    ASK = "ask", "Ask"
 
 
 class ReviewerSelectionOutcome(LabeledStrEnum):

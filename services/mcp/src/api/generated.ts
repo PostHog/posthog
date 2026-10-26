@@ -102763,6 +102763,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
 
@@ -102771,6 +102772,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
+      Ask: 'ask',
     } as const;
 
     /**
@@ -109155,7 +109157,8 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
       available: boolean;
@@ -109194,13 +109197,19 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /**
          * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
          * @minimum 0
          */
       suggested_prompt_index?: number;
+      /**
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * @maxLength 2000
+         */
+      message?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
