@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import models
 from django.shortcuts import get_object_or_404
 
@@ -230,15 +231,23 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def _service(self) -> AgentOperationService:
         user = cast(User, self.request.user)
-        if not feature_enabled_or_false(
+        if not self._agent_mcp_enabled(user):
+            raise PermissionDenied(
+                f"The PostHog Agent MCP is not available for this organization yet. It needs the '{AGENT_MCP_FEATURE_FLAG}' feature flag."
+            )
+        return AgentOperationService(self.team, user)
+
+    def _agent_mcp_enabled(self, user: User) -> bool:
+        # Local dev reads flags from the local instance, which has no such flag until someone creates it.
+        if settings.DEBUG and not settings.TEST:
+            return True
+        return feature_enabled_or_false(
             AGENT_MCP_FEATURE_FLAG,
             str(user.distinct_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
             send_feature_flag_events=False,
-        ):
-            raise PermissionDenied("The PostHog Agent MCP is not available for this organization yet.")
-        return AgentOperationService(self.team, user)
+        )
 
     def _operation(self, pk: str) -> AgentOperation:
         return get_object_or_404(
