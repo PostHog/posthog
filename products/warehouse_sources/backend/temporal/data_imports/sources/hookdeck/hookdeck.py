@@ -1,33 +1,46 @@
 import dataclasses
-from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.settings import (
     HOOKDECK_API_HOST,
     HOOKDECK_ENDPOINTS,
+    METRICS_BACKFILL_DAYS,
+    METRICS_GRANULARITY,
     PAGE_SIZE,
     HookdeckEndpointConfig,
+    HookdeckMetricsConfig,
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HookdeckResumeConfig:
     # Opaque `pagination.next` cursor pointing at the page after the last one yielded.
-    next_cursor: str
+    next_cursor: Optional[str] = None
+    # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
+    # and where the current one stopped.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 REDACTED = "***redacted***"
@@ -167,6 +180,70 @@ class HookdeckCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = False
 
 
+def _skip_requests_without_ignored_events(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Most requests ignore nothing, so only fan out where Hookdeck counted an ignored event. A null
+    # count is unknown, not zero, and is still read.
+    return [] if row.get("ignored_count") == 0 else row
+
+
+_PARENT_DATA_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]] = {
+    "request_ignored_events": _skip_requests_without_ignored_events,
+}
+
+
+def build_metrics_params(
+    metrics: HookdeckMetricsConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    now: datetime,
+) -> dict[str, Any]:
+    start = parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None
+    if start is None:
+        start = now - timedelta(days=METRICS_BACKFILL_DAYS)
+    # Align to the bucket boundary so a re-read bucket covers the same hour it did before.
+    start = start.replace(minute=0, second=0, microsecond=0)
+
+    # The metrics endpoints take structured values in bracket notation; `[]` keeps a single
+    # dimension an array.
+    return {
+        "date_range[start]": _format_datetime(start),
+        "date_range[end]": _format_datetime(now),
+        "granularity": METRICS_GRANULARITY,
+        "measures[]": list(metrics.measures),
+        "dimensions[]": list(metrics.dimensions),
+    }
+
+
+class HookdeckMetricsTruncatedError(Exception):
+    pass
+
+
+class HookdeckMetricsPaginator(SinglePagePaginator):
+    """Fails a metrics query that hit Hookdeck's row limit.
+
+    A truncated response still carries data, and accepting it would let the watermark move past the
+    buckets Hookdeck left out.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        body = response.json()
+        metadata = body.get("metadata") if isinstance(body, dict) else None
+        if isinstance(metadata, dict) and metadata.get("truncated"):
+            raise HookdeckMetricsTruncatedError(
+                f"Hookdeck truncated the metrics response at {metadata.get('row_limit')} rows, so the sync stopped "
+                "rather than store incomplete buckets."
+            )
+
+
+def _flatten_metric_point(point: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "time_bucket": point.get("time_bucket"),
+        **(point.get("dimensions") or {}),
+        **(point.get("metrics") or {}),
+    }
+
+
 def validate_credentials(api_key: str, api_version: str) -> tuple[bool, int | None]:
     return validate_via_probe(
         # capture=False: the probe hits `/sources`, whose rows carry verification secrets the
@@ -190,19 +267,44 @@ def hookdeck_source(
 ) -> SourceResponse:
     config = HOOKDECK_ENDPOINTS[endpoint]
 
+    client_config: ClientConfig = {
+        "base_url": base_url(api_version),
+        # The API key rides the framework's bearer auth so it is redacted from logs and errors;
+        # only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        # capture=False: raw responses reach the sampler before `_redact_pages` runs, and the
+        # name-based scrubbers don't recognise Hookdeck's secret containers (`auth_method`,
+        # `verification`, `env`) or raw inbound request payloads, so keep every response body
+        # out of shared HTTP sample storage. Requests are still metered and logged (key redacted).
+        "session": make_tracked_session(capture=False, redact_values=(api_key,)),
+    }
+
+    if config.metrics is not None:
+        return _metrics_source(
+            config,
+            config.metrics,
+            client_config,
+            team_id,
+            job_id,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    if config.fanout is not None:
+        return _fanout_source(
+            config,
+            config.fanout,
+            client_config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+        )
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(api_version),
-            # The API key rides the framework's bearer auth so it is redacted from logs and errors;
-            # only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "bearer", "token": api_key},
-            # capture=False: raw responses reach the sampler before `_redact_pages` runs, and the
-            # name-based scrubbers don't recognise Hookdeck's secret containers (`auth_method`,
-            # `verification`, `env`) or raw inbound request payloads, so keep every response body
-            # out of shared HTTP sample storage. Requests are still metered and logged (key redacted).
-            "session": make_tracked_session(capture=False, redact_values=(api_key,)),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
@@ -225,7 +327,7 @@ def hookdeck_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_cursor:
             initial_paginator_state = {"cursor": resume.next_cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -257,4 +359,104 @@ def hookdeck_source(
         partition_keys=[config.partition_key] if config.partition_key else None,
         # Every request pins `dir=asc` on the same column the watermark tracks.
         sort_mode="asc",
+    )
+
+
+def _fanout_source(
+    config: HookdeckEndpointConfig,
+    fanout: DependentEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[HookdeckResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    incremental_field: Optional[str],
+) -> SourceResponse:
+    parent_params = build_params(HOOKDECK_ENDPOINTS[fanout.parent_name], False, None, None)
+    child_params = build_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    resume = (
+        resumable_source_manager.load_state()
+        if config.checkpoint_fanout and resumable_source_manager.can_resume()
+        else None
+    )
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(HookdeckResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs=HOOKDECK_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=dataclasses.replace(fanout, parent_params=parent_params),
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        # The date filter is already in the static params above, so the framework's own cursor
+        # injection stays off; the child still merges on its primary key.
+        incremental_config_factory=lambda _field: None,
+        parent_endpoint_extra={"data_selector": "models", "paginator": HookdeckCursorPaginator()},
+        child_endpoint_extra={"data_selector": "models", "paginator": HookdeckCursorPaginator()},
+        child_params_extra=child_params,
+        parent_data_map=_PARENT_DATA_MAPS.get(config.name),
+        resume_hook=save_fanout_checkpoint if config.checkpoint_fanout else None,
+        initial_paginator_state=resume.fanout_state if resume else None,
+    )
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        # Rows arrive in order per parent only, not as one ordered series.
+        sort_mode=None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _metrics_source(
+    config: HookdeckEndpointConfig,
+    metrics: HookdeckMetricsConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": build_metrics_params(
+                        metrics, should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC)
+                    ),
+                    "data_selector": "data",
+                    "paginator": HookdeckMetricsPaginator(),
+                },
+            }
+        ],
+    }
+    resource = rest_api_resource(rest_config, team_id, job_id, None).add_map(_flatten_metric_point)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        # Hookdeck documents no order for the data points of one query.
+        sort_mode=None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )

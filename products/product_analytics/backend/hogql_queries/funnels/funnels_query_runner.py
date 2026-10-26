@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
-from functools import partial
+from functools import cached_property, partial
 from math import ceil
 from typing import Any, Optional, TypeVar, cast
 
@@ -47,7 +47,6 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -98,6 +97,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             limit_context=limit_context,
             user=user,
         )
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self.context.set_user(self.user)
 
     def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
         return (

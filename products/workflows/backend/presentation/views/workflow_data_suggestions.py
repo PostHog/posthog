@@ -2,30 +2,39 @@ from typing import Any, cast
 
 from django.db import models
 
-import posthoganalytics
+import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import get_event_source
+from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.models import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
-from products.workflows.backend.facade.contracts import DataSuggestionNotFound, DataSuggestionsResult
+from products.workflows.backend.facade.contracts import (
+    BuiltSuggestion,
+    DataSuggestionNotFound,
+    DataSuggestionsResult,
+    WorkflowIdeaAlreadyResolved,
+)
 from products.workflows.backend.facade.data_suggestions import (
-    FEATURE_FLAG_KEY,
     build_caller,
     email_sender_ready,
     get_data_suggestions,
+    get_premade_workflow,
     needs_new_build,
     needs_new_generation,
+    save_premade_draft,
     start_build,
     start_data_suggestions,
 )
+from products.workflows.backend.presentation.views.data_suggestion_drafts import save_draft, validated_draft
+
+logger = structlog.get_logger(__name__)
 
 
 class DataSuggestionStepKind(models.TextChoices):
@@ -74,6 +83,10 @@ class DataSuggestionSerializer(serializers.Serializer):
     step_outline = serializers.ListField(
         child=serializers.ChoiceField(choices=DataSuggestionStepKind.choices),
         help_text="The main planned step kinds after the trigger, in order.",
+    )
+    premade = serializers.BooleanField(
+        help_text="Whether PostHog prepared this suggestion ahead of time with its workflow already built. Build it "
+        "with save_draft to save the draft and stop offering the suggestion."
     )
 
 
@@ -200,7 +213,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(operation_id="workflow_data_suggestions_current", responses={200: DataSuggestionsResponseSerializer})
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
-        self._user_with_feature(request)
+        self._user(request)
         return self._suggestions_response(get_data_suggestions(team=self.team))
 
     @extend_schema(
@@ -210,7 +223,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def generate(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user(request)
         payload = DataSuggestionGenerateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         result = start_data_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
@@ -228,33 +241,76 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"])
     def build(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user(request)
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        suggestion_id = payload.validated_data["suggestion_id"]
+        save = payload.validated_data["save_draft"]
+        event_source = get_event_source(request)
         try:
-            built = start_build(
-                team=self.team,
-                user=user,
-                suggestion_id=payload.validated_data["suggestion_id"],
-                retry=payload.validated_data["retry"],
-                save=payload.validated_data["save_draft"],
-                event_source=get_event_source(request),
-            )
+            built = self._premade_build(user, suggestion_id, save=save, event_source=event_source)
+            if built is None:
+                built = start_build(
+                    team=self.team,
+                    user=user,
+                    suggestion_id=suggestion_id,
+                    retry=payload.validated_data["retry"],
+                    save=save,
+                    event_source=event_source,
+                )
+        except WorkflowIdeaAlreadyResolved:
+            return Response({"detail": "This suggestion was already used."}, status=status.HTTP_409_CONFLICT)
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")
         return Response(DataSuggestionBuildResponseSerializer(built).data)
 
-    def _user_with_feature(self, request: Request) -> User:
-        user = request.user
-        if (
-            not isinstance(user, User)
-            or not user.distinct_id
-            or not posthoganalytics.feature_enabled(
-                FEATURE_FLAG_KEY,
-                user.distinct_id,
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
+    def _premade_build(
+        self, user: User, suggestion_id: str, *, save: bool, event_source: EventSource
+    ) -> BuiltSuggestion | None:
+        if not save:
+            return get_premade_workflow(
+                team=self.team,
+                idea_id=suggestion_id,
+                validate_draft=lambda team, workflow: validated_draft(team, workflow, event_source),
             )
-        ):
+        saved = save_premade_draft(
+            team=self.team,
+            user=user,
+            idea_id=suggestion_id,
+            caller=build_caller(event_source.value, save=True, user_id=user.id),
+            # A saved draft uses the editor's draft rules for every caller, like a saved generated build, so blank
+            # settings stay blank and are listed in missing_inputs. An unsaved draft uses the caller's own rules.
+            validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+            save_draft=save_draft,
+        )
+        if saved is not None and saved.workflow_id is not None and saved.workflow is not None:
+            self._report_created(saved.workflow_id, saved.workflow)
+        return saved
+
+    def _report_created(self, workflow_id: str, workflow: dict[str, Any]) -> None:
+        # The hog_flows create endpoint sends this for every other new workflow, and a premade save skips that
+        # endpoint. The properties match it, so creation metrics count both paths the same way.
+        try:
+            report_user_action(
+                self.request.user,
+                "hog_flow_created",
+                {
+                    "workflow_id": workflow_id,
+                    "workflow_name": workflow.get("name"),
+                    "origin_product": workflow.get("origin_product"),
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization.id),
+                    "edges_count": len(workflow.get("edges") or []),
+                    "actions_count": len(workflow.get("actions") or []),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        except Exception as e:
+            logger.warning("workflows.data_suggestions.created_event_failed", team_id=self.team_id, error=str(e))
+
+    def _user(self, request: Request) -> User:
+        user = request.user
+        if not isinstance(user, User):
             raise PermissionDenied("This feature is not available.")
         return user

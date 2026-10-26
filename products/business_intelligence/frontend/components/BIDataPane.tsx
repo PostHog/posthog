@@ -109,21 +109,19 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                         />
                     </>
                 )}
+                {config.source && !dataPaneFieldsError && (
+                    <LemonButton
+                        icon={<IconPlus />}
+                        size="xsmall"
+                        fullWidth
+                        onClick={() => editCalculatedField()}
+                        data-attr="bi-editor-add-calculated-measure"
+                    >
+                        Add calculated field
+                    </LemonButton>
+                )}
                 {config.source && !dataPaneFieldsError ? <BIHierarchySection tabId={tabId} /> : null}
                 {config.source && !dataPaneFieldsError ? <BIConnections /> : null}
-            </div>
-            <div className="border-t p-2">
-                <LemonButton
-                    icon={<IconPlus />}
-                    size="xsmall"
-                    fullWidth
-                    type="secondary"
-                    onClick={() => editCalculatedField()}
-                    disabledReason={!config.source ? 'Select a data source first' : undefined}
-                    data-attr="bi-editor-add-calculated-measure"
-                >
-                    Add calculated field
-                </LemonButton>
             </div>
         </div>
     )

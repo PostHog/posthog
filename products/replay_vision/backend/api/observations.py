@@ -44,6 +44,7 @@ from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -59,6 +60,10 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+)
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
+    FeedDismissalReason,
+    ReplayObservationFeedDismissal,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
@@ -196,6 +201,18 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
     )
 
 
+class ObservationFeedDismissalSerializer(serializers.Serializer):
+    """Why the calling user marked an observation not useful in What to watch."""
+
+    reason = serializers.ChoiceField(
+        choices=FeedDismissalReason.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional reason the observation was not useful. Omit or send null when the user gave none.",
+    )
+
+
 class ReplayObservationMediaSerializer(serializers.Serializer):
     """One frame illustrating an observation."""
 
@@ -222,6 +239,19 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     )
 
 
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
+
+
+def _is_servable(asset: ExportedAsset | None) -> bool:
+    # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+    # and an expired frame would serve until the sweep deletes it.
+    return (
+        asset is not None
+        and bool(asset.content_location)
+        and not (asset.expires_after is not None and asset.expires_after <= now())
+    )
+
+
 class ObservationThumbnailQuerySerializer(serializers.Serializer):
     chapter = serializers.IntegerField(
         required=False,
@@ -229,6 +259,15 @@ class ObservationThumbnailQuerySerializer(serializers.Serializer):
         help_text=(
             "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
             "observation's thumbnail."
+        ),
+    )
+    size = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Size.choices,
+        required=False,
+        default=ReplayObservationMedia.Size.LARGE,
+        help_text=(
+            "`large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. "
+            "A frame rendered before small copies existed serves the large image for both."
         ),
     )
 
@@ -1201,6 +1240,46 @@ class ReplayObservationViewSet(
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
+        methods=["POST"],
+        request=ObservationFeedDismissalSerializer,
+        responses={204: None},
+        description=(
+            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "showing it to that user. Sending it again replaces the reason."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={204: None},
+        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="feed_dismissal",
+        # Per-user state, like `viewed`, so read scope is enough.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def feed_dismissal(self, request: Request, **kwargs: Any) -> Response:
+        observation = self.get_object()
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationFeedDismissal.objects.filter(
+                team_id=observation.team_id, observation=observation, user=user
+            ).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        input_serializer = ObservationFeedDismissalSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        ReplayObservationFeedDismissal.objects.update_or_create(
+            team_id=observation.team_id,
+            observation=observation,
+            user=user,
+            defaults={"reason": input_serializer.validated_data["reason"]},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
         request=None,
         parameters=[ObservationThumbnailQuerySerializer],
         responses={
@@ -1233,12 +1312,7 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == kind
-                and entry.position == position
-                and entry.asset.content_location
-                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
-                # and an expired frame would serve until the sweep deletes it.
-                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+                if entry.kind == kind and entry.position == position and _is_servable(entry.asset)
             ),
             None,
         )
@@ -1256,9 +1330,13 @@ class ReplayObservationViewSet(
             raise NotFound()
         # Served from here, not through the export content endpoint: that one authorizes a recording
         # export by the recording alone, which would let a reader denied this scanner fetch its frames.
-        response = get_export_asset_content_response(asset=media.asset, download=False)
-        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
-        response["Cache-Control"] = "no-store"
+        asset = media.asset
+        if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
+            asset = media.small_asset
+        response = get_export_asset_content_response(asset=asset, download=False)
+        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
+        # of posters does not come back through here on every visit.
+        response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 
     @extend_schema(

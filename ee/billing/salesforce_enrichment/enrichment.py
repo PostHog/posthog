@@ -23,12 +23,13 @@ from .constants import (
     HARMONIC_BATCH_SIZE,
     METRIC_PERIODS,
     PERSONAL_EMAIL_DOMAINS,
+    SALESFORCE_ACCOUNTS_QUERY,
     SALESFORCE_UPDATE_BATCH_SIZE,
     YC_INVESTOR_NAME,
 )
 from .harmonic_client import AsyncHarmonicClient
 from .harmonic_company import is_sub_entity
-from .redis_cache import get_accounts_from_redis
+from .redis_cache import get_accounts_from_redis, store_accounts_in_redis
 from .salesforce_client import get_salesforce_client
 
 if TYPE_CHECKING:
@@ -550,6 +551,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     logger = LOGGER.bind(function="query_salesforce_accounts_chunk_async", offset=offset, limit=limit)
 
     # Try Redis cache first
+    cache_missing = False
     cache_start = time.time()
     try:
         cached_accounts = await get_accounts_from_redis(offset, limit)
@@ -558,35 +560,28 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         if cached_accounts is not None:
             logger.info("Redis cache hit", accounts_count=len(cached_accounts), cache_time=round(cache_time, 3))
             return cached_accounts
+        cache_missing = True
     except Exception as e:
         cache_time = time.time() - cache_start
         logger.exception("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
         capture_exception(e)
 
-    # Fallback to Salesforce query
-    query = """
-        SELECT Id, Name, Website, CreatedDate
-        FROM Account
-        WHERE Website != null
-        ORDER BY CreatedDate DESC
-    """
-
     try:
-        accounts = sf.query_all(query)
-
-        start_idx = offset
-        end_idx = min(offset + limit, len(accounts["records"]))
-
-        if start_idx >= len(accounts["records"]):
-            return []
-
-        chunk_records = accounts["records"][start_idx:end_idx]
-
-        return chunk_records
+        accounts_result = await asyncio.to_thread(sf.query_all, SALESFORCE_ACCOUNTS_QUERY)
+        all_accounts = accounts_result["records"]
     except Exception as e:
         logger.exception("Salesforce query failed", error=str(e))
         capture_exception(e)
         return []
+
+    if cache_missing:
+        try:
+            await store_accounts_in_redis(all_accounts)
+        except Exception as e:
+            logger.exception("Failed to rebuild the accounts cache", error=str(e))
+            capture_exception(e)
+
+    return all_accounts[offset : offset + limit]
 
 
 def _build_result(

@@ -50,8 +50,22 @@ export function setupJsdom(): () => void {
  *  returned cleanup function in afterEach. */
 export function setupSyncRaf(): () => void {
     const original = global.requestAnimationFrame
+    // A callback that requests its next frame (the hover fade) is queued and run after it returns.
+    // A direct call would add one stack level per frame and overflow before the fade ends.
+    let queue: FrameRequestCallback[] | null = null
     global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-        cb(0)
+        if (queue) {
+            queue.push(cb)
+            return 0
+        }
+        queue = [cb]
+        try {
+            for (let next = queue.shift(); next; next = queue.shift()) {
+                next(0)
+            }
+        } finally {
+            queue = null
+        }
         return 0
     }) as typeof global.requestAnimationFrame
 

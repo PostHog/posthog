@@ -59,6 +59,17 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Dub API key doesn't have access to this resource. Events and payouts require a Dub Business plan or higher, and partner tables require a partner program.",
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Every table shares the workspace's rate limit, and the analytics and events endpoints have
+        # stricter ones. A limit still spent after the client honored Dub's reset time does not clear
+        # by itself, so the generic "short problem on the source's side" copy sends the customer nowhere.
+        return {
+            "HTTP 429 for https://api.dub.co": (
+                "Dub's API rate limit for your workspace ran out before this sync finished. "
+                "Sync fewer Dub tables or sync them less often to stay within the limit."
+            ),
+        }
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.dub.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
@@ -138,7 +149,7 @@ class DubSource(ResumableSource[DubSourceConfig, DubResumeConfig]):
             caption="Create a workspace API key in your Dub workspace under Settings > API Keys. Event tables (clicks, leads, sales) and payouts require a Dub Business plan or higher.",
             docsUrl="https://posthog.com/docs/cdp/sources/dub",
             iconPath="/static/services/dub.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dub.co", "short links", "attribution", "affiliate"],
             fields=cast(
                 list[FieldType],

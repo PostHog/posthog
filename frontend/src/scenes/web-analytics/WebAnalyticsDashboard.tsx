@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import React, { useEffect, useState } from 'react'
+import React, { Suspense, useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
@@ -23,6 +23,8 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils/guards'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -64,17 +66,22 @@ import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
 import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
 import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
+import { PageReportsTabLabel } from 'products/web_analytics/frontend/pageReports/PageReportsTabLabel'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
-import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { PagePerformance } from './PagePerformance'
 import { PagePerformanceFilters } from './PagePerformanceFilters'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+
+// Only the live tab renders this dashboard, and its world map holds about 1 MiB of country shapes.
+const LiveWebAnalyticsMetrics = lazyWithRetry(() =>
+    import('./LiveMetricsDashboard/LiveWebAnalyticsMetrics').then((m) => ({ default: m.LiveWebAnalyticsMetrics }))
+)
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
@@ -115,7 +122,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     )
 }
 
-const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
+export const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
     const { featureFlags } = useValues(featureFlagLogic)
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
@@ -682,7 +689,13 @@ const MainContent = (): JSX.Element => {
     }
 
     if (productTab === ProductTab.LIVE) {
-        return <LiveWebAnalyticsMetrics />
+        return (
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={<LemonSkeleton className="h-96 w-full" />}>
+                    <LiveWebAnalyticsMetrics />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
+        )
     }
 
     if (productTab === ProductTab.BOT_ANALYTICS) {
@@ -960,7 +973,15 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
+                {
+                    key: ProductTab.PAGE_REPORTS,
+                    label: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY] ? (
+                        <PageReportsTabLabel />
+                    ) : (
+                        'Page reports'
+                    ),
+                    link: '/web/page-reports',
+                },
                 ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),

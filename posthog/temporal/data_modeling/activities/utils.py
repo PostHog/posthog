@@ -18,6 +18,7 @@ from products.data_modeling.backend.facade.api import (
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
+    suspension_state,
 )
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -94,6 +95,10 @@ def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) 
 # NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
 EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # ATTEMPT_TO_READ_AFTER_EOF from a remote shard that dropped the connection mid-query. The same
+    # code also covers a parse that runs out of input, which is the query's fault, so match the
+    # receive context and not the code.
+    "Attempt to read after eof: while receiving packet from",
     "Cannot connect to host",
     "Connection refused",
     # our own egress proxy was unreachable, so nothing left the cluster - the trailing colon keeps a
@@ -108,6 +113,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     # Trino killed the query because the whole cluster ran out of memory. A query over its own
     # memory limit fails with an EXCEEDED_*_MEMORY_LIMIT name and still counts.
     "name=CLUSTER_OUT_OF_MEMORY,",
+    # a Trino worker node crashed or stopped answering, so the query never got to finish
+    "name=TOO_MANY_REQUESTS_FAILED,",
 )
 
 STREAM_FAULT_ERROR_PREFIXES = (
@@ -239,6 +246,16 @@ def maybe_suspend_node_for_engine(
         job.error = f"{SUSPENDED_ERROR_PREFIX}{job.error}"
         job.save(update_fields=["error"])
     return True
+
+
+@database_sync_to_async_pool
+def was_suspended_by_job(*, node_id: str, team_id: int, dag_id: str, engine: str, job_id: str) -> bool:
+    """True when this job's failure is the one recorded as suspending the node.
+
+    A retry of the failing activity no longer sees the transition, so this is how it still knows.
+    """
+    node = Node.objects.get(id=node_id, team_id=team_id, dag_id=dag_id)
+    return (suspension_state(node).get(str(engine)) or {}).get("job_id") == job_id
 
 
 @database_sync_to_async_pool

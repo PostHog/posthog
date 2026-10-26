@@ -131,7 +131,7 @@ class OrcaSecuritySource(ResumableSource[OrcaSecuritySourceConfig, OrcaResumeCon
             name=ExternalDataSourceType.ORCASECURITY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Orca Security",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Orca Security API token to pull your cloud security posture data into the "
                 "PostHog Data warehouse.\n\n"

@@ -18,6 +18,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 
 from dataclasses import field
 from datetime import datetime, time, timedelta
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -25,6 +26,24 @@ from pydantic.dataclasses import dataclass
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+class UndecryptedConfigError(ValueError):
+    """Raised when a config value reaches conversion still Fernet-encrypted.
+
+    Upstream decryption of the stored job inputs failed (e.g. the key that wrote them is no
+    longer in the keychain), so the raw token would otherwise crash the field converter with an
+    opaque, secret-leaking error such as ``invalid literal for int() with base 10: 'gAAAAA...'``.
+    """
+
+
+class ConfigValueError(ValueError):
+    """Raised when a config field's value can't be converted to its declared type.
+
+    A converter (e.g. ``int``) failing on user-supplied input would otherwise crash with an
+    opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
+    We name the field but never its value, so nothing a user typed reaches logs or error tracking.
+    """
 
 
 @dataclass(frozen=True)
@@ -158,6 +177,12 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True, kw_only=True)
+class ImportedSchemaSnapshot:
+    schema_id: UUID
+    queryable_folder: str | None
+
+
 @dataclass(frozen=True)
 class DuckLakeImportedTable:
     logical_table_names: tuple[str, ...]
@@ -225,28 +250,6 @@ class ExternalDataJob:
     source_prefix: str | None
 
 
-@dataclass(frozen=True)
-class SyncAlertContext:
-    """What a sync alert event reports about one schema and, when given, one run.
-
-    `latest_error` is already redacted, so it holds no stored credential of the source.
-    """
-
-    source_id: UUID
-    source_type: str
-    source_prefix: str | None
-    schema_id: UUID
-    schema_name: str
-    schema_label: str | None
-    status: str | None
-    latest_error: str | None
-    sync_halted: bool
-    failed_runs_in_a_row: int
-    job_id: UUID | None
-    rows_synced: int | None
-    finished_at: datetime | None
-
-
 # --- Column annotation ---
 
 
@@ -307,3 +310,31 @@ class GitHubSourceCredential:
 
     integration_id: int | None = None
     personal_access_token: str | None = field(default=None, repr=False)
+
+
+# --- File upload sources ---
+
+
+class FileUploadSourceError(Exception):
+    """A request a file upload source can't carry out. The message is for the user."""
+
+
+class UnreadableUploadError(FileUploadSourceError):
+    """ClickHouse couldn't read the uploaded file's columns, or its CSV quoting."""
+
+
+@dataclass(frozen=True)
+class UploadedFileRef:
+    """An upload that `upload_file` stored, as the client names it. The team always comes from the request."""
+
+    upload_id: str
+    filename: str
+    file_format: str
+
+
+@dataclass(frozen=True)
+class UploadReadSettings:
+    """What PostHog learned about an uploaded file when it read the file in place."""
+
+    columns: dict[str, Any]
+    allow_double_quotes: bool | None = None

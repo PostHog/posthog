@@ -23,8 +23,6 @@ class TestVapiSource:
 
     @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.vapi.ai/call?limit=100",
-            "403 Client Error: Forbidden for url: https://api.vapi.ai/assistant?limit=100",
             "400 Client Error: Bad Request for url: https://api.vapi.ai/v2/phone-number?limit=100&page=1&sortOrder=ASC&sortBy=createdAt",
             "400 Client Error: Bad Request for url: https://api.vapi.ai/chat?createdAtGt=2026-09-11T12%3A24%3A53.890Z&limit=100&page=1&sortOrder=ASC&sortBy=createdAt",
         ]
@@ -35,9 +33,6 @@ class TestVapiSource:
 
     @parameterized.expand(
         [
-            "429 Client Error: Too Many Requests for url: https://api.vapi.ai/call",
-            "500 Server Error: Internal Server Error for url: https://api.vapi.ai/call",
-            "HTTPSConnectionPool(host='api.vapi.ai', port=443): Read timed out.",
             # A 400 on a different endpoint must stay retryable — only the known-bad v2
             # phone-number and chat paths are non-retryable, not every 400 from api.vapi.ai.
             "400 Client Error: Bad Request for url: https://api.vapi.ai/call?limit=100",

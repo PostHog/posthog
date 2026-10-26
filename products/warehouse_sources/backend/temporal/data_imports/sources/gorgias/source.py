@@ -55,7 +55,18 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gorgias authentication failed. Check your email and API key.",
             "403 Client Error: Forbidden for url": "Your Gorgias API key does not have access to this resource. Check the integration's permissions.",
+            # A 409 here means the page cursor conflicts with the current state of the list (e.g. a
+            # customer was merged or deleted while paginating), not the "identifier already in use"
+            # conflict Gorgias documents for writes. The resumable cursor is saved, so every retry
+            # within this job replays the same request against the same now-invalid position.
+            "409 Client Error: Conflict": "PostHog's sync position for this table no longer matches your Gorgias data. This can happen when records are merged or deleted during a sync. Trigger a full resync of this source to continue syncing.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 (rate limit) or 5xx is retried internally with exponential backoff; if those
+        # retries still exhaust, the failure is transient and self-recovering, so let Temporal
+        # retry the activity without surfacing it as tracked exception noise.
+        return {"Gorgias API error (retryable)"}
 
     def get_schemas(
         self,

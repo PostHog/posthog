@@ -70,7 +70,7 @@ class YnabSource(ResumableSource[YnabSourceConfig, YnabResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(

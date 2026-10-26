@@ -87,6 +87,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
+    DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
     Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
     NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
     DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
@@ -190,6 +191,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/tracing/frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
     TracingRetentionDetail: () =>
         import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
+    UptimeMonitoring: () =>
+        import('../../products/uptime_monitoring/frontend/scenes/UptimeMonitoringScene/UptimeMonitoringScene'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),

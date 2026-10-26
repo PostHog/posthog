@@ -14,6 +14,9 @@ const TodayChatHoverCard = lazyWithRetry(() =>
 const TodayObjectHoverCard = lazyWithRetry(() =>
     import('./TodayObjectHoverCard').then((m) => ({ default: m.TodayObjectHoverCard }))
 )
+const TodayProductHoverCard = lazyWithRetry(() =>
+    import('./TodayProductHoverCard').then((m) => ({ default: m.TodayProductHoverCard }))
+)
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
@@ -90,6 +93,8 @@ export function TodayPreviewCardProvider({
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'object' ? (
                                                 <TodayObjectHoverCard preview={payload} onAction={close} />
+                                            ) : payload.kind === 'product' ? (
+                                                <TodayProductHoverCard preview={payload} onAction={close} />
                                             ) : (
                                                 <TodaySessionHoverCard preview={payload} onAction={close} />
                                             )}

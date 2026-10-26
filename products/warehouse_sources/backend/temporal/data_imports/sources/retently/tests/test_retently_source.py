@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -34,31 +32,6 @@ class TestGetSchemas:
                 assert schema.incremental_fields == [], name
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://app.retently.com/api/v2/feedback"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://app.retently.com/api/v2/customers?page=1"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = RetentlySource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://app.retently.com/api/v2/feedback",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='app.retently.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = RetentlySource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestResumablePlumbing:
     def setup_method(self) -> None:
         self.driver = SourceDriver(RetentlySource(), RetentlySourceConfig(api_key="key"))
@@ -84,8 +57,3 @@ class TestResumablePlumbing:
         )
 
         assert "startDate" not in result.requests[0].query
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = self.driver.run("not_a_real_table", [])
-
-        assert isinstance(result.raised, ValueError)

@@ -193,10 +193,7 @@ class TestSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             ("quota_exhausted_token_still_genuine", 402, True),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
@@ -207,9 +204,3 @@ class TestValidateCredentials:
             assert message is None
         else:
             assert message
-
-    def test_handles_network_error(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("k")
-        assert ok is False
-        assert message

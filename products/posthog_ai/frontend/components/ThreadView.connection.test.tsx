@@ -28,6 +28,18 @@ describe('ThreadView connection state', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (taskId, runId, options) => {
+            const entries = await api.tasks.runs.getLogEntries(taskId, runId, options)
+            return {
+                entries,
+                offset: 0,
+                count: entries.length,
+                preamble: 0,
+                turnsBefore: 0,
+                origin: '',
+                indexed: false,
+            }
+        })
         logic = runStreamLogic(props)
         logic.mount()
         // virtualized={false} so rows render in document flow under jsdom.

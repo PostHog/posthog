@@ -5,7 +5,7 @@
 **PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
-The `posthog-review` label starts a review. The legacy `reviewhog` label still works as an alias.
+The `posthog-review` label starts a review.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
@@ -363,6 +363,18 @@ already has its Standard review, so only a Deep review runs on it again. A turn 
 everything would otherwise refill it. Pull requests split into two arms by a hash of the repository and number
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
+
+The same module counts review rounds (`ReviewRound`): the turns that published on the pull request before this one, by
+any mode and trigger, plus one. From round `ROUND_CAP` (3) on, a review that posts findings ends with a line that names
+the round and asks the author to reconsider the approach, because an author and a reviewer that fix one finding at a
+time loop, and most of what a late round flags was already there in the first. A clean turn carries no note. Every
+`reviewhog_review_completed` event carries `review_round`, so convergence (how many rounds a pull request takes before
+a clean turn) reads from the events.
+
+The first review that posts findings on a pull request ends with one more note (`first_review_note` in
+`backend/label_reviews.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
+where comment commands run, it also offers `@posthog review --deep`. A label review leaves the command out, because
+its own footer already names it. Later reviews do not repeat the note: the published watermark is set after the first post.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -924,7 +936,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`posthog-review` **label** (or the legacy `reviewhog` label) on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
+`posthog-review` **label** on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
@@ -943,7 +955,7 @@ The webhook handler reads only the cached ownership summary, so the task checks 
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
-The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` or legacy `reviewhog` label queues `process_label_event`.
+The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` label queues `process_label_event`.
 That task finds the owning project and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment, and the app token removes the label that the event named.
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes both labels when the run ends, and a running resolution leaves the label for a later retry.
 Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.

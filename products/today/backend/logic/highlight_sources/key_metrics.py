@@ -5,7 +5,7 @@ from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 from ...facade import contracts
-from ...facade.enums import HighlightLabel, HighlightUnit
+from ...facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit
 from ..highlight_rules import exact
 from ..highlight_trends import detect
 from ..highlight_types import Candidate, Context, DailyValueNotReady, Found, Source
@@ -25,10 +25,10 @@ def find(context: Context) -> Found:
         raise DailyValueNotReady("key_metrics")
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
-    return Found(items=tuple(candidates), pulse=tuple(_tile(metric) for metric in shown))
+    return Found(items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown))
 
 
-def _tile(metric: KeyMetric) -> contracts.HighlightMetric:
+def tile(metric: KeyMetric) -> contracts.HighlightMetric:
     return contracts.HighlightMetric(
         key=metric.key,
         name=metric.name,
@@ -37,6 +37,8 @@ def _tile(metric: KeyMetric) -> contracts.HighlightMetric:
         change_pct=round((metric.this_week / metric.last_week - 1) * 100, 1) if metric.last_week else None,
         series=[v for _, v in metric.daily[-PULSE_DAYS:]],
         url=_url(metric),
+        reason=HighlightMetricReason.KEY_METRIC,
+        previous_value=metric.last_week,
     )
 
 

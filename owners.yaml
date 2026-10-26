@@ -85,6 +85,7 @@ rules:
       owners: team-ingestion
     - match: '/bin/start-llm-gateway'
       owners: [team-devex, team-agent-infrastructure]
+      sensitive: true
     - match: '/cli/'
       owners: team-error-tracking
     - match: '/docs/onboarding/ai-observability/'
@@ -173,8 +174,6 @@ rules:
       owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
-    - match: '/services/llm-gateway/'
-      owners: team-agent-infrastructure
     - match:
           - '/packages/owners-yaml/'
           - '/tools/hogli-commands/'

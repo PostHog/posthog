@@ -8,8 +8,33 @@ import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
+
+type MenuItemExtras = {
+    /** Text shown in a tooltip beside the item. */
+    tooltip?: React.ReactNode
+    /** Disables the item and says why in a tooltip beside it. Takes the place of `tooltip` while set. */
+    disabledReason?: React.ReactNode
+}
+
+type DescribedMenuItemExtras = MenuItemExtras & {
+    /** A muted second line under the label. The row grows to fit it, and its text lines up past a leading icon. */
+    description?: React.ReactNode
+}
+
+/** Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row. */
+function withItemTooltip(
+    item: React.ReactElement,
+    { tooltip, disabledReason }: Pick<MenuItemExtras, 'tooltip' | 'disabledReason'>
+): React.ReactElement {
+    const content = hasTooltipContent(disabledReason) ? disabledReason : tooltip
+    return withTooltip(item, content, { target: 'block', side: 'inline-end' })
+}
+
+
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
     return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
@@ -48,7 +73,7 @@ const DropdownMenuContent = React.forwardRef<
                 <MenuPrimitive.Popup
                     ref={ref}
                     data-slot="dropdown-menu-content"
-                    className={cn('quill-menu__content w-(--anchor-width)', className)}
+                    className={cn('quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)', className)}
                     {...props}
                 >
                     <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">{children}</div>
@@ -84,20 +109,27 @@ const DropdownMenuLabel = React.forwardRef<
 
 const DropdownMenuItem = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.Item>,
-    MenuPrimitive.Item.Props & {
-        inset?: boolean
-        variant?: 'default' | 'destructive'
-    }
->(function DropdownMenuItem({ className, inset, variant = 'default', ...props }, ref) {
-    return (
+    MenuPrimitive.Item.Props &
+        DescribedMenuItemExtras & {
+            inset?: boolean
+            variant?: 'default' | 'destructive'
+        }
+>(function DropdownMenuItem(
+    { className, inset, variant = 'default', disabled, tooltip, disabledReason, description, children, ...props },
+    ref
+) {
+    const described = hasTooltipContent(description)
+    return withItemTooltip(
         <MenuPrimitive.Item
             ref={ref}
             data-slot="dropdown-menu-item"
             data-inset={inset}
             data-variant={variant}
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(
                 "group/dropdown-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
+                described && 'quill-menu-item--described',
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
@@ -105,7 +137,10 @@ const DropdownMenuItem = React.forwardRef<
             nativeButton={!('render' in props)}
             render={<Button variant={variant} size="row" className="[&_kbd]:ml-auto" left />}
             {...props}
-        />
+        >
+            {described ? <MenuItemBody description={description}>{children}</MenuItemBody> : children}
+        </MenuPrimitive.Item>,
+        { tooltip, disabledReason }
     )
 })
 
@@ -115,18 +150,25 @@ function DropdownMenuSub({ ...props }: MenuPrimitive.SubmenuRoot.Props): React.R
 
 const DropdownMenuSubTrigger = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.SubmenuTrigger>,
-    MenuPrimitive.SubmenuTrigger.Props & {
-        inset?: boolean
-    }
->(function DropdownMenuSubTrigger({ className, inset, children, ...props }, ref) {
-    return (
+    MenuPrimitive.SubmenuTrigger.Props &
+        DescribedMenuItemExtras & {
+            inset?: boolean
+        }
+>(function DropdownMenuSubTrigger(
+    { className, inset, disabled, tooltip, disabledReason, description, children, ...props },
+    ref
+) {
+    const described = hasTooltipContent(description)
+    return withItemTooltip(
         <MenuPrimitive.SubmenuTrigger
             ref={ref}
             data-slot="dropdown-menu-sub-trigger"
             data-inset={inset}
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(
-                "flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 inset && 'quill-menu-item--inset',
+                described && 'quill-menu-item--described',
                 className
             )}
             // The default render is a real <button>; only declare nativeButton when the
@@ -135,9 +177,10 @@ const DropdownMenuSubTrigger = React.forwardRef<
             render={<Button size="row" left />}
             {...props}
         >
-            {children}
+            {described ? <MenuItemBody description={description}>{children}</MenuItemBody> : children}
             <ChevronRightIcon className="rtl:rotate-180 ms-auto" />
-        </MenuPrimitive.SubmenuTrigger>
+        </MenuPrimitive.SubmenuTrigger>,
+        { tooltip, disabledReason }
     )
 })
 
@@ -164,15 +207,20 @@ const DropdownMenuSubContent = React.forwardRef<
 
 const DropdownMenuCheckboxItem = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.CheckboxItem>,
-    MenuPrimitive.CheckboxItem.Props & {
-        inset?: boolean
-    }
->(function DropdownMenuCheckboxItem({ className, children, checked, inset, ...props }, ref) {
-    return (
+    MenuPrimitive.CheckboxItem.Props &
+        MenuItemExtras & {
+            inset?: boolean
+        }
+>(function DropdownMenuCheckboxItem(
+    { className, children, checked, inset, disabled, tooltip, disabledReason, ...props },
+    ref
+) {
+    return withItemTooltip(
         <MenuPrimitive.CheckboxItem
             ref={ref}
             data-slot="dropdown-menu-checkbox-item"
             data-inset={inset}
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(
                 "quill-menu-item--inset relative flex cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
@@ -194,7 +242,8 @@ const DropdownMenuCheckboxItem = React.forwardRef<
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
             {children}
-        </MenuPrimitive.CheckboxItem>
+        </MenuPrimitive.CheckboxItem>,
+        { tooltip, disabledReason }
     )
 })
 
@@ -207,15 +256,17 @@ const DropdownMenuRadioGroup = React.forwardRef<
 
 const DropdownMenuRadioItem = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.RadioItem>,
-    MenuPrimitive.RadioItem.Props & {
-        inset?: boolean
-    }
->(function DropdownMenuRadioItem({ className, children, inset, ...props }, ref) {
-    return (
+    MenuPrimitive.RadioItem.Props &
+        MenuItemExtras & {
+            inset?: boolean
+        }
+>(function DropdownMenuRadioItem({ className, children, inset, disabled, tooltip, disabledReason, ...props }, ref) {
+    return withItemTooltip(
         <MenuPrimitive.RadioItem
             ref={ref}
             data-slot="dropdown-menu-radio-item"
             data-inset={inset}
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(
                 "quill-menu-item--inset relative flex min-h-7 cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
@@ -236,7 +287,8 @@ const DropdownMenuRadioItem = React.forwardRef<
                 </MenuPrimitive.RadioItemIndicator>
             </span>
             {children}
-        </MenuPrimitive.RadioItem>
+        </MenuPrimitive.RadioItem>,
+        { tooltip, disabledReason }
     )
 })
 

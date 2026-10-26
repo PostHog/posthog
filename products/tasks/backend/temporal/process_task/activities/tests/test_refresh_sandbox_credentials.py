@@ -11,6 +11,8 @@ from django.db import OperationalError
 from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
@@ -35,6 +37,7 @@ class TestRefreshSandboxCredentialsActivity:
     @pytest.fixture
     def sandbox(self):
         fake = MagicMock()
+        fake.id = "sandbox-abc"
         fake.is_running.return_value = True
         fake.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
         fake.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
@@ -118,6 +121,38 @@ class TestRefreshSandboxCredentialsActivity:
             )
 
         assert get_token.call_args.kwargs["state"]["pr_authorship_mode"] == "user"
+
+    def test_refresh_mints_for_the_actor_the_thread_moved_to_not_the_run_owner(
+        self, activity_environment, task_context, test_task, test_task_run, sandbox
+    ):
+        second_actor = User.objects.create_user(
+            email="second-actor@posthog.com", password=None, first_name="Second", is_staff=False
+        )
+        OrganizationMembership.objects.create(user=second_actor, organization=test_task.team.organization)
+        TaskRun.objects.filter(id=test_task_run.id).update(
+            state={"interaction_origin": "slack", "slack_actor_user_id": second_actor.id}
+        )
+        task_context = dataclasses.replace(
+            task_context, state={"interaction_origin": "slack", "slack_actor_user_id": test_task.created_by_id}
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
+                return_value="ghu_second_actor",
+            ) as get_token,
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+        ):
+            async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert get_token.call_args.kwargs["actor_user"].id == second_actor.id
 
     def test_retries_transient_db_connection_drop(self, activity_environment, task_context, test_task, sandbox):
         # A pooled pgbouncer connection dropped mid-request raises OperationalError on the

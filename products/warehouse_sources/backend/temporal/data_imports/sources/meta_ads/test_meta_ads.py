@@ -38,10 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
+    META_CHECKPOINT_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
     META_TOKEN_REFRESH_ERROR_MESSAGE,
@@ -346,6 +348,255 @@ class TestSimplePaginationLimitFallback:
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == 1
+
+
+class TestSimplePaginationRefusedFields:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/ads"
+    NODE_LOOKUP_URL = "https://graph.facebook.com/v20/"
+    PARAMS: dict[str, Any] = {"fields": "id,name,creative", "limit": 500, "access_token": "tok"}
+    REFUSED_BODY: dict[str, Any] = {
+        "error": {"message": "Invalid parameter", "code": 100, "error_subcode": 2446211, "is_transient": False}
+    }
+
+    @staticmethod
+    def _batch_response(entries: list[tuple[int, dict]]) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.json.return_value = [{"code": code, "body": json.dumps(sub_body)} for code, sub_body in entries]
+        response.text = ""
+        return response
+
+    @staticmethod
+    def _null_batch_response() -> mock.MagicMock:
+        # Meta leaves a subresponse `null` for a subrequest it hadn't gotten back to before the
+        # whole batch call ran out of time.
+        response = mock.MagicMock()
+        response.status_code = 200
+        response.json.return_value = [None]
+        response.text = ""
+        return response
+
+    @pytest.mark.parametrize("subcode", [2446211, 1443048])
+    def test_refused_row_syncs_without_refusable_fields(self, subcode: int) -> None:
+        manager = _build_manager()
+        refused_body = {"error": {**self.REFUSED_BODY["error"], "error_subcode": subcode}}
+        get_responses = [
+            _mock_response(400, refused_body),
+            _mock_response(
+                200,
+                {
+                    "data": [{"id": "1", "name": "a"}, {"id": "2", "name": "b"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_123/ads?fields=id%2Cname&after=p1"},
+                },
+            ),
+            _mock_response(200, {"data": [{"id": "3", "name": "c", "creative": {"id": "c3"}}], "paging": {}}),
+        ]
+        # Id 1 restores its creative from the batch lookup; id 2 is refused again and is left out.
+        batch_response = self._batch_response([(200, {"id": "1", "creative": {"id": "c1"}}), (400, refused_body)])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = [batch_response]
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert batches == [
+            [{"id": "1", "name": "a", "creative": {"id": "c1"}}, {"id": "2", "name": "b", "creative": None}],
+            [{"id": "3", "name": "c", "creative": {"id": "c3"}}],
+        ]
+        # The restore lookup hits Meta's batch endpoint (`POST` with a `batch` parameter) rather
+        # than the deprecated root `?ids=...` multi-id lookup, which Meta rejects on v26.0+.
+        post_call = mock_get.return_value.post.call_args_list[0]
+        assert post_call.args[0] == self.NODE_LOOKUP_URL
+        assert json.loads(post_call.kwargs["data"]["batch"]) == [
+            {"method": "GET", "relative_url": "1?fields=creative"},
+            {"method": "GET", "relative_url": "2?fields=creative"},
+        ]
+        get_calls = mock_get.return_value.get.call_args_list
+        assert get_calls[1].kwargs["params"]["fields"] == "id,name"
+        assert "fields=id%2Cname%2Ccreative" in get_calls[2].args[0]
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_url is not None and "fields=id%2Cname%2Ccreative" in saved.next_url
+
+    def test_batch_lookup_error_other_than_refusal_raises(self) -> None:
+        manager = _build_manager()
+        other_error_body = {"error": {"message": "Something else went wrong", "code": 100}}
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_response = self._batch_response([(500, other_error_body)])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = [batch_response]
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+    def test_batch_subresponse_transient_error_retries_whole_batch(self, monkeypatch) -> None:
+        # Meta can abort a single batch subrequest on its own, even though the overall batch call
+        # returns 200 — code 960, "Request aborted. This could happen if a dependent request failed
+        # or the entire request timed out." Our subrequests have no dependency on one another, so
+        # this is the batch nearing a timeout rather than the lookup itself being invalid.
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        aborted_body = {"error": {"message": "Request aborted.", "code": 960, "fbtrace_id": "abc123"}}
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._batch_response([(500, aborted_body)]),
+            self._batch_response([(200, {"id": "1", "creative": {"id": "c1"}})]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "creative": {"id": "c1"}}]]
+        assert mock_get.return_value.post.call_count == 2
+
+    def test_persistent_batch_subresponse_transient_error_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        aborted_body = {"error": {"message": "Request aborted.", "code": 960, "fbtrace_id": "abc123"}}
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._batch_response([(500, aborted_body)]) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            # Still surfaces the raw failure, so it stays retryable at the Temporal layer.
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+        assert mock_get.return_value.post.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+    def test_batch_null_subresponse_retries_then_succeeds(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [
+            self._null_batch_response(),
+            self._batch_response([(200, {"id": "1", "creative": {"id": "c1"}})]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "creative": {"id": "c1"}}]]
+        assert mock_get.return_value.post.call_count == 2
+
+    def test_persistent_batch_null_subresponse_raises_after_bounded_attempts(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_responses = [self._null_batch_response() for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            with pytest.raises(Exception, match="node lookup error"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+        assert mock_get.return_value.post.call_count == META_TRANSIENT_ERROR_MAX_ATTEMPTS
+
+    def test_restore_lookup_chunks_at_batch_limit(self) -> None:
+        # Meta's batch endpoint accepts at most META_BATCH_MAX_SUBREQUESTS (50) subrequests per
+        # call, so restoring fields for more ids than that must split across multiple POSTs.
+        manager = _build_manager()
+        row_count = 51
+        rows = [{"id": str(i), "name": f"ad{i}"} for i in range(row_count)]
+        get_responses = [
+            _mock_response(400, self.REFUSED_BODY),
+            _mock_response(200, {"data": rows, "paging": {}}),
+        ]
+        batch_responses = [
+            self._batch_response([(200, {"id": str(i), "creative": {"id": f"c{i}"}}) for i in range(50)]),
+            self._batch_response([(200, {"id": "50", "creative": {"id": "c50"}})]),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = batch_responses
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                )
+            )
+
+        assert len(batches[0]) == row_count
+        assert all(row["creative"] == {"id": f"c{row['id']}"} for row in batches[0])
+        assert mock_get.return_value.post.call_count == 2
+
+    def test_refusal_without_refusable_fields_raises(self) -> None:
+        manager = _build_manager()
+        responses = [_mock_response(400, self.REFUSED_BODY), _mock_response(400, self.REFUSED_BODY)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 400"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, self.PARAMS, None, manager, ("creative",), self.NODE_LOOKUP_URL
+                    )
+                )
+
+        assert mock_get.return_value.get.call_count == 2
 
 
 class TestSimplePaginationMalformedJson:
@@ -1262,7 +1513,7 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Please re-authorize the integration"):
+            with pytest.raises(Exception, match="Reconnect with a Facebook account"):
                 list(gen)
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
@@ -1426,7 +1677,7 @@ class TestNonRetryableErrors:
             f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
             # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
-            f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
+            f"{META_CHECKPOINT_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
             'instructions given.","type":"OAuthException","code":190,"error_subcode":459}})',
             # code 190 / subcode 460 — session invalidated after a password change.
@@ -1447,6 +1698,46 @@ class TestNonRetryableErrors:
         assert any(pattern in error_message for pattern in patterns), (
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
+
+    @pytest.mark.parametrize(
+        "body,expected_pattern",
+        [
+            (
+                {
+                    "error": {
+                        "message": "You cannot access the app till you log in to www.facebook.com and follow the instructions given.",
+                        "type": "OAuthException",
+                        "code": 190,
+                        "error_subcode": 459,
+                    }
+                },
+                META_CHECKPOINT_ERROR_MESSAGE,
+            ),
+            (
+                {
+                    "error": {
+                        "message": "(#200) Ad account owner has NOT grant ads_management or ads_read permission",
+                        "type": "OAuthException",
+                        "code": 200,
+                    }
+                },
+                "Ad account owner has NOT",
+            ),
+            (
+                {"error": {"message": "Error validating access token", "code": 190, "error_subcode": 460}},
+                META_AUTH_ERROR_MESSAGE,
+            ),
+        ],
+    )
+    def test_auth_error_resolves_to_its_specific_message(self, body: dict, expected_pattern: str) -> None:
+        response = _mock_response(400, body)
+        response.text = json.dumps(body)
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+
+        errors = MetaAdsSource().get_non_retryable_errors()
+        first_match = next(pattern for pattern in errors if error_message_matches(str(exc_info.value), [pattern]))
+        assert errors[first_match] == errors[expected_pattern]
 
     def test_missing_perms_has_reconnect_guidance(self) -> None:
         # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
@@ -1584,6 +1875,18 @@ class TestRetryableErrors:
                 f"{ENTITY_PAGE_REFUSED_ERROR_MESSAGE} (Meta API response: 500, code 1, subcode None, "
                 "fbtrace_id AaBbCcDdEeFf00112233)",
                 "too busy",
+            ),
+            (
+                'Meta API request failed: 400 - {"error":{"message":"Invalid parameter","type":'
+                '"OAuthException","code":100,"error_subcode":2446211,"is_transient":false,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "Advantage+ creative",
+            ),
+            (
+                'Meta API request failed: 400 - {"error":{"message":"Invalid parameter","type":'
+                '"OAuthException","code":100,"error_subcode":1443048,"is_transient":false,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "story is incomplete",
             ),
         ],
     )
@@ -1830,6 +2133,20 @@ class TestListAdAccounts:
             with pytest.raises(MetaAdsAuthError):
                 list_ad_accounts(self._integration())
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ScriptedResponse(status=500, json={"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            ScriptedResponse(status=503, body=b""),
+            ConnectionResetError(104, "Connection reset by peer"),
+        ],
+        ids=["meta_transient_code", "empty_5xx", "connection_reset"],
+    )
+    def test_transient_failure_surfaces_retry_message_to_the_picker(self, answer: Any) -> None:
+        with scripted_network(always(answer)):
+            with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
+                list_ad_accounts(self._integration())
+
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
         # Meta keeps handing back a fresh, non-empty `next` cursor past the cap. Returning the
         # accumulated (truncated) accounts would present them to the picker as the complete set.
@@ -1922,6 +2239,11 @@ class TestEndpointCatalog:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time, once a customer selects it.
         assert endpoint in get_meta_ads_schemas()
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_refusable_fields_are_requested_fields(self, endpoint: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+        assert set(schema.refusable_fields) <= set(schema.field_names)
 
     def test_resource_the_worker_does_not_know_raises_a_named_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The web pods and the workers deploy separately, so a newly shipped table is selectable in
@@ -2034,6 +2356,18 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("time_range") is not None
         assert result.requests[0].param("breakdowns") == schema.extra_params["breakdowns"]
         assert result.requests[0].param("level") == schema.extra_params["level"]
+
+        fields_param = result.requests[0].param("fields")
+        assert fields_param is not None
+        requested_fields = set(fields_param.split(","))
+        video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        if (
+            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            or endpoint == MetaAdsResource.AdStatsByLinkUrl
+        ):
+            assert video_fields.isdisjoint(requested_fields)
+        else:
+            assert video_fields <= requested_fields
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)

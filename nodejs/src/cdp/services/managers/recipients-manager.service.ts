@@ -1,6 +1,7 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { isValidTeamId } from '~/common/utils/team-manager'
 
 export type RecipientGetArgs = {
     teamId: number
@@ -11,7 +12,7 @@ const toKey = (args: RecipientGetArgs): string => `${args.teamId}:${args.identif
 
 const fromKey = (key: string): RecipientGetArgs => {
     const [teamId, identifier] = key.split(':', 2)
-    return { teamId: parseInt(teamId), identifier }
+    return { teamId: Number(teamId), identifier }
 }
 
 export type PreferenceStatus = 'OPTED_IN' | 'OPTED_OUT' | 'NO_PREFERENCE'
@@ -121,7 +122,10 @@ export class RecipientsManagerService {
     }
 
     private async fetchRecipients(ids: string[]): Promise<Record<string, RecipientManagerRecipient | undefined>> {
-        const recipientArgs = ids.map(fromKey)
+        const recipientArgs = ids.map(fromKey).filter(({ teamId }) => isValidTeamId(teamId))
+        if (recipientArgs.length === 0) {
+            return {}
+        }
 
         logger.debug('[RecipientsManager]', 'Fetching recipients', { recipientArgs })
 

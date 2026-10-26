@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { PreflightStatus } from '~/types'
+import type { PreflightStatus, TeamPublicType, TeamType } from '~/types'
 
 import * as decisionsApi from 'products/ml_inference/frontend/generated/api'
 
@@ -26,7 +26,7 @@ import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { findProductShortcut, shortcutFromEntry } from '../../ProjectTree/utils'
 import { APP_MATCH_THRESHOLD, AppMatchGroups, buildAppRankingQuestions, readAppRankings } from './appRanking'
-import { PINNED_CATEGORY, getNavProductItems } from './navProductItems'
+import { PINNED_CATEGORY, getNavProductItems, groupNavProducts, pinnedNavProducts } from './navProductItems'
 import { ProductsItemGroup, groupProducts, productMatchesSearch, productsItemName } from './productsCatalog'
 
 // projectTreeLogic persists state under its logic key, so renaming this value resets it.
@@ -42,6 +42,7 @@ export interface navProductsTabLogicValues {
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     allItems: FileSystemImport[]
     allProductsCollapsible: boolean
@@ -131,10 +132,10 @@ export interface navProductsTabLogicActions {
         url: string
     } // router
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     rankApps: ({ query }: { query: string }) => {
@@ -223,7 +224,7 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => FileSystemImport[]
         pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
@@ -267,7 +268,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
     connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             preflightLogic,
             ['preflight'],
             featureFlagLogic,
@@ -472,23 +473,17 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): FileSystemImport[] => getNavProductItems(featureFlags),
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null): FileSystemImport[] =>
+                getNavProductItems(featureFlags, currentTeam?.created_at),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],
-            (items: FileSystemImport[], search: string): FileSystemImport[] =>
-                items
-                    .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
-                    .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity)),
+            (items: FileSystemImport[], search: string): FileSystemImport[] => pinnedNavProducts(items, search),
         ],
         groupedItems: [
             (s) => [s.allItems, s.search],
-            (items: FileSystemImport[], search: string): ProductsItemGroup[] =>
-                groupProducts(
-                    items.filter((item) => item.category !== PINNED_CATEGORY),
-                    search
-                ),
+            (items: FileSystemImport[], search: string): ProductsItemGroup[] => groupNavProducts(items, search),
         ],
         configurableProducts: [
             (s) => [s.allItems],

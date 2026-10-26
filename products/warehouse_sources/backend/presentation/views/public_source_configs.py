@@ -35,6 +35,8 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
         span.set_attribute("include_tables", include_tables)
         span.set_attribute("source_count", len(sources))
         for source_type, source in sources.items():
+            if not source.listed_in_catalog:
+                continue
             config = source.get_source_config.model_dump()
             config["supportsColumnSelection"] = bool(source.supports_column_selection)
             config["versions"] = list(source.supported_versions)
