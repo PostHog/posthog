@@ -1137,19 +1137,26 @@ const warehouseMigrationRefresh = (): ToolBase<
     },
 })
 
-const WarehouseMigrationsListSchema = () => z.object({})
+const WarehouseMigrationsListSchema = () => {
+    const WarehouseMigrationsListQueryParams = orvalSchemas.WarehouseMigrationsListQueryParams()
+    return WarehouseMigrationsListQueryParams
+}
 
 const warehouseMigrationsList = (): ToolBase<
     ReturnType<typeof WarehouseMigrationsListSchema>,
-    Schemas.WarehouseMigration[]
+    Schemas.PaginatedWarehouseMigrationList
 > => ({
     name: 'warehouse-migrations-list',
     schema: WarehouseMigrationsListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseMigrationsListSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseMigrationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WarehouseMigration[]>({
+        const result = await context.api.request<Schemas.PaginatedWarehouseMigrationList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
         return result
     },
