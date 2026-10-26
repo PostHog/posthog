@@ -32,7 +32,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
-from posthog.tasks.alerts.utils import RenderedInsightChart, render_alert_insight_chart, skip_because_of_weekend
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    RenderedInsightChart,
+    render_alert_insight_chart,
+    skip_because_of_weekend,
+)
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -40,6 +45,7 @@ from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
@@ -114,6 +120,9 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # The history row's error for a check ClickHouse refused for load. Stable, because a comparison
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
+
+# The detail key of the code that names a failed check's reason, as production keeps it on its check's error.
+ERROR_CODE_KEY: Final = "error_code"
 
 SLOT_KEY_PREFIX = "slot:"
 
@@ -513,6 +522,8 @@ def _decide(
             now=now,
             skip=SkipReason.QUERY_FAILED,
             context=_context(alert),
+            # History shows this reason by its code, and an errored check that repeats announces nothing.
+            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
         )
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
@@ -530,6 +541,7 @@ def _decide(
         value=result.value,
         query_duration_ms=duration_ms,
         firing=(alert, result.breaches or []),
+        check_detail=detector_detail(result) if alert.detector_config else None,
     )
 
 
@@ -716,8 +728,8 @@ def _context(alert: AlertConfiguration) -> dict[str, Any]:
     return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
 
 
-def _clipped(breach: str) -> str:
-    return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
+def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
@@ -736,6 +748,33 @@ def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedI
     return detail
 
 
+# A scheduled check scores only its latest point, so a detector reports one score and at most one
+# fired point. These bound a detector that reports more, because every check's detail rides in the
+# outcome Temporal carries.
+MAX_DETECTOR_POINTS: Final = 10
+MAX_RATIONALE_CHARS: Final = 1000
+
+
+def detector_detail(result: AlertEvaluationResult) -> dict[str, Any]:
+    """What production keeps on a detector check beside its verdict, under the same names: the
+    score, kind and reason history shows, and the fired points the insight chart marks.
+
+    Kept on every detector check, not only on one that sends, because production shows them on every check.
+    """
+    detail: dict[str, Any] = {
+        "anomaly_scores": (result.anomaly_scores or [])[-MAX_DETECTOR_POINTS:],
+        "triggered_points": (result.triggered_points or [])[-MAX_DETECTOR_POINTS:],
+        "triggered_dates": (result.triggered_dates or [])[-MAX_DETECTOR_POINTS:],
+        "interval": result.interval,
+        "triggered_metadata": dict(result.triggered_metadata or {}),
+    }
+    rationale = detail["triggered_metadata"].get("rationale")
+    if isinstance(rationale, str):
+        detail["triggered_metadata"]["rationale"] = _clipped(rationale, MAX_RATIONALE_CHARS)
+    # Empty values are left out, so a reader finds `triggered_dates` only on a check that fired on a point.
+    return {key: value for key, value in detail.items() if value}
+
+
 def _verdict(
     check: PlatformAlertCheckInput,
     snapshot: AlertSnapshot,
@@ -747,6 +786,7 @@ def _verdict(
     skip: SkipReason | None = None,
     firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
     context: dict[str, Any] | None = None,
+    check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
     source_detail: dict[str, Any] | None
@@ -756,6 +796,9 @@ def _verdict(
         source_detail = context
     else:
         source_detail = None
+    # Kept on every check, including one that announces nothing.
+    if check_detail:
+        source_detail = {**(source_detail or {}), **check_detail}
     return _recorded(
         check,
         snapshot,
