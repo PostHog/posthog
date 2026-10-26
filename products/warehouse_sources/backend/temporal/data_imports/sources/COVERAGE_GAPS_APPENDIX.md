@@ -8719,14 +8719,14 @@ Today (20): `admin_api_keys`, `audit_logs`, `costs`, `invites`, `project_api_key
 
 Diffed against: <https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml>
 
-- [ ] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high)
-- [ ] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high)
+- [x] `/models` — lookup resolving the model IDs that appear in every usage\_\* and costs row (high). Added as `models`; like every platform table below it needs the optional project API key, because OpenAI rejects Admin API keys outside the organization endpoints
+- [x] `/chat/completions (list stored completions)` — per-request log with model, tokens and metadata - the finest-grained usage fact table available (high). Added as `chat_completions`; only completions created with `store: true` are listed, and there is no server-side time filter, so it is full refresh
 - [x] `/organization/groups and /organization/groups/{id}/users` — group membership table resolving which users belong to which group (high)
 - [x] `/organization/roles and /organization/users/{id}/roles` — role assignments for the users we already sync (medium)
 - [ ] `/organization/projects/{id}/groups` — project-to-group membership, complements the project_users table we sync (medium)
-- [ ] `/batches` — batch job records with request counts and completion status (medium)
+- [x] `/batches` — batch job records with request counts and completion status (medium). Added as `batches`
 - [ ] `/fine_tuning/jobs (+ /events, /checkpoints)` — training job history, cost and status over time (medium)
-- [ ] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium)
+- [x] `/evals, /evals/{id}/runs, /evals/{id}/runs/{id}/output_items` — eval run results - the analytical object for model quality tracking (medium). Added as `evals`, `eval_runs` and `eval_run_output_items`
 - [ ] `/chat/completions/{id}/messages` — message-level detail behind each stored completion (low)
 - [ ] `/vector_stores` — lookup resolving the vector store IDs in usage_vector_stores (low)
 
