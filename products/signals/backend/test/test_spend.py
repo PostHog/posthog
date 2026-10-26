@@ -14,7 +14,6 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from django.apps import apps
 from django.db import IntegrityError, connection, connections, transaction
 from django.db.migrations.loader import MigrationLoader
 from django.test import SimpleTestCase, override_settings
@@ -41,13 +40,7 @@ from products.signals.backend.emission.pipeline import check_actionability
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import (
-    LegacySignalSpend,
-    SignalReport,
-    SignalReportTask,
-    SignalScoutRun,
-    SignalSpend,
-)
+from products.signals.backend.models import SignalReport, SignalReportTask, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
@@ -88,9 +81,8 @@ def test_concurrent_generation_costs_preserve_both_writers() -> None:
     def record(worker: int) -> None:
         try:
             barrier.wait(timeout=10)
-            for request in range(5):
+            for _ in range(5):
                 record_llm_spend(
-                    f"request-{worker}-{request}",
                     token_cost_microusd=worker,
                     team_id=team.id,
                     signal_id=signal_id,
@@ -121,7 +113,7 @@ def test_direct_steering_drop_finalizes_its_known_cost() -> None:
         ),
         patch("products.signals.backend.facade.api.async_connect", new=AsyncMock()) as connect,
     ):
-        record_llm_spend("steering", team_id=team.id, signal_id=driver, stage="actionability", token_cost_microusd=100)
+        record_llm_spend(team_id=team.id, signal_id=driver, stage="actionability", token_cost_microusd=100)
         async_to_sync(emit_signal)(
             team=team,
             source_product="error_tracking",
@@ -149,9 +141,7 @@ class TestSignalSpend(BaseTest):
     def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
         driver = str(uuid4())
         signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
-        record_llm_spend(
-            "first", token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability"
-        )
+        record_llm_spend(token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability")
         now = timezone.now()
         metadata = {"report_id": "moved-report", "deleted": True, "extra": {"example": 1}, "total_spend": 0}
         rows: dict[str, list] = {}
@@ -204,7 +194,6 @@ class TestSignalSpend(BaseTest):
             producer.produce.assert_not_called()
             if source == "generation":
                 record_llm_spend(
-                    "later",
                     token_cost_microusd=123,
                     team_id=self.team.id,
                     signal_id=driver,
@@ -230,9 +219,7 @@ class TestSignalSpend(BaseTest):
                     (driver, (payload["content"], payload["metadata"], now, [0.5], timezone.now()))
                 ]
             assert confirm_signal_spend_metadata(newer)
-            record_llm_spend(
-                None, token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization"
-            )
+            record_llm_spend(token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization")
             producer.reset_mock()
             clock.shift(2)
             publish_signal_spend_metadata(signal)
@@ -669,7 +656,7 @@ class TestSignalSpend(BaseTest):
         report = SignalReport.objects.create(
             team=self.team, triggering_signal_id=driver, status=SignalReport.Status.CANDIDATE
         )
-        record_llm_spend("grouping", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         research = self._run(report=report)
         repo = self._run(report=report, stage="repo_selection")
@@ -759,7 +746,7 @@ class TestSignalSpend(BaseTest):
     def test_pipeline_handoff_stays_open_until_summary_completion(self, status: str) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver, status=status)
-        record_llm_spend("grouping", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
         self.assertIsNone(spend.finalized_at)
@@ -779,9 +766,7 @@ class TestSignalSpend(BaseTest):
             pending_triggering_signal_id=pending,
         )
         for signal_id in (driver, pending):
-            record_llm_spend(
-                signal_id, token_cost_microusd=100, team_id=self.team.id, signal_id=signal_id, stage="grouping"
-            )
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=signal_id, stage="grouping")
         finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
         rows = SignalSpend.objects.for_team(self.team.id)
         assert rows.get(signal_id=driver).finalized_at is not None
@@ -791,12 +776,8 @@ class TestSignalSpend(BaseTest):
 
     def test_filtered_signal_finalizes_only_when_every_source_is_priced(self) -> None:
         driver = str(uuid4())
-        record_llm_spend(
-            "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="summarization"
-        )
-        record_llm_spend(
-            "second", token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="actionability"
-        )
+        record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="summarization")
+        record_llm_spend(token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="actionability")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
         self.assertIsNone(spend.finalized_at)
@@ -808,27 +789,64 @@ class TestSignalSpend(BaseTest):
                 team_id=self.team.id, signal_id=driver, kind=SignalSpend.Kind.AD_HOC
             )
 
-    def test_older_workers_cannot_replace_new_owner_spend_during_cutover(self) -> None:
-        driver = str(uuid4())
-        record_llm_spend(
-            "new-worker", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="grouping"
-        )
-        owner = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
-        with time_machine.travel(owner.created_at + timedelta(seconds=1), tick=False):
-            LegacySignalSpend.objects.for_team(self.team.id).create(
-                team_id=self.team.id, signal_id=driver, source_id="old-worker", stage="safety", token_cost_microusd=100
+    def test_reset_discards_receipts_and_keeps_the_existing_table(self) -> None:
+        migration = import_module("products.signals.backend.migrations.0203_reset_signal_spend")
+        with override_settings(MIGRATION_MODULES={}):
+            state = MigrationLoader(connection).project_state(
+                [("signals", "0202_useractivitysummaryqueuestate_pending_score")]
             )
-        complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
-        owner.refresh_from_db()
-        migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
-        migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
-        owner.refresh_from_db()
-        assert owner.spend == Decimal("0.03")
-        assert owner.finalized_at is None
-        assert owner.accounting_failed
-        assert signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver].failed_stages == [
-            "legacy_cutover"
-        ]
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE SCHEMA test_signal_spend_reset")
+            cursor.execute("SET LOCAL search_path TO test_signal_spend_reset, public")
+        try:
+            old_spend = state.apps.get_model("signals", "SignalSpend")
+            with connection.schema_editor() as editor:
+                editor.create_model(old_spend)
+            old_spend.objects.create(
+                team_id=self.team.id,
+                signal_id=uuid4(),
+                source_id="discarded-call",
+                token_cost_microusd=10_000,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                cursor.execute("SELECT 'signals_signalspend'::regclass::oid")
+                original_table = cursor.fetchone()[0]
+            with connection.schema_editor() as editor:
+                state = migration.Migration("0203_reset_signal_spend", "signals").apply(state, editor)
+            spend = state.apps.get_model("signals", "SignalSpend")
+            assert not spend.objects.exists()
+            row = spend.objects.create(
+                team_id=self.team.id,
+                signal_id=uuid4(),
+                kind="research",
+                task_run_id=uuid4(),
+                spend=Decimal("4.0123"),
+                finalized_at=timezone.now(),
+            )
+            assert spend.objects.get(id=row.id).spend == Decimal("4.0123")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 'signals_signalspend'::regclass::oid")
+                assert cursor.fetchone()[0] == original_table
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL search_path TO public")
+                cursor.execute("DROP SCHEMA test_signal_spend_reset CASCADE")
+
+    @parameterized.expand([("research",), ("repo_selection",), ("implementation",), ("scout",)])
+    def test_completion_does_not_recreate_discarded_spend(self, stage: str) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        run = self._run(report=report, stage=stage)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        if stage == "scout":
+            scout = SignalScoutRun.objects.for_team(self.team.id).create(
+                team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+            )
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+        SignalSpend.objects.for_team(self.team.id).filter(task_run_id=run.id).delete()
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        assert not SignalSpend.objects.for_team(self.team.id).exists()
 
     def test_task_binding_cannot_charge_a_second_owner(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
@@ -849,7 +867,7 @@ class TestSignalSpend(BaseTest):
         def refuse_owner_write(
             execute: Callable[..., object], sql: str, params: object, many: bool, context: object
         ) -> object:
-            if sql.startswith('UPDATE "signals_ownerspend"'):
+            if sql.startswith('UPDATE "signals_signalspend"'):
                 raise RuntimeError("Owner write failed")
             return execute(sql, params, many, context)
 
@@ -869,63 +887,10 @@ class TestSignalSpend(BaseTest):
                 process_pending_gateway_usage(run_id=run.id, team_id=self.team.id)
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 4.0123}
 
-    def test_legacy_backfill_preserves_totals_and_merges_late_sources_once(self) -> None:
-        driver = str(uuid4())
-        run = self._run()
-        scout = SignalScoutRun.objects.for_team(self.team.id).create(
-            team=self.team, task_run=run, skill_name="example-scout", skill_version=1
-        )
-        old = LegacySignalSpend.objects.for_team(self.team.id).create(
-            team_id=self.team.id, signal_id=driver, source_id="old-call", stage="grouping", token_cost_microusd=100
-        )
-        old.created_at -= timedelta(days=3)
-        old.save(update_fields=["created_at"])
-        scout.created_at -= timedelta(days=2)
-        scout.save(update_fields=["created_at"])
-        LegacySignalSpend.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            scout_run=scout,
-            source_id=str(run.id),
-            task_id=run.task_id,
-            stage="scout",
-            is_task=True,
-            token_cost_microusd=200,
-        )
-        migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
-        with override_settings(MIGRATION_MODULES={}):
-            historical_apps = MigrationLoader(connection).project_state([("signals", "0204_owner_spend")]).apps
-        for _ in range(2):
-            migration.backfill_owner_spend(historical_apps, SimpleNamespace(connection=connection))
-        assert SignalSpend.objects.for_team(self.team.id).count() == 2
-        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).created_at == old.created_at
-        owner = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
-        assert owner.created_at == scout.created_at
-        assert owner.spend == Decimal("4.02")
-        assert owner.task_run_id == run.id
-        assert owner.finalized_at is None  # Legacy status cannot prove teardown completion.
-        record_llm_spend("new-call", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="grouping")
-        old.token_cost_microusd = 150
-        old.save(update_fields=["token_cost_microusd", "updated_at"])
-        late_driver = str(uuid4())
-        LegacySignalSpend.objects.for_team(self.team.id).create(
-            team_id=self.team.id, signal_id=late_driver, source_id="late-call", stage="grouping", token_cost_microusd=50
-        )
-        before = list(SignalSpend.objects.for_team(self.team.id).order_by("id").values())
-        with CaptureQueriesContext(connection) as queries:
-            for _ in range(2):
-                assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, late_driver]) == {
-                    driver: 0.045,
-                    late_driver: 0.005,
-                }
-        assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
-        assert list(SignalSpend.objects.for_team(self.team.id).order_by("id").values()) == before
-        assert SignalSpend.objects.for_team(self.team.id).count() == 2
-        assert LegacySignalSpend.objects.for_team(self.team.id).count() == 4
-
     def test_spend_reads_do_not_reopen_or_bill_a_completed_owner(self) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
-        record_llm_spend("initial", token_cost_microusd=0, team_id=self.team.id, signal_id=driver, stage="grouping")
+        record_llm_spend(token_cost_microusd=0, team_id=self.team.id, signal_id=driver, stage="grouping")
         run = self._run(report=report)
         self._set_task_cost(run, 10_000)
         SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(finalized_at=timezone.now())
@@ -938,52 +903,11 @@ class TestSignalSpend(BaseTest):
         self._refresh_task_spend(team_id=self.team.id, run_id=str(run.id))
         begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
         with self.assertRaises(ValueError):
-            record_llm_spend(
-                "late-call", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping"
-            )
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
         assert (
             list(SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).order_by("id").values()) == before
         )
-
-    @parameterized.expand(
-        [
-            (stage, after_migration)
-            for stage in ("research", "repo_selection", "implementation")
-            for after_migration in (False, True)
-        ]
-    )
-    def test_legacy_task_settles_its_exact_run_under_the_new_owner(self, stage: str, after_migration: bool) -> None:
-        driver = str(uuid4())
-        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
-        run = self._run(report=report, stage=stage)
-        self._set_task_cost(run, 12_345)
-        run.status = TaskRun.Status.COMPLETED
-        run.save(update_fields=["status"])
-        SignalSpend.objects.for_team(self.team.id).filter(task_run_id=run.id).delete()
-        LegacySignalSpend.objects.for_team(self.team.id).create(
-            team=self.team,
-            signal_id=driver,
-            source_id=str(run.id),
-            task_id=run.task_id,
-            stage=stage,
-            is_task=True,
-            token_cost_microusd=12_345,
-        )
-        if not after_migration:
-            migration = import_module("products.signals.backend.migrations.0205_backfill_owner_spend")
-            for _ in range(2):
-                migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
-        for _ in range(2):
-            self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
-        row = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-        assert row.kind == (SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION if stage == "implementation" else stage)
-        assert row.signal_id == (None if stage == "implementation" else UUID(driver))
-        assert row.report_id == (report.id if stage == "implementation" else None)
-        assert row.created_at == run.created_at
-        assert row.spend == Decimal("5.2345")
-        assert row.finalized_at is not None
-        assert SignalSpend.objects.for_team(self.team.id).count() == 1
 
     def test_report_reassignment_and_deletion_do_not_leave_spend_open(self) -> None:
         driver = str(uuid4())
@@ -1047,6 +971,8 @@ class TestSignalSpend(BaseTest):
             if is_scout
             else None
         )
+        if scout:
+            record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
         run.state = {"ai_stage": "research", "unprocessed_request_ids": ["pending-request"], "token_cost": {}}
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["state", "status"])
@@ -1077,24 +1003,20 @@ class TestSignalSpend(BaseTest):
             assert summary.failed_stages == []
         assert self.temporal.execute_update_with_start_workflow.await_count == (0 if is_scout else 1)
 
-    def test_one_shot_receipts_preserve_known_spend_and_record_failed_stage(self) -> None:
+    def test_one_shot_calls_preserve_known_spend_and_record_failed_stage(self) -> None:
         driver = str(uuid4())
-        for request_id, cost in [("one-shot-1", None), ("one-shot-2", 9), ("one-shot-2", None)]:
-            record_llm_spend(
-                request_id, token_cost_microusd=cost, team_id=self.team.id, signal_id=driver, stage="actionability"
-            )
+        for cost in (None, 9, None):
+            record_llm_spend(token_cost_microusd=cost, team_id=self.team.id, signal_id=driver, stage="actionability")
         summary = signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver]
         assert summary.total_spend == 0.0009
         assert summary.failed_stages == ["actionability"]
-        record_llm_spend(
-            "new-call", token_cost_microusd=1, team_id=self.team.id, signal_id=driver, stage="actionability"
-        )
+        record_llm_spend(token_cost_microusd=1, team_id=self.team.id, signal_id=driver, stage="actionability")
         assert SignalSpend.objects.for_team(self.team.id).count() == 1
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0.001}
         assert signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver].failed_stages == [
             "actionability"
         ]
-        record_llm_spend(None, token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization")
+        record_llm_spend(token_cost_microusd=None, team_id=self.team.id, signal_id=driver, stage="summarization")
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         assert signal_spend_totals(team_id=other_team.id, signal_ids=[driver]) == {}
 
@@ -1179,7 +1101,7 @@ class TestSignalSpend(BaseTest):
         def fail_spend_query(
             execute: Callable[..., object], sql: str, params: object, many: bool, context: object
         ) -> object:
-            if sql.startswith('INSERT INTO "signals_ownerspend"'):
+            if sql.startswith('INSERT INTO "signals_signalspend"'):
                 raise RuntimeError("Accounting unavailable")
             return execute(sql, params, many, context)
 
@@ -1194,8 +1116,6 @@ class TestSignalSpend(BaseTest):
             elif source == "report_start":
                 begin_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
             else:
-                record_llm_spend(
-                    "example", token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability"
-                )
+                record_llm_spend(token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability")
         assert not SignalSpend.objects.for_team(self.team.id).exists()
         assert not TaskRun.objects.filter(team_id=self.team.id).exists()

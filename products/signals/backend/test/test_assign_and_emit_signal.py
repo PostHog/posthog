@@ -20,7 +20,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
-from products.signals.backend.spend import finish_report_spend, record_llm_spend
+from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -132,7 +132,6 @@ async def test_new_match_creates_potential_report_below_threshold(ateam, patch_s
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
 
     await database_sync_to_async(record_llm_spend)(
-        "example-generation",
         token_cost_microusd=123_456,
         team_id=ateam.id,
         signal_id=input_.signal_id,
@@ -301,7 +300,6 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam, pr
         signal_count=3,
     )
     await database_sync_to_async(record_llm_spend)(
-        "old-call",
         team_id=ateam.id,
         signal_id=str(original_driver),
         stage="grouping",
@@ -315,8 +313,17 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam, pr
         lambda: SignalSpend.objects.for_team(ateam.id).filter(signal_id=original_driver).values().get()
     )()
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+    await database_sync_to_async(record_llm_spend)(
+        team_id=ateam.id, signal_id=input_.signal_id, stage="grouping", token_cost_microusd=10_000
+    )
 
     result = await assign_and_emit_signal_activity(input_)
+    assert (
+        await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=input_.signal_id))()
+    ).finalized_at is None
+    await database_sync_to_async(complete_signal_pipeline)(
+        team_id=ateam.id, signal_id=input_.signal_id, report_id=result.report_id
+    )
 
     assert result.promoted is True
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
@@ -1280,7 +1287,6 @@ async def test_deleted_report_skips_counter_updates_and_marks_signal_deleted(ate
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
     await database_sync_to_async(record_llm_spend)(
-        "example-generation",
         token_cost_microusd=123_456,
         team_id=ateam.id,
         signal_id=input_.signal_id,

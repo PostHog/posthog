@@ -521,9 +521,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             time_machine.travel(now, tick=False) as clock,
             patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
         ):
-            record_llm_spend(
-                "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability"
-            )
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability")
             first = publish_signal_spend_metadata(signal)
             first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
             for payload in first_payloads:
@@ -531,9 +529,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             assert confirm_signal_spend_metadata(first)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend(
-                "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
-            )
+            record_llm_spend(token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization")
             second = publish_signal_spend_metadata(
                 SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
             )
@@ -547,7 +543,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             assert confirm_signal_spend_metadata(second)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend("third", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            record_llm_spend(token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
             third = publish_signal_spend_metadata(
                 SignalSpendUpdate(
                     team_id=self.team.id,

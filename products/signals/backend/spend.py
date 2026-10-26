@@ -18,7 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 
-from products.signals.backend.models import LegacySignalSpend, SignalReport, SignalScoutRun, SignalSpend
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.spend_billing import apply_report_billing, scout_spend_exempt, trial_spend_exempt
 
@@ -152,27 +152,13 @@ async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_complet
 
 
 def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
-    receipts = LegacySignalSpend.objects.for_team(team_id).filter(signal_id=signal_id, is_task=False)
-    first = receipts.order_by("created_at").first()
-    spend, created = SignalSpend.objects.for_team(team_id).get_or_create(
+    spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         signal_id=signal_id,
         kind=SignalSpend.Kind.AD_HOC,
         defaults={"billing_exempt": lambda: trial_spend_exempt(team_id)},
     )
-    spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
-    if spend.finalized_at is not None:
-        return spend
-    if first is not None:
-        if not created and spend.created_at < first.created_at:
-            spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {"legacy_cutover"})
-            spend.accounting_failed = True
-            return spend
-        spend.created_at = first.created_at
-        spend.spend = cost_to_spend(sum(receipt.token_cost_microusd or 0 for receipt in receipts))
-        spend.llm_failed_stages = sorted({receipt.stage for receipt in receipts if receipt.accounting_failed})
-        spend.accounting_failed = bool(spend.llm_failed_stages)
-    return spend
+    return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
 
 
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
@@ -185,7 +171,6 @@ def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
 
 
 def record_llm_spend(
-    request_id: str | None,
     *,
     token_cost_microusd: int | None,
     team_id: int | None,
@@ -198,20 +183,7 @@ def record_llm_spend(
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
         if spend.finalized_at is not None:
             raise ValueError("Cannot add generation costs to finalized spend")
-        if LegacySignalSpend.objects.for_team(team_id).filter(signal_id=signal_id, is_task=False).exists():
-            LegacySignalSpend.objects.for_team(team_id).get_or_create(
-                team_id=team_id,
-                source_id=request_id or str(uuid4()),
-                is_task=False,
-                defaults={
-                    "signal_id": signal_id,
-                    "stage": stage,
-                    "token_cost_microusd": token_cost_microusd,
-                    "accounting_failed": token_cost_microusd is None,
-                },
-            )
-            spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
-        elif token_cost_microusd is None:
+        if token_cost_microusd is None:
             spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
         else:
             spend.spend += cost_to_spend(token_cost_microusd)
@@ -227,28 +199,7 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
             continue
     amounts: dict[str, Decimal] = {}
     failures: dict[str, set[str]] = {}
-    spends = list(SignalSpend.objects.for_team(team_id).filter(signal_id__in=ids))
-    ad_hoc = {row.signal_id: row for row in spends if row.kind == SignalSpend.Kind.AD_HOC}
-    task_runs = {row.task_run_id for row in spends if row.task_run_id}
-    legacy_calls: dict[UUID, list[LegacySignalSpend]] = {}
-    for receipt in LegacySignalSpend.objects.for_team(team_id).filter(signal_id__in=ids):
-        key = str(receipt.signal_id)
-        if not receipt.is_task and receipt.signal_id is not None:
-            legacy_calls.setdefault(receipt.signal_id, []).append(receipt)
-        elif receipt.stage in {"research", "repo_selection"} and UUID(receipt.source_id) not in task_runs:
-            amounts[key] = amounts.get(key, Decimal(0)) + cost_to_spend(receipt.token_cost_microusd or 0, task_count=1)
-            if receipt.accounting_failed:
-                failures.setdefault(key, set()).add(receipt.stage)
-    for legacy_signal_id, receipts in legacy_calls.items():
-        row = ad_hoc.get(legacy_signal_id)
-        if row is not None and (row.finalized_at is not None or row.created_at < min(r.created_at for r in receipts)):
-            continue
-        key = str(legacy_signal_id)
-        amounts[key] = cost_to_spend(sum(r.token_cost_microusd or 0 for r in receipts)) + amounts.get(key, Decimal(0))
-        failures.setdefault(key, set()).update(r.stage for r in receipts if r.accounting_failed)
-        if row is not None:
-            spends.remove(row)
-    for spend in spends:
+    for spend in SignalSpend.objects.for_team(team_id).filter(signal_id__in=ids):
         key = str(spend.signal_id)
         amounts[key] = amounts.get(key, Decimal(0)) + spend.spend
         if spend.accounting_failed:
@@ -441,22 +392,7 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
 
     spend = SignalSpend.objects.for_team(team_id).filter(task_run_id=UUID(str(run_id))).first()
     if spend is None:
-        scout = SignalScoutRun.objects.for_team(team_id).filter(task_run_id=UUID(str(run_id))).first()
-        if scout:
-            record_task_spend(team_id=team_id, run_id=run_id, stage="scout", scout_run_id=str(scout.id))
-            spend = SignalSpend.objects.for_team(team_id).get(task_run_id=run_id)
-        else:
-            legacy = LegacySignalSpend.objects.for_team(team_id).filter(source_id=run_id, is_task=True).first()
-            if not legacy or legacy.stage not in {"research", "repo_selection", "implementation"}:
-                return
-            record_task_spend(
-                team_id=team_id,
-                run_id=run_id,
-                stage=legacy.stage,
-                signal_id=str(legacy.signal_id) if legacy.signal_id else None,
-                report_id=report_id,
-            )
-            spend = SignalSpend.objects.for_team(team_id).get(task_run_id=run_id)
+        return
     if spend.finalized_at is None:
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             if not run.is_terminal:

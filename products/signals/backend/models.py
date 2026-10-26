@@ -3826,39 +3826,6 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
 
 
-class LegacySignalSpend(TeamScopedRootMixin, UUIDModel):
-    """Read during the owner-spend cutover while old workers can still write sources."""
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    signal_id = models.UUIDField(null=True, blank=True)
-    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True, related_name="+")
-    task_id = models.UUIDField(null=True, blank=True, db_index=True)
-    source_id = models.CharField(max_length=255)
-    stage = models.CharField(max_length=100, default="unknown")
-    accounting_failed = models.BooleanField(default=False)
-    is_task = models.BooleanField(default=False)
-    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "signals_signalspend"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
-            models.CheckConstraint(
-                condition=(
-                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
-                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
-                ),
-                name="signals_spend_one_owner",
-            ),
-            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
-        ]
-
-
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Kind(models.TextChoices):
         RESEARCH = "research"
@@ -3888,8 +3855,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "signals_ownerspend"
-        indexes = [models.Index(fields=["team", "signal_id"], name="signals_owner_spend_signal_idx")]
+        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"

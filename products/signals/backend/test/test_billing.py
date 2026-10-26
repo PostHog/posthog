@@ -569,7 +569,7 @@ class TestSpendBasedBilling(BaseTest):
         self, signal_id: str, cost: int | None, *, request_id: str = "request", team: Team | None = None
     ) -> None:
         record_llm_spend(
-            request_id, token_cost_microusd=cost, team_id=(team or self.team).id, signal_id=signal_id, stage="grouping"
+            token_cost_microusd=cost, team_id=(team or self.team).id, signal_id=signal_id, stage="grouping"
         )
 
     def _day(self, day: int, *, organization_id: str | None = None) -> dict[int, int]:
