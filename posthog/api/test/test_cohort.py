@@ -1,5 +1,4 @@
 import json
-import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -8339,7 +8338,7 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
             ("empty", {"person_ids": []}, "empty"),
             (
                 "too_many",
-                {"person_ids": [str(uuid.uuid4()) for _ in range(DEFAULT_COHORT_INSERT_BATCH_SIZE + 1)]},
+                {"person_ids": ["not-a-uuid"] * (DEFAULT_COHORT_INSERT_BATCH_SIZE + 1)},
                 "max_length",
             ),
             ("not_a_list", {"person_ids": "12345678-1234-1234-1234-123456789abc"}, "not_a_list"),

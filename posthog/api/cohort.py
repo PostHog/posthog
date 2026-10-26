@@ -642,8 +642,17 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
+class LengthFirstListField(serializers.ListField):
+    # DRF checks max_length only after it validates every item, so an oversized list of bad items
+    # builds one error per item before it fails. Check the length first to reject it in constant time.
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
+            self.fail("max_length", max_length=self.max_length)
+        return super().to_internal_value(data)
+
+
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
-    person_ids = serializers.ListField(
+    person_ids = LengthFirstListField(
         child=serializers.UUIDField(
             error_messages={
                 "invalid": "Must be a person UUID (the `id` column of the persons table), not a distinct ID or an email."
@@ -2636,7 +2645,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if len(uuids) == 0:
             raise ValidationError(
                 "No valid users to add to cohort. None of the person_ids match a person in this project. "
-                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`).",
+                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`). "
+                "Distinct IDs do not match, even when they look like UUIDs.",
                 code="no_matching_persons",
             )
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
