@@ -6860,6 +6860,22 @@ snapshots:
         hash: v1.k794b7964.26ebc58171eb340426f9fe220739132bca02f59b8489cb5a0b8a6411f99bb34d.oNv5X9sNKiPmhC_sE607b5P0yHAJju-hcC7higWxX9g
     products-business-intelligence-pivot-table--multiple-measures-and-hierarchies--light:
         hash: v1.k794b7964.a536391f02b293d2bdef0f6bb873b8daf6848e3c6bd2fd1b12f248f5847f2a4e.L_mE9SUEZfVSdz4aGS_wbCmwOg9CYDJr9fC5-sEH0ZU
+    products-business-intelligence-result-menu--comparison-period--dark:
+        hash: v1.k794b7964.50272d68c5a1d4568fad5027f5f071a87f5d7a3e41f4e2b0ba0c092b328acc12.mvP0bfecTXSDmdsWb-4q60r34LYfl6EW_2JrJgqmAQM
+    products-business-intelligence-result-menu--comparison-period--light:
+        hash: v1.k794b7964.2f334cb3d8e0b14e9891e9c3914e4543582b300103a0bd4a8d6f9a5ccaae5235.BO5-6A3CwhNrqmkVYGYPkASXTJ2ZCZx9Nq5HjiYSgyQ
+    products-business-intelligence-result-menu--current-period--dark:
+        hash: v1.k794b7964.ddd1047068aeb74cc2673a652da6db960bb66874844b79d8bd8e7c82163fd6ef.tcHUy676GLUj8peG2MuI_j4GQtFA8NCA7QyMvxH_zSM
+    products-business-intelligence-result-menu--current-period--light:
+        hash: v1.k794b7964.676f190ca64cc3672cc006db7360ebffd09173681708e665bedb31f622c41ee0.FTRtQXoAgR_gPCQnsH3W0iJXduN0oBlf26nYZezxrDc
+    products-business-intelligence-result-menu--long-selection--dark:
+        hash: v1.k794b7964.f986ccf0a7f4c0711337f3dad2b68f1d81ff36aad1a7828e8f84dcc13eaf68e2.2poTGOQTZP5mO-32nJ6d_oOUqNTvsdHRosR0breG52s
+    products-business-intelligence-result-menu--long-selection--light:
+        hash: v1.k794b7964.a62eb1765e29918410ad150513dfd91371b8daf019d6b6b9af2d109023b3ff9d.EVc9nubo1CM8Rd9PFpHOFVu_CeT-xXNA6dJlSt0ThFw
+    products-business-intelligence-result-menu--quill--dark:
+        hash: v1.k794b7964.f76a844fe2f7045a19d24924c8257af24baa3eb3b702b81a2e9670b967ec0d3f.7_nbU3jP7gbu9cpcylCvjiglHOZgceWGJBz4NA5QYsY
+    products-business-intelligence-result-menu--quill--light:
+        hash: v1.k794b7964.4d39006321662f5252686829c9c756dc3253f95b167bdf4ca5e25678d86c641a.S3XOsthsePrQwrKNtwIv62cYkmW6A5dTMhcfXbwJ79s
     products-business-intelligence-scatter--detail-and-color--dark:
         hash: v1.k794b7964.10050e03ee37342a8bf6e58db6149ad8a57aa66d32e5353dd9400dee8d055b30.XTp9ixf5AOcS_sZxzXYYoHvn4OT2xNm0UCHS8cQN1dQ
     products-business-intelligence-scatter--detail-and-color--light:
@@ -7172,6 +7188,14 @@ snapshots:
         hash: v1.k794b7964.cd0763f5b062ec767b6efa099e841b62de1f9a3a4dfdb0bf6c24f6c03ab18e91.kJlKCUFvGXQpWFE1iKqZW5d02nl2ciyHueEC_MeT0MM
     products-dashboards-filter-bar--unsaved-changes-popover--light:
         hash: v1.k794b7964.d76d6e64be7751440cabed822a47f9b113e3c12aa7edc1d4d087171f7a48aa5d.Evf7PgkLMcvli_EU2xrytkIty8G9Djw41eiXgsmY_KQ
+    products-dashboards-insight-result-menu--people--dark:
+        hash: v1.k794b7964.cc566593cb0936c5d24208ff74b57e8bba9a2ced69c3681866d8eca8f16455ab.FQAb19PNOE3hcLGB3Z5CX3LKENcyHOHyST3drjYWFvQ
+    products-dashboards-insight-result-menu--people--light:
+        hash: v1.k794b7964.5a7cac6c8a112183e617a69e799ed58d4bd187af3d8ac35750e5cb78f964a392.NoJIbCT117CUKLiczv8lcPRYixOy2z6nF30bHcFVsMs
+    products-dashboards-insight-result-menu--quill--dark:
+        hash: v1.k794b7964.cc566593cb0936c5d24208ff74b57e8bba9a2ced69c3681866d8eca8f16455ab.FwjyCsf9RAF1BUiLAwMQupAd8h155meJk8NMtc8jSoA
+    products-dashboards-insight-result-menu--quill--light:
+        hash: v1.k794b7964.5a7cac6c8a112183e617a69e799ed58d4bd187af3d8ac35750e5cb78f964a392.VgE6PFRvRq35suijVUkowWUz07-O-SrU-a9Fe3rsMeA
     products-dashboards-templates-dashboard-template-copy--default--dark:
         hash: v1.k794b7964.e441fc2d991020695739b9173c39b836a71364c4f3404dcf65f174a109bc919f.xvms_5gbih7s0W9qBwflXMTvNGiKVncitN72D6PQvv4
     products-dashboards-templates-dashboard-template-copy--default--light:
