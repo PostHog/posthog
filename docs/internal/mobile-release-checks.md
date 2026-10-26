@@ -1,14 +1,19 @@
 # Mobile app release checks
 
 Use this checklist before sharing a build or publishing an update of the Expo + React Native app in
-`products/mobile` for iOS and Android. Builds and store submissions use the repository's
-[release workflow](../../products/mobile/docs/CI.md#mobile-build). Detailed store instructions are in
+`products/mobile` for iOS and Android. Production native builds, store submissions and OTA updates use
+[Mobile Release](../../products/mobile/docs/CI.md#mobile-release) after a release request merges to `master`.
+Development and preview builds use [Mobile Build](../../products/mobile/docs/CI.md#mobile-build). Detailed instructions are in
 [Releasing](../../products/mobile/docs/RELEASING.md).
 
 ## Build and update checks
 
-- Confirm Mobile CI passes for the source commit. Select the build profile and platforms in the
-  **Mobile Build** workflow, and verify the resulting EAS build records that commit.
+- Confirm Mobile CI passes for the source commit. For production, include one native or OTA request in
+  the app PR and verify the completed Mobile Release receipt identifies the tested commit and exact
+  builds or update group. Native requests submit both platforms to TestFlight and Play internal testing;
+  public promotion is manual. For development or preview, select the profile and platforms in Mobile Build
+  and verify the resulting EAS build records that commit. Argent demo flows are advisory and do not replace
+  the manual checks below.
 
 - Confirm the app identity and update channel. Development and preview identities have `.dev` and
   `.preview` suffixes and install alongside production.
@@ -23,9 +28,13 @@ Use this checklist before sharing a build or publishing an update of the Expo + 
   older `com.posthog.code.mobile` app. Stop the old iOS build workflow before distributing the replacement.
 
 - For native dependencies, config plugins or native configuration changes, raise `version` in
-  `app.config.ts` and make a new native build through **Mobile Build**. The update runtime follows the
-  app version and does not detect native changes. Shared OTA publishing is pending a repository
-  workflow; see [OTA updates](../../products/mobile/docs/OTA.md) for compatibility and validation checks.
+  `app.config.ts` and add a `native` release request. OTA requests keep the installed runtime version and
+  require a completed hosted native baseline. The runtime follows the app version; the hosted publisher
+  also checks native fingerprints and production environment inputs. See
+  [OTA updates](../../products/mobile/docs/OTA.md) for compatibility and validation checks.
+- Production OTA promotion reaches every compatible production-channel build, including TestFlight and
+  public-store builds; there is no separate TestFlight OTA audience or tester approval gate. Verify the
+  change before merge, then check the receipt and compatible-device behavior after publication.
 - Confirm the matching backend APIs and OAuth scopes are available on the target host. Check
   [known gaps](../../products/mobile/docs/GAPS.md) before treating an unavailable feature as a regression.
 - Run the [demo walkthrough](../../products/mobile/docs/TESTING.md#demo-walkthrough-on-the-ios-simulator),
