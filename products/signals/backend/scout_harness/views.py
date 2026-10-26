@@ -1426,7 +1426,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 proposal = ReviewerProposal(
                     expected_state=ReviewerState.model_validate(data["expected_reviewers"]),
                     source="scout_edit",
-                    outcome=data["reviewer_outcome"],
+                    outcome=data.get("reviewer_outcome", "selected"),
                     retry_reason=data.get("reviewer_retry_reason"),
                 )
             result = edit_report_sync(

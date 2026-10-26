@@ -8,6 +8,7 @@ from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import psycopg
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -21,7 +22,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags
-from posthog.errors import CHQueryErrorNoCommonType
+from posthog.errors import CHQueryErrorNoCommonType, wrap_clickhouse_query_error
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -272,6 +273,36 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "reason": expected_reason,
             },
         )
+
+    @parameterized.expand(
+        [
+            ("cannot_parse_datetime", 41, False),
+            ("cannot_parse_number", 72, False),
+            ("no_common_type", 386, True),
+        ]
+    )
+    def test_customer_input_errors_skip_error_tracking(self, _name: str, code: int, expect_capture: bool):
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_capture",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = wrap_clickhouse_query_error(ServerException("DB::Exception: bad value", code=code))
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_capture.called, expect_capture)
+        self.assertEqual(mock_signal.called, expect_capture)
 
     def test_capacity_error_preserves_retry_after(self):
         endpoint = create_endpoint_with_version(

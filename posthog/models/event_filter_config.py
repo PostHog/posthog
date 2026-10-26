@@ -2,8 +2,10 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 
 ALLOWED_FIELDS = {"event_name", "distinct_id"}
 ALLOWED_OPERATORS = {"exact", "contains"}
@@ -79,6 +81,45 @@ class EventFilterConfig(UUIDTModel):
             self.filter_tree = prune_filter_tree(self.filter_tree)
         self.clean()
         super().save(*args, **kwargs)
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def ingestion_pipeline_choices() -> list[tuple[str, str]]:
+    return [(pipeline.value, pipeline.value) for pipeline in IngestionPipeline]
+
+
+class EventFilterPipelineOverride(UUIDModel):
+    """
+    Per-environment, per-pipeline override of normal ingestion. A team without a row ingests
+    normally, so a row is written only when the team first changes a pipeline.
+    """
+
+    # Ingestion matches a row by the event's own team_id, so rows are never moved to the parent team.
+    all_teams = models.Manager()
+    objects = EnvironmentScopedManager()
+
+    # No standalone index: the (team, pipeline) unique constraint already leads on team_id.
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    pipeline = models.CharField(max_length=32, choices=ingestion_pipeline_choices)
+    drop_all_events = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "pipeline"], name="posthog_unique_event_filter_pipeline_override"),
+        ]
+
+    def __str__(self) -> str:
+        return f"EventFilterPipelineOverride(team={self.team_id}, pipeline={self.pipeline}, drop_all_events={self.drop_all_events})"
 
 
 def prune_filter_tree(node: dict) -> dict | None:

@@ -239,6 +239,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     unit?: string | null
+    /**
+     * Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.
+     * @nullable
+     */
+    histogram_bounds?: number[] | null
 }
 
 export interface _MetricAnomalyReportApi {

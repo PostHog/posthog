@@ -34,6 +34,7 @@ import { toolCallsTotal } from '@/hono/metrics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
@@ -196,6 +197,68 @@ describe('ToolExecutor analytics capture', () => {
         expect(state.suppressAnalytics).toBe(false)
         expect(state.context.api.config.onPrivateResponse).toBeUndefined()
     })
+
+    it.each(['direct', 'exec'])(
+        'keeps a %s switch-project call on the project its variant was evaluated for',
+        async (mode) => {
+            const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1', projectHasData: false }
+            const destination = {
+                organizationId: 'org-1',
+                projectId: '2',
+                projectUuid: 'uuid-2',
+                projectHasData: false,
+            }
+            let active = source
+            const tool = {
+                name: 'switch-project',
+                title: 'Switch project',
+                description: 'Synthetic switch',
+                scopes: [],
+                annotations: { readOnlyHint: false },
+                schema: z.object({ projectId: z.number() }),
+                handler: async () => {
+                    active = destination
+                    return 'Switched to project 2'
+                },
+            }
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build: () => tool,
+                meta: undefined,
+                rawInputSchema: undefined,
+                definition: undefined,
+            })
+            const baseState = makeToolExecutorState([tool], { suppressAnalytics: false })
+            const state = makeToolExecutorState([tool], {
+                useSingleExec: mode === 'exec',
+                suppressAnalytics: false,
+                analyticsContext: source,
+                projectHasData: source.projectHasData,
+                toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: 'warn' },
+                reqCtx: { ...baseState.reqCtx, safelyGetAnalyticsContext: vi.fn(async () => active) } as any,
+            })
+
+            await executor.handleToolCall(
+                mode === 'exec'
+                    ? { name: 'exec', arguments: { command: 'call switch-project {"projectId": 2}' } }
+                    : { name: tool.name, arguments: { projectId: 2 } },
+                state
+            )
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(active).toBe(destination)
+            expect(capture).toHaveBeenCalledOnce()
+            const event = capture.mock.calls[0]![0]
+            expect(event.toolName).toBe('switch-project')
+            expect(event.groups).toEqual({ organization: 'org-1', project: 'uuid-1' })
+            expect(event.properties).toMatchObject({
+                $mcp_project_id: '1',
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'none',
+                [`$feature/${MCP_NO_DATA_INSTALL_NOTICE_FLAG}`]: 'warn',
+            })
+        }
+    )
 
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
