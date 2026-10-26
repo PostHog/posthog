@@ -621,14 +621,14 @@ export interface KnowledgeUsageMeterApi {
     /** Units this project used in the current period. */
     readonly used: number
     /**
-     * Units the whole organization used in the current period, as last synced from billing. Null until billing has synced usage for this product.
+     * Units the whole organization used in the current period, as last synced from billing. Null until billing has synced usage for this product, or when the caller has no billing access.
      * @nullable
      */
     readonly organization_used: number | null
     /** Units included free each month. */
     readonly free_allowance: number
     /**
-     * Units the organization may use this period: the free allowance on the free plan, or the billing limit on a paid plan. Null when unsynced, or on a paid plan with no billing limit.
+     * Units the organization may use this period: the free allowance on the free plan, or the billing limit on a paid plan. Null when unsynced, when the caller has no billing access, or on a paid plan with no billing limit.
      * @nullable
      */
     readonly billing_limit: number | null
