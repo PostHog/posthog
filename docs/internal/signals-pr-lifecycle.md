@@ -16,6 +16,10 @@ A Monitoring period begins with an explicit, timezone-aware implementation-compl
 
 The backend `complete_implementation` service records a durable attempt and freezes this report's pending or active, unexpired check IDs and authored-definition versions in the same transaction as Monitoring entry. Kind, approval, missing configuration, and missing or zero soak do not remove a check from this selection. Stale checks receive expiry records before selection. No applicable checks, or a disabled Monitoring flag, resolve directly without a verification attempt. Carried-over checks lose their earlier evidence and dispatch claims while keeping their remaining runs. Duplicate completion and archive/restore retain the snapshot; reopening creates a new attempt when implementation completes again. The single and bulk state APIs share this service. PR-merge handlers still resolve directly.
 
+`save_monitoring_result(MonitoringEvaluation(...))` stores final evaluation submissions separately from interim observations and activity artefacts. Each submission identifies the environment, report, attempt, check, definition version, fixed evidence window, evaluation time, qualification status and reason, expectation match, explanation, and opaque evidence references. Evaluators supply qualification using their own evidence policy; metric evaluators can use `qualify_metric_evidence`. Only sufficient evidence can produce a pass or failure. Insufficient or unsupported evidence produces an inconclusive outcome; execution errors remain errors.
+
+The save transaction locks the report before the check. Replaying an identical submission ID returns its saved row even after lifecycle changes; changing its content raises `MonitoringResultConflict`. New submissions require enabled Monitoring, the current attempt's membership and definition version, an unchanged open and unexpired check, and an explicit completed soak. The evidence window must equal `[monitoring_started_at, monitoring_started_at + soak_minutes]`, including zero soak. New IDs preserve inconclusive and error history and allow later evaluation. Once a pass or failure exists, another submission cannot replace it. Invalidated new work raises `InvalidMonitoringResult`. Evaluators must retain their submission ID and payload across delivery retries and use a fresh ID for a new evaluation. This interface does not run evaluators, schedule retries, spend check runs, complete checks, or transition reports.
+
 Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring appears after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
@@ -339,11 +343,21 @@ If no saved recipient qualifies, the PR remains unassigned.
 The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
 The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
 
-The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
+A transient GitHub failure during first assignment, or a first write whose outcome is unknown, retries up to five times.
+The normal delays are 1, 2, 4, 8, and 15 minutes. A longer GitHub rate-limit delay takes precedence.
+Every attempt rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls.
+An uncertain write that reached GitHub appears as an assignment with an unknown source, so the worker does not repeat it.
+Successful first assignments record owner provenance for later reassessment.
+A permanent GitHub response, a closed pull request, a manual or unknown-source assignment, and a disabled flag end the attempt without retry.
+Permission checks follow the same rule: a non-rate-limit 403 stops recovery; network failures, 429 responses, and server errors permit retries.
+Safe assignment skips still allow review requests under the current review policy. Review requests, later owner reassessment, and legacy assignment policies remain best effort.
+Enabling a flag later does not replay suppressed work; the next pull request event queues a fresh attempt.
+
 Queued work and retries use the current personal setting.
 Each successful automatic assignment records its owner and origin. A later reviewer edit, claim, or verified PR refresh can reassess that owner.
 The worker replaces owners only when GitHub's current assignees exactly match its latest record; extra assignees, manual removal, and unknown-origin assignments remain authoritative.
 It adds the replacement before removing the previous automatic owner and stops if GitHub reports a concurrent assignee change.
+Each GitHub write rechecks the delivery control, including owner removal and rollback after a partial reassignment.
 If no report recipient qualifies, it clears only its recorded automatic assignment. A failed eligibility lookup leaves the assignment unchanged.
 Incomplete human-edit history blocks automatic assignment.
 The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
