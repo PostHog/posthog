@@ -374,7 +374,7 @@ class _SESIdentityState:
     # SES keeps one MAIL FROM domain per identity, and senders on the same domain can ask for
     # different ones. The status SES reports belongs to whichever was set last.
     def for_mail_from_domain(self, mail_from_domain: str) -> "_SESIdentityState":
-        if self.mail_from_domain == mail_from_domain:
+        if _same_domain(self.mail_from_domain, mail_from_domain):
             return self
         return replace(self, mail_from_status=_UNKNOWN)
 
