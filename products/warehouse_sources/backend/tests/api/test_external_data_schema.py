@@ -1358,13 +1358,13 @@ class TestExternalDataSchema(APIBaseTest):
                 {
                     "primary_key_columns": ["id"],
                     "cdc_table_mode": "both",
-                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_valid_from"}]},
                 },
                 None,
                 status.HTTP_400_BAD_REQUEST,
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
-                "valid_from",
+                "_ph_valid_from",
             ),
             (
                 "accepts_a_validity_column_name_without_a_history_table",
@@ -4564,6 +4564,24 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 True,
             ),
             ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
+            (
+                "a_new_history_table_leaves_valid_to_to_the_source",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                False,
+                "valid_to",
+                False,
+            ),
+            (
+                "a_new_history_table_refuses_its_own_validity_name",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+                "_ph_valid_to",
+                False,
+            ),
         ]
     )
     def test_patch_checks_the_validity_columns_the_history_table_receives(
@@ -4573,13 +4591,24 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         initial_enabled_columns: list[str] | None,
         request_body: dict,
         refused: bool,
+        column: str = "valid_to",
+        legacy_table: bool = True,
     ):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
+        if legacy_table:
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=build_table_name(self.source, f"{self.schema.name}_cdc"),
+                format="DeltaS3Wrapper",
+                url_pattern="s3://bucket/orders_cdc",
+                external_data_source=self.source,
+            )
         self.schema.sync_type_config["cdc_table_mode"] = initial_mode
-        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "valid_to"}]}
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": column}]}
         self.schema.enabled_columns = initial_enabled_columns
         self.schema.save()
 
@@ -4595,7 +4624,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         ):
             serializer.is_valid(raise_exception=True)
             if refused:
-                with pytest.raises(ValidationError, match="valid_to"):
+                with pytest.raises(ValidationError, match=column):
                     serializer.save()
             else:
                 serializer.save()

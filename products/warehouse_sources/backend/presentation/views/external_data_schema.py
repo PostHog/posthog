@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     AnySource,
+    HistoryTableNameTakenError,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -73,6 +74,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
+    history_naming,
+    history_table_name,
+    is_another_schemas_history_table,
     is_history_table_mode,
     purge_buffer_prefix,
     repair_is_running,
@@ -468,10 +472,20 @@ def _refuse_reserved_columns(
     """Capture and the history table write their own columns next to the source's, so a synced source
     column that loads under one of those names fails the sync. Only a collision this request adds is
     refused, so a table that already has one can still be edited or switched back."""
+    history = None
+    if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
+        try:
+            history = history_naming(instance)
+        except HistoryTableNameTakenError:
+            if is_history_table_mode(new_mode):
+                raise ValidationError(
+                    f"A history table for {instance.name} would share its name with another table of this "
+                    "source. Choose the consolidated table only for this table."
+                )
     columns = _source_column_names(instance)
     taken = reserved_column_collisions(
         columns,
-        reserved_column_names(history=is_history_table_mode(new_mode)),
+        reserved_column_names(history if is_history_table_mode(new_mode) else None),
         enabled_columns=new_enabled_columns,
         primary_keys=new_primary_keys,
         incremental_field=instance.incremental_field,
@@ -479,7 +493,7 @@ def _refuse_reserved_columns(
     if taken and instance.sync_type == ExternalDataSchema.SyncType.CDC:
         existing = reserved_column_collisions(
             columns,
-            reserved_column_names(history=is_history_table_mode(previous_mode)),
+            reserved_column_names(history if is_history_table_mode(previous_mode) else None),
             enabled_columns=previous_enabled_columns,
             primary_keys=previous_primary_keys,
             incremental_field=instance.incremental_field,
@@ -684,6 +698,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         read_only=True,
         help_text="Whether exact source-side column metadata is available for safe source-query projection.",
     )
+    history_table_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Name of the history table that keeps every version of each row, or `null` when the table "
+        "keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.",
+    )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
@@ -724,6 +743,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
+            "history_table_name",
             "source",
             "api_version",
             "api_version_deprecation",
@@ -744,10 +764,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "row_filter_columns",
             "available_columns",
             "source_column_metadata_available",
+            "history_table_name",
             "source",
             "api_version_deprecation",
             "user_access_level",
         ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_history_table_name(self, schema: ExternalDataSchema) -> str | None:
+        return history_table_name(schema)
 
     @extend_schema_field(
         {
@@ -1364,6 +1389,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 new_mode=resulting_config.get("cdc_table_mode"),
                 new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 new_primary_keys=resulting_config.get("primary_key_columns"),
+            )
+
+        # Its table and the history table would share one name and one storage folder.
+        if (
+            validated_data.get("should_sync")
+            and not instance.should_sync
+            and is_another_schemas_history_table(instance)
+        ):
+            raise ValidationError(
+                f"{instance.name} has the same name as the history table of another table of this source, so it "
+                "can't sync. Rename the table on your database to sync it."
             )
 
         should_sync = validated_data.get("should_sync", None)

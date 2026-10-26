@@ -27,11 +27,7 @@ import pyarrow.dataset as pa_ds
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-    CDC_SEQ_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
-)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 
 if TYPE_CHECKING:
@@ -100,7 +96,8 @@ EMPTY_POSITION = LanePosition(position=None, applied={}, key_columns=())
 
 # Columns that never take part in a content comparison: the position and operation are the key,
 # the SCD2 pair is stamped after replay, and the TOAST marker names columns to leave out per row.
-NON_CONTENT_COLUMNS = frozenset({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN})
+# The `_ph_` prefix already covers the current validity columns.
+NON_CONTENT_COLUMNS = LEGACY_HISTORY_NAMING.validity_columns
 
 
 def content_columns(names: list[str]) -> list[str]:

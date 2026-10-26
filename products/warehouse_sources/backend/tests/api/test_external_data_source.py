@@ -4985,19 +4985,19 @@ class TestExternalDataSource(APIBaseTest):
             ),
             (
                 "validity_column_with_a_history_table",
-                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                [("id", "uuid", False), ("_ph_valid_to", "timestamp", True)],
                 {"tracking_link": ["id"]},
-                "valid_to",
+                "_ph_valid_to",
                 "cdc_only",
                 None,
             ),
             (
                 "validity_column_in_enabled_columns_that_hold_a_non_string",
-                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                [("id", "uuid", False), ("_ph_valid_to", "timestamp", True)],
                 {"tracking_link": ["id"]},
-                "valid_to",
+                "_ph_valid_to",
                 "cdc_only",
-                ["id", "valid_to", {}],
+                ["id", "_ph_valid_to", {}],
             ),
         ]
     )
@@ -12000,23 +12000,38 @@ class TestDisableCDC(APIBaseTest):
         purged = {call.args[1] for call in mock_purge.call_args_list}
         assert purged == {str(cdc_schema.id)}  # CDC schemas only
 
+    @parameterized.expand(
+        [
+            # Registered before the history marker existed, so only its name says what it is.
+            ("legacy_table_without_the_marker", "orders_cdc", {}),
+            ("new_table", "orders_history", {"history_table": True, "history_naming": "ph_validity"}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
-    def test_disable_cdc_soft_deletes_companion_cdc_tables(self, _cleanup) -> None:
+    def test_disable_cdc_soft_deletes_companion_cdc_tables(
+        self, _name: str, storage_name: str, options: dict, _cleanup
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk, name="orders", source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        )
 
         cdc_companion = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
-            name="pg_orders_cdc",
+            name=build_table_name(source, storage_name),
             external_data_source_id=source.pk,
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="s3://bucket/orders_cdc",
+            url_pattern=f"s3://bucket/{storage_name}",
+            options=options,
         )
         main_table = DataWarehouseTable.objects.create(
             team_id=self.team.pk,
-            name="pg_orders",
+            name=build_table_name(source, "orders"),
             external_data_source_id=source.pk,
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders",

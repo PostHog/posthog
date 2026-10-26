@@ -37,10 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_SEQ_COLUMN,
     CDC_TIMESTAMP_COLUMN,
     DELETED_COLUMN,
+    HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
     companion_resource_name,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import get_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition, content_columns
@@ -374,7 +376,7 @@ class Warehouse:
         current = {self._table.key_of(row): row for row in self.history}
         existing = self._as_table(list(current.values()))
         batch = enrich_toast_omitted_rows(batch, self._keys, existing)
-        batch = enrich_delete_rows(batch, self._keys, existing)
+        batch = enrich_delete_rows(batch, self._keys, existing, history_naming_of(batch.column_names))
         self.history.extend(_without_toast_marker(batch).to_pylist())
 
     def reseed(self, rows: dict[Key, Row]) -> None:
@@ -531,6 +533,8 @@ class ConformanceKit:
             self._engine.installed(),
             patch(f"{_CDC}.activities.get_cdc_adapter", return_value=self._engine.adapter),
             patch(f"{_CDC}.activities.source_type_supports_cdc", return_value=True),
+            # The kit registers no tables, so every history table is a new one.
+            patch(f"{_CDC}.activities.kept_history_naming", return_value=HISTORY_NAMING),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
@@ -587,12 +591,12 @@ class ConformanceKit:
         schema, warehouse = self.schema(table), self._warehouses[table.name]
         self._lane_rows = {
             consolidated_resource_name(schema): lambda: list(warehouse.merged.values()),
-            companion_resource_name(schema.name): lambda: warehouse.history,
+            companion_resource_name(schema.name, HISTORY_NAMING): lambda: warehouse.history,
         }
         inputs = SimpleNamespace(team_id=_TEAM_ID, schema_id=str(schema.id), job_id="job")
 
         async def drain() -> None:
-            lanes, floor = await build_output_lanes(schema, MagicMock(), self._log)
+            lanes, floor = await build_output_lanes(schema, MagicMock(), self._log, HISTORY_NAMING)
             manager = CDCSourceManager(
                 cast(SourceInputs, inputs), self._log, deletion_floor=floor, proof=self._proofs.get(table.name)
             )

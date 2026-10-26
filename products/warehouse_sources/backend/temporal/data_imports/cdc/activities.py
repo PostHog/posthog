@@ -45,11 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
-    HISTORY_COLUMNS,
     ChangeEventBatcher,
+    HistoryNaming,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
-    is_history_table_mode,
+    history_columns,
     reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -202,6 +203,7 @@ class CDCExtractActivity:
         self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        self.history_naming_by_table: dict[str, HistoryNaming] = {}
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
         self.batcher: ChangeEventBatcher | None = None
@@ -380,8 +382,9 @@ class CDCExtractActivity:
 
             # The batcher already refused the capture columns. The history table's own columns are
             # checked here, because only the schema says whether this table keeps history.
-            if is_history_table_mode(schema.cdc_table_mode):
-                taken = reserved_column_collisions(raw_table.column_names, HISTORY_COLUMNS)
+            history = self.history_naming_by_table.get(table_name)
+            if history is not None:
+                taken = reserved_column_collisions(raw_table.column_names, history_columns(history))
                 if taken:
                     raise CDCReservedColumnError(f"Table {table_name} has history table column(s) {taken}")
 
@@ -615,6 +618,9 @@ class CDCExtractActivity:
         )
 
         for schema in self.cdc_schemas:
+            history = kept_history_naming(schema)
+            if history is not None:
+                self.history_naming_by_table[schema.name] = history
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the
             # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.

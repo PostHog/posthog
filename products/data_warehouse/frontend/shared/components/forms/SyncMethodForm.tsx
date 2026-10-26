@@ -336,8 +336,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">CDC history table only</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    Full audit trail in a <code>_cdc</code>-suffixed table with{' '}
-                                                    <code>valid_from</code> / <code>valid_to</code> columns.
+                                                    Full audit trail in a <code>_history</code> table with{' '}
+                                                    <code>_ph_valid_from</code> / <code>_ph_valid_to</code> columns.
                                                 </p>
                                             </div>
                                         ),
@@ -348,8 +348,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">Both</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    Consolidated current-state table plus a separate <code>_cdc</code>
-                                                    -suffixed history table.
+                                                    Consolidated current-state table plus a separate{' '}
+                                                    <code>_history</code> table.
                                                 </p>
                                             </div>
                                         ),
