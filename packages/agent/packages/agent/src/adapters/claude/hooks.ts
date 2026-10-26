@@ -192,7 +192,8 @@ export const createTaskHook =
       taskState.set(taskId, { ...existing, status: "completed" });
       mutated = true;
     }
-    if (mutated && onChange) await onChange();
+    // Child tool results carry the parent tool-call ID; hook events only identify the child agent.
+    if (mutated && onChange && !input.agent_id) await onChange();
     return { continue: true };
   };
 

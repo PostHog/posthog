@@ -904,9 +904,10 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     if not _is_session_update(event_data):
         return None
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    nested = _is_subagent_update(update)
     steps = agent_plan_steps(update)
     if steps is not None:
-        return {"plan": steps} if steps else None
+        return {"plan": steps, **({"nested": True} if nested else {})} if steps else None
     if update.get("sessionUpdate") not in ("tool_call", "tool_call_update"):
         return None
 
@@ -922,7 +923,6 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     # A background sub-agent can call tools while the agent writes its answer, so its calls are
     # marked nested and do not end the narrative burst. A hidden tool of the agent itself still
     # ends the burst before it, so it is signaled without a phase.
-    nested = _is_subagent_update(update)
     if phase is None:
         return None if nested else {"phase": None}
     payload: dict[str, Any] = {"phase": phase.key}

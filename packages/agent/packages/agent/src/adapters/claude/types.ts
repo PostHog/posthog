@@ -1,6 +1,7 @@
 import type {
   PromptResponse,
   SessionConfigOption,
+  SessionUpdate,
   TerminalHandle,
   TerminalOutputResponse,
 } from "@agentclientprotocol/sdk";
@@ -197,7 +198,7 @@ export type ToolUseCache = {
  */
 export type ToolUseStreamCache = Map<
   number,
-  { toolUseId: string; partialJson: string }
+  { toolUseId: string; partialJson: string; meta?: SessionUpdate["_meta"] }
 >;
 
 export type TerminalInfo = {

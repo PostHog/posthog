@@ -183,6 +183,26 @@ class TestSlackAgentDesignRelay:
                 ],
                 "I did not change [PR #1].",
             ),
+            (
+                [
+                    *CHECKING,
+                    ("agent_text_delta", "The answer is "),
+                    (
+                        "agent_status_update",
+                        {"plan": [{"title": "Check the query", "status": "in_progress"}], "nested": True},
+                    ),
+                    ("agent_text_delta", "42."),
+                ],
+                "The answer is 42.",
+            ),
+            (
+                [
+                    ("agent_text_delta", "Let me check."),
+                    ("agent_status_update", {"plan": [{"title": "Check the query", "status": "in_progress"}]}),
+                    ("agent_text_delta", "42."),
+                ],
+                "42.",
+            ),
             # The agent server's final text can land while the last deltas of the same answer are still buffered.
             (
                 [
@@ -215,6 +235,8 @@ class TestSlackAgentDesignRelay:
             "answer_after_last_tool",
             "answer_before_hidden_tool",
             "subagent_call_inside_the_answer",
+            "subagent_plan_inside_the_answer",
+            "answer_after_parent_plan",
             "final_text_before_the_last_delta",
             "final_text_of_another_turn",
             "final_text_before_the_turn_starts",

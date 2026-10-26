@@ -478,21 +478,33 @@ describe("SessionLogWriter", () => {
         ],
       },
       ...["posthog", "claudeCode"].flatMap((channel) =>
-        ["agent_message_chunk", "agent_message"].map((sessionUpdate) => ({
-          label: `sub-agent ${sessionUpdate} on ${channel}`,
-          wireMessages: [
-            {
-              method: "session/update",
-              params: {
-                update: {
-                  sessionUpdate,
-                  content: { type: "text", text: "child answer" },
-                  _meta: { [channel]: { parentToolCallId: "tc-agent" } },
+        ["agent_message_chunk", "agent_message", "plan"].map(
+          (sessionUpdate) => ({
+            label: `sub-agent ${sessionUpdate} on ${channel}`,
+            wireMessages: [
+              {
+                method: "session/update",
+                params: {
+                  update: {
+                    sessionUpdate,
+                    ...(sessionUpdate === "plan"
+                      ? {
+                          entries: [
+                            {
+                              content: "Check the query",
+                              priority: "medium",
+                              status: "pending",
+                            },
+                          ],
+                        }
+                      : { content: { type: "text", text: "child answer" } }),
+                    _meta: { [channel]: { parentToolCallId: "tc-agent" } },
+                  },
                 },
               },
-            },
-          ],
-        })),
+            ],
+          }),
+        ),
       ),
     ])(
       "keeps a streamed message whole across an interleaved $label",
@@ -928,52 +940,126 @@ describe("SessionLogWriter", () => {
   });
 
   describe("API-path rawInput snapshot coalescing", () => {
-    function rawInputSnapshot(toolCallId: string, rawInput: unknown): string {
-      return makeSessionUpdate("tool_call_update", { toolCallId, rawInput });
+    function rawInputSnapshot(
+      toolCallId: string,
+      rawInput: unknown,
+      _meta?: Record<string, unknown>,
+    ): string {
+      return makeSessionUpdate("tool_call_update", {
+        toolCallId,
+        rawInput,
+        ...(_meta ? { _meta } : {}),
+      });
     }
 
-    it("persists only the last cumulative snapshot, before the completing update", async () => {
-      const sessionId = "s1";
-      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+    it.each([
+      undefined,
+      {
+        claudeCode: {
+          toolName: "mcp__posthog__exec",
+          parentToolCallId: "parent-tool",
+        },
+      },
+      {
+        claudeCode: {
+          toolName: "Bash",
+          parentToolCallId: "parent-tool",
+          bashCommand: "ls",
+        },
+        terminal_info: { terminal_id: "tc1" },
+      },
+      { posthog: { toolName: "Bash", parentToolCallId: "parent-tool" } },
+    ])(
+      "persists only the last cumulative snapshot before completion (meta=%j)",
+      async (_meta) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("tool_call", {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", {
+            toolCallId: "tc1",
+            status: "pending",
+          }),
+        );
+        logWriter.appendRawLine(sessionId, rawInputSnapshot("tc1", {}, _meta));
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls -la" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "tc1",
+            status: "completed",
+            rawOutput: { content: [] },
+          }),
+        );
+
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(3);
+        expect(entries[1].notification.params?.update).toEqual({
+          sessionUpdate: "tool_call_update",
           toolCallId: "tc1",
-          status: "pending",
-        }),
-      );
-      logWriter.appendRawLine(sessionId, rawInputSnapshot("tc1", {}));
-      logWriter.appendRawLine(
-        sessionId,
-        rawInputSnapshot("tc1", { command: "ls" }),
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        rawInputSnapshot("tc1", { command: "ls -la" }),
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("tool_call_update", {
-          toolCallId: "tc1",
-          status: "completed",
-          rawOutput: { content: [] },
-        }),
-      );
+          rawInput: { command: "ls -la" },
+          ...(_meta ? { _meta } : {}),
+        });
+        expect(
+          (entries[2].notification.params?.update as { status?: string })
+            .status,
+        ).toBe("completed");
+      },
+    );
 
-      await logWriter.flush(sessionId);
+    it.each([
+      { terminal_output: { terminal_id: "tc1", data: "output" } },
+      {
+        claudeCode: {
+          toolName: "Bash",
+          parentToolCallId: "parent-tool",
+          toolResponse: "result",
+        },
+      },
+    ])(
+      "preserves substantive metadata alongside rawInput (meta=%j)",
+      async (_meta) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls" }, _meta),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          rawInputSnapshot("tc1", { command: "ls -la" }),
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call_update", {
+            toolCallId: "tc1",
+            status: "completed",
+          }),
+        );
 
-      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(3);
-      expect(entries[1].notification.params?.update).toEqual({
-        sessionUpdate: "tool_call_update",
-        toolCallId: "tc1",
-        rawInput: { command: "ls -la" },
-      });
-      expect(
-        (entries[2].notification.params?.update as { status?: string }).status,
-      ).toBe("completed");
-    });
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        expect(entries).toHaveLength(3);
+        expect(entries[0].notification.params?.update).toMatchObject({
+          _meta,
+          rawInput: { command: "ls" },
+        });
+        expect(entries[1].notification.params?.update).toMatchObject({
+          rawInput: { command: "ls -la" },
+        });
+      },
+    );
 
     it("drops the buffered snapshot when a richer update carries rawInput itself", async () => {
       const sessionId = "s1";

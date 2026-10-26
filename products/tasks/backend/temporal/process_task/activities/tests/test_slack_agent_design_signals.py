@@ -176,7 +176,8 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert emitter.process(call) == expected
 
-    def test_agent_todo_list_reaches_the_relay(self) -> None:
+    @parameterized.expand([("parent", None), ("claude_child", "claudeCode"), ("posthog_child", "posthog")])
+    def test_agent_todo_list_reaches_the_relay(self, _name: str, meta_channel: str | None) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
         plan = {
@@ -187,6 +188,7 @@ class TestSlackAgentDesignSignalEmitter:
                     "update": {
                         "sessionUpdate": "plan",
                         "entries": [{"content": "Count weekly signups", "status": "in_progress"}],
+                        **({"_meta": {meta_channel: {"parentToolCallId": "parent-tool"}}} if meta_channel else {}),
                     }
                 },
             },
@@ -195,7 +197,13 @@ class TestSlackAgentDesignSignalEmitter:
         signals = emitter.process(plan)
 
         assert signals == [
-            ("agent_status_update", {"plan": [{"title": "Count weekly signups", "status": "in_progress"}]})
+            (
+                "agent_status_update",
+                {
+                    "plan": [{"title": "Count weekly signups", "status": "in_progress"}],
+                    **({"nested": True} if meta_channel else {}),
+                },
+            )
         ]
 
     @parameterized.expand(

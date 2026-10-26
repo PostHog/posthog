@@ -591,8 +591,32 @@ export class SessionLogWriter {
     if (update.rawInput === undefined) return false;
     return Object.keys(update).every(
       (key) =>
-        key === "sessionUpdate" || key === "toolCallId" || key === "rawInput",
+        key === "sessionUpdate" ||
+        key === "toolCallId" ||
+        key === "rawInput" ||
+        (key === "_meta" && this.isToolIdentityMeta(update._meta)),
     );
+  }
+
+  private isToolIdentityMeta(meta: unknown): boolean {
+    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return false;
+    return Object.entries(meta).every(([channel, value]) => {
+      const keys =
+        channel === "claudeCode" || channel === "posthog"
+          ? ["toolName", "parentToolCallId", "bashCommand"]
+          : channel === "terminal_info"
+            ? ["terminal_id"]
+            : [];
+      return (
+        keys.length > 0 &&
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.entries(value).every(
+          ([key, field]) => keys.includes(key) && typeof field === "string",
+        )
+      );
+    });
   }
 
   private pushPendingEntry(sessionId: string, entry: StoredNotification): void {
