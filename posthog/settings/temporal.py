@@ -411,8 +411,9 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
-# Billing batch keys the platform starts per tick, across every team. Each key makes at most one
-# billing service call per organization, so this bounds the platform's load on that service.
+# Billing batch keys the platform starts per tick, across every team. A key is one team's due alerts
+# and makes one billing service call, so this bounds the platform's load on that service. With a tick
+# a minute, 60 times this must cover the keys due per hour, or hourly alerts fall behind their cadence.
 ALERTS_PLATFORM_BILLING_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_BILLING_KEYS_PER_TICK", 5, type_cast=int)
 if ALERTS_PLATFORM_BILLING_KEYS_PER_TICK <= 0:
     raise ImproperlyConfigured(

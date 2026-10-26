@@ -202,7 +202,7 @@ def _snapshot(check: PlatformAlertCheckInput, alert: BillingAlertConfiguration |
 
 
 def _billing_status(alert: BillingAlertConfiguration, statuses: dict[UUID, _BillingStatus]) -> _BillingStatus:
-    """Fetches an organization's billing status once per batch, however many of its alerts are due."""
+    """Fetches an organization's billing status once per batch key, however many of its alerts are due."""
     organization_id = alert.organization_id
     if organization_id not in statuses:
         try:
@@ -287,4 +287,7 @@ def _recorded(
         query_duration_ms=query_duration_ms,
         disable=disable,
         skipped=skip is not None and not failed,
+        # A batch key is one team, and so one organization, so one group keeps a team's alerts in
+        # one slot and one billing call. A broken alert is never discovered again.
+        schedule_group=None if outcome.new_state == AlertState.BROKEN else SOURCE,
     )

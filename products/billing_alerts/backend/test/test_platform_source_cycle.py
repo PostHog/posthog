@@ -22,7 +22,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
-from products.alerts_platform.backend.facade.testing import count_still_due, create_configuration, set_due_at
+from products.alerts_platform.backend.facade.testing import (
+    configuration,
+    count_still_due,
+    create_configuration,
+    set_due_at,
+)
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvaluationClaim
 from products.billing_alerts.backend.platform_source_cycle import evaluate_billing_batch
 from products.billing_alerts.backend.temporal.platform_evaluate import EVALUATION_BUDGET
@@ -164,13 +169,16 @@ class TestPlatformBillingEvaluation(BaseTest):
         assert (group.kind, group.muted_notification) == (AlertEventKind.CHECK, "fire")
 
     def test_one_billing_call_serves_every_alert_of_an_organization_in_a_batch(self) -> None:
-        self._copy(self._alert(name="First"))
-        self._copy(self._alert(name="Second"))
+        configuration_ids = [self._copy(self._alert(name="First")), self._copy(self._alert(name="Second"))]
 
         evaluation, fetch = self._evaluate(_billing_response(150))
+        with team_scope(self.team.id):
+            record_outcomes(self.team.id, evaluation.outcomes, CUTOFF)
+            next_checks = {configuration(c).next_check_at for c in configuration_ids}
 
         assert fetch.call_count == 1
         assert [o.groups[0].kind for o in evaluation.outcomes] == [AlertEventKind.FIRING, AlertEventKind.FIRING]
+        assert len(next_checks) == 1
 
     @parameterized.expand([("gone", None, True), ("disabled", {"enabled": False}, False)])
     def test_a_copy_of_an_alert_that_cannot_run_skips_without_a_billing_call(
