@@ -186,6 +186,11 @@ REVIEWERS_SCHEMA_VERSION = 1
 
 # The engagement export is read in another region, so its shape moves apart from every local snapshot.
 ENGAGEMENT_EXPORT_SCHEMA_VERSION = 1
+# Most labels rows belong to this region's reports. A share below this floor means the local report
+# lookup lost rows, and the export would send this region's report ids to the other region.
+ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE = 0.25
+NO_LOCAL_REPORTS = "no_local_reports"
+LOCAL_SHARE_COLLAPSED = "local_share_collapsed"
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
@@ -1488,6 +1493,17 @@ def remote_engagement_rows(labels: pa.Table, local_report_ids: Collection[str]) 
     return labels.filter(pa.array(keep, type=pa.bool_()))
 
 
+def engagement_export_refusal(label_rows: int, local_rows: int) -> str | None:
+    """Why the export must not be written, or None. An empty labels table has nothing to leak."""
+    if label_rows == 0:
+        return None
+    if local_rows == 0:
+        return NO_LOCAL_REPORTS
+    if local_rows / label_rows < ENGAGEMENT_EXPORT_MIN_LOCAL_SHARE:
+        return LOCAL_SHARE_COLLAPSED
+    return None
+
+
 @dagster.asset(
     name=ENGAGEMENT_EXPORT,
     # Nothing joins this asset, so its failure does not fail the training table.
@@ -1515,44 +1531,76 @@ def inbox_engagement_export(context: dagster.AssetExecutionContext) -> None:
     labels = read_parquet(
         s3_client(), dataset_bucket(), partition_object_key(prefix, LABELS_TABLE, partition_key), list(LABEL_COLUMNS)
     )
-    local_report_ids = _report_teams(
-        sorted(valid_report_uuids(set(labels.column("report_id").to_pylist()))), snapshot_end
-    ).keys()
-    table = remote_engagement_rows(labels, local_report_ids)
-    buffer = io.BytesIO()
-    pq.write_table(table, buffer, compression="zstd")
-    content = buffer.getvalue()
+    # telemetry imports the training modules, which import this module.
+    from products.signals.dags.inbox_ranking.training.telemetry import (  # noqa: PLC0415
+        capture_training_events,
+        engagement_export_event,
+    )
 
+    report_ids = labels.column("report_id").to_pylist()
+    local_report_ids = _report_teams(sorted(valid_report_uuids(set(report_ids))), snapshot_end).keys()
+    local_rows = sum(report_id in local_report_ids for report_id in report_ids)
+    local_share = local_rows / labels.num_rows if labels.num_rows else None
+    table = remote_engagement_rows(labels, local_report_ids)
     key = serving_engagement_key(prefix, partition_key)
-    written = True
-    try:
-        serving_mirror_storage().write(
-            bucket=mirror_bucket,
-            key=key,
-            content=content,
-            extras={
-                # The mirror bucket is in another account, and its policy refuses a write without this ACL.
-                "ACL": "bucket-owner-full-control",
-                "Metadata": {
-                    ROW_COUNT_METADATA_KEY: str(table.num_rows),
-                    SNAPSHOT_DATE_METADATA_KEY: partition_key,
-                    SCHEMA_VERSION_METADATA_KEY: str(ENGAGEMENT_EXPORT_SCHEMA_VERSION),
-                },
-            },
+    skip_reason = engagement_export_refusal(labels.num_rows, local_rows)
+    content = b""
+    written = False
+    if skip_reason is not None:
+        # Nothing is written, so the other region falls back to an older export, then fails on its side.
+        context.log.error(
+            f"engagement export for {partition_key} refused ({skip_reason}): {local_rows} of "
+            f"{labels.num_rows} labels rows have a report in this region"
         )
-    except Exception as error:
-        # The mirror is another deployment's store, so an outage there only logs. The other region
-        # detects the missing day on its side.
-        context.log.exception(f"engagement export for {partition_key} not written: {error!r}")
-        written = False
+    else:
+        buffer = io.BytesIO()
+        pq.write_table(table, buffer, compression="zstd")
+        content = buffer.getvalue()
+        try:
+            serving_mirror_storage().write(
+                bucket=mirror_bucket,
+                key=key,
+                content=content,
+                extras={
+                    # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+                    "ACL": "bucket-owner-full-control",
+                    "Metadata": {
+                        ROW_COUNT_METADATA_KEY: str(table.num_rows),
+                        SNAPSHOT_DATE_METADATA_KEY: partition_key,
+                        SCHEMA_VERSION_METADATA_KEY: str(ENGAGEMENT_EXPORT_SCHEMA_VERSION),
+                    },
+                },
+            )
+            written = True
+        except Exception as error:
+            # The mirror is another deployment's store, so an outage there only logs. The other region
+            # detects the missing day on its side.
+            context.log.exception(f"engagement export for {partition_key} not written: {error!r}")
     context.add_output_metadata(
         {
             "written": dagster.MetadataValue.bool(written),
+            **({"skip_reason": dagster.MetadataValue.text(skip_reason)} if skip_reason else {}),
             "rows": dagster.MetadataValue.int(table.num_rows),
-            "excluded_rows": dagster.MetadataValue.int(labels.num_rows - table.num_rows),
+            "excluded_rows": dagster.MetadataValue.int(local_rows),
+            "local_share": dagster.MetadataValue.float(local_share or 0.0),
             "bytes": dagster.MetadataValue.int(len(content)),
             "s3_key": dagster.MetadataValue.text(f"s3://{mirror_bucket}/{key}"),
         }
+    )
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            engagement_export_event(
+                written=written,
+                skip_reason=skip_reason,
+                rows=table.num_rows,
+                excluded_rows=local_rows,
+                local_share=local_share,
+                bytes_written=len(content),
+                schema_version=ENGAGEMENT_EXPORT_SCHEMA_VERSION,
+            )
+        ],
     )
 
 

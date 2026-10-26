@@ -425,6 +425,21 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
     return { forceJson, confirmed, rest }
 }
 
+const TRAILING_CALL_FLAG = /(?:^|\s)(--json|--confirm)$/
+
+/** Reads `--json` and `--confirm` written after the tool name, before or after the JSON body.
+ *  Agents put flags there because most CLIs accept them anywhere. No JSON value starts or ends
+ *  with either token, so removing them never changes a valid body. */
+function parseCallBodyFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+    let { forceJson, confirmed, rest } = parseCallFlags(input)
+    for (let match = TRAILING_CALL_FLAG.exec(rest); match; match = TRAILING_CALL_FLAG.exec(rest)) {
+        forceJson ||= match[1] === '--json'
+        confirmed ||= match[1] === '--confirm'
+        rest = rest.slice(0, match.index).trimEnd()
+    }
+    return { forceJson, confirmed, rest }
+}
+
 // Extracts the inner tool name from an exec `call` command, e.g.
 // "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
 // malformed input. Used by analytics to surface the real tool being invoked
@@ -459,7 +474,7 @@ export function parseExecCallInnerArgs(command: string): Record<string, unknown>
     if (!callArgs) {
         return
     }
-    const { rest: jsonBody } = parseCommand(callArgs)
+    const jsonBody = parseCallBodyFlags(parseCommand(callArgs).rest).rest
     if (!jsonBody) {
         return {}
     }
@@ -2035,11 +2050,15 @@ export function createExecTool(
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
-                    if (!callArgs) {
+                    const leadingFlags = parseCallFlags(rest)
+                    if (!leadingFlags.rest) {
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
-                    const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
+                    const { verb: toolName, rest: afterToolName } = parseCommand(leadingFlags.rest)
+                    const bodyFlags = parseCallBodyFlags(afterToolName)
+                    const forceJson = leadingFlags.forceJson || bodyFlags.forceJson
+                    const confirmed = leadingFlags.confirmed || bodyFlags.confirmed
+                    const jsonBody = bodyFlags.rest
                     const tool = findTool(
                         await resolveTools(),
                         scopeGatedTools,

@@ -33,6 +33,7 @@ import {
 } from '../shared/retentionChartTransforms'
 
 interface RetentionLineChartProps {
+    resultMenuEnabled?: boolean
     inSharedMode?: boolean
 }
 const EMPTY_GOAL_LINES: GoalLine[] = []
@@ -57,7 +58,10 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartProps): JSX.Element | null {
+export function RetentionLineChart({
+    inSharedMode = false,
+    resultMenuEnabled = false,
+}: RetentionLineChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const theme = useChartTheme()
@@ -194,14 +198,28 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 goalLines,
                 showTrendLines,
                 series,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: {
+                    ...INSIGHT_TOOLTIP_CONFIG,
+                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
+                },
                 isIntervalView,
                 period,
                 timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
+        [
+            resultMenuEnabled,
+            inSharedMode,
+            isPercentage,
+            goalLines,
+            showTrendLines,
+            series,
+            isIntervalView,
+            period,
+            timezone,
+            retentionFilter?.chartStyle,
+        ]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

@@ -28,6 +28,8 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.aeo.backend.presentation.views.AEOPromptViewSet",
+    # Returns one bounded object (capped at SERVICES_LIMIT services), not a page of rows.
+    "products.apm.backend.presentation.views.ServicesHealthViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
@@ -232,6 +234,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     # Returns one team's onboarding state as a single document, so there is nothing to paginate.
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
+    # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
+    "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

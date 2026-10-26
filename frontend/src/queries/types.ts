@@ -19,6 +19,8 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    dashboardResultMenu?: boolean
+
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'
