@@ -447,6 +447,8 @@ export const evaluationDetailResultsLogic = kea<evaluationDetailResultsLogicType
                             results.interval === 'hour' && date_to && /^\d{4}-\d{2}-\d{2}$/.test(date_to)
                                 ? `${date_to}T23:59:59`
                                 : date_to,
+                        // A rolling range of hours starts mid-hour, and the overview counts runs from that instant.
+                        ...(date_from && date_from.includes('T') ? { explicitDate: true } : {}),
                     },
                     interval: results.interval,
                 }
