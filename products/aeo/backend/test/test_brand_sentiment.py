@@ -57,6 +57,7 @@ def _seed_run(team: Team) -> tuple[uuid.UUID, dict[str, AEOCitationCheck]]:
         "failed": _check(team, prompt, run_id, None, check_failed=True),
         "scored": _check(team, prompt, run_id, "Example again.", brand_sentiment="neutral", brand_sentiment_score=0.5),
         "other_run": _check(team, prompt, uuid.uuid4(), "Example elsewhere."),
+        "no_brand_backlog": _check(team, prompt, uuid.uuid4(), "Rival elsewhere."),
         "too_old": _check(team, prompt, uuid.uuid4(), "Example long ago."),
     }
 
@@ -78,6 +79,7 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
     team = await sync_to_async(_team)()
     run_id, checks = await sync_to_async(_seed_run)(team)
     await sync_to_async(_age)(checks["other_run"], 10)
+    await sync_to_async(_age)(checks["no_brand_backlog"], 20)
     await sync_to_async(_age)(checks["too_old"], 31)
     classify = MagicMock(
         return_value=[
@@ -88,7 +90,12 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         ]
     )
 
-    with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
+    # Cap of 4 leaves one backlog slot after the run's own rows. The older brand-less backlog row
+    # must not take it from the newer answer that names the brand.
+    with (
+        patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
+        patch(f"{_MODULE}.MAX_ROWS_PER_RUN", 4),
+    ):
         result = await ActivityEnvironment().run(
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
         )
@@ -113,6 +120,7 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         "failed": (None, None),
         "scored": ("neutral", 0.5),
         "other_run": ("neutral", 0.85),
+        "no_brand_backlog": (None, None),
         "too_old": (None, None),
     }
 

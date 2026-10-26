@@ -28,6 +28,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.utils import close_db_connections
 
+from products.aeo.backend.brand import brand_regex
 from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.sentiment import aggregate_sentiment, brand_sentences
 
@@ -59,14 +60,18 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
     """The run's unscored answers, then the team's other unscored answers from the backlog window,
     oldest first, capped so one activity never scans an unbounded history.
 
+    Only answers that name the brand count toward the cap: an answer without a mention stays NULL
+    forever, so letting it fill the slice would starve newer answers that can be scored.
+
     Two concurrent runs can both pick up the same backlog row. The writes are idempotent (the same
     text scores the same), so that only costs a duplicate classification, and no transaction is
     held across the model call that a row lock could ride on."""
     target_domains: list[str] = settings.AEO_TARGET_DOMAINS
-    unscored = (
-        AEOCitationCheck.objects.for_team(inputs.team_id)
-        .filter(check_failed=False, brand_sentiment__isnull=True)
-        .exclude(answer_text__isnull=True)
+    regex = brand_regex(target_domains)
+    if regex is None:
+        return []
+    unscored = AEOCitationCheck.objects.for_team(inputs.team_id).filter(
+        check_failed=False, brand_sentiment__isnull=True, answer_text__iregex=regex
     )
     own_rows = list(unscored.filter(run_id=inputs.run_id).order_by("created_at").values_list("id", "answer_text"))
     backlog_rows = list(
