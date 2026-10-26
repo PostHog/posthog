@@ -262,6 +262,7 @@ export const FEATURE_FLAGS = {
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     ANOMALY_ALERT_GUIDANCE_EXPERIMENT: 'anomaly-alert-guidance',
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
+    APPROVALS_SCOPE_BY_FLAG_OWNER: 'approvals-scope-by-flag-owner', // owner: @yasen-posthog #team-platform-features, scopes approval policies by the product that owns the flag
     AUTORESEARCH: 'autoresearch', // owner: @andrewm4894 #team-platform-features
     AUTORESEARCH_REPORT_NOTEBOOK: 'autoresearch-report-notebook', // owner: @andrewm4894 #team-platform-features, gates the training run report notebook
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
@@ -609,6 +610,8 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_AI_EMAIL_DRAFT: 'workflows-ai-email-draft', // owner: @dmarchuk #team-workflows, AI first draft for cross-product entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
+    WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
+    WORKFLOWS_EMAIL_DOMAIN_WIZARD: 'workflows-email-domain-wizard', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
@@ -790,3 +793,5 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
     [SDKKey.TANSTACK_START]: 'react',
     [SDKKey.VITE]: 'react',
 }
+
+export const FIRST_REPORT_SCOUT_NAME = 'signals-scout-first-report'

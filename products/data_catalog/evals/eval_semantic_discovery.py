@@ -33,7 +33,7 @@ from products.data_catalog.evals.seeders import (
     seed_deprecation_candidate_sources,
     seed_instruction_like_relationship_context,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
@@ -117,7 +117,7 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-semantic-discovery-cli",
         offline_suite=offline_suite(
             "data_catalog/eval_semantic_discovery::eval_semantic_discovery",

@@ -1355,6 +1355,23 @@ class TestReplayScannerTags(_VisionAPITestCase):
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
         self.assertEqual(len(one_row.captured_queries), len(five_rows.captured_queries))
 
+    def test_list_experiment_access_is_constant_queries(self) -> None:
+        first = create_experiment(self.team, "flag-0")
+        self._create_scanner(name="scanner-0", experiment_targeting={"experiment_id": first.id})
+        self.client.get(self.scanners_url)  # Warm request-scoped caches so both captures compare cleanly.
+        with CaptureQueriesContext(connection) as one_row:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        for i in range(1, 5):
+            experiment = create_experiment(self.team, f"flag-{i}")
+            self._create_scanner(
+                name=f"scanner-{i}",
+                scanner_type=ScannerType.EXPERIMENT,
+                scanner_config={"prompt": "p", "experiment_id": experiment.id},
+            )
+        with CaptureQueriesContext(connection) as five_rows:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        self.assertEqual(len(one_row.captured_queries), len(five_rows.captured_queries))
+
 
 class TestScannerExperimentTargeting(_VisionAPITestCase):
     def setUp(self) -> None:
@@ -4170,7 +4187,9 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
 
 
 class TestScannerSpend(_VisionAPITestCase):
-    def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, created_at=None) -> ReplayObservation:
+    def _succeeded_observation(
+        self, scanner: ReplayScanner, session_id: str, created_at=None, credits: int | None = None
+    ) -> ReplayObservation:
         observation = ReplayObservation.objects.create(
             scanner=scanner,
             session_id=session_id,
@@ -4181,16 +4200,30 @@ class TestScannerSpend(_VisionAPITestCase):
         )
         if created_at is not None:
             ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
+            observation.refresh_from_db()
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            scanner_id=scanner.id,
+            observation_created_at=observation.created_at,
+            model=scanner.model,
+            credits=observation_credits_for_model(scanner.model) if credits is None else credits,
+        )
         return observation
 
-    def _credits_by_name(self, response_json: dict) -> dict[str, int]:
-        return {row["name"]: row["credits_this_month"] for row in response_json["results"]}
+    def _spend_by_name(self, response_json: dict) -> dict[str, tuple[int, int]]:
+        return {
+            row["name"]: (row["credits_this_month"], row["observations_this_month"]) for row in response_json["results"]
+        }
 
-    def test_credits_this_month_sums_current_period_succeeded_observations(self) -> None:
+    def test_spend_sums_current_period_receipts(self) -> None:
         spender = self._create_scanner(name="spender")
         self._create_scanner(name="idle")
-        self._succeeded_observation(spender, "in-window-1")
-        self._succeeded_observation(spender, "in-window-2")
+        cost = observation_credits_for_model(spender.model)
+        self._succeeded_observation(spender, "in-window")
+        self._succeeded_observation(spender, "repriced", credits=cost + 7)
+        self._succeeded_observation(spender, "deleted").delete()
         ReplayObservation.objects.create(
             scanner=spender,
             session_id="failed-in-window",
@@ -4203,9 +4236,9 @@ class TestScannerSpend(_VisionAPITestCase):
 
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200, resp.json())
-        credits = self._credits_by_name(resp.json())
-        self.assertEqual(credits["spender"], 2 * observation_credits_for_model(spender.model))
-        self.assertEqual(credits["idle"], 0)
+        spend = self._spend_by_name(resp.json())
+        self.assertEqual(spend["spender"], (3 * cost + 7, 3))
+        self.assertEqual(spend["idle"], (0, 0))
 
     def test_order_by_credits_matches_displayed_values(self) -> None:
         low = self._create_scanner(name="low")
@@ -4221,39 +4254,6 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(displayed, sorted(displayed, reverse=True))
         self.assertEqual([row["name"] for row in rows[:2]], ["high", "low"])
 
-    def test_receipts_without_a_scanner_do_not_zero_the_displayed_credits(self) -> None:
-        # Receipts are never backfilled with a scanner_id, so the displayed column and its sort read
-        # observation rows. Pointing either at the ledger silently zeroes both for a whole period.
-        spender = self._create_scanner(name="spender")
-        observation = self._succeeded_observation(spender, "unattributed")
-        ReplayObservationUsage.objects.create(
-            observation_id=observation.id,
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            scanner_id=None,
-            observation_created_at=observation.created_at,
-            model=spender.model,
-            credits=observation_credits_for_model(spender.model),
-        )
-
-        resp = self.client.get(f"{self.scanners_url}?order_by=-credits_this_month")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(self._credits_by_name(resp.json())["spender"], observation_credits_for_model(spender.model))
-
-    def _spend_against_limit(self, scanner: ReplayScanner, session_id: str) -> None:
-        """Ledger spend, which is what the limit is enforced on. `_succeeded_observation` deliberately
-        writes no receipt, because it seeds the displayed column, which reads observation rows."""
-        observation = self._succeeded_observation(scanner, session_id)
-        ReplayObservationUsage.objects.create(
-            observation_id=observation.id,
-            organization_id=self.team.organization_id,
-            team_id=self.team.pk,
-            scanner_id=scanner.id,
-            observation_created_at=observation.created_at,
-            model=scanner.model,
-            credits=observation_credits_for_model(scanner.model),
-        )
-
     def test_limit_reached_is_reported_per_scanner(self) -> None:
         scanner = self._create_scanner()
         cost = observation_credits_for_model(scanner.model)
@@ -4263,7 +4263,7 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertIs(resp.json()["limit_reached"], False)
 
-        self._spend_against_limit(scanner, "over-limit")
+        self._succeeded_observation(scanner, "over-limit")
 
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4292,7 +4292,7 @@ class TestScannerSpend(_VisionAPITestCase):
         cost = observation_credits_for_model(capped.model)
         ReplayScanner.objects.filter(pk=capped.pk).update(credit_limit=cost)
         ReplayScanner.objects.filter(pk=free.pk).update(free_only=True)
-        self._spend_against_limit(capped, "capped-spend")
+        self._succeeded_observation(capped, "capped-spend")
 
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4325,14 +4325,14 @@ class TestScannerSpend(_VisionAPITestCase):
         # that preserves the property, and from passing on an N+1 that happens to be shaped differently.
         one = self._create_scanner(name="scanner-0")
         ReplayScanner.objects.filter(pk=one.pk).update(credit_limit=10_000)
-        self._spend_against_limit(one, "seed-0")
+        self._succeeded_observation(one, "seed-0")
         with CaptureQueriesContext(connection) as single_page:
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
 
         for i in range(1, 5):
             extra = self._create_scanner(name=f"scanner-{i}")
             ReplayScanner.objects.filter(pk=extra.pk).update(credit_limit=10_000)
-            self._spend_against_limit(extra, f"seed-{i}")
+            self._succeeded_observation(extra, f"seed-{i}")
         with CaptureQueriesContext(connection) as five_page:
             self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
 
