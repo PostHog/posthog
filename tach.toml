@@ -304,6 +304,8 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    # Facade-only: the metrics_table widget runs its query through the metrics facade.
+    "products.metrics",
     "products.notifications",
     "products.product_analytics",
     "products.conversations",
@@ -1078,6 +1080,8 @@ depends_on = [
     "products.annotations",
     # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
     "products.mcp_store",
+    # ph.tools calls run on the PostHog MCP server as the viewer (via the webmcp facade).
+    "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
 ]
@@ -1677,6 +1681,8 @@ depends_on = [
     "products.dashboards",
     "products.data_catalog",
     "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
     "products.product_analytics",
     "products.signals",
     "products.tasks",

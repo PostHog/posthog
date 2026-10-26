@@ -188,6 +188,25 @@ describe('MetricsViewer', () => {
         expect(await screen.findByText('Create a dashboard')).toBeInTheDocument()
     })
 
+    // The facet rail ships with the metrics product, so the product flag alone gates it.
+    it.each([
+        ['shows', true],
+        ['hides', false],
+    ])('%s the facet rail toggle when the metrics flag is %s', (_, metricsEnabled) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.METRICS_DASHBOARD_PANELS]: true,
+            ...(metricsEnabled ? { [FEATURE_FLAGS.METRICS]: true } : {}),
+        })
+
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+
+        expect(document.querySelector('[data-attr="metrics-facet-rail-toggle"]') !== null).toBe(metricsEnabled)
+    })
+
     // Request windows resolve in the project timezone at fetch time, so a timezone change must
     // refetch, or the chart keeps data for the old window under labels in the new timezone.
     it('refetches the chart and anomaly for the new window when the project timezone changes', async () => {

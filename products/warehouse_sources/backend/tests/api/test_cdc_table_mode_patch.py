@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 
 pytestmark = [pytest.mark.django_db]
@@ -130,18 +131,21 @@ def _make_cdc_source_and_schema(
     return source, schema
 
 
-def _make_table(source: ExternalDataSource, name: str) -> DataWarehouseTable:
+def _make_table(source: ExternalDataSource, name: str, options: dict | None = None) -> DataWarehouseTable:
     return DataWarehouseTable.objects.create(
         team_id=source.team_id,
         external_data_source=source,
         name=name,
+        options=options or {},
         format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         url_pattern=f"https://bucket.example.com/{name}/",
     )
 
 
 def _make_history_table(source: ExternalDataSource, schema: ExternalDataSchema) -> DataWarehouseTable:
-    history_table = _make_table(source, f"postgres_{companion_resource_name(schema.name)}")
+    history_table = _make_table(
+        source, f"postgres_{companion_resource_name(schema.name)}", options={HISTORY_TABLE_OPTION: True}
+    )
     if schema.cdc_table_mode == "cdc_only":
         schema.table = history_table
         schema.save(update_fields=["table"])

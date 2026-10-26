@@ -102,6 +102,7 @@ describe('ClientWarningsPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         } as unknown as jest.Mocked<EventFilterManager>
 
         promiseScheduler = new PromiseScheduler()

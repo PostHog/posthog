@@ -1481,6 +1481,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             kinds=kinds,
             compact=compact,
             error=error,
+            bot_reply=bot_reply_actor is not None,
         )
         if error not in _REJECTED_PAYLOAD_ERRORS:
             return

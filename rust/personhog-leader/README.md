@@ -133,7 +133,15 @@ the writer (produce an unapplyable record).
 
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
-pipeline's limiter. The writer-side weld
+pipeline's limiter. They go through a dedicated fire-and-forget producer,
+not the changelog producer, because the warnings topic can live on a
+different cluster from the changelog. `INGESTION_WARNINGS_ENABLED`
+(default `false`) turns it on, and `INGESTION_WARNINGS_KAFKA_HOSTS`,
+`INGESTION_WARNINGS_KAFKA_TLS` and `INGESTION_WARNINGS_TOPIC` (default
+`clickhouse_ingestion_warnings`) name the destination. Enabled with no
+hosts set, the leader logs a warning and emits nothing. Health reads from
+`ingestion_warnings_emitter_enabled{reason}` and
+`ingestion_warnings_total{source="personhog-leader",outcome}`. The writer-side weld
 (`personhog-writer/tests/admission_weld.rs`) runs hostile property fixtures
 through these exact functions and the writer's real statement against live
 Postgres, asserting byte-exact round-trips.

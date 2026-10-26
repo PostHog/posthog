@@ -56,10 +56,14 @@ def companion_tables(schema: ExternalDataSchema) -> list[DataWarehouseTable]:
     )
     if not candidates:
         return []
+    # Registration marks every history table, so a marked record needs no ownership check.
+    marked = [candidate for candidate in candidates if candidate.is_history_table]
+    if marked:
+        return marked
 
-    # A source table such as `Orders_cdc` can resolve to the same table name, and a sibling that synced it
-    # owns that record. Its schema may not link it: in cdc_only mode the schema links its own history
-    # table instead. A sibling that never synced wrote nothing under the name.
+    # An unmarked record predates the marker. A source table such as `Orders_cdc` can resolve to the same
+    # table name, and a sibling that synced it owns that record. Its schema may not link it: in cdc_only
+    # mode the schema links its own history table instead. A sibling that never synced wrote nothing there.
     synced_siblings = (
         siblings.filter(source_id=source.id)
         .filter(Q(table_id__isnull=False) | Q(last_synced_at__isnull=False))

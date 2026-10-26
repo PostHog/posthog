@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -35,26 +36,34 @@ class TestWidgetAccess(BaseTest):
 
         self.assertIsNone(get_widget_product_access_error(entry, UserAccessControl(self.user, self.team)))
 
-    def test_registry_entry_denies_without_product_access(self) -> None:
-        entry = get_widget_registry_entry("error_tracking_list")
+    @parameterized.expand(
+        [
+            ("error_tracking_list", "error_tracking", "You do not have access to error tracking."),
+            ("metrics_table", "metrics", "You do not have access to metrics."),
+        ]
+    )
+    def test_registry_entry_denies_without_product_access(
+        self, widget_type: str, denied_resource: str, expected_message: str
+    ) -> None:
+        entry = get_widget_registry_entry(widget_type)
         assert entry is not None
 
         user_access_control = UserAccessControl(self.user, self.team)
         real_check = UserAccessControl.check_access_level_for_resource
 
-        def deny_error_tracking_only(resource: APIScopeObject, required_level: AccessControlLevel = "viewer") -> bool:
-            if resource == "error_tracking":
+        def deny_one_resource(resource: APIScopeObject, required_level: AccessControlLevel = "viewer") -> bool:
+            if resource == denied_resource:
                 return False
             return real_check(user_access_control, resource, required_level)
 
         with patch.object(
             user_access_control,
             "check_access_level_for_resource",
-            side_effect=deny_error_tracking_only,
+            side_effect=deny_one_resource,
         ):
             self.assertEqual(
                 get_widget_product_access_error(entry, user_access_control),
-                "You do not have access to error tracking.",
+                expected_message,
             )
 
     def test_check_widget_tile_product_access_denies_unknown_widget_type(self) -> None:
@@ -74,17 +83,25 @@ class TestWidgetAccess(BaseTest):
 
         self.assertIsNone(get_widget_api_scope_error(entry, request))
 
-    def test_get_widget_api_scope_error_denies_missing_scope_on_pat(self) -> None:
-        entry = get_widget_registry_entry("error_tracking_list")
+    @parameterized.expand(
+        [
+            ("error_tracking_list", ["dashboard:read"], "error_tracking:read"),
+            ("metrics_table", ["dashboard:read", "query:read"], "metrics:read"),
+        ]
+    )
+    def test_get_widget_api_scope_error_denies_missing_scope_on_pat(
+        self, widget_type: str, key_scopes: list[str], missing_scope: str
+    ) -> None:
+        entry = get_widget_registry_entry(widget_type)
         assert entry is not None
         authenticator = PersonalAPIKeyAuthentication()
-        authenticator.personal_api_key = PersonalAPIKey(scopes=["dashboard:read"])
+        authenticator.personal_api_key = PersonalAPIKey(scopes=key_scopes)
         request = MagicMock()
         request.successful_authenticator = authenticator
 
         self.assertEqual(
             get_widget_api_scope_error(entry, request),
-            "API key missing required scope 'error_tracking:read'",
+            f"API key missing required scope '{missing_scope}'",
         )
 
     def test_get_widget_api_scope_error_allows_write_scope_for_read_requirement(self) -> None:

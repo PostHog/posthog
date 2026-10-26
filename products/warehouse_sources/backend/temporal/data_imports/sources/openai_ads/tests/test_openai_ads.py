@@ -102,8 +102,17 @@ class TestInsights:
 
         assert ids == ["start=1777075200:end=1777161600:entity_id=cmpn_1"] * 2
 
+    @parameterized.expand(
+        [
+            ("recent_watermark", datetime(2026, 7, 1, tzinfo=UTC), "2026-07-01"),
+            ("first_sync", None, "2025-07-22"),
+            ("watermark_older_than_reporting_history", datetime(2024, 3, 1, tzinfo=UTC), "2025-07-22"),
+        ]
+    )
     @time_machine.travel("2026-07-21", tick=False)
-    def test_checkpoint_pins_the_window_alongside_the_cursor(self) -> None:
+    def test_checkpoint_pins_the_window_alongside_the_cursor(
+        self, _name: str, watermark: datetime | None, expected_since: str
+    ) -> None:
         result = _driver().run(
             "campaign_insights",
             [
@@ -111,12 +120,12 @@ class TestInsights:
                 _page([{"id": "b1", "start_time": 1, "end_time": 2}], has_more=True, last_id="b1"),
                 _page([{"id": "b2", "start_time": 2, "end_time": 3}], has_more=False, last_id="b2"),
             ],
-            db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
+            db_incremental_field_last_value=watermark,
             should_use_incremental_field=True,
         )
 
         assert result.raised is None
-        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since="2026-07-01", until="2026-07-21")]
+        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-21")]
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self) -> None:
