@@ -408,6 +408,7 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
             ("not_json", "not json"),
             ("scalar", "5"),
             ("group_without_values", json.dumps({"type": "AND"})),
+            ("integer_past_the_digit_limit", "[" + "1" * 5000 + "]"),
         ]
     )
     def test_malformed_filter_group_param_means_no_filter(self, _name, filter_group):

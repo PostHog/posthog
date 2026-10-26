@@ -1514,7 +1514,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def _filter_group_from_query_params(request: Request) -> PropertyGroupFilter | None:
         try:
             filter_group = json.loads(request.GET.get("filterGroup") or "null")
-        except json.JSONDecodeError:
+        except ValueError:
             return None
         if not isinstance(filter_group, dict | list) or not filter_group:
             return None
