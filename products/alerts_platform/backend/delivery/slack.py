@@ -7,6 +7,7 @@ message becomes blocks.
 
 from typing import Any, Final
 
+import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
@@ -24,9 +25,17 @@ from posthog.slack.channels import (
 )
 from posthog.slack.formatting import escape_slack_mrkdwn
 
+from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, MessageDetail
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertEventKind,
+    MessageDetail,
+    SlackMessageContent,
+)
+
+logger = structlog.get_logger(__name__)
 
 PROVIDER: Final = "slack"
 
@@ -84,8 +93,38 @@ def _without_images(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [block for block in blocks if block.get("type") != "image"]
 
 
-def _refused_image(error: SlackApiError, blocks: list[dict[str, Any]]) -> bool:
-    return error.response.get("error") == IMAGE_REFUSAL and len(_without_images(blocks)) < len(blocks)
+def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
+    renderer = slack_renderer_for(message.source)
+    if renderer is not None:
+        try:
+            content = renderer(
+                team_id=team_id,
+                transition=message.transition,
+                alert_name=message.alert_name,
+                alert_url=message.alert_url,
+                project=message.project,
+                image=message.image,
+            )
+            if content is not None:
+                return content
+        except Exception:
+            logger.exception("alerts_platform.slack_renderer_failed", source=message.source.value)
+    return SlackMessageContent(text=escape_slack_mrkdwn(message.title), blocks=blocks_for(message))
+
+
+def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
+    return SlackMessageContent(
+        text=content.text,
+        blocks=_without_images(content.blocks),
+        attachments=[
+            {**attachment, "blocks": _without_images(attachment.get("blocks", []))}
+            for attachment in content.attachments
+        ],
+    )
+
+
+def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
+    return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
 
 def _with_state_line(blocks: list[dict[str, Any]], state_line: str) -> list[dict[str, Any]]:
@@ -116,41 +155,41 @@ class SlackTransport:
             raise DeliveryError("This Slack destination is missing its workspace or channel.")
 
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
-        blocks = blocks_for(message)
-        # The one place the alert's name reaches mrkdwn: the header renders plain text.
-        text = escape_slack_mrkdwn(message.title)
+        content = content_for(team_id=team_id, message=message)
 
-        def post(blocks: list[dict[str, Any]]) -> Any:
+        def post(content: SlackMessageContent) -> Any:
             return post_message(
                 slack,
                 channel,
-                blocks,
-                text,
+                content.blocks,
+                content.text,
                 thread_ts=in_reply_to.external_ref.get("ts") if in_reply_to else None,
                 # A root edit notifies nobody, and a thread reply notifies only the people who follow
                 # the thread. So a resolve and a repeat firing also go to the channel, where legacy
                 # posted each one as a new message.
                 reply_broadcast=in_reply_to is not None
                 and message.transition.kind in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
+                **({"attachments": content.attachments} if content.attachments else {}),
             )
 
         try:
             try:
-                response = post(blocks)
+                response = post(content)
             except SlackApiError as error:
-                if not _refused_image(error, blocks):
+                if not _refused_image(error, content):
                     raise
-                blocks = _without_images(blocks)
-                response = post(blocks)
+                content = _without_image_content(content)
+                response = post(content)
         except SlackApiError as error:
-            # A refusal a person can fix, such as a channel the bot has left, rather than a
-            # transport failure a retry would clear.
             raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
-        # An opening message keeps what it posted, so an edit can restate it word for word.
-        root_content = {"blocks": blocks, "text": text} if in_reply_to is None else None
+        root_content = None
+        if in_reply_to is None:
+            root_content = {"blocks": content.blocks, "text": content.text}
+            if content.attachments:
+                root_content["attachments"] = content.attachments
         return MessageHandle(external_ref={"channel": channel, "ts": timestamp}, root_content=root_content)
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
@@ -160,18 +199,39 @@ class SlackTransport:
         if workspace_id is None or not channel or not ts or not root.root_content:
             raise DeliveryError("This Slack conversation has no opening message to edit.")
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
-        blocks = _with_state_line(root.root_content["blocks"], state_line)
-        # Screen readers read the fallback text rather than the blocks, so it carries the current
-        # state too.
-        text = f"{root.root_content['text']} ({state_line})"
+        original = root.root_content
+        attachments = original.get("attachments") or []
+        text = f"{original['text']} ({state_line})" if original["text"] else ""
+        if attachments:
+            attachments = [
+                *attachments[:-1],
+                {
+                    **attachments[-1],
+                    "blocks": _with_state_line(attachments[-1].get("blocks", []), state_line),
+                },
+            ]
+            blocks = original["blocks"]
+        else:
+            blocks = _with_state_line(original["blocks"], state_line)
+        content = SlackMessageContent(text=text, blocks=blocks, attachments=attachments)
+
+        def update(content: SlackMessageContent) -> None:
+            update_message(
+                slack,
+                channel,
+                ts,
+                content.blocks,
+                content.text,
+                **({"attachments": content.attachments} if content.attachments else {}),
+            )
+
         try:
             try:
-                update_message(slack, channel, ts, blocks, text)
+                update(content)
             except SlackApiError as error:
-                # A chart URL expires, so an edit long after the opening message can lose it.
-                if not _refused_image(error, blocks):
+                if not _refused_image(error, content):
                     raise
-                update_message(slack, channel, ts, _without_images(blocks), text)
+                update(_without_image_content(content))
         except SlackApiError as error:
             raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
 

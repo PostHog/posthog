@@ -108,7 +108,9 @@ class TestInsightLegacyEvents(APIBaseTest):
             (event,) = self._emit(self._emission(detail={"breaches": breaches, **stored}))
 
         assert event.event_name == produce.call_args.kwargs["event_name"]
-        assert event.properties == produce.call_args.kwargs["properties"]
+        expected = produce.call_args.kwargs["properties"]
+        assert {key: event.properties[key] for key in expected} == expected
+        assert event.properties["slack_alert_type"] == "Anomaly detected"
         # The URL opens the chart without a login, so it is minted for the user that rendered it.
         if "insight_chart_asset_id" in stored:
             assert mint.call_args.kwargs["chart"] == RenderedInsightChart(asset_id=7, render_user_id=3)

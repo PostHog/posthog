@@ -47,6 +47,13 @@ Reverting the code that registers a schedule does not remove one already registe
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 
+### Slack message formatting
+
+- Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.
+- Insight alert firings use the same attachment and control builders as their HogFunction templates.
+- Sources without a custom renderer, and insight transitions other than firings, use the platform's default layout.
+- The Slack transport preserves attachments for later message updates. If Slack rejects a chart image, it retries without the image and retains the remaining content.
+
 ### Turning a production deployment on
 
 A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what

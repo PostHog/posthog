@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageDetail,
     MessageImage,
     MessageLink,
+    SlackMessageContent,
 )
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
 
@@ -219,3 +220,47 @@ class TestSlackTransport(APIBaseTest):
 
         with pytest.raises(DeliveryError):
             self._send(target=target)
+
+
+class TestSlackAttachmentTransport(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_attachments_survive_send_retry_and_state_update(self, refuse_image: bool) -> None:
+        image = {"type": "image", "image_url": "https://example.com/chart.png", "alt_text": "Chart"}
+        actions = {
+            "type": "actions",
+            "elements": [
+                {"type": "button", "url": "https://example.com", "text": {"type": "plain_text", "text": "View"}}
+            ],
+        }
+        metadata = {
+            "color": "#D97706",
+            "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Limit exceeded"}}],
+        }
+        content = SlackMessageContent(text="", blocks=[], attachments=[metadata, {"blocks": [image, actions]}])
+        target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-SAMPLE"})
+        with (
+            patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer,
+            patch.object(SlackTransport, "_integration"),
+            patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as integration,
+        ):
+            renderer.return_value.return_value = content
+            post = integration.return_value.client.chat_postMessage
+            responses: list[Any] = [{"ts": "1700000000.1"}]
+            if refuse_image:
+                responses.insert(0, SlackApiError("invalid_blocks", {"error": "invalid_blocks"}))
+            post.side_effect = responses
+            transport = SlackTransport()
+            handle = transport.deliver(team_id=1, target=target, message=MESSAGE)
+            assert handle is not None
+            sent = post.call_args.kwargs["attachments"]
+            assert sent[0] == metadata
+            assert sent[1]["blocks"][-1] == actions
+            assert any(block["type"] == "image" for block in sent[1]["blocks"]) is not refuse_image
+            transport.edit_root(team_id=1, target=target, root=handle, state_line="Resolved")
+            updated = integration.return_value.client.chat_update.call_args.kwargs["attachments"]
+            assert updated[0] == metadata
+            assert updated[1]["blocks"][-1] == actions
+            assert updated[1]["blocks"][-2]["elements"][0]["text"] == "Resolved"
+            assert handle.root_content is not None
+            assert handle.root_content["attachments"] == sent
+            assert content.attachments[1]["blocks"] == [image, actions]

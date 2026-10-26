@@ -597,6 +597,7 @@ def _decide(
         query_duration_ms=duration_ms,
         firing=(alert, result.breaches or []),
         check_detail=detector_detail(result) if alert.detector_config else None,
+        breach_details=(result.triggered_metadata or {}).get("breach_details"),
     )
 
 
@@ -733,10 +734,12 @@ def _decide_grouped(
     if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
         # The row `decide_groups` judged for each key: the first, unless a later one breaches and it did not.
         breaches: dict[str, list[str]] = {}
+        details_by_key: dict[str, list[dict[str, str]]] = {}
         for series in evaluated.series:
             key, found = bounded_grouping_key(series.identity), series.result.breaches or []
             if key not in breaches or (found and not breaches[key]):
                 breaches[key] = found
+                details_by_key[key] = (series.result.triggered_metadata or {}).get("breach_details", [])
         wants_chart = _wants_chart(check, alert)
         decision = replace(
             decision,
@@ -746,7 +749,10 @@ def _decide_grouped(
                     group=replace(
                         verdict.group,
                         source_detail=_detail(
-                            alert, breaches.get(verdict.group.grouping_key, []), wants_chart=wants_chart
+                            alert,
+                            breaches.get(verdict.group.grouping_key, []),
+                            wants_chart=wants_chart,
+                            breach_details=details_by_key.get(verdict.group.grouping_key),
                         ),
                     ),
                 )
@@ -765,10 +771,14 @@ def _decide_grouped(
 
 
 def _firing_detail(
-    check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
+    check: PlatformAlertCheckInput,
+    alert: AlertConfiguration,
+    breaches: Sequence[str],
+    *,
+    breach_details: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert))
+    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert), breach_details=breach_details)
 
 
 def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
@@ -811,7 +821,13 @@ def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _detail(alert: AlertConfiguration, breaches: Sequence[str], *, wants_chart: bool) -> dict[str, Any]:
+def _detail(
+    alert: AlertConfiguration,
+    breaches: Sequence[str],
+    *,
+    wants_chart: bool,
+    breach_details: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
         "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
@@ -819,6 +835,8 @@ def _detail(alert: AlertConfiguration, breaches: Sequence[str], *, wants_chart: 
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),
     }
+    if breach_details:
+        detail["breach_details"] = breach_details[:5]
     if wants_chart:
         detail[CHART_PENDING_KEY] = str(alert.id)
     return detail
@@ -861,13 +879,14 @@ def _verdict(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
     context: dict[str, Any] | None = None,
     check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
     source_detail: dict[str, Any] | None
     if firing is not None and outcome.notification == NotificationAction.FIRE:
-        source_detail = _firing_detail(check, *firing)
+        source_detail = _firing_detail(check, *firing, breach_details=breach_details)
     elif outcome.notification != NotificationAction.NONE:
         source_detail = context
     else:

@@ -1,5 +1,9 @@
 import json
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
+
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -7,6 +11,8 @@ from parameterized import parameterized
 
 from products.alerts.backend.logic.insight_alert_destinations import _slack_attachments
 from products.alerts.backend.logic.insight_alert_message import insight_alert_slack_properties
+from products.alerts.backend.platform_alert_slack import render_insight_slack_message
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
 from products.cdp.backend.validation import generate_template_bytecode
 
 from common.hogvm.python.execute import execute_bytecode
@@ -111,3 +117,40 @@ class TestInsightAlertMessage(SimpleTestCase):
         timing = properties["slack_alert_timing"]["text"]["text"]
         assert first in timing
         assert last in timing
+
+    def test_native_message_links_to_the_insight_that_fired(self) -> None:
+        current_alert = SimpleNamespace(
+            insight=SimpleNamespace(short_id="new-insight"), team=SimpleNamespace(name="Example project")
+        )
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        transition = AnnouncedTransition(
+            grouping_key="",
+            kind=AlertEventKind.FIRING,
+            episode_started_at=now,
+            value=240,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=now,
+            source_detail={"alert_id": "00000000-0000-4000-8000-000000000001", "insight_short_id": "original-insight"},
+        )
+        with (
+            patch("products.alerts.backend.platform_alert_slack.AlertConfiguration.objects") as alerts,
+            patch(
+                "products.alerts.backend.platform_alert_slack.insight_transition_properties",
+                return_value=self._properties(),
+            ),
+        ):
+            alerts.select_related.return_value.filter.return_value.first.return_value = current_alert
+            content = render_insight_slack_message(
+                team_id=1,
+                transition=transition,
+                alert_name="Example alert",
+                alert_url="https://example.com/alert",
+                project=None,
+                image=None,
+            )
+        assert content is not None
+        insight_link = content.attachments[1]["blocks"][-1]["elements"][1]["url"]
+        assert insight_link.endswith("/insights/original-insight")

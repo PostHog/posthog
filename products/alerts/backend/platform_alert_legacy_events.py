@@ -14,12 +14,12 @@ from collections.abc import Sequence
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
-from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import RenderedInsightChart, detector_verdict_event_fields, insight_chart_url
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_alert_slack import insight_transition_properties
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -82,8 +82,7 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
     properties: dict[str, Any] = {
-        **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
-        "breaches": "\n".join(detail.get("breaches") or []),
+        **insight_transition_properties(alert, transition),
         **detector_verdict_event_fields(detail.get("triggered_metadata")),
     }
     if chart_url := insight_chart_url_of(alert.team_id, detail):

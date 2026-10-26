@@ -1402,6 +1402,26 @@ class SourceDescriber(Protocol):
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
 
 
+@frozen
+class SlackMessageContent:
+    text: str
+    blocks: list[dict[str, Any]]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+
+
+class SourceSlackRenderer(Protocol):
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        transition: AnnouncedTransition,
+        alert_name: str,
+        alert_url: str,
+        project: MessageLink | None,
+        image: MessageImage | None,
+    ) -> SlackMessageContent | None: ...
+
+
 class SourceImageResolver(Protocol):
     """The picture a message shows for a transition, such as an insight's chart, or None.
 
