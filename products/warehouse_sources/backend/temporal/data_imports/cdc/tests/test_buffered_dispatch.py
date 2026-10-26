@@ -15,6 +15,7 @@ _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
 _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
+_HISTORY_TABLE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
 
 
 def _schema(**overrides) -> MagicMock:
@@ -89,6 +90,8 @@ def _dispatch(
         patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
+        # No history table is registered, so a history mode gets the naming a new table is created with.
+        patch(f"{_HISTORY_TABLE}.registered_history_naming", return_value=None),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
