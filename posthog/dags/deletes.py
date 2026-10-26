@@ -1303,6 +1303,7 @@ def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) ->
 
 _TEAM_PRODUCT_DOCUMENTS_PREDICATE = "team_id = %(team_id)s AND product = %(product)s"
 _MUTATION_POLL_SECONDS = 15.0
+_DOCUMENT_COUNT_MAX_EXECUTION_TIME = 300
 
 
 def _team_product_document_tables(cluster: ClickhouseCluster) -> list[str]:
@@ -1315,12 +1316,25 @@ def _team_product_document_tables(cluster: ClickhouseCluster) -> list[str]:
 
 
 def _count_documents_per_table(
-    cluster: ClickhouseCluster, tables: list[str], predicate: str, parameters: dict[str, str | int]
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    tables: list[str],
+    parameters: dict[str, str | int],
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in tables:
-        query = Query(f"SELECT count() FROM {settings.CLICKHOUSE_DATABASE}.{table} WHERE {predicate}", parameters)
-        counts[table] = sum(rows[0][0] for rows in cluster.map_one_host_per_shard(query).result().values() if rows)
+        count = _count_through(
+            context,
+            partial(_rows_per_shard, cluster),
+            f"{settings.CLICKHOUSE_DATABASE}.{table}",
+            parameters,
+            _DOCUMENT_COUNT_MAX_EXECUTION_TIME,
+            predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
+        )
+        # A count that did not finish proves nothing either way, so it must not read as zero.
+        if count is None:
+            raise dagster.Failure(description=f"Could not count the documents in {table}")
+        counts[table] = count
     return counts
 
 
@@ -1353,7 +1367,7 @@ def delete_team_product_documents(
 
     # The delete and the survivor count read the same product value, so a misspelled product
     # deletes nothing and still reports zero survivors. Refuse it before deleting instead.
-    found = _count_documents_per_table(cluster, tables, _TEAM_PRODUCT_DOCUMENTS_PREDICATE, parameters)
+    found = _count_documents_per_table(context, cluster, tables, parameters)
     context.add_output_metadata({"documents_found": dagster.MetadataValue.json(found)})
     if not any(found.values()):
         products: set[str] = set()
@@ -1379,7 +1393,9 @@ def delete_team_product_documents(
             predicate=_TEAM_PRODUCT_DOCUMENTS_PREDICATE,
             parameters=parameters,
             reuse_since=reuse_floor,
-            capacity_timeout=config.timeout_seconds,
+            # The runners start one after another, so each gets only what is left of the shared deadline.
+            # A zero timeout means no limit, so the floor keeps an expired deadline from lifting it.
+            capacity_timeout=max(1.0, deadline - time.monotonic()),
         )
         for host, mutation in cluster.map_one_host_per_shard(runner).result().items():
             if host.shard_num is not None:
@@ -1394,7 +1410,7 @@ def delete_team_product_documents(
         }
     ).result()
 
-    surviving = _count_documents_per_table(cluster, tables, _TEAM_PRODUCT_DOCUMENTS_PREDICATE, parameters)
+    surviving = _count_documents_per_table(context, cluster, tables, parameters)
     context.add_output_metadata({"surviving_documents": dagster.MetadataValue.json(surviving)})
     if any(surviving.values()):
         raise dagster.Failure(
