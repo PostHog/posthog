@@ -281,8 +281,8 @@ export const FEATURE_FLAGS = {
     CLEARABLE_NOTIFICATIONS: 'clearable-notifications', // owner: @jordanm-posthog #team-web-analytics
     CODE_BADGE_SELF_DRIVING_LABEL: 'code-badge-self-driving-label', // owner: #team-self-driving, experiment: label the Code badge "Self-driving" and compare setup activations
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
-    COMMAND_K_PERSONS_FIRST_FOR_EMAIL: 'command-k-persons-first-for-email', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: show Persons right below Results when a Command K search contains "@"
     COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no query/groups/last_error_message/experiment_set; filters is kept)
+    COMMAND_K_PERSONS_FIRST_FOR_EMAIL: 'command-k-persons-first-for-email', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: show Persons right below Results when a Command K search contains "@"
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -502,7 +502,6 @@ export const FEATURE_FLAGS = {
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_SCANNER_DASHBOARD: 'replay-vision-scanner-dashboard', // owner: #team-replay, one-click dashboard offer on the scanner overview and its MCP tool
-    REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT: 'replay-vision-watch-in-list-experiment-v2', // owner: #team-replay multivariate=control,in-list. Compare the variant string, a truthy check turns on for control too
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
     REVIEW_HOG: 'review-hog', // owner: #team-devex, gates the Code review menu entry, scene, and API access
