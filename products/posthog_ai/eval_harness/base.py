@@ -4,6 +4,7 @@ import os
 import time
 import uuid
 import asyncio
+import hashlib
 import logging
 import traceback
 from collections.abc import Callable, Sequence
@@ -27,6 +28,7 @@ from psycopg import OperationalError as PsycopgOperationalError
 from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
+from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext, TurnPollTimeout
 
 from .acp_log import ParsedLog, parse_log
@@ -40,7 +42,7 @@ from .harness.trial_stats import trial_stats
 from .log_parser import describe_tool_use
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .offline_results import OfflineEvalPublisher, OfflineEvalSettings, OfflineEvalSuite, OfflineUploadError
-from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
+from .runner import AgentNeverRanError, EvalCaseResult, SandboxedCaseRunner, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
@@ -248,12 +250,17 @@ class _BaseEvalRun:
 
     def _experiment_metadata(self) -> RunMetadata:
         """The run's configuration, sent to the engine and stamped on every PostHog event."""
-        return {
+        metadata: RunMetadata = {
             "agent_model": self.ctx.agent_model,
             "trials": self.ctx.trials,
             "git_sha": self.ctx.git_sha,
             "git_dirty": self.ctx.git_dirty,
         }
+        if self.ctx.skills_sha256 is not None:
+            metadata["skills_sha256"] = self.ctx.skills_sha256
+        if self.ctx.skills_source_sha256 is not None:
+            metadata["skills_source_sha256"] = self.ctx.skills_source_sha256
+        return metadata
 
     async def _task(self, input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any] | None:
         case_started = time.monotonic()
@@ -616,6 +623,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         no_send_logs: bool,
         offline_suite: OfflineEvalSuite | None = None,
         send_to_posthog: bool | None = None,
+        case_runner: SandboxedCaseRunner | None = None,
     ) -> None:
         if any(isinstance(scorer, ExitCodeZero) for scorer in scorers):
             raise ValueError("ExitCodeZero is added by the sandboxed eval harness; remove it from scorers")
@@ -639,6 +647,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         self._provider_strategy = ctx.provider_strategy
         self._demo_data = ctx.demo_data
         self._sandbox_slots = ctx.sandbox_slots
+        self._case_runner = case_runner
 
     def _case_input(self, case: BaseEvalCase) -> dict[str, Any]:
         assert isinstance(case, SandboxedEvalCase)
@@ -672,12 +681,27 @@ class _SandboxedEvalRun(_BaseEvalRun):
                                 self.ctx.skill_delivery == "exec"
                                 or bool(original_case and original_case.disable_bundled_skills)
                             ),
+                            inherit_demo_data=original_case.inherit_demo_data if original_case is not None else True,
                         ),
                     )
                     if original_case is not None and original_case.interaction_origin:
                         sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
                     elif self.ctx.skill_delivery == "exec":
                         sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
+                    if sandbox_context.interaction_origin == "posthog_ai":
+                        prompt = PromptService.build()
+                        sandbox_context = replace(
+                            sandbox_context,
+                            system_prompt={
+                                "type": prompt["type"],
+                                "preset": prompt["preset"],
+                                "append": prompt["append"],
+                            },
+                        )
+                        if hooks is not None:
+                            hooks.metadata["system_prompt_sha256"] = hashlib.sha256(
+                                orjson.dumps(sandbox_context.system_prompt, option=orjson.OPT_SORT_KEYS)
+                            ).hexdigest()
                     seed = (
                         await _run_setup_step(partial(original_case.setup, sandbox_context))
                         if original_case is not None and original_case.setup is not None
@@ -727,7 +751,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 with suppress(Exception):
                     await self._set_case_phase(hooks, "agent")
                 result = await asyncio.wait_for(
-                    run_eval_case(
+                    (self._case_runner or run_eval_case)(
                         eval_case,
                         prepared.context,
                         provider=self._provider_strategy,
@@ -875,6 +899,7 @@ async def SandboxedEval(
     no_send_logs: bool = True,
     offline_suite: OfflineEvalSuite | None = None,
     send_to_posthog: bool | None = None,
+    case_runner: SandboxedCaseRunner | None = None,
 ) -> ExperimentResult:
     """Run a sandboxed agent evaluation suite via Braintrust.
 
@@ -900,6 +925,7 @@ async def SandboxedEval(
         no_send_logs=no_send_logs,
         offline_suite=offline_suite,
         send_to_posthog=send_to_posthog,
+        case_runner=case_runner,
     )
     return await run.run()
 

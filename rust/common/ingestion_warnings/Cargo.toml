@@ -16,9 +16,11 @@ chrono = { workspace = true }
 common-kafka = { path = "../kafka" }
 common-types = { path = "../types" }
 governor = { workspace = true }
+lifecycle = { path = "../lifecycle" }
 metrics = { workspace = true }
 rdkafka = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 

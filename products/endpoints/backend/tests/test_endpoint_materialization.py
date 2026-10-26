@@ -18,6 +18,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 
 from posthog.hogql.errors import QueryError
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -491,29 +492,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn("Unresolved placeholder", str(response.json()))
-
-    def test_compare_mode_materialization_requires_rollout_flag(self):
-        endpoint = create_endpoint_with_version(
-            name="test_compare_mode_rollout",
-            team=self.team,
-            query=self._trends_query(compareFilter={"compare": True}),
-            created_by=self.user,
-        )
-
-        with mock.patch(
-            "products.endpoints.backend.models.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as feature_enabled_mock:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"is_materialized": True, "data_freshness_seconds": 86400},
-                format="json",
-            )
-
-        feature_enabled_mock.assert_called_once()
-        self.assertEqual(feature_enabled_mock.call_args.args[0], "endpoints-materialized-compare-mode")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Compare mode is not supported", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -1419,9 +1397,85 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query_sql = query_payload["query"].lower()
             # Should select from the materialized table name
             self.assertIn("trends_breakdown_materialized", query_sql)
-            # Should filter by the breakdown value using has() for array column
-            self.assertIn("has(breakdown_value", query_sql)
+            # A single `breakdown` stores breakdown_value as a scalar, so the filter is an equality
+            self.assertIn("equals(breakdown_value, 'chrome')", query_sql)
             self.assertIn("chrome", query_sql)
+
+    @parameterized.expand(
+        [
+            ("single_breakdown", {"breakdown": "$browser", "breakdown_type": "event"}, {"$browser": "Chrome"}),
+            ("breakdowns_one", {"breakdowns": [{"property": "$browser", "type": "event"}]}, {"$browser": "Chrome"}),
+            (
+                "breakdowns_two",
+                {"breakdowns": [{"property": "$browser", "type": "event"}, {"property": "$os", "type": "event"}]},
+                {"$browser": "Chrome", "$os": "Mac OS X"},
+            ),
+        ]
+    )
+    def test_materialized_breakdown_filter_matches_stored_column_type(
+        self, _name: str, breakdown_filter: dict[str, Any], variables: dict[str, str]
+    ) -> None:
+        for distinct_id, browser, os in [("u1", "Chrome", "Mac OS X"), ("u2", "Firefox", "Windows")]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                properties={"$browser": browser, "$os": os},
+            )
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name=f"breakdown_filter_{_name}",
+            team=self.team,
+            query=self._trends_query(breakdownFilter=breakdown_filter),
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        saved_query = endpoint.versions.get().saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now()
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=saved_query.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/breakdown-filter",
+        )
+        saved_query.save()
+
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"variables": variables},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        materialized_sql = mock_exec.call_args[0][0]["query"]["query"]
+
+        # Swap the table for the HogQL it materializes, so the filter meets the real breakdown_value type.
+        self.assertIn(f"FROM {saved_query.name} ", materialized_sql)
+        result = execute_hogql_query(
+            materialized_sql.replace(f"FROM {saved_query.name} ", f"FROM ({saved_query.query['query']}) "),
+            team=self.team,
+        )
+
+        assert result.columns is not None
+        breakdown_index = result.columns.index("breakdown_value")
+        breakdown_values = [row[breakdown_index] for row in result.results]
+        expected = list(variables.values())
+        self.assertEqual(
+            breakdown_values,
+            [expected[0] if "breakdown" in breakdown_filter else expected],
+        )
 
     def test_materialized_insight_filters_override_without_value_does_not_bypass_required_breakdown(self):
         # SECURITY: a filters_override whose property carries no usable value adds no WHERE clause

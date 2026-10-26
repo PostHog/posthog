@@ -139,6 +139,7 @@ PRODUCTS_APPS = [
     "products.groups.backend.apps.GroupsConfig",
     "products.subscriptions.backend.apps.SubscriptionsConfig",
     "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
+    "products.authorization.backend.apps.AuthorizationConfig",
 ]
 
 INSTALLED_APPS = [
@@ -848,6 +849,7 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
+            "MetricsTableWidgetTypeEnum": ["metrics_table"],
         }
     ),
 }

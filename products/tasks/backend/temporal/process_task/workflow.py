@@ -1944,6 +1944,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
                 stream_generation=self._stream_generation,
+                launches_agent=True,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
