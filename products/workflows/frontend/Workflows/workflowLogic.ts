@@ -29,7 +29,12 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsCreate,
+    hogFlowsResumeEmailSending,
+    hogFlowsSchedulesList,
+    hogFlowsSchedulesPartialUpdate,
+} from 'products/workflows/frontend/generated/api'
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
@@ -4489,9 +4494,15 @@ export const workflowLogic = kea<workflowLogicType>([
                         } else if (pendingSchedule !== null) {
                             // An empty currentSchedule does not prove the workflow has none: the
                             // schedules read on load can still be in flight, or can have failed.
-                            const saved = await api.hogFlows.getHogFlowSchedules(workflowId)
+                            const projectId = String(values.currentProjectId)
+                            const saved = await hogFlowsSchedulesList(projectId, workflowId)
                             if (saved[0]) {
-                                await api.hogFlows.updateHogFlowSchedule(workflowId, saved[0].id, pendingSchedule)
+                                await hogFlowsSchedulesPartialUpdate(
+                                    projectId,
+                                    workflowId,
+                                    saved[0].id,
+                                    pendingSchedule
+                                )
                             } else {
                                 await api.hogFlows.createHogFlowSchedule(workflowId, pendingSchedule)
                             }

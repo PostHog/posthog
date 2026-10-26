@@ -402,10 +402,11 @@ describe('workflowLogic schedules', () => {
                         schedulesReads += 1
                         return schedulesReads === 1 ? [500, {}] : [200, [makeSchedule()]]
                     },
+                    '/api/projects/:team_id/hog_flows/:id/schedules/': () => [200, [makeSchedule()]],
                 },
                 patch: {
                     '/api/environments/:team_id/hog_flows/:id/': workflow,
-                    '/api/environments/:team_id/hog_flows/:id/schedules/:schedule_id/': async ({ request }) => {
+                    '/api/projects/:team_id/hog_flows/:id/schedules/:schedule_id/': async ({ request }) => {
                         updatedRrule = ((await request.json()) as { rrule?: string }).rrule ?? null
                         return [200, makeSchedule()]
                     },
