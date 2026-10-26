@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models import OrganizationMembership, User
 
@@ -109,6 +110,22 @@ class TestReviewerExclusionAPI(APIBaseTest):
         assert repeated.status_code == status.HTTP_200_OK
         assert repeated.json()["exclusion"]["id"] == retried.json()["exclusion"]["id"]
         assert SignalReviewerExclusion.objects.for_team(self.team.id).count() == 1
+
+    def test_repeat_after_linking_github_returns_the_same_instruction(self) -> None:
+        payload = {"instruction": "I moved teams.", "repository": "org/app"}
+        created = self.client.post(self.url, payload, format="json")
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="1", extra_data={"login": "Member-GH"})
+
+        repeated = self.client.post(self.url, payload, format="json")
+
+        assert (created.status_code, repeated.status_code) == (status.HTTP_201_CREATED, status.HTTP_200_OK)
+        assert repeated.json()["exclusion"]["id"] == created.json()["exclusion"]["id"]
+        assert (
+            SignalReviewerExclusion.objects.for_team(self.team.id)
+            .filter(status=SignalReviewerExclusion.Status.ACTIVE)
+            .count()
+            == 1
+        )
 
     def test_failed_save_without_a_report_is_an_error(self) -> None:
         with patch(
