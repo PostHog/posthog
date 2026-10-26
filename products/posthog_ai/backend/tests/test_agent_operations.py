@@ -231,6 +231,16 @@ class TestAgentOperationsAPI(APIBaseTest):
         if state == "needs_input":
             assert body["question"] == "Which plan?"
 
+    def test_ai_rate_limits_apply_to_starting_work_and_not_to_status_reads(self):
+        operation_id = self._start().json()["id"]
+
+        reads = [self.client.get(f"{self.url}{operation_id}/").status_code for _ in range(15)]
+        with patch(f"{SERVICE}.MAX_ACTIVE_OPERATIONS_PER_USER", 20):
+            starts = [self._start(client_request_id=f"req-{i}").status_code for i in range(2, 12)]
+
+        assert reads == [200] * 15
+        assert starts == [201] * 9 + [429]
+
     def test_deadline_expires_and_stops_the_run(self):
         operation_id = self._start().json()["id"]
         AgentOperation.objects.for_team(self.team.id).filter(id=operation_id).update(
