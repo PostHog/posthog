@@ -48,7 +48,7 @@ If a rule only matters while merging a PR, writing a migration, or building a wo
 Measured across 100 popular repositories ([2606.15828](https://arxiv.org/abs/2606.15828)). Prevalence in brackets.
 
 - **Lint leakage [62%]** — the rule restates what a linter already blocks. This is the most common failure by a wide margin. Do not delete the reasoning, but cut it to the reason plus the rule id, and tag it. CI is the check; the prose is only the why.
-- **Context bloat [42%]** — content that does not apply to most sessions. Environment-specific setup, product documentation, anything a `docs/` page should hold. Target is under 200 lines.
+- **Context bloat [42%]** — content that does not apply to most sessions. Environment-specific setup, product documentation, anything a `docs/` page should hold. `test_agents_md_size_budget.py` caps the root file in bytes. Lower the cap when you trim the file.
 - **Skill leakage [35%]** — task-specific instructions sitting in the always-loaded file instead of a skill.
 - **Conflicting instructions [28%]** — two rules that disagree, often because one aged. Grep for the other statement before you add yours.
 - **Init fossilization [24%]** — text nobody has reviewed since it was generated. If you are editing near a stale rule, verify it still holds and fix it in the same diff.
@@ -115,4 +115,4 @@ grep -oE '\]\(([a-zA-Z0-9_./-]+\.md[^)]*)\)' AGENTS.md | sed 's/](//;s/)$//;s/#.
 hogli test posthog/test/repo_invariants/test_agents_md_enforcement_tags.py
 ```
 
-- The file got shorter, or you can say what the added characters buy every session in the repo.
+- The file got shorter, or you can say what the added characters buy every session in the repo. A raised byte budget in `test_agents_md_size_budget.py` needs that reason in the PR.
