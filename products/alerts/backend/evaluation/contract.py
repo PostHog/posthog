@@ -99,6 +99,18 @@ class AlertDataUnavailableError(AlertExtractionError):
     """This check lacks usable data; keep the alert enabled for future checks."""
 
 
+class AlertOwnerAccessError(AlertExtractionError):
+    """The query runs with the owner's access, and the owner can no longer run it.
+
+    Both evaluation stacks disable the alert for an `AlertExtractionError`, so this subclass only
+    lets a test or a log tell the owner case apart.
+    """
+
+
+CREATOR_LEFT_DISABLE_REASON = "The alert owner is no longer in the organization."
+CREATOR_LOST_ACCESS_DISABLE_REASON = "The alert owner no longer has access to some of the data it reads."
+
+
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 

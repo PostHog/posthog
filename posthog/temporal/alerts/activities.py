@@ -24,15 +24,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
-from posthog.hogql.errors import TableAccessDeniedError
-
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
-from posthog.query_creator_access import creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -279,16 +276,9 @@ _SLOT_POLL_SECONDS = 5.0
 
 _SLOT_LOST_ERROR_TYPE = "EvaluationSlotLost"
 
-CREATOR_LEFT_DISABLE_REASON = "The alert owner is no longer in the organization."
-CREATOR_LOST_ACCESS_DISABLE_REASON = "The alert owner no longer has access to some of the data it reads."
-
 
 class _EvaluationStopped(Exception):
     """Raised in the evaluation thread once its attempt's cancellation began, so it records nothing."""
-
-
-class _CreatorLeftOrganization(Exception):
-    pass
 
 
 async def _hold_evaluation_slot_before_running(alert_id: str, *, lease_seconds: float) -> float:
@@ -678,15 +668,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         alert_evaluation_result = None
 
         try:
-            # Disable the alert before the query runs when its owner left the organization.
-            # Do not wait for the query to fail: a query that reads no restricted table still succeeds.
-            # Alerts with no owner stay enabled. The platform delivers platform-owned alerts, so this check skips them.
-            if (
-                alert.created_by is not None
-                and not alert.platform_owned
-                and creator_access_revoked(alert.created_by, alert.team)
-            ):
-                raise _CreatorLeftOrganization()
             alert_evaluation_result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
             breaches = alert_evaluation_result.breaches
             if is_llm_detector_config(alert.detector_config):
@@ -716,23 +697,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
             invalid_configuration = str(err)
-        except _CreatorLeftOrganization:
-            invalid_configuration = CREATOR_LEFT_DISABLE_REASON
-        except TableAccessDeniedError as err:
-            if alert.created_by is not None and not alert.platform_owned:
-                # The owner is still a member, so the denial is their access, not a bug to capture.
-                invalid_configuration = CREATOR_LOST_ACCESS_DISABLE_REASON
-            else:
-                logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
-                capture_exception(
-                    err,
-                    additional_properties={
-                        "alert_configuration_id": str(alert.id),
-                        "insight_id": alert.insight_id,
-                        "team_id": alert.team_id,
-                    },
-                )
-                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(

@@ -49,8 +49,6 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
-    CREATOR_LEFT_DISABLE_REASON,
-    CREATOR_LOST_ACCESS_DISABLE_REASON,
     _evaluation_inputs_match,
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
@@ -79,7 +77,12 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -1286,8 +1289,9 @@ class TestEvaluateAlert:
             )()
 
         with (
+            # Patched under the real `check_alert_for_insight`, which turns the denial into the owner reason.
             patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                "products.alerts.backend.evaluation.dispatcher._check_alert_for_insight",
                 side_effect=TableAccessDeniedError("revenue"),
             ) as mock_check,
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
