@@ -74,6 +74,7 @@ import {
     hasUnsetConditionRollout,
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
+import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
 
@@ -106,6 +107,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const resultsCardsEnabled = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -465,6 +467,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             </>
                                         )}
                                     </LemonBanner>
+                                )}
+                                {resultsCardsEnabled && !runsBackfillId && (
+                                    <div className="mb-4">
+                                        <EvaluationDetailResults evaluationId={evaluation.id} />
+                                    </div>
                                 )}
                                 <EvaluationRunsTable />
                             </div>

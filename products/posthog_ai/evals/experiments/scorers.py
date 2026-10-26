@@ -57,13 +57,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from autoevals.llm import LLMClassifier
-
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, AsyncOnlyScorerMixin, JudgedScorer, LogParser
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.posthog_ai.eval_harness.scorers.judged import LocalLLMClassifier
 
 # Not the shared JUDGE_MODEL: these judges were baselined on gpt-4.1, and
-# swapping the model resets their Braintrust history.
+# swapping the model changes the scoring baseline.
 _JUDGE_MODEL = "gpt-4.1"
 
 
@@ -123,7 +122,7 @@ class DuplicateUniqueFlagKey(AsyncOnlyScorerMixin, Scorer):
         self._label = name
         # LLM judge for the no-call branch. Instantiated lazily to avoid
         # paying its setup cost on cases that take the deterministic path.
-        self._refusal_judge = LLMClassifier(
+        self._refusal_judge = LocalLLMClassifier(
             name=f"_internal_{name}_refusal",
             prompt_template="""
 You are judging whether an agent correctly refused to duplicate an experiment because it lacked a required unique feature_flag_key.

@@ -1,7 +1,15 @@
+import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { type PlaygroundChatListApi, type SandboxSearchApi, SandboxToolNameEnumApi } from '../../generated/api.schemas'
+import {
+    type BusinessKnowledgeDocumentsSearchListParams,
+    type BusinessKnowledgeDocumentsWindowListParams,
+    type KnowledgeSearchResultApi,
+    type PlaygroundChatListApi,
+    type SandboxSearchApi,
+    SandboxToolNameEnumApi,
+} from '../../generated/api.schemas'
 
 const DATE_GROUP_ORDER = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Older'] as const
 
@@ -15,6 +23,17 @@ export interface PlaygroundChatGroup {
 export interface PlaygroundSearchLabel {
     title: string
     subtitle: string | null
+}
+
+export type PlaygroundCitationRequest =
+    | { kind: 'search'; params: BusinessKnowledgeDocumentsSearchListParams }
+    | { kind: 'window'; documentId: string; params: BusinessKnowledgeDocumentsWindowListParams }
+
+export function errorDetail(error: unknown, fallback: string): string {
+    if (error instanceof ApiError && error.detail) {
+        return error.detail
+    }
+    return fallback
 }
 
 function dateGroupLabel(iso: string, now: dayjs.Dayjs): PlaygroundChatGroupLabel {
@@ -92,4 +111,62 @@ export function describeSearch(search: SandboxSearchApi): PlaygroundSearchLabel 
         return { title: 'Read file', subtitle: subtitle ?? (args ? null : search.input) }
     }
     return { title: 'Read document context', subtitle: args ? null : search.input }
+}
+
+/** Folded trace subtitle, such as "2 searches, 1 read". Null before the first call. */
+export function summarizeSearches(searches: SandboxSearchApi[]): string | null {
+    const reads = searches.filter(
+        (search) =>
+            search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentWindowRetrieve ||
+            search.tool === SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesFileRetrieve
+    ).length
+    const lookups = searches.length - reads
+    const parts = [
+        lookups > 0 ? `${lookups} ${lookups === 1 ? 'search' : 'searches'}` : null,
+        reads > 0 ? `${reads} ${reads === 1 ? 'read' : 'reads'}` : null,
+    ].filter((part): part is string => part !== null)
+    return parts.length > 0 ? parts.join(', ') : null
+}
+
+/** Source refs are free text the agent writes, so this matches loosely on source and document names. */
+export function isCitedChunk(
+    chunk: Pick<KnowledgeSearchResultApi, 'source_name' | 'document_title'>,
+    refs: string[]
+): boolean {
+    const names = [chunk.source_name, chunk.document_title].map((name) => name.trim().toLowerCase()).filter(Boolean)
+    return refs.some((ref) => {
+        const needle = ref.trim().toLowerCase()
+        return needle !== '' && names.some((name) => needle.includes(name) || name.includes(needle))
+    })
+}
+
+/** The request that fetches the chunks a document search or window read returned. Null for other tools. */
+export function citationRequest(search: SandboxSearchApi): PlaygroundCitationRequest | null {
+    const args = searchArguments(search)
+    if (search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentsSearch && typeof args?.query === 'string') {
+        return {
+            kind: 'search',
+            params: {
+                query: args.query,
+                ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
+                ...(typeof args.rerank === 'boolean' ? { rerank: args.rerank } : {}),
+                ...(typeof args.library_id === 'string' ? { library_id: args.library_id } : {}),
+            },
+        }
+    }
+    if (
+        search.tool === SandboxToolNameEnumApi.BusinessKnowledgeDocumentWindowRetrieve &&
+        typeof args?.id === 'string' &&
+        typeof args.around_ordinal === 'number'
+    ) {
+        return {
+            kind: 'window',
+            documentId: args.id,
+            params: {
+                around_ordinal: args.around_ordinal,
+                ...(typeof args.radius === 'number' ? { radius: args.radius } : {}),
+            },
+        }
+    }
+    return null
 }

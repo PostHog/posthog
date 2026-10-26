@@ -45,9 +45,13 @@ from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
+# A Trino model runs for hours, so at the ClickHouse limit a shadow run cannot get through its DAG before its timeout.
+TRINO_SHADOW_MAX_CONCURRENT_CHILDREN = 25
+TRINO_SHADOW_CONCURRENCY_PATCH = "data-modeling-trino-shadow-concurrency"
 
 TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
-TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=12)
+# Under a day, so a run that uses its whole budget still ends before the next daily shadow starts.
+TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=23)
 
 
 def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
@@ -329,7 +333,10 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
         # all levels to be a friendlier neighbor to managed warehouse and ClickHouse infrastructure
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHILDREN)
+        max_concurrent_children = MAX_CONCURRENT_CHILDREN
+        if managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_CONCURRENCY_PATCH):
+            max_concurrent_children = TRINO_SHADOW_MAX_CONCURRENT_CHILDREN
+        semaphore = asyncio.Semaphore(max_concurrent_children)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
