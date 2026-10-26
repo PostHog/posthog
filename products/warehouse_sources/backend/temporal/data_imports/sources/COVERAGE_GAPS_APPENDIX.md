@@ -7663,10 +7663,10 @@ Diffed against: <https://raw.githubusercontent.com/AdobeDocs/marketo-apis/main/s
 - [x] `Channels (GET /rest/asset/v1/channels.json)` — supply program statuses and success flags for conversion analysis (high). Added as `channels` (full refresh).
 - [x] `Program members (GET /rest/v1/programs/{programId}/members.json)` — measure program participation, member status, and marketing success by lead (high). Added as `program_members` (fan-out over programs in 7-day `updatedAt` windows from the start date, incremental on `updatedAt`).
 - [x] `List members (GET /rest/v1/lists/{listId}/leads.json)` — materialize static-list membership for audience and campaign analysis (high). Added as `list_members` (fan-out over static lists, full refresh).
-- [ ] `Opportunities (GET /rest/v1/opportunities.json)` — connect marketing activity with pipeline and revenue outcomes (high)
-- [ ] `Companies (GET /rest/v1/companies.json)` — resolve company references on leads for account-level marketing analysis (high)
-- [ ] `SalesPersons (GET /rest/v1/salespersons.json)` — resolve sales-owner references for lead routing and performance analysis (high)
-- [ ] `Opportunity roles (GET /rest/v1/opportunities/roles.json)` — join people to opportunities for revenue attribution (medium)
+- [ ] `Opportunities (GET /rest/v1/opportunities.json)` — connect marketing activity with pipeline and revenue outcomes (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalOpportunityId`, `marketoGUID` and custom string/integer fields, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `Companies (GET /rest/v1/companies.json)` — resolve company references on leads for account-level marketing analysis (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalCompanyId`, `id` and `company`, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `SalesPersons (GET /rest/v1/salespersons.json)` — resolve sales-owner references for lead routing and performance analysis (high). Skipped: a lookup by key, not a list. The endpoint requires `filterType` + `filterValues`, the only searchable fields are `externalSalesPersonId`, `id` and `email`, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
+- [ ] `Opportunity roles (GET /rest/v1/opportunities/roles.json)` — join people to opportunities for revenue attribution (medium). Skipped: a lookup by key, not a list. Like opportunities, the endpoint requires `filterType` + `filterValues` matched against the role's searchable fields, and Marketo documents no way to list every record and no `updatedAt` filter, so the collection can't be enumerated without already knowing every key.
 - [ ] `Custom objects (GET /rest/v1/customobjects/{customObjectName}.json)` — include account-specific business records linked to leads or companies (medium)
 - [ ] `NamedAccounts (GET /rest/v1/namedaccounts.json)` — analyze target accounts and account-based marketing coverage (medium)
 
@@ -8446,14 +8446,14 @@ Note: The API reference is a single large HTML page; extracted all /api/v2/\* pa
 
 ## Northflank — gaps
 
-Today (5): `addons`, `jobs`, `projects`, `services`, `volumes`
+Today (9): `addons`, `job_runs`, `jobs`, `plans`, `projects`, `service_builds`, `services`, `usage`, `volumes`
 
 Diffed against: <https://northflank.com/docs/sitemap.xml>
 
-- [ ] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
-- [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
-- [ ] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
-- [ ] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
+- [x] `GET /v1/projects/{projectId}/services/{serviceId}/build` — build history per service (status, branch, sha, timings) - deployment frequency and build-failure analysis (high)
+- [x] `GET /v1/projects/{projectId}/jobs/{jobId}/runs` — job run history with success/failure and durations; the jobs table alone has no execution record (high)
+- [x] `GET /v1/billing/usage` — hourly resource usage entries - the basis for cost attribution per project/service (high)
+- [x] `GET /v1/plans` — lookup table resolving the plan ids carried on every service, job, addon and volume already synced (vCPU, RAM, hourly cost) (high)
 - [ ] `GET /v1/projects/{projectId}/jobs/{jobId}/build` — build history for jobs, the job-side counterpart to service builds (medium)
 - [ ] `GET /v1/projects/{projectId}/workflows/{workflowId}/runs` — workflow execution history, the release automation audit trail (medium)
 - [ ] `GET /v1/projects/{projectId}/pipelines` — pipeline definitions that services and release flows belong to - the missing grouping dimension (medium)
