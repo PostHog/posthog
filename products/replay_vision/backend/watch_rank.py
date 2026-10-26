@@ -9,6 +9,7 @@ errors all the time does not fill the feed.
 
 import math
 import asyncio
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -393,26 +394,17 @@ def select_embedding_picks(
         )
         .filter(contrast_type="number")
     )
-    is_issue = Case(
-        When(watch_category__in=ISSUE_CATEGORIES, then=Value(1)), default=Value(0), output_field=IntegerField()
-    )
-    ranked = (
+    qualifying = (
         current_ranks.annotate(
             scanner_rows=Window(Count("id"), partition_by=[F("scanner_id")]),
             scanner_position=Window(
                 RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
             ),
-            # Each scanner's best row ranks 1, so the cap takes every scanner's best before any second-best.
-            scanner_rank=Window(
-                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.desc(), F("id").desc()]
-            ),
-            # A few rows per duplicate group reach the cap, enough for the ranker to pick a readable, unseen one.
-            group_position=Window(
-                RowNumber(), partition_by=[group_root], order_by=[is_issue.desc(), contrast.desc(), F("id").desc()]
-            ),
         )
         .annotate(
             watch_percentile=(F("scanner_position") - Value(0.5)) / Cast(F("scanner_rows"), FloatField()),
+            # Each scanner's best row ranks 1, so the cap takes every scanner's best before any second-best.
+            scanner_rank=F("scanner_rows") - F("scanner_position") + Value(1),
             # Reads a window value, so Django filters on it after the windows run rather than before.
             issue_scanner_rows=Case(
                 When(watch_category__in=ISSUE_CATEGORIES, then=F("scanner_rows")),
@@ -421,15 +413,20 @@ def select_embedding_picks(
             ),
             watch_group_root=group_root,
         )
-        .filter(
-            issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS,
-            watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE,
-            group_position__lte=WATCH_PICK_GROUP_CANDIDATES,
-        )
+        .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
         .order_by("scanner_rank", "-watch_percentile", "-created_at")
-        .values("id", "watch_percentile", "watch_group_root")[:cap]
+        .values("id", "watch_percentile", "watch_group_root")
     )
-    window_values = {row["id"]: row for row in ranked}
+    # A few rows per duplicate group reach the cap; a group never spans scanners, so this order meets its best first.
+    window_values: dict[Any, dict[str, Any]] = {}
+    group_rows: Counter[str] = Counter()
+    for row in qualifying.iterator():
+        if group_rows[row["watch_group_root"]] >= WATCH_PICK_GROUP_CANDIDATES:
+            continue
+        group_rows[row["watch_group_root"]] += 1
+        window_values[row["id"]] = row
+        if len(window_values) >= cap:
+            break
     if not window_values:
         return []
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
