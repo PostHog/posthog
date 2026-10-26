@@ -15,6 +15,11 @@
                         "type": "command",
                         "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/setup-flox.sh",
                         "timeout": 60
+                    },
+                    {
+                        "type": "command",
+                        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-context-hints.py",
+                        "timeout": 5
                     }
                 ]
             }
