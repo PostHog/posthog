@@ -330,6 +330,13 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
+export const ErrorTrackingBuiltInFiltersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('`true` drops matching exceptions for this project. `false` stops dropping them.'),
+})
+
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
