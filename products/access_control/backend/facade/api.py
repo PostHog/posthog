@@ -18,6 +18,7 @@ Do NOT:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from copy import copy
 from typing import cast
 from uuid import UUID
@@ -643,66 +644,66 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
     ):
         raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
 
+    requested_pairs = Q()
+    for key in requested:
+        requested_pairs |= Q(
+            resource=key.resource,
+            resource_id=key.resource_id,
+            organization_member_id=key.organization_member_id,
+            role_id=key.role_id,
+        )
     with transaction.atomic():
-        existing = {
-            _object_access_control_key(rule): rule
-            for rule in AccessControl.objects.select_for_update()
-            .filter(
-                team_id=team_id,
-                resource__in={input.resource for input in inputs},
-                resource_id__in={input.resource_id for input in inputs},
-            )
-            .order_by("id")
-            .filter(
-                Q(organization_member_id__in=member_ids, role__isnull=True)
-                | Q(organization_member__isnull=True, role_id__in=role_ids)
-            )
-        }
+        existing: dict[_ObjectAccessControlKey, list[AccessControl]] = defaultdict(list)
+        for existing_rule in (
+            AccessControl.objects.select_for_update().filter(requested_pairs, team_id=team_id).order_by("id")
+        ):
+            existing[_object_access_control_key(existing_rule)].append(existing_rule)
         created: list[AccessControl] = []
         updated: list[AccessControl] = []
         deleted_ids: list[UUID] = []
         entries: list[LogActivityEntry] = []
         now = timezone.now()
         for key, input in requested.items():
-            rule = existing.get(key)
-            before = copy(rule) if rule is not None else None
-            if before is not None:
-                before.team = team
-            if input.access_level is None:
-                if rule is None:
-                    continue
-                deleted_ids.append(rule.id)
-                activity = "deleted"
-                rule = None
-            elif rule is None:
-                rule = AccessControl(
-                    team=team,
-                    resource=input.resource,
-                    resource_id=input.resource_id,
-                    organization_member_id=input.organization_member_id,
-                    role_id=input.role_id,
-                    access_level=input.access_level,
-                    created_by_id=input.created_by_id,
+            matching_rules: list[AccessControl | None] = [*existing.get(key, [])] or [None]
+            for rule in matching_rules:
+                before = copy(rule) if rule is not None else None
+                if before is not None:
+                    before.team = team
+                if input.access_level is None:
+                    if rule is None:
+                        continue
+                    deleted_ids.append(rule.id)
+                    activity = "deleted"
+                    rule = None
+                elif rule is None:
+                    rule = AccessControl(
+                        team=team,
+                        resource=input.resource,
+                        resource_id=input.resource_id,
+                        organization_member_id=input.organization_member_id,
+                        role_id=input.role_id,
+                        access_level=input.access_level,
+                        created_by_id=input.created_by_id,
+                    )
+                    created.append(rule)
+                    activity = "created"
+                else:
+                    if rule.access_level == input.access_level:
+                        continue
+                    rule.team = team
+                    rule.access_level = input.access_level
+                    rule.updated_at = now
+                    updated.append(rule)
+                    activity = "updated"
+                entry = get_access_control_log_entry(
+                    before_update=before,
+                    after_update=rule,
+                    activity=activity,
+                    user=get_current_user(),
+                    was_impersonated=get_was_impersonated(),
                 )
-                created.append(rule)
-                activity = "created"
-            else:
-                if rule.access_level == input.access_level:
-                    continue
-                rule.team = team
-                rule.access_level = input.access_level
-                rule.updated_at = now
-                updated.append(rule)
-                activity = "updated"
-            entry = get_access_control_log_entry(
-                before_update=before,
-                after_update=rule,
-                activity=activity,
-                user=get_current_user(),
-                was_impersonated=get_was_impersonated(),
-            )
-            if entry is not None:
-                entries.append(entry)
+                if entry is not None:
+                    entries.append(entry)
         AccessControl.objects.bulk_create(created)
         AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
         AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()
